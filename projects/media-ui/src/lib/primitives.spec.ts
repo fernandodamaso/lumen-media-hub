@@ -29,6 +29,7 @@ describe('media-ui primitives', () => {
     progress.componentRef.setInput('value', 42);
     progress.detectChanges();
     expect(progress.nativeElement.querySelector('[role="progressbar"]').getAttribute('aria-valuenow')).toBe('42');
+    expect(getComputedStyle(progress.nativeElement).display).toBe('flex');
 
     const state = TestBed.createComponent(MmStateCard);
     state.componentRef.setInput('tone', 'danger');

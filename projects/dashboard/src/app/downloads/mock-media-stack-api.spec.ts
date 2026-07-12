@@ -16,4 +16,22 @@ describe('MockMediaStackApi', () => {
     const resumed = await api.listTorrents();
     expect(resumed.map(({ hash, dlspeed, upspeed }) => ({ hash, dlspeed, upspeed }))).toEqual(initial.map(({ hash, dlspeed, upspeed }) => ({ hash, dlspeed, upspeed })));
   });
+
+  it('provides ordered mixed calendar events and arr library mappings', async () => {
+    const api: MediaStackApi = new MockMediaStackApi();
+    const events = await api.listCalendarEvents();
+    expect(events.map((event) => event.title)).toEqual([
+      'Cowboy Bebop',
+      'Dune',
+      'The Expanse',
+      'Night Transit',
+    ]);
+    expect(events.some((event) => event.kind === 'episode')).toBe(true);
+    expect(events.some((event) => event.kind === 'movie')).toBe(true);
+
+    const library = await api.getArrLibrary();
+    expect(library.series['cowboy bebop']).toBe('cowboy-bebop');
+    expect(library.movies['dune']).toBe('dune-2021');
+    expect(library.movies['night transit']).toBeUndefined();
+  });
 });

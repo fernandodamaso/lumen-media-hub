@@ -16,13 +16,71 @@ export interface MediaStackTorrentDto {
   category?: string;
 }
 
+export type CalendarMediaKind = 'episode' | 'movie';
+export type CalendarEventStatus = 'available' | 'pending';
+
+/** Raw Sonarr/Radarr calendar payload stays behind this boundary. */
+export interface MediaStackCalendarEventDto {
+  title: string;
+  additional: string;
+  date: string;
+  airDate?: string;
+  hasFile?: boolean;
+  kind?: CalendarMediaKind;
+  seriesId?: number;
+}
+
+export interface MediaStackArrLibraryDto {
+  ok: boolean;
+  series: Record<string, string>;
+  movies: Record<string, string>;
+  error?: string;
+}
+
 export interface MediaStackApi {
   listTorrents(): Promise<MediaStackTorrentDto[]>;
   pauseAll(): Promise<void>;
   resumeAll(): Promise<void>;
+  listCalendarEvents(): Promise<MediaStackCalendarEventDto[]>;
+  getArrLibrary(): Promise<MediaStackArrLibraryDto>;
 }
 
 export const MEDIA_STACK_API = new InjectionToken<MediaStackApi>('MEDIA_STACK_API');
+
+export interface CalendarEvent {
+  id: string;
+  time: string;
+  kind: CalendarMediaKind;
+  title: string;
+  subtitle: string;
+  status: CalendarEventStatus;
+  airDate: string;
+}
+
+export interface CalendarLinkBases {
+  sonarrBase?: string;
+  radarrBase?: string;
+}
+
+export const DEFAULT_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
+  sonarrBase: 'http://localhost:8989',
+  radarrBase: 'http://localhost:7878',
+};
+
+export const CALENDAR_LINK_BASES = new InjectionToken<CalendarLinkBases>('CALENDAR_LINK_BASES', {
+  providedIn: 'root',
+  factory: () => ({ ...DEFAULT_CALENDAR_LINK_BASES }),
+});
+
+export const compareCalendarEvents = (left: CalendarEvent, right: CalendarEvent): number => {
+  const leftKey = left.airDate || '\uffff';
+  const rightKey = right.airDate || '\uffff';
+  const byAirDate = leftKey.localeCompare(rightKey);
+  if (byAirDate !== 0) return byAirDate;
+  const byTime = left.time.localeCompare(right.time);
+  if (byTime !== 0) return byTime;
+  return left.title.localeCompare(right.title);
+};
 
 export interface DownloadTorrent {
   id: string;
@@ -68,6 +126,37 @@ export const summarizeDownloads = (torrents: DownloadTorrent[]): DownloadSummary
   uploadRate: torrents.reduce((sum, torrent) => sum + torrent.uploadRate, 0),
 });
 
+export const normalizeCalendarEvent = (event: MediaStackCalendarEventDto): CalendarEvent => {
+  const airDate = event.airDate ?? '';
+  const kind = event.kind ?? (looksLikeEpisode(event.additional) ? 'episode' : 'movie');
+  return {
+    id: `${event.title}-${event.additional}-${airDate || event.date}`,
+    time: event.date,
+    kind,
+    title: event.title,
+    subtitle: event.additional,
+    status: event.hasFile ? 'available' : 'pending',
+    airDate,
+  };
+};
+
+export const resolveCalendarLink = (
+  title: string | null | undefined,
+  library: Pick<MediaStackArrLibraryDto, 'series' | 'movies'>,
+  bases: CalendarLinkBases = {},
+  kind?: CalendarMediaKind,
+): string | null => {
+  if (!title) return null;
+  const key = title.trim().toLowerCase();
+  const sonarrBase = (bases.sonarrBase ?? DEFAULT_CALENDAR_LINK_BASES.sonarrBase).replace(/\/$/, '');
+  const radarrBase = (bases.radarrBase ?? DEFAULT_CALENDAR_LINK_BASES.radarrBase).replace(/\/$/, '');
+  const seriesHref = library.series?.[key] ? `${sonarrBase}/series/${library.series[key]}` : null;
+  const movieHref = library.movies?.[key] ? `${radarrBase}/movie/${library.movies[key]}` : null;
+  if (kind === 'movie') return movieHref ?? seriesHref;
+  if (kind === 'episode') return seriesHref ?? movieHref;
+  return seriesHref ?? movieHref;
+};
+
 function clamp(value: number): number {
   return Math.round(Math.min(100, Math.max(0, value)) * 10) / 10;
 }
@@ -81,4 +170,8 @@ function normalizeState(state: string): TorrentState {
   if (normalized === 'downloading' || normalized === 'forceddl') return 'downloading';
   if (normalized.includes('up') || normalized === 'seeding') return 'seeding';
   return 'queued';
+}
+
+function looksLikeEpisode(additional: string): boolean {
+  return /^S\d+\s*E\d+/i.test(additional.trim());
 }

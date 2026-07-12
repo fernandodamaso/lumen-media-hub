@@ -16,7 +16,7 @@ export class MockMediaStackApi implements MediaStackApi {
   }
 
   pauseAll(): Promise<void> {
-    this.torrents = this.torrents.map((torrent) => ({ ...torrent, state: 'paused', dlspeed: 0 }));
+    this.torrents = this.torrents.map((torrent) => ({ ...torrent, state: 'paused', dlspeed: 0, upspeed: 0 }));
     return Promise.resolve();
   }
 
@@ -24,7 +24,8 @@ export class MockMediaStackApi implements MediaStackApi {
     this.torrents = this.torrents.map((torrent) => ({
       ...torrent,
       state: torrent.progress >= 1 ? 'stoppedUP' : 'downloading',
-      dlspeed: torrent.progress >= 1 ? 0 : 2_400_000,
+      dlspeed: DEMO_TORRENTS.find((demoTorrent) => demoTorrent.hash === torrent.hash)?.dlspeed ?? 0,
+      upspeed: DEMO_TORRENTS.find((demoTorrent) => demoTorrent.hash === torrent.hash)?.upspeed ?? 0,
     }));
     return Promise.resolve();
   }

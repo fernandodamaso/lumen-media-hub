@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { vi } from 'vitest';
 import { MEDIA_STACK_API, MediaStackApi, MediaStackTorrentDto } from './media-stack-api';
 import { DownloadsFacade } from './downloads.facade';
 
@@ -47,6 +48,20 @@ describe('DownloadsFacade', () => {
     api.actionFailure = false;
     await facade.runAction('resume');
     expect(facade.pendingAction()).toBeNull();
+  });
+
+  it('refreshes on one interval and stops polling when destroyed', async () => {
+    vi.useFakeTimers();
+    facade.startPolling(100);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.listCalls).toBe(1);
+    facade.startPolling(100);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(api.listCalls).toBe(3);
+    TestBed.resetTestingModule();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(api.listCalls).toBe(3);
+    vi.useRealTimers();
   });
 });
 

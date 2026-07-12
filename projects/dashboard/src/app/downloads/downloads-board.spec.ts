@@ -1,27 +1,80 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
+import { vi } from 'vitest';
 import { DownloadsBoard } from './downloads-board';
-import { DownloadsFacade } from './downloads.facade';
-import { MEDIA_STACK_API } from './media-stack-api';
-import { MockMediaStackApi } from './mock-media-stack-api';
+import { DownloadsAction, DownloadsFacade, DownloadsStatus } from './downloads.facade';
+import { DownloadTorrent } from './media-stack-api';
 
 describe('DownloadsBoard', () => {
   let fixture: ComponentFixture<DownloadsBoard>;
+  let facade: ReturnType<typeof createFacade>;
 
   beforeEach(() => {
+    facade = createFacade();
     TestBed.configureTestingModule({
       imports: [DownloadsBoard],
-      providers: [DownloadsFacade, { provide: MEDIA_STACK_API, useClass: MockMediaStackApi }],
+      providers: [{ provide: DownloadsFacade, useValue: facade }],
     });
     fixture = TestBed.createComponent(DownloadsBoard);
   });
 
-  it('renders the populated mock queue with accessible progress and controls', async () => {
-    await TestBed.inject(DownloadsFacade).refresh();
+  it('renders loading, empty, and error states with retry recovery', async () => {
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Downloads');
-    expect(fixture.nativeElement.textContent).toContain('Afterlight');
-    expect(fixture.nativeElement.querySelectorAll('[role="progressbar"]')).toHaveLength(3);
-    expect(fixture.nativeElement.querySelector('[aria-label="Download controls"]')).toBeTruthy();
+    expect(fixture.nativeElement.textContent).toContain('Loading downloads');
+
+    facade.status.set('empty');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('No active downloads');
+
+    facade.status.set('error');
+    facade.error.set('Offline');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Offline');
+    findButton('Try again').click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(facade.refresh).toHaveBeenCalled();
+    expect(facade.status()).toBe('ready');
   });
 
+  it('delegates pause/resume clicks and disables both controls while busy', () => {
+    facade.status.set('ready');
+    facade.torrents.set([{ id: 'a', name: 'A', state: 'downloading', progress: .5, size: 100, downloaded: 50, downloadRate: 10, uploadRate: 2, eta: 30, category: 'Uncategorized' }]);
+    fixture.detectChanges();
+
+    findButton('Pause all').click();
+    expect(facade.runAction).toHaveBeenCalledWith('pause');
+    facade.pendingAction.set('pause');
+    fixture.detectChanges();
+    expect(findButton('Pause all').disabled).toBe(true);
+    expect(findButton('Resume all').disabled).toBe(true);
+    expect(findButton('Pause all').getAttribute('aria-busy')).toBe('true');
+
+    facade.pendingAction.set(null);
+    fixture.detectChanges();
+    findButton('Resume all').click();
+    expect(facade.runAction).toHaveBeenCalledWith('resume');
+  });
+
+  function findButton(label: string): HTMLButtonElement {
+    return (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find((button) => button.textContent.includes(label)) as HTMLButtonElement;
+  }
 });
+
+function createFacade() {
+  const status = signal<DownloadsStatus>('loading');
+  const torrents = signal<DownloadTorrent[]>([]);
+  const error = signal('');
+  const pendingAction = signal<DownloadsAction | null>(null);
+  const refresh = vi.fn(async () => status.set('ready'));
+  return {
+    status,
+    torrents,
+    error,
+    pendingAction,
+    summary: signal({ active: 1, total: 1, downloaded: 50, size: 100, downloadRate: 10, uploadRate: 2 }),
+    startPolling: vi.fn(),
+    refresh,
+    runAction: vi.fn(),
+  };
+}

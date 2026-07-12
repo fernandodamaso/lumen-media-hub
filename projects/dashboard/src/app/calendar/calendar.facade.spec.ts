@@ -1,6 +1,7 @@
-import { TestBed } from '@angular/core/testing';
+﻿import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import {
+  CALENDAR_LINK_BASES,
   MEDIA_STACK_API,
   MediaStackApi,
   MediaStackArrLibraryDto,
@@ -16,7 +17,17 @@ describe('CalendarFacade', () => {
   beforeEach(() => {
     api = new MockApi();
     TestBed.configureTestingModule({
-      providers: [CalendarFacade, { provide: MEDIA_STACK_API, useValue: api }],
+      providers: [
+        CalendarFacade,
+        { provide: MEDIA_STACK_API, useValue: api },
+        {
+          provide: CALENDAR_LINK_BASES,
+          useValue: {
+            sonarrBase: 'https://sonarr.example/',
+            radarrBase: 'https://radarr.example/',
+          },
+        },
+      ],
     });
     facade = TestBed.inject(CalendarFacade);
   });
@@ -29,9 +40,31 @@ describe('CalendarFacade', () => {
       'Dune',
       'Night Transit',
     ]);
-    expect(facade.events()[0].href).toBe('http://localhost:8989/series/cowboy-bebop');
-    expect(facade.events()[1].href).toBe('http://localhost:7878/movie/dune-2021');
+    expect(facade.events()[0].href).toBe('https://sonarr.example/series/cowboy-bebop');
+    expect(facade.events()[1].href).toBe('https://radarr.example/movie/dune-2021');
     expect(facade.events()[2].href).toBeNull();
+  });
+
+  it('keeps undated events after dated ones', async () => {
+    api.events = [
+      {
+        title: 'Night Transit',
+        additional: 'Premiere',
+        date: 'Jul 15',
+        hasFile: false,
+        kind: 'movie',
+      },
+      {
+        title: 'Cowboy Bebop',
+        additional: 'S1 E5',
+        date: 'Jul 12',
+        airDate: '2026-07-12T18:00:00Z',
+        hasFile: false,
+        kind: 'episode',
+      },
+    ];
+    await facade.refresh();
+    expect(facade.events().map((event) => event.title)).toEqual(['Cowboy Bebop', 'Night Transit']);
   });
 
   it('exposes empty and error states', async () => {

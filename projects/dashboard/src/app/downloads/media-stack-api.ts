@@ -62,6 +62,26 @@ export interface CalendarLinkBases {
   radarrBase?: string;
 }
 
+export const DEFAULT_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
+  sonarrBase: 'http://localhost:8989',
+  radarrBase: 'http://localhost:7878',
+};
+
+export const CALENDAR_LINK_BASES = new InjectionToken<CalendarLinkBases>('CALENDAR_LINK_BASES', {
+  providedIn: 'root',
+  factory: () => ({ ...DEFAULT_CALENDAR_LINK_BASES }),
+});
+
+export const compareCalendarEvents = (left: CalendarEvent, right: CalendarEvent): number => {
+  const leftKey = left.airDate || '\uffff';
+  const rightKey = right.airDate || '\uffff';
+  const byAirDate = leftKey.localeCompare(rightKey);
+  if (byAirDate !== 0) return byAirDate;
+  const byTime = left.time.localeCompare(right.time);
+  if (byTime !== 0) return byTime;
+  return left.title.localeCompare(right.title);
+};
+
 export interface DownloadTorrent {
   id: string;
   name: string;
@@ -127,8 +147,8 @@ export const resolveCalendarLink = (
 ): string | null => {
   if (!title) return null;
   const key = title.trim().toLowerCase();
-  const sonarrBase = (bases.sonarrBase ?? 'http://localhost:8989').replace(/\/$/, '');
-  const radarrBase = (bases.radarrBase ?? 'http://localhost:7878').replace(/\/$/, '');
+  const sonarrBase = (bases.sonarrBase ?? DEFAULT_CALENDAR_LINK_BASES.sonarrBase).replace(/\/$/, '');
+  const radarrBase = (bases.radarrBase ?? DEFAULT_CALENDAR_LINK_BASES.radarrBase).replace(/\/$/, '');
   if (library.series?.[key]) return `${sonarrBase}/series/${library.series[key]}`;
   if (library.movies?.[key]) return `${radarrBase}/movie/${library.movies[key]}`;
   return null;

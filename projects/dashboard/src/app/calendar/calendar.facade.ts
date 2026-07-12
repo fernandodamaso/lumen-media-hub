@@ -1,7 +1,9 @@
 import { DestroyRef, inject, Injectable, signal } from '@angular/core';
 import {
+  CALENDAR_LINK_BASES,
   CalendarEvent,
   MEDIA_STACK_API,
+  compareCalendarEvents,
   normalizeCalendarEvent,
   resolveCalendarLink,
 } from '../downloads/media-stack-api';
@@ -15,6 +17,7 @@ export interface CalendarRailEvent extends CalendarEvent {
 @Injectable()
 export class CalendarFacade {
   private readonly api = inject(MEDIA_STACK_API);
+  private readonly linkBases = inject(CALENDAR_LINK_BASES);
   private readonly destroyRef = inject(DestroyRef);
   private readonly _status = signal<CalendarStatus>('loading');
   private readonly _events = signal<CalendarRailEvent[]>([]);
@@ -42,10 +45,10 @@ export class CalendarFacade {
       ]);
       const events = rawEvents
         .map(normalizeCalendarEvent)
-        .sort((left, right) => left.airDate.localeCompare(right.airDate))
+        .sort(compareCalendarEvents)
         .map((event) => ({
           ...event,
-          href: resolveCalendarLink(event.title, library),
+          href: resolveCalendarLink(event.title, library, this.linkBases),
         }));
       this._events.set(events);
       this._status.set(events.length ? 'ready' : 'empty');

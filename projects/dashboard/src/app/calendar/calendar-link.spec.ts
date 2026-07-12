@@ -1,4 +1,4 @@
-import { normalizeCalendarEvent, resolveCalendarLink } from '../downloads/media-stack-api';
+﻿import { normalizeCalendarEvent, resolveCalendarLink, compareCalendarEvents } from '../downloads/media-stack-api';
 
 describe('calendar API boundary', () => {
   it('normalizes episode and movie events with status and stable ids', () => {
@@ -40,6 +40,34 @@ describe('calendar API boundary', () => {
       airDate: '2026-07-14T21:00:00Z',
     });
     expect(event.kind).toBe('episode');
+  });
+
+  it('sorts dated events first and keeps undated events after them', () => {
+    const undated = normalizeCalendarEvent({
+      title: 'Night Transit',
+      additional: 'Premiere',
+      date: 'Jul 15',
+      kind: 'movie',
+    });
+    const earlier = normalizeCalendarEvent({
+      title: 'Cowboy Bebop',
+      additional: 'S1 E5',
+      date: 'Jul 12',
+      airDate: '2026-07-12T18:00:00Z',
+      kind: 'episode',
+    });
+    const later = normalizeCalendarEvent({
+      title: 'Dune',
+      additional: 'Theatrical',
+      date: 'Jul 13',
+      airDate: '2026-07-13T00:00:00Z',
+      kind: 'movie',
+    });
+    expect([undated, later, earlier].sort(compareCalendarEvents).map((event) => event.title)).toEqual([
+      'Cowboy Bebop',
+      'Dune',
+      'Night Transit',
+    ]);
   });
 
   it('resolves sonarr and radarr destinations and leaves unmatched titles inert', () => {

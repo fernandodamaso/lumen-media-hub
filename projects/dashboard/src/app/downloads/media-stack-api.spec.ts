@@ -1,4 +1,4 @@
-import { normalizeTorrent, summarizeDownloads } from './media-stack-api';
+import { normalizeTorrent, summarizeDownloads, normalizeCalendarEvent } from './media-stack-api';
 
 describe('media-stack API boundary', () => {
   it('normalizes qBittorrent DTO state and progress without leaking raw fields', () => {
@@ -24,5 +24,23 @@ describe('media-stack API boundary', () => {
     const downloading = normalizeTorrent({ hash: 'a', name: 'A', state: 'downloading', progress: .5, size: 100, downloaded: 50, dlspeed: 10, upspeed: 2, eta: 30 });
     const seeding = normalizeTorrent({ hash: 'b', name: 'B', state: 'stoppedUP', progress: 1, size: 200, downloaded: 200, dlspeed: 0, upspeed: 3, eta: 0 });
     expect(summarizeDownloads([downloading, seeding])).toEqual({ active: 1, total: 2, downloaded: 250, size: 300, downloadRate: 10, uploadRate: 5 });
+  });
+
+  it('normalizes calendar DTO fields into rail view-model values', () => {
+    const event = normalizeCalendarEvent({
+      title: 'Cowboy Bebop',
+      additional: 'S1 E5',
+      date: 'Jul 12',
+      airDate: '2026-07-12T18:00:00Z',
+      hasFile: true,
+      kind: 'episode',
+    });
+    expect(event).toMatchObject({
+      time: 'Jul 12',
+      kind: 'episode',
+      title: 'Cowboy Bebop',
+      subtitle: 'S1 E5',
+      status: 'available',
+    });
   });
 });

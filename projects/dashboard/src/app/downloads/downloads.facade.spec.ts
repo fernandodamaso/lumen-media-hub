@@ -38,6 +38,7 @@ describe('DownloadsFacade', () => {
     await first;
     expect(facade.pendingAction()).toBeNull();
     expect(api.listCalls).toBe(1);
+    expect(facade.notice()).toBe('All downloads paused.');
   });
 
   it('keeps a failed action recoverable', async () => {
@@ -45,9 +46,11 @@ describe('DownloadsFacade', () => {
     await facade.runAction('pause');
     expect(facade.pendingAction()).toBeNull();
     expect(facade.status()).toBe('error');
+    expect(facade.notice()).toBe('');
     api.actionFailure = false;
     await facade.runAction('resume');
     expect(facade.pendingAction()).toBeNull();
+    expect(facade.notice()).toBe('All downloads resumed.');
   });
 
   it('refreshes on one interval and stops polling when destroyed', async () => {

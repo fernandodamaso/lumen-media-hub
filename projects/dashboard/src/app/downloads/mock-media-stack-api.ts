@@ -21,12 +21,15 @@ export class MockMediaStackApi implements MediaStackApi {
   }
 
   resumeAll(): Promise<void> {
-    this.torrents = this.torrents.map((torrent) => ({
-      ...torrent,
-      state: torrent.progress >= 1 ? 'stoppedUP' : 'downloading',
-      dlspeed: DEMO_TORRENTS.find((demoTorrent) => demoTorrent.hash === torrent.hash)?.dlspeed ?? 0,
-      upspeed: DEMO_TORRENTS.find((demoTorrent) => demoTorrent.hash === torrent.hash)?.upspeed ?? 0,
-    }));
+    this.torrents = this.torrents.map((torrent) => {
+      const demo = DEMO_TORRENTS.find((demoTorrent) => demoTorrent.hash === torrent.hash);
+      return {
+        ...torrent,
+        state: torrent.progress >= 1 ? 'stoppedUP' : 'downloading',
+        dlspeed: demo?.dlspeed ?? 0,
+        upspeed: demo?.upspeed ?? 0,
+      };
+    });
     return Promise.resolve();
   }
 }

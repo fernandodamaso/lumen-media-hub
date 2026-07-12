@@ -11,10 +11,12 @@ export class DownloadsFacade {
   private readonly _status = signal<DownloadsStatus>('loading');
   private readonly _torrents = signal<DownloadTorrent[]>([]);
   private readonly _error = signal('');
+  private readonly _notice = signal('');
   private readonly _pendingAction = signal<DownloadsAction | null>(null);
   readonly status = this._status.asReadonly();
   readonly torrents = this._torrents.asReadonly();
   readonly error = this._error.asReadonly();
+  readonly notice = this._notice.asReadonly();
   readonly pendingAction = this._pendingAction.asReadonly();
   readonly summary = computed(() => summarizeDownloads(this._torrents()));
   private pollHandle?: ReturnType<typeof setInterval>;
@@ -38,18 +40,22 @@ export class DownloadsFacade {
     } catch {
       this._status.set('error');
       this._error.set('Downloads are temporarily unavailable. Try again.');
+      this._notice.set('');
     }
   }
 
   async runAction(action: DownloadsAction): Promise<void> {
     if (this._pendingAction()) return;
     this._pendingAction.set(action);
+    this._notice.set('');
     try {
       await (action === 'pause' ? this.api.pauseAll() : this.api.resumeAll());
       await this.refresh();
+      this._notice.set(action === 'pause' ? 'All downloads paused.' : 'All downloads resumed.');
     } catch {
       this._status.set('error');
       this._error.set(`Could not ${action} downloads. Try again.`);
+      this._notice.set('');
     } finally {
       this._pendingAction.set(null);
     }

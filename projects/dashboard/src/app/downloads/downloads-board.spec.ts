@@ -41,6 +41,7 @@ describe('DownloadsBoard', () => {
     facade.status.set('ready');
     facade.torrents.set([{ id: 'a', name: 'A', state: 'downloading', progress: .5, size: 100, downloaded: 50, downloadRate: 10, uploadRate: 2, eta: 30, category: 'Uncategorized' }]);
     fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('30s left');
 
     findButton('Pause all').click();
     expect(facade.runAction).toHaveBeenCalledWith('pause');
@@ -51,9 +52,19 @@ describe('DownloadsBoard', () => {
     expect(findButton('Pause all').getAttribute('aria-busy')).toBe('true');
 
     facade.pendingAction.set(null);
+    facade.notice.set('All downloads paused.');
     fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('All downloads paused.');
     findButton('Resume all').click();
     expect(facade.runAction).toHaveBeenCalledWith('resume');
+  });
+
+  it('renders error torrent state with a danger tone', () => {
+    facade.status.set('ready');
+    facade.torrents.set([{ id: 'a', name: 'Broken', state: 'error', progress: 12, size: 100, downloaded: 12, downloadRate: 0, uploadRate: 0, eta: 0, category: 'Movies' }]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.mm-status--danger')?.textContent).toContain('Error');
+    expect(fixture.nativeElement.querySelector('.torrent-list')?.getAttribute('aria-live')).toBe('polite');
   });
 
   function findButton(label: string): HTMLButtonElement {
@@ -65,12 +76,14 @@ function createFacade() {
   const status = signal<DownloadsStatus>('loading');
   const torrents = signal<DownloadTorrent[]>([]);
   const error = signal('');
+  const notice = signal('');
   const pendingAction = signal<DownloadsAction | null>(null);
   const refresh = vi.fn(async () => status.set('ready'));
   return {
     status,
     torrents,
     error,
+    notice,
     pendingAction,
     summary: signal({ active: 1, total: 1, downloaded: 50, size: 100, downloadRate: 10, uploadRate: 2 }),
     startPolling: vi.fn(),

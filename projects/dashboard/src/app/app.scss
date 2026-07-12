@@ -1,0 +1,14 @@
+:host { display: block; min-height: 100vh; }
+
+.shell { min-height: 100vh; background: #f7f8fa; color: #18202b; }
+.topbar { height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; background: #fff; border-bottom: 1px solid #e4e8ee; }
+.brand { display: inline-flex; align-items: center; gap: 10px; color: inherit; font-size: 17px; font-weight: 700; text-decoration: none; }
+.brand-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: #2347d6; color: #fff; }
+.status { color: #667085; font-size: 12px; }
+.shell-body { display: flex; min-height: calc(100vh - 68px); }
+.sidebar { width: 216px; flex: 0 0 216px; padding: 28px 16px; background: #fff; border-right: 1px solid #e4e8ee; }
+.sidebar a { display: block; margin: 3px 0; padding: 10px 12px; border-radius: 7px; color: #667085; font-size: 14px; text-decoration: none; }
+.sidebar a:hover, .sidebar a.active { background: #edf1ff; color: #2347d6; font-weight: 600; }
+.nav-label { display: block; padding: 0 12px 8px; color: #98a2b3; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.nav-label-spaced { margin-top: 28px; }
+.content { flex: 1; max-width: 1120px; padding: 48px; }

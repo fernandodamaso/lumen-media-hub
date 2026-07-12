@@ -1,0 +1,24 @@
+<div class="shell">
+  <header class="topbar">
+    <a class="brand" routerLink="/" aria-label="Media Manager home">
+      <span class="brand-mark" aria-hidden="true">M</span>
+      <span>Media Manager</span>
+    </a>
+    <span class="status">Angular shell</span>
+  </header>
+
+  <div class="shell-body">
+    <nav class="sidebar" aria-label="Primary navigation">
+      <span class="nav-label">Workspace</span>
+      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Dashboard</a>
+      <a routerLink="/reports" routerLinkActive="active">Reports</a>
+      <a routerLink="/discover" routerLinkActive="active">Discover</a>
+      <span class="nav-label nav-label-spaced">Developer</span>
+      <a routerLink="/ui" routerLinkActive="active">UI catalog</a>
+    </nav>
+
+    <main class="content">
+      <router-outlet />
+    </main>
+  </div>
+</div>

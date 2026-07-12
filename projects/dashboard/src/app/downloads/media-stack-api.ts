@@ -75,10 +75,10 @@ function clamp(value: number): number {
 function normalizeState(state: string): TorrentState {
   const normalized = state.toLowerCase();
   if (normalized.includes('paused')) return 'paused';
+  if (normalized.includes('error')) return 'error';
+  if (normalized.includes('check')) return 'checking';
+  if (normalized.includes('queued')) return 'queued';
   if (normalized === 'downloading' || normalized === 'forceddl') return 'downloading';
   if (normalized.includes('up') || normalized === 'seeding') return 'seeding';
-  if (normalized.includes('queued')) return 'queued';
-  if (normalized.includes('check')) return 'checking';
-  if (normalized.includes('error')) return 'error';
   return 'queued';
 }

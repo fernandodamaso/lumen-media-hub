@@ -7,7 +7,7 @@
     "noPropertyAccessFromIndexSignature": true,
     "noImplicitReturns": true,
     "paths": {
-      "media-ui": ["./dist/media-ui"]
+      "media-ui": ["./projects/media-ui/src/public-api.ts"]
     },
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,

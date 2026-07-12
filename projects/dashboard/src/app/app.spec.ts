@@ -28,7 +28,7 @@ describe('App shell', () => {
     ['/dashboard', 'Dashboard', 'Your media workspace is ready for the next slice.'],
     ['/reports', 'Reports', 'Reporting tools will live here.'],
     ['/discover', 'Discover', 'Browse and collect new media from this space.'],
-    ['/ui', 'UI catalog', 'Shared media-ui components will be catalogued here.'],
+    ['/ui', 'UI catalog', 'Explore the shared primitives that power the dashboard shell.'],
   ])('recognizes %s as %s and renders its destination', async (url, heading, lede) => {
     const harness = await RouterTestingHarness.create();
     const router = TestBed.inject(Router);

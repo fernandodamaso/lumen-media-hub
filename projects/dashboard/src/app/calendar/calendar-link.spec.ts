@@ -75,12 +75,21 @@ describe('calendar API boundary', () => {
       series: { 'cowboy bebop': 'cowboy-bebop' },
       movies: { dune: 'dune-2021' },
     };
-    expect(resolveCalendarLink('Cowboy Bebop', library)).toBe(
+    expect(resolveCalendarLink('Cowboy Bebop', library, {}, 'episode')).toBe(
       'http://localhost:8989/series/cowboy-bebop',
     );
-    expect(resolveCalendarLink('Dune', library)).toBe('http://localhost:7878/movie/dune-2021');
+    expect(resolveCalendarLink('Dune', library, {}, 'movie')).toBe('http://localhost:7878/movie/dune-2021');
     expect(resolveCalendarLink('Missing', library)).toBeNull();
     expect(resolveCalendarLink('', library)).toBeNull();
+  });
+
+  it('prefers the destination matching event kind when titles collide', () => {
+    const library = {
+      series: { fargo: 'fargo' },
+      movies: { fargo: 'fargo-1996' },
+    };
+    expect(resolveCalendarLink('Fargo', library, {}, 'movie')).toBe('http://localhost:7878/movie/fargo-1996');
+    expect(resolveCalendarLink('Fargo', library, {}, 'episode')).toBe('http://localhost:8989/series/fargo');
   });
 
   it('keeps external base urls configurable at the boundary', () => {
@@ -89,16 +98,26 @@ describe('calendar API boundary', () => {
       movies: { dune: 'dune-2021' },
     };
     expect(
-      resolveCalendarLink('Cowboy Bebop', library, {
-        sonarrBase: 'https://sonarr.example/',
-        radarrBase: 'https://radarr.example/',
-      }),
+      resolveCalendarLink(
+        'Cowboy Bebop',
+        library,
+        {
+          sonarrBase: 'https://sonarr.example/',
+          radarrBase: 'https://radarr.example/',
+        },
+        'episode',
+      ),
     ).toBe('https://sonarr.example/series/cowboy-bebop');
     expect(
-      resolveCalendarLink('Dune', library, {
-        sonarrBase: 'https://sonarr.example/',
-        radarrBase: 'https://radarr.example/',
-      }),
+      resolveCalendarLink(
+        'Dune',
+        library,
+        {
+          sonarrBase: 'https://sonarr.example/',
+          radarrBase: 'https://radarr.example/',
+        },
+        'movie',
+      ),
     ).toBe('https://radarr.example/movie/dune-2021');
   });
 });

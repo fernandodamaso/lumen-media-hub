@@ -144,14 +144,17 @@ export const resolveCalendarLink = (
   title: string | null | undefined,
   library: Pick<MediaStackArrLibraryDto, 'series' | 'movies'>,
   bases: CalendarLinkBases = {},
+  kind?: CalendarMediaKind,
 ): string | null => {
   if (!title) return null;
   const key = title.trim().toLowerCase();
   const sonarrBase = (bases.sonarrBase ?? DEFAULT_CALENDAR_LINK_BASES.sonarrBase).replace(/\/$/, '');
   const radarrBase = (bases.radarrBase ?? DEFAULT_CALENDAR_LINK_BASES.radarrBase).replace(/\/$/, '');
-  if (library.series?.[key]) return `${sonarrBase}/series/${library.series[key]}`;
-  if (library.movies?.[key]) return `${radarrBase}/movie/${library.movies[key]}`;
-  return null;
+  const seriesHref = library.series?.[key] ? `${sonarrBase}/series/${library.series[key]}` : null;
+  const movieHref = library.movies?.[key] ? `${radarrBase}/movie/${library.movies[key]}` : null;
+  if (kind === 'movie') return movieHref ?? seriesHref;
+  if (kind === 'episode') return seriesHref ?? movieHref;
+  return seriesHref ?? movieHref;
 };
 
 function clamp(value: number): number {

@@ -78,6 +78,47 @@ describe('CalendarFacade', () => {
     expect(facade.error()).toContain('temporarily unavailable');
   });
 
+  it('keeps events usable when arr library lookup fails', async () => {
+    api.libraryFailure = true;
+    await facade.refresh();
+    expect(facade.status()).toBe('ready');
+    expect(facade.events().map((event) => event.title)).toEqual([
+      'Cowboy Bebop',
+      'Dune',
+      'Night Transit',
+    ]);
+    expect(facade.events().every((event) => event.href === null)).toBe(true);
+  });
+
+  it('resolves colliding titles using event kind', async () => {
+    api.events = [
+      {
+        title: 'Fargo',
+        additional: 'Theatrical',
+        date: 'Jul 13',
+        airDate: '2026-07-13T00:00:00Z',
+        hasFile: true,
+        kind: 'movie',
+      },
+      {
+        title: 'Fargo',
+        additional: 'S1 E1',
+        date: 'Jul 12',
+        airDate: '2026-07-12T18:00:00Z',
+        hasFile: false,
+        kind: 'episode',
+      },
+    ];
+    api.library = {
+      ok: true,
+      series: { fargo: 'fargo' },
+      movies: { fargo: 'fargo-1996' },
+    };
+    await facade.refresh();
+    expect(facade.events()[0].href).toBe('https://sonarr.example/series/fargo');
+    expect(facade.events()[1].href).toBe('https://radarr.example/movie/fargo-1996');
+  });
+
   it('refreshes on one interval and stops polling when destroyed', async () => {
     vi.useFakeTimers();
     facade.startPolling(100);
@@ -127,6 +168,7 @@ class MockApi implements MediaStackApi {
   };
   calendarCalls = 0;
   failure = false;
+  libraryFailure = false;
 
   listTorrents(): Promise<MediaStackTorrentDto[]> {
     return Promise.resolve([]);
@@ -142,7 +184,7 @@ class MockApi implements MediaStackApi {
     return this.failure ? Promise.reject(new Error('offline')) : Promise.resolve(this.events.map((event) => ({ ...event })));
   }
   getArrLibrary(): Promise<MediaStackArrLibraryDto> {
-    return this.failure
+    return this.libraryFailure || this.failure
       ? Promise.reject(new Error('offline'))
       : Promise.resolve({
           ok: this.library.ok,

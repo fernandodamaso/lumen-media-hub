@@ -39,16 +39,14 @@ export class CalendarFacade {
 
   async refresh(): Promise<void> {
     try {
-      const [rawEvents, library] = await Promise.all([
-        this.api.listCalendarEvents(),
-        this.api.getArrLibrary(),
-      ]);
+      const rawEvents = await this.api.listCalendarEvents();
+      const library = await this.loadLibrary();
       const events = rawEvents
         .map(normalizeCalendarEvent)
         .sort(compareCalendarEvents)
         .map((event) => ({
           ...event,
-          href: resolveCalendarLink(event.title, library, this.linkBases),
+          href: resolveCalendarLink(event.title, library, this.linkBases, event.kind),
         }));
       this._events.set(events);
       this._status.set(events.length ? 'ready' : 'empty');
@@ -56,6 +54,14 @@ export class CalendarFacade {
     } catch {
       this._status.set('error');
       this._error.set('Calendar is temporarily unavailable. Try again.');
+    }
+  }
+
+  private async loadLibrary() {
+    try {
+      return await this.api.getArrLibrary();
+    } catch {
+      return { ok: false, series: {}, movies: {} };
     }
   }
 

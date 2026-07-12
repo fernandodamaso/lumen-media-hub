@@ -1,0 +1,90 @@
+:root, :root[data-theme="nocturne"] {
+  color-scheme: dark;
+  --mm-color-ink-0: #f7f8ff;
+  --mm-color-ink-1: #c4c9d8;
+  --mm-color-ink-2: #858da5;
+  --mm-color-surface-0: #0b0e14;
+  --mm-color-surface-1: #121722;
+  --mm-color-surface-2: #1a2130;
+  --mm-color-line: #2a3345;
+  --mm-color-accent: #91a7ff;
+  --mm-color-accent-strong: #6f8cff;
+  --mm-color-accent-ink: #09102d;
+  --mm-color-success: #6ed6a0;
+  --mm-color-warning: #f1c56d;
+  --mm-color-danger: #ff8f9b;
+  --mm-focus-ring: #b5c4ff;
+}
+
+:root[data-theme="tokyo-night"] {
+  --mm-color-ink-0: #e6e9f2;
+  --mm-color-ink-1: #a9b1c6;
+  --mm-color-ink-2: #737d98;
+  --mm-color-surface-0: #16161e;
+  --mm-color-surface-1: #1f2335;
+  --mm-color-surface-2: #292e42;
+  --mm-color-line: #3b4261;
+  --mm-color-accent: #7aa2f7;
+  --mm-color-accent-strong: #bb9af7;
+  --mm-color-accent-ink: #111321;
+  --mm-color-success: #73daca;
+  --mm-color-warning: #e0af68;
+  --mm-color-danger: #f7768e;
+  --mm-focus-ring: #c0caf5;
+}
+
+:root[data-theme="github-dark-pro"] {
+  --mm-color-ink-0: #f0f3f6;
+  --mm-color-ink-1: #b1bac4;
+  --mm-color-ink-2: #768390;
+  --mm-color-surface-0: #0d1117;
+  --mm-color-surface-1: #161b22;
+  --mm-color-surface-2: #21262d;
+  --mm-color-line: #30363d;
+  --mm-color-accent: #58a6ff;
+  --mm-color-accent-strong: #79c0ff;
+  --mm-color-accent-ink: #071321;
+  --mm-color-success: #3fb950;
+  --mm-color-warning: #d29922;
+  --mm-color-danger: #f85149;
+  --mm-focus-ring: #79c0ff;
+}
+
+:root {
+  --mm-font-body: Inter, ui-sans-serif, system-ui, sans-serif;
+  --mm-radius-sm: 6px;
+  --mm-radius-md: 10px;
+  --mm-shadow-card: 0 14px 36px rgb(0 0 0 / 18%);
+  --mm-semantic-text-primary: var(--mm-color-ink-0);
+  --mm-semantic-text-secondary: var(--mm-color-ink-1);
+  --mm-semantic-text-muted: var(--mm-color-ink-2);
+  --mm-semantic-surface-page: var(--mm-color-surface-0);
+  --mm-semantic-surface-card: var(--mm-color-surface-1);
+  --mm-semantic-surface-control: var(--mm-color-surface-2);
+  --mm-semantic-border-default: var(--mm-color-line);
+  --mm-semantic-accent: var(--mm-color-accent);
+  --mm-semantic-accent-strong: var(--mm-color-accent-strong);
+  --mm-semantic-on-accent: var(--mm-color-accent-ink);
+  --mm-semantic-success: var(--mm-color-success);
+  --mm-semantic-warning: var(--mm-color-warning);
+  --mm-semantic-danger: var(--mm-color-danger);
+  --mm-semantic-focus: var(--mm-focus-ring);
+  --mm-component-text-primary: var(--mm-semantic-text-primary);
+  --mm-component-text-secondary: var(--mm-semantic-text-secondary);
+  --mm-component-text-muted: var(--mm-semantic-text-muted);
+  --mm-component-control-bg: var(--mm-semantic-surface-control);
+  --mm-component-card-bg: var(--mm-semantic-surface-card);
+  --mm-component-muted-bg: color-mix(in srgb, var(--mm-semantic-surface-control) 70%, transparent);
+  --mm-component-border: var(--mm-semantic-border-default);
+  --mm-component-accent: var(--mm-semantic-accent);
+  --mm-component-success: var(--mm-semantic-success);
+  --mm-component-warning: var(--mm-semantic-warning);
+  --mm-component-danger: var(--mm-semantic-danger);
+  --mm-component-on-accent: var(--mm-semantic-on-accent);
+  --mm-component-focus-ring: var(--mm-semantic-focus);
+}
+
+mm-button:focus-visible, mm-theme-picker:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 3px;
+}

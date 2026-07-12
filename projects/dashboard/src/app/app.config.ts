@@ -2,7 +2,7 @@ import { ApplicationConfig, provideBrowserGlobalErrorListeners, provideZoneChang
 import { provideRouter, withEnabledBlockingInitialNavigation } from '@angular/router';
 
 import { routes } from './app.routes';
-import { MEDIA_STACK_API, MEDIA_STACK_API_MODE } from './downloads/media-stack-api';
+import { MEDIA_STACK_API } from './downloads/media-stack-api';
 import { MockMediaStackApi } from './downloads/mock-media-stack-api';
 
 export const appConfig: ApplicationConfig = {
@@ -10,7 +10,6 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes, withEnabledBlockingInitialNavigation()),
-    { provide: MEDIA_STACK_API_MODE, useValue: 'mock' },
     { provide: MEDIA_STACK_API, useClass: MockMediaStackApi },
   ],
 };

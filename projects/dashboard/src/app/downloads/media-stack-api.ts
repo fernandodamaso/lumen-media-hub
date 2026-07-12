@@ -23,7 +23,6 @@ export interface MediaStackApi {
 }
 
 export const MEDIA_STACK_API = new InjectionToken<MediaStackApi>('MEDIA_STACK_API');
-export const MEDIA_STACK_API_MODE = new InjectionToken<'mock' | 'http'>('MEDIA_STACK_API_MODE');
 
 export interface DownloadTorrent {
   id: string;
@@ -74,11 +73,12 @@ function clamp(value: number): number {
 }
 
 function normalizeState(state: string): TorrentState {
-  if (state === 'downloading' || state === 'forcedDL') return 'downloading';
-  if (state.includes('UP') || state === 'seeding') return 'seeding';
-  if (state.includes('PAUSED')) return 'paused';
-  if (state.includes('QUEUED') || state === 'queued') return 'queued';
-  if (state.includes('CHECK')) return 'checking';
-  if (state.includes('ERROR')) return 'error';
+  const normalized = state.toLowerCase();
+  if (normalized.includes('paused')) return 'paused';
+  if (normalized === 'downloading' || normalized === 'forceddl') return 'downloading';
+  if (normalized.includes('up') || normalized === 'seeding') return 'seeding';
+  if (normalized.includes('queued')) return 'queued';
+  if (normalized.includes('check')) return 'checking';
+  if (normalized.includes('error')) return 'error';
   return 'queued';
 }

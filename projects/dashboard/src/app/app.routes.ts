@@ -1,10 +1,14 @@
 import { Component } from '@angular/core';
 import { Routes } from '@angular/router';
 import { MmButton, MmPoster, MmProgress, MmStateCard, MmStatus } from 'media-ui';
+import { DownloadsBoard } from './downloads/downloads-board';
+import { DownloadsFacade } from './downloads/downloads.facade';
 
 @Component({
   standalone: true,
   selector: 'mm-dashboard-page',
+  imports: [DownloadsBoard],
+  providers: [DownloadsFacade],
   template: `
     <section class="page-intro">
       <p class="eyebrow">Overview</p>
@@ -16,6 +20,7 @@ import { MmButton, MmPoster, MmProgress, MmStateCard, MmStatus } from 'media-ui'
       <article><span>Active workflows</span><strong>0</strong></article>
       <article><span>Last sync</span><strong>Not connected</strong></article>
     </div>
+    <mm-downloads-board />
   `,
 })
 export class DashboardPage {}

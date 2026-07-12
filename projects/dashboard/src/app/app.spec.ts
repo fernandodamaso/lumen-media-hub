@@ -5,12 +5,14 @@ import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { App } from './app';
 import { routes } from './app.routes';
+import { MEDIA_STACK_API } from './downloads/media-stack-api';
+import { MockMediaStackApi } from './downloads/mock-media-stack-api';
 
 describe('App shell', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideRouter(routes), provideLocationMocks()],
+      providers: [provideRouter(routes), provideLocationMocks(), { provide: MEDIA_STACK_API, useClass: MockMediaStackApi }],
     });
   });
 
@@ -19,6 +21,7 @@ describe('App shell', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.brand')?.textContent).toContain('Media Manager');
+    expect(fixture.nativeElement.querySelector('.demo-badge')?.textContent).toContain('Demo');
     expect(fixture.nativeElement.querySelectorAll('nav a')).toHaveLength(4);
     expect(fixture.nativeElement.querySelector('router-outlet')).toBeTruthy();
   });

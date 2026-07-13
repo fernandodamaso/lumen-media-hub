@@ -22,6 +22,7 @@ export class ReportsFacade {
   private readonly _generatedAt = signal('');
   private readonly _error = signal('');
   private readonly _refreshing = signal(false);
+  private requestId = 0;
 
   readonly status = this._status.asReadonly();
   readonly runs = this._runs.asReadonly();
@@ -36,15 +37,19 @@ export class ReportsFacade {
 
   refresh(options: { initial?: boolean } = {}): Promise<void> {
     const initial = options.initial === true;
-    if (!initial) this._refreshing.set(true);
-    return this.fetch(initial).finally(() => {
-      if (!initial) this._refreshing.set(false);
+    // Mark in-flight for both initial load and manual refresh so Refresh stays disabled
+    // and concurrent clicks cannot race older responses over newer ones.
+    this._refreshing.set(true);
+    const requestId = ++this.requestId;
+    return this.fetch(initial, requestId).finally(() => {
+      if (requestId === this.requestId) this._refreshing.set(false);
     });
   }
 
-  private async fetch(initial: boolean): Promise<void> {
+  private async fetch(initial: boolean, requestId: number): Promise<void> {
     try {
       const dto = await this.api.listCronLogs();
+      if (requestId !== this.requestId) return;
       if (!dto.ok) {
         throw new Error(dto.error?.trim() || 'Cron logs unavailable');
       }
@@ -56,6 +61,7 @@ export class ReportsFacade {
       this._error.set('');
       this._status.set(this.statusFromSummary(summary));
     } catch {
+      if (requestId !== this.requestId) return;
       const hasPrior = this._runs().length > 0 || this._generatedAt() !== '';
       if (!initial && hasPrior) {
         // Retain prior runs/summary/generatedAt; keep health status. Do not exclusive-error.

@@ -225,27 +225,35 @@ export interface CronHealthSummary {
 const QUIET_CORE =
   /^(?:dry-run\s*[-–—:]\s*)?(nothing to check|checked \d+, no repairs needed|no stale\b.*|completed|no log file yet|log is empty|no recent runs)\.?$/i;
 
+const ACTIONABLE_DETAIL = /can be freed|\[delete\]|\[keep\]|blocker|fail|error/i;
+
 /**
  * Quiet = healthy noise to collapse. Actionable = everything else.
- * Quiet only when status is `ok` (default), no applied repairs, no fatal,
- * and detail matches healthy no-op patterns.
+ * Quiet only when status is `ok` (default), exit is zero/absent, no applied repairs,
+ * no fatal, and detail matches healthy no-op patterns.
+ * Actionable detail tokens are checked before quiet-core so greedy patterns like
+ * `no stale\b.*` cannot hide blockers or freeable-space notes.
  */
-export const isQuietRun = (run: Pick<MediaStackCronLogRunDto, 'status' | 'applied' | 'fatal' | 'detail'>): boolean => {
+export const isQuietRun = (
+  run: Pick<MediaStackCronLogRunDto, 'status' | 'applied' | 'fatal' | 'detail' | 'exitCode'>,
+): boolean => {
   const status = (run.status || 'ok').trim().toLowerCase();
   if (status !== 'ok') return false;
+  if (typeof run.exitCode === 'number' && run.exitCode !== 0) return false;
   if (typeof run.applied === 'number' && run.applied > 0) return false;
   if (run.fatal) return false;
 
   const detail = (run.detail || '').trim();
   if (!detail) return true;
+  if (ACTIONABLE_DETAIL.test(detail)) return false;
   if (QUIET_CORE.test(detail)) return true;
-  if (/can be freed|\[delete\]|\[keep\]|blocker|fail|error/i.test(detail)) return false;
   if (/^(?:dry-run\s*[-–—:]\s*)?no .+\.?$/i.test(detail) && !/error|fail|warn/i.test(detail)) return true;
   return false;
 };
 
-export const isActionableRun = (run: Pick<MediaStackCronLogRunDto, 'status' | 'applied' | 'fatal' | 'detail'>): boolean =>
-  !isQuietRun(run);
+export const isActionableRun = (
+  run: Pick<MediaStackCronLogRunDto, 'status' | 'applied' | 'fatal' | 'detail' | 'exitCode'>,
+): boolean => !isQuietRun(run);
 
 export const normalizeCronRun = (
   job: Pick<MediaStackCronLogEntryDto, 'id' | 'title'>,
@@ -267,8 +275,28 @@ export const normalizeCronRun = (
   };
 };
 
+/** Build a triage row for jobs that have entry metadata but no nested runs. */
+export const synthesizeCronRunFromEntry = (job: MediaStackCronLogEntryDto): CronRun => {
+  const status = job.lastStatus?.trim() || (job.exists ? 'unparsed' : 'missing');
+  const detail =
+    job.summary?.trim() || (job.exists ? 'No recent runs' : 'No log file yet');
+  return normalizeCronRun(
+    job,
+    {
+      status,
+      detail,
+      timestamp: job.mtime ?? undefined,
+    },
+    0,
+  );
+};
+
 export const flattenCronRuns = (dto: MediaStackCronLogsDto): CronRun[] =>
-  (dto.logs ?? []).flatMap((job) => (job.runs ?? []).map((run, index) => normalizeCronRun(job, run, index)));
+  (dto.logs ?? []).flatMap((job) => {
+    const runs = job.runs ?? [];
+    if (runs.length === 0) return [synthesizeCronRunFromEntry(job)];
+    return runs.map((run, index) => normalizeCronRun(job, run, index));
+  });
 
 const triageRank = (triage: CronRunTriage): number => (triage === 'actionable' ? 0 : 1);
 
@@ -276,7 +304,7 @@ const actionableSeverityRank = (status: string): number => {
   const normalized = status.toLowerCase();
   if (normalized === 'fatal') return 0;
   if (normalized === 'warn' || normalized === 'applied') return 1;
-  if (normalized === 'unparsed') return 2;
+  if (normalized === 'unparsed' || normalized === 'missing') return 2;
   return 3;
 };
 

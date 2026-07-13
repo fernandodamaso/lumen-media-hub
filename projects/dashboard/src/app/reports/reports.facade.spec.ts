@@ -142,10 +142,34 @@ describe('ReportsFacade', () => {
     expect(facade.generatedAt()).toBe('2026-07-12T15:30:00Z');
     expect(facade.status()).toBe('allClear');
   });
+
+  it('ignores stale responses when a newer refresh wins the race', async () => {
+    let resolveInitial!: (value: MediaStackCronLogsDto) => void;
+    api.nextResponse = new Promise((resolve) => {
+      resolveInitial = resolve;
+    });
+
+    const loadPromise = facade.load();
+    expect(facade.refreshing()).toBe(true);
+
+    api.nextResponse = undefined;
+    api.response = allClearLogs;
+    await facade.refresh();
+    expect(facade.status()).toBe('allClear');
+    expect(facade.generatedAt()).toBe('2026-07-12T13:00:00Z');
+
+    resolveInitial(structuredClone(mixedLogs));
+    await loadPromise;
+
+    expect(facade.status()).toBe('allClear');
+    expect(facade.generatedAt()).toBe('2026-07-12T13:00:00Z');
+    expect(facade.refreshing()).toBe(false);
+  });
 });
 
 class MockApi implements MediaStackApi {
   response: MediaStackCronLogsDto = structuredClone(mixedLogs);
+  nextResponse?: Promise<MediaStackCronLogsDto>;
   failure = false;
   listCalls = 0;
 
@@ -166,6 +190,8 @@ class MockApi implements MediaStackApi {
   }
   listCronLogs(): Promise<MediaStackCronLogsDto> {
     this.listCalls++;
-    return this.failure ? Promise.reject(new Error('offline')) : Promise.resolve(structuredClone(this.response));
+    if (this.failure) return Promise.reject(new Error('offline'));
+    if (this.nextResponse) return this.nextResponse;
+    return Promise.resolve(structuredClone(this.response));
   }
 }

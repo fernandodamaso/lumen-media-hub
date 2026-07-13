@@ -67,6 +67,11 @@ describe('cron log triage helpers', () => {
     expect(isQuietRun({ status: 'warn', detail: 'Stale metadata found' })).toBe(false);
     expect(isQuietRun({ status: 'ok', applied: 2, detail: 'Applied 2 repairs' })).toBe(false);
     expect(isQuietRun({ status: 'ok', detail: '2.1 GB can be freed' })).toBe(false);
+    expect(isQuietRun({ status: 'ok', detail: 'No stale entries; blocker: Radarr offline' })).toBe(false);
+    expect(isQuietRun({ status: 'ok', detail: 'No stale cleanup: 2 GB can be freed' })).toBe(false);
+    expect(isQuietRun({ status: 'ok', detail: 'No stale metadata found' })).toBe(true);
+    expect(isQuietRun({ exitCode: 1, detail: '' })).toBe(false);
+    expect(isQuietRun({ exitCode: 0, detail: '' })).toBe(true);
   });
 
   it('normalizes a run while preserving contract status', () => {
@@ -109,6 +114,49 @@ describe('cron log triage helpers', () => {
     const runs = flattenCronRuns(dto);
     expect(runs).toHaveLength(2);
     expect(runs.map((run) => run.triage)).toEqual(['quiet', 'actionable']);
+  });
+
+  it('preserves job entries that have no nested runs', () => {
+    const dto: MediaStackCronLogsDto = {
+      ok: true,
+      generatedAt: '2026-07-12T12:00:00Z',
+      logs: [
+        {
+          id: 'watchdog',
+          title: 'Watchdog',
+          file: 'watchdog.log',
+          format: 'ndjson',
+          schedule: '*/15 * * * *',
+          exists: false,
+          summary: 'Log file missing',
+          lastStatus: 'missing',
+          mtime: null,
+        },
+        {
+          id: 'weekly-validate',
+          title: 'Weekly validate',
+          file: 'weekly-validate.log',
+          format: 'text',
+          schedule: '0 4 * * 0',
+          exists: true,
+          runs: [],
+        },
+      ],
+    };
+    const runs = flattenCronRuns(dto);
+    expect(runs).toHaveLength(2);
+    expect(runs[0]).toMatchObject({
+      jobId: 'watchdog',
+      status: 'missing',
+      triage: 'actionable',
+      detail: 'Log file missing',
+    });
+    expect(runs[1]).toMatchObject({
+      jobId: 'weekly-validate',
+      status: 'unparsed',
+      triage: 'actionable',
+      detail: 'No recent runs',
+    });
   });
 
   it('prioritizes actionable failures before quiet successes', () => {

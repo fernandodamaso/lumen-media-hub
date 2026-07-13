@@ -1,5 +1,5 @@
 import { MediaStackApi, normalizeTorrent, summarizeDownloads } from './media-stack-api';
-import { MockMediaStackApi } from './mock-media-stack-api';
+import { MockMediaStackApi, MOCK_SYNC_FAILED_HERMES_ID } from './mock-media-stack-api';
 
 describe('MockMediaStackApi', () => {
   it('provides deterministic torrents and supports pause/resume all', async () => {
@@ -33,5 +33,99 @@ describe('MockMediaStackApi', () => {
     expect(library.series['cowboy bebop']).toBe('cowboy-bebop');
     expect(library.movies['dune']).toBe('dune-2021');
     expect(library.movies['night transit']).toBeUndefined();
+  });
+
+  it('isolates discover fixtures across Hermes and external filters', async () => {
+    const api = new MockMediaStackApi();
+    const hermes = await api.listHermesRecommendations();
+    expect(hermes.ok).toBe(true);
+    expect(hermes.items.some((item) => item.id === 'hermes-eligible' && item.active)).toBe(true);
+    expect(hermes.items.some((item) => item.id === 'hermes-in-library' && item.in_library)).toBe(true);
+    expect(hermes.items.some((item) => item.id === 'hermes-requested' && item.request_state === 'requested')).toBe(true);
+    expect(hermes.items.some((item) => item.id === 'hermes-no-tmdb' && item.tmdb_id === 0)).toBe(true);
+    expect(hermes.items.some((item) => item.id === MOCK_SYNC_FAILED_HERMES_ID)).toBe(true);
+    expect(hermes.items.some((item) => !item.active && item.feedback === 'liked')).toBe(true);
+
+    const jellyseerrTrending = await api.listJellyseerrDiscover('trending');
+    const jellyseerrMovies = await api.listJellyseerrDiscover('movies');
+    const jellyseerrTv = await api.listJellyseerrDiscover('tv');
+    expect(jellyseerrTrending.items.map((item) => item.title)).toEqual(['Trending Ember', 'Trending Tide']);
+    expect(jellyseerrMovies.items.map((item) => item.title)).toEqual(['Neon Archive', 'Paper Orbit']);
+    expect(jellyseerrTv.items.map((item) => item.title)).toEqual(['Channel Zero Point', 'Late Broadcast']);
+    expect(jellyseerrTrending.items.map((item) => item.tmdb_id)).not.toEqual(jellyseerrMovies.items.map((item) => item.tmdb_id));
+
+    const traktMovies = await api.listTraktDiscover('movies');
+    const traktShows = await api.listTraktDiscover('shows');
+    expect(traktMovies.items.map((item) => item.title)).toEqual(['Trakt Horizon', 'Trakt Meridian']);
+    expect(traktShows.items.map((item) => item.title)).toEqual(['Trakt Relay', 'Trakt Cascade']);
+  });
+
+  it('keeps feedback mutation isolated from request fields', async () => {
+    const api = new MockMediaStackApi();
+    const before = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible')!;
+    const requestSnapshot = {
+      request_state: before.request_state,
+      requested_at: before.requested_at,
+      jellyseerr_request_id: before.jellyseerr_request_id,
+    };
+
+    const result = await api.submitHermesFeedback('hermes-eligible', 'liked');
+    expect(result.ok).toBe(true);
+
+    const after = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible')!;
+    expect(after.feedback).toBe('liked');
+    expect(after.feedback_at).toBeTruthy();
+    expect(after.active).toBe(false);
+    expect(after.request_state).toBe(requestSnapshot.request_state);
+    expect(after.requested_at).toBe(requestSnapshot.requested_at);
+    expect(after.jellyseerr_request_id).toBe(requestSnapshot.jellyseerr_request_id);
+  });
+
+  it('requestMedia updates request fields without touching feedback', async () => {
+    const api = new MockMediaStackApi();
+    const before = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible')!;
+    expect(before.feedback).toBeNull();
+
+    const result = await api.requestMedia({ mediaType: 'movie', mediaId: 101001, hermesId: 'hermes-eligible' });
+    expect(result.ok).toBe(true);
+    expect(result.dashboard_state_persisted).toBe(true);
+
+    const after = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible')!;
+    expect(after.request_state).toBe('requested');
+    expect(after.requested_at).toBeTruthy();
+    expect(after.jellyseerr_request_id).toBeTruthy();
+    expect(after.feedback).toBeNull();
+    expect(after.feedback_at).toBeNull();
+  });
+
+  it('simulates sync-failed partial success without writing request_state', async () => {
+    const api = new MockMediaStackApi();
+    const result = await api.requestMedia({ mediaType: 'tv', mediaId: 101005, hermesId: MOCK_SYNC_FAILED_HERMES_ID });
+    expect(result.ok).toBe(true);
+    expect(result.dashboard_state_persisted).toBe(false);
+    expect(result.partial_success).toBe(true);
+
+    const after = (await api.listHermesRecommendations()).items.find((item) => item.id === MOCK_SYNC_FAILED_HERMES_ID)!;
+    expect(after.request_state).toBeNull();
+    expect(after.jellyseerr_request_id).toBeTruthy();
+  });
+
+  it('requestHermesMore queues once then reports already_pending', async () => {
+    const api = new MockMediaStackApi();
+    const first = await api.requestHermesMore();
+    expect(first).toMatchObject({ ok: true, queued: true, already_pending: false });
+    const second = await api.requestHermesMore();
+    expect(second).toMatchObject({ ok: true, queued: false, already_pending: true });
+    const hermes = await api.listHermesRecommendations();
+    expect(hermes.generation_request?.status).toBe('pending');
+  });
+
+  it('dedupes external requests by TMDB id and media type', async () => {
+    const api = new MockMediaStackApi();
+    const first = await api.requestMedia({ mediaType: 'movie', mediaId: 301001 });
+    expect(first.ok).toBe(true);
+    expect(first.message).toBe('Requested');
+    const second = await api.requestMedia({ mediaType: 'movie', mediaId: 301001 });
+    expect(second.message).toBe('Already requested');
   });
 });

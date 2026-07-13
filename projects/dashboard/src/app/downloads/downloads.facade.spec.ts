@@ -80,4 +80,10 @@ class MockApi implements MediaStackApi {
   resumeAll(): Promise<void> { this.actions.push('resume'); return this.actionFailure ? Promise.reject(new Error('failed')) : this.action; }
   listCalendarEvents() { return Promise.resolve([]); }
   getArrLibrary() { return Promise.resolve({ ok: true, series: {}, movies: {} }); }
+  listHermesRecommendations() { return Promise.resolve({ ok: true, items: [] }); }
+  submitHermesFeedback() { return Promise.resolve({ ok: true }); }
+  requestHermesMore() { return Promise.resolve({ ok: true }); }
+  listJellyseerrDiscover() { return Promise.resolve({ ok: true, items: [] }); }
+  listTraktDiscover() { return Promise.resolve({ ok: true, items: [] }); }
+  requestMedia() { return Promise.resolve({ ok: true }); }
 }

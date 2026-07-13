@@ -67,6 +67,13 @@ describe('DownloadsBoard', () => {
     expect(fixture.nativeElement.querySelector('.torrent-list')?.getAttribute('aria-live')).toBe('polite');
   });
 
+  it('declares container-query compact layout for narrow dashboard tracks', () => {
+    fixture.detectChanges();
+    const styles = componentStyles();
+    expect(styles).toContain('@container (max-width: 560px)');
+    expect(styles).toMatch(/@container \(max-width: 560px\)[\s\S]*\.summary[\s\S]*grid-template-columns:\s*repeat\(2,\s*1fr\)/);
+  });
+
   function findButton(label: string): HTMLButtonElement {
     return (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find((button) => button.textContent.includes(label)) as HTMLButtonElement;
   }
@@ -90,4 +97,10 @@ function createFacade() {
     refresh,
     runAction: vi.fn(),
   };
+}
+
+function componentStyles(): string {
+  return Array.from(document.querySelectorAll('style'))
+    .map((node) => node.textContent ?? '')
+    .join('\n');
 }

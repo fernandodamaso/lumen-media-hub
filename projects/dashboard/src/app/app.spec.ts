@@ -27,8 +27,8 @@ describe('App shell', () => {
   });
 
   it.each([
-    ['/', 'Dashboard', 'Your media workspace is ready for the next slice.'],
-    ['/dashboard', 'Dashboard', 'Your media workspace is ready for the next slice.'],
+    ['/', 'Dashboard', 'Library first, operations beside it, and upcoming media in a supporting rail.'],
+    ['/dashboard', 'Dashboard', 'Library first, operations beside it, and upcoming media in a supporting rail.'],
     ['/reports', 'Reports', 'Triage automation history'],
     ['/discover', 'Discover', 'Explore Hermes, Jellyseerr, and Trakt picks'],
     ['/ui', 'UI catalog', 'Explore the shared primitives that power the dashboard shell.'],

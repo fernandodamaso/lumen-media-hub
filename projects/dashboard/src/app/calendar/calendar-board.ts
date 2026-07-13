@@ -58,7 +58,7 @@ import { CalendarFacade } from './calendar.facade';
   `,
   styles: `
     :host { display: block; }
-    .calendar { margin-top: 52px; }
+    .calendar { margin-top: 0; }
     .section-heading { margin-bottom: 18px; }
     h2 { margin: 0; color: var(--mm-component-text-primary); font-size: 24px; }
     .section-copy { margin-top: 6px; color: var(--mm-component-text-secondary); font-size: 14px; }
@@ -98,6 +98,19 @@ import { CalendarFacade } from './calendar.facade';
     .cal-subtitle {
       color: var(--mm-component-text-muted);
       font-size: 12px;
+    }
+    @container (max-width: 420px) {
+      .section-copy { display: none; }
+      .cal-row {
+        grid-template-columns: 56px 1fr auto;
+        grid-template-areas:
+          "time kind status"
+          "copy copy copy";
+        gap: 8px;
+        padding: 12px;
+      }
+      .cal-time { grid-area: time; }
+      .cal-copy { grid-area: copy; }
     }
     @media (max-width: 850px) {
       .cal-row {

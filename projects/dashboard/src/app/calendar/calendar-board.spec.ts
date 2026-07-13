@@ -92,6 +92,14 @@ describe('CalendarBoard', () => {
     expect(fixture.nativeElement.querySelector('.cal-list')?.getAttribute('aria-live')).toBe('polite');
   });
 
+  it('declares container-query compact layout for narrow dashboard rail', () => {
+    fixture.detectChanges();
+    const styles = componentStyles();
+    expect(styles).toContain('@container (max-width: 420px)');
+    expect(styles).toMatch(/@container \(max-width: 420px\)[\s\S]*grid-template-areas:[\s\S]*"time kind status"/);
+    expect(styles).toMatch(/@container \(max-width: 420px\)[\s\S]*\.section-copy[\s\S]*display:\s*none/);
+  });
+
   function findButton(label: string): HTMLButtonElement {
     return (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find(
       (button) => button.textContent?.includes(label),
@@ -111,4 +119,10 @@ function createFacade() {
     startPolling: vi.fn(),
     refresh,
   };
+}
+
+function componentStyles(): string {
+  return Array.from(document.querySelectorAll('style'))
+    .map((node) => node.textContent ?? '')
+    .join('\n');
 }

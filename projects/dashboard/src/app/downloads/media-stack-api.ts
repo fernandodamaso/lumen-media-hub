@@ -37,6 +37,50 @@ export interface MediaStackArrLibraryDto {
   error?: string;
 }
 
+export type LibraryItemKind = 'movie' | 'series';
+export type LibraryArtworkState = 'ok' | 'missing' | 'failed';
+
+/** Raw Jellyfin-shaped browse payload stays behind this boundary. */
+export interface MediaStackLibraryItemDto {
+  id: string;
+  title: string;
+  kind: LibraryItemKind | string;
+  year?: number;
+  overview?: string;
+  posterUrl?: string;
+  artworkState?: LibraryArtworkState;
+  playable?: boolean;
+}
+
+export interface LibraryItem {
+  id: string;
+  title: string;
+  kind: LibraryItemKind;
+  meta: string;
+  art: string;
+  overview: string;
+  href: string | null;
+  artworkState: LibraryArtworkState;
+  playable: boolean;
+}
+
+export interface JellyfinLinkBases {
+  jellyfinBase?: string;
+}
+
+export const DEFAULT_JELLYFIN_LINK_BASES: Required<JellyfinLinkBases> = {
+  jellyfinBase: 'http://localhost:8096',
+};
+
+export const JELLYFIN_LINK_BASES = new InjectionToken<JellyfinLinkBases>('JELLYFIN_LINK_BASES', {
+  providedIn: 'root',
+  factory: () => ({ ...DEFAULT_JELLYFIN_LINK_BASES }),
+});
+
+export const DEFAULT_LIBRARY_ART =
+  'linear-gradient(145deg, var(--mm-component-accent), var(--mm-component-card-bg) 65%)';
+
+
 export type DiscoverFeedback = 'liked' | 'disliked' | 'watched' | 'skipped';
 export type DiscoverMediaType = 'movie' | 'tv';
 export type DiscoverSourceTab = 'hermes' | 'jellyseerr' | 'trakt';
@@ -118,6 +162,8 @@ export interface MediaStackApi {
   resumeAll(): Promise<void>;
   listCalendarEvents(): Promise<MediaStackCalendarEventDto[]>;
   getArrLibrary(): Promise<MediaStackArrLibraryDto>;
+  listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<MediaStackLibraryItemDto[]>;
+  getAutomationSummary(): Promise<MediaStackAutomationSummaryDto>;
   listHermesRecommendations(): Promise<MediaStackHermesDiscoverDto>;
   submitHermesFeedback(id: string, feedback: DiscoverFeedback, notes?: string): Promise<MediaStackDiscoverActionDto>;
   requestHermesMore(): Promise<MediaStackDiscoverActionDto>;
@@ -238,6 +284,61 @@ export const resolveCalendarLink = (
   return seriesHref ?? movieHref;
 };
 
+export const normalizeLibraryItem = (dto: MediaStackLibraryItemDto): LibraryItem | null => {
+  const kind = normalizeLibraryKind(dto.kind);
+  if (!kind) return null;
+  const artworkState = normalizeArtworkState(dto.artworkState, dto.posterUrl);
+  return {
+    id: dto.id?.trim() || 'unknown',
+    title: dto.title?.trim() || 'Untitled',
+    kind,
+    meta: formatLibraryMeta(dto.year, kind),
+    art: resolveLibraryArt(dto.posterUrl, artworkState),
+    overview: dto.overview?.trim() || '',
+    href: null,
+    artworkState,
+    playable: dto.playable !== false,
+  };
+};
+
+export const resolveJellyfinItemLink = (
+  item: Pick<LibraryItem, 'id' | 'playable'>,
+  bases: JellyfinLinkBases = {},
+): string | null => {
+  if (!item.playable || !item.id || item.id === 'unknown') return null;
+  const jellyfinBase = (bases.jellyfinBase ?? DEFAULT_JELLYFIN_LINK_BASES.jellyfinBase).replace(/\/$/, '');
+  if (!jellyfinBase) return null;
+  return `${jellyfinBase}/web/index.html#!/details?id=${encodeURIComponent(item.id)}`;
+};
+
+export const formatLibraryMeta = (year: number | undefined, kind: LibraryItemKind): string => {
+  const kindLabel = kind === 'movie' ? 'Movie' : 'Series';
+  return Number.isFinite(year) && year ? `${year} · ${kindLabel}` : kindLabel;
+};
+
+function normalizeLibraryKind(kind: string | undefined): LibraryItemKind | null {
+  const normalized = kind?.trim().toLowerCase();
+  if (normalized === 'movie') return 'movie';
+  if (normalized === 'series') return 'series';
+  return null;
+}
+
+function normalizeArtworkState(
+  state: LibraryArtworkState | undefined,
+  posterUrl: string | undefined,
+): LibraryArtworkState {
+  if (state === 'failed' || state === 'missing' || state === 'ok') return state;
+  return posterUrl?.trim() ? 'ok' : 'missing';
+}
+
+function resolveLibraryArt(posterUrl: string | undefined, artworkState: LibraryArtworkState): string {
+  if (artworkState === 'missing' || artworkState === 'failed') return DEFAULT_LIBRARY_ART;
+  const value = posterUrl?.trim();
+  if (!value) return DEFAULT_LIBRARY_ART;
+  if (value.startsWith('url(') || value.includes('gradient(')) return value;
+  return `url("${value}") center / cover no-repeat`;
+}
+
 function clamp(value: number): number {
   return Math.round(Math.min(100, Math.max(0, value)) * 10) / 10;
 }
@@ -256,3 +357,159 @@ function normalizeState(state: string): TorrentState {
 function looksLikeEpisode(additional: string): boolean {
   return /^S\d+\s*E\d+/i.test(additional.trim());
 }
+
+// ---------------------------------------------------------------------------
+// Automation summary boundary
+// ---------------------------------------------------------------------------
+
+export type MediaStackAutomationServiceStatusDto =
+  | 'healthy'
+  | 'degraded'
+  | 'down'
+  | 'unknown';
+
+export interface MediaStackAutomationServiceDto {
+  id: string;
+  name: string;
+  status: string;
+  detail?: string;
+}
+
+export interface MediaStackAutomationPreviewItemDto {
+  id: string;
+  title: string;
+  when?: string;
+  kind?: string;
+}
+
+export interface MediaStackAutomationProblemDto {
+  id: string;
+  summary: string;
+  serviceId?: string;
+  severity?: string;
+}
+
+export interface MediaStackAutomationSummaryDto {
+  generatedAt: string;
+  services?: MediaStackAutomationServiceDto[] | null;
+  preview?: MediaStackAutomationPreviewItemDto[] | null;
+  problems?: MediaStackAutomationProblemDto[] | null;
+  unavailable?: {
+    services?: boolean;
+    preview?: boolean;
+    problems?: boolean;
+  };
+}
+
+export type AutomationServiceStatus = 'healthy' | 'degraded' | 'down' | 'unknown';
+export type AutomationProblemSeverity = 'actionable' | 'warning' | 'info';
+
+export interface AutomationService {
+  id: string;
+  name: string;
+  status: AutomationServiceStatus;
+  detail: string;
+}
+
+export interface AutomationPreviewItem {
+  id: string;
+  title: string;
+  when: string;
+  kind: string;
+}
+
+export interface AutomationProblem {
+  id: string;
+  summary: string;
+  serviceId: string | null;
+  severity: AutomationProblemSeverity;
+}
+
+export interface AutomationSectionAvailability {
+  services: 'present' | 'empty' | 'unavailable';
+  preview: 'present' | 'empty' | 'unavailable';
+  problems: 'present' | 'empty' | 'unavailable';
+}
+
+export interface AutomationSummary {
+  generatedAt: string;
+  services: AutomationService[];
+  preview: AutomationPreviewItem[];
+  problems: AutomationProblem[];
+  availability: AutomationSectionAvailability;
+}
+
+const AUTOMATION_SERVICE_STATUSES: AutomationServiceStatus[] = ['healthy', 'degraded', 'down', 'unknown'];
+const AUTOMATION_PROBLEM_SEVERITIES: AutomationProblemSeverity[] = ['actionable', 'warning', 'info'];
+
+const STATUS_RANK: Record<AutomationServiceStatus, number> = {
+  down: 0,
+  degraded: 1,
+  unknown: 2,
+  healthy: 3,
+};
+
+function normalizeAutomationStatus(status: string): AutomationServiceStatus {
+  const normalized = status?.toLowerCase() ?? '';
+  return AUTOMATION_SERVICE_STATUSES.includes(normalized as AutomationServiceStatus)
+    ? (normalized as AutomationServiceStatus)
+    : 'unknown';
+}
+
+function normalizeAutomationSeverity(severity: string): AutomationProblemSeverity {
+  const normalized = severity?.toLowerCase() ?? '';
+  return AUTOMATION_PROBLEM_SEVERITIES.includes(normalized as AutomationProblemSeverity)
+    ? (normalized as AutomationProblemSeverity)
+    : 'info';
+}
+
+function deriveSectionAvailability<T>(
+  items: T[] | null | undefined,
+  unavailableFlag: boolean | undefined,
+): 'present' | 'empty' | 'unavailable' {
+  if (unavailableFlag) return 'unavailable';
+  if (items == null) return 'unavailable';
+  return items.length > 0 ? 'present' : 'empty';
+}
+
+export const normalizeAutomationSummary = (dto: MediaStackAutomationSummaryDto): AutomationSummary => ({
+  generatedAt: dto.generatedAt ?? '',
+  services: (dto.services ?? []).map((service) => ({
+    id: service.id ?? '',
+    name: service.name ?? '',
+    status: normalizeAutomationStatus(service.status),
+    detail: service.detail ?? '',
+  })),
+  preview: (dto.preview ?? []).map((item) => ({
+    id: item.id ?? '',
+    title: item.title ?? '',
+    when: item.when ?? '',
+    kind: item.kind ?? '',
+  })),
+  problems: (dto.problems ?? []).map((problem) => ({
+    id: problem.id ?? '',
+    summary: problem.summary ?? '',
+    serviceId: problem.serviceId ?? null,
+    severity: normalizeAutomationSeverity(problem.severity ?? 'info'),
+  })),
+  availability: {
+    services: deriveSectionAvailability(dto.services, dto.unavailable?.services),
+    preview: deriveSectionAvailability(dto.preview, dto.unavailable?.preview),
+    problems: deriveSectionAvailability(dto.problems, dto.unavailable?.problems),
+  },
+});
+
+export interface AutomationHealthSummary {
+  overall: AutomationServiceStatus;
+  actionableCount: number;
+}
+
+export const summarizeAutomationHealth = (summary: AutomationSummary): AutomationHealthSummary => {
+  const sortedServices = [...summary.services].sort(
+    (left, right) => STATUS_RANK[left.status] - STATUS_RANK[right.status],
+  );
+  const overall = sortedServices[0]?.status ?? 'unknown';
+  const actionableCount = summary.problems.filter((problem) => problem.severity === 'actionable').length;
+  return { overall, actionableCount };
+};
+

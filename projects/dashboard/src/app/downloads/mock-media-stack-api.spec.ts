@@ -128,4 +128,38 @@ describe('MockMediaStackApi', () => {
     const second = await api.requestMedia({ mediaType: 'movie', mediaId: 301001 });
     expect(second.message).toBe('Already requested');
   });
+  it('provides deterministic automation summary with mixed service health', async () => {
+    const api = new MockMediaStackApi();
+    const summary = await api.getAutomationSummary();
+    expect(summary.generatedAt).toBe('2026-07-12T18:00:00Z');
+    expect(summary.services?.map((service) => service.id)).toEqual(['sonarr', 'radarr', 'prowlarr', 'sabnzbd']);
+    expect(summary.services?.some((service) => service.status === 'down')).toBe(true);
+    expect(summary.services?.some((service) => service.status === 'degraded')).toBe(true);
+    expect(summary.problems?.some((problem) => problem.severity === 'actionable')).toBe(true);
+    expect(summary.preview).toHaveLength(3);
+  });
+  it('provides a partial automation summary marking preview and problems unavailable', async () => {
+    const api = new MockMediaStackApi();
+    api.setAutomationScenario('partial');
+    const summary = await api.getAutomationSummary();
+    expect(summary.services).toHaveLength(1);
+    expect(summary.unavailable).toEqual({ preview: true, problems: true });
+    expect(summary.preview).toEqual([]);
+  });
+  it('lists library items with kind filter and defensive copies', async () => {
+    const api: MediaStackApi = new MockMediaStackApi();
+    const all = await api.listLibraryItems();
+    expect(all.filter((item) => item.kind === 'movie').length).toBeGreaterThanOrEqual(3);
+    expect(all.filter((item) => item.kind === 'series').length).toBeGreaterThanOrEqual(3);
+    expect(all.some((item) => item.artworkState === 'missing')).toBe(true);
+    expect(all.some((item) => item.artworkState === 'failed')).toBe(true);
+
+    const movies = await api.listLibraryItems({ kind: 'movie' });
+    expect(movies.every((item) => item.kind === 'movie')).toBe(true);
+
+    const first = movies[0];
+    first.title = 'Mutated';
+    const again = await api.listLibraryItems({ kind: 'movie' });
+    expect(again[0].title).not.toBe('Mutated');
+  });
 });

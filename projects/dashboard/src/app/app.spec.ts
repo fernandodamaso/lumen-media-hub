@@ -42,6 +42,14 @@ describe('App shell', () => {
     expect(harness.routeNativeElement?.textContent).toContain(lede);
   });
 
+  it('renders the library board on the dashboard', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/');
+    expect(harness.routeNativeElement?.querySelector('#library-heading')?.textContent).toContain('Library');
+    expect(harness.routeNativeElement?.textContent).toContain('Movies');
+    expect(harness.routeNativeElement?.textContent).toContain('Series');
+  });
+
   it('navigates between destinations and restores browser history', async () => {
     const harness = await RouterTestingHarness.create();
     const location = TestBed.inject(Location) as SpyLocation;

@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { MmButton } from 'media-ui';
 import { ThemeService } from 'media-ui';
 
-describe('UI primitives (ported from Storybook plays)', () => {
+describe('UI primitives', () => {
   beforeEach(() => {
     localStorage.clear();
     document.documentElement.dataset['theme'] = '';

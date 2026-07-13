@@ -193,6 +193,9 @@ class MockApi implements MediaStackApi {
           movies: { ...this.library.movies },
         });
   }
+  listLibraryItems() {
+    return Promise.resolve([]);
+  }
   getAutomationSummary(): Promise<MediaStackAutomationSummaryDto> {
     return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [] });
   }

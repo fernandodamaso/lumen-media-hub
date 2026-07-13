@@ -100,4 +100,7 @@ class MockApi implements MediaStackApi {
   getArrLibrary(): Promise<MediaStackArrLibraryDto> {
     return Promise.resolve({ ok: true, series: {}, movies: {} });
   }
+  listLibraryItems() {
+    return Promise.resolve([]);
+  }
 }

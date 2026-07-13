@@ -37,12 +37,56 @@ export interface MediaStackArrLibraryDto {
   error?: string;
 }
 
+export type LibraryItemKind = 'movie' | 'series';
+export type LibraryArtworkState = 'ok' | 'missing' | 'failed';
+
+/** Raw Jellyfin-shaped browse payload stays behind this boundary. */
+export interface MediaStackLibraryItemDto {
+  id: string;
+  title: string;
+  kind: LibraryItemKind | string;
+  year?: number;
+  overview?: string;
+  posterUrl?: string;
+  artworkState?: LibraryArtworkState;
+  playable?: boolean;
+}
+
+export interface LibraryItem {
+  id: string;
+  title: string;
+  kind: LibraryItemKind;
+  meta: string;
+  art: string;
+  overview: string;
+  href: string | null;
+  artworkState: LibraryArtworkState;
+  playable: boolean;
+}
+
+export interface JellyfinLinkBases {
+  jellyfinBase?: string;
+}
+
+export const DEFAULT_JELLYFIN_LINK_BASES: Required<JellyfinLinkBases> = {
+  jellyfinBase: 'http://localhost:8096',
+};
+
+export const JELLYFIN_LINK_BASES = new InjectionToken<JellyfinLinkBases>('JELLYFIN_LINK_BASES', {
+  providedIn: 'root',
+  factory: () => ({ ...DEFAULT_JELLYFIN_LINK_BASES }),
+});
+
+export const DEFAULT_LIBRARY_ART =
+  'linear-gradient(145deg, var(--mm-component-accent), var(--mm-component-card-bg) 65%)';
+
 export interface MediaStackApi {
   listTorrents(): Promise<MediaStackTorrentDto[]>;
   pauseAll(): Promise<void>;
   resumeAll(): Promise<void>;
   listCalendarEvents(): Promise<MediaStackCalendarEventDto[]>;
   getArrLibrary(): Promise<MediaStackArrLibraryDto>;
+  listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<MediaStackLibraryItemDto[]>;
   getAutomationSummary(): Promise<MediaStackAutomationSummaryDto>;
 }
 
@@ -157,6 +201,61 @@ export const resolveCalendarLink = (
   if (kind === 'episode') return seriesHref ?? movieHref;
   return seriesHref ?? movieHref;
 };
+
+export const normalizeLibraryItem = (dto: MediaStackLibraryItemDto): LibraryItem | null => {
+  const kind = normalizeLibraryKind(dto.kind);
+  if (!kind) return null;
+  const artworkState = normalizeArtworkState(dto.artworkState, dto.posterUrl);
+  return {
+    id: dto.id?.trim() || 'unknown',
+    title: dto.title?.trim() || 'Untitled',
+    kind,
+    meta: formatLibraryMeta(dto.year, kind),
+    art: resolveLibraryArt(dto.posterUrl, artworkState),
+    overview: dto.overview?.trim() || '',
+    href: null,
+    artworkState,
+    playable: dto.playable !== false,
+  };
+};
+
+export const resolveJellyfinItemLink = (
+  item: Pick<LibraryItem, 'id' | 'playable'>,
+  bases: JellyfinLinkBases = {},
+): string | null => {
+  if (!item.playable || !item.id || item.id === 'unknown') return null;
+  const jellyfinBase = (bases.jellyfinBase ?? DEFAULT_JELLYFIN_LINK_BASES.jellyfinBase).replace(/\/$/, '');
+  if (!jellyfinBase) return null;
+  return `${jellyfinBase}/web/index.html#!/details?id=${encodeURIComponent(item.id)}`;
+};
+
+export const formatLibraryMeta = (year: number | undefined, kind: LibraryItemKind): string => {
+  const kindLabel = kind === 'movie' ? 'Movie' : 'Series';
+  return Number.isFinite(year) && year ? `${year} · ${kindLabel}` : kindLabel;
+};
+
+function normalizeLibraryKind(kind: string | undefined): LibraryItemKind | null {
+  const normalized = kind?.trim().toLowerCase();
+  if (normalized === 'movie') return 'movie';
+  if (normalized === 'series') return 'series';
+  return null;
+}
+
+function normalizeArtworkState(
+  state: LibraryArtworkState | undefined,
+  posterUrl: string | undefined,
+): LibraryArtworkState {
+  if (state === 'failed' || state === 'missing' || state === 'ok') return state;
+  return posterUrl?.trim() ? 'ok' : 'missing';
+}
+
+function resolveLibraryArt(posterUrl: string | undefined, artworkState: LibraryArtworkState): string {
+  if (artworkState === 'missing' || artworkState === 'failed') return DEFAULT_LIBRARY_ART;
+  const value = posterUrl?.trim();
+  if (!value) return DEFAULT_LIBRARY_ART;
+  if (value.startsWith('url(') || value.includes('gradient(')) return value;
+  return `url("${value}") center / cover no-repeat`;
+}
 
 function clamp(value: number): number {
   return Math.round(Math.min(100, Math.max(0, value)) * 10) / 10;

@@ -1,17 +1,21 @@
 import { Component } from '@angular/core';
 import { Routes } from '@angular/router';
 import { MmButton, MmPoster, MmProgress, MmStateCard, MmStatus } from 'media-ui';
+import { AutomationBoard } from './automation/automation-board';
+import { AutomationFacade } from './automation/automation.facade';
 import { CalendarBoard } from './calendar/calendar-board';
 import { CalendarFacade } from './calendar/calendar.facade';
 import { DownloadsBoard } from './downloads/downloads-board';
 import { DownloadsFacade } from './downloads/downloads.facade';
+import { LibraryBoard } from './library/library-board';
+import { LibraryFacade } from './library/library.facade';
 import { ReportsPage } from './reports/reports-page';
 
 @Component({
   standalone: true,
   selector: 'mm-dashboard-page',
-  imports: [CalendarBoard, DownloadsBoard],
-  providers: [CalendarFacade, DownloadsFacade],
+  imports: [CalendarBoard, DownloadsBoard, LibraryBoard, AutomationBoard],
+  providers: [CalendarFacade, DownloadsFacade, LibraryFacade, AutomationFacade],
   template: `
     <section class="page-intro">
       <p class="eyebrow">Overview</p>
@@ -23,8 +27,10 @@ import { ReportsPage } from './reports/reports-page';
       <article><span>Active workflows</span><strong>0</strong></article>
       <article><span>Last sync</span><strong>Not connected</strong></article>
     </div>
+    <mm-library-board />
     <mm-calendar-board />
     <mm-downloads-board />
+    <mm-automation-board />
   `,
 })
 export class DashboardPage {}

@@ -1,10 +1,13 @@
 import { Injectable } from '@angular/core';
 import {
+  LibraryItemKind,
   MediaStackApi,
   MediaStackArrLibraryDto,
+  MediaStackAutomationSummaryDto,
   MediaStackCalendarEventDto,
   MediaStackCronLogEntryDto,
   MediaStackCronLogsDto,
+  MediaStackLibraryItemDto,
   MediaStackTorrentDto,
 } from './media-stack-api';
 
@@ -58,6 +61,110 @@ const DEMO_LIBRARY: MediaStackArrLibraryDto = {
   movies: {
     dune: 'dune-2021',
   },
+};
+
+const DEMO_LIBRARY_ITEMS: MediaStackLibraryItemDto[] = [
+  {
+    id: 'jf-dune',
+    title: 'Dune',
+    kind: 'movie',
+    year: 2021,
+    overview: 'A mythic desert world and the fight for its spice.',
+    posterUrl: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
+    playable: true,
+  },
+  {
+    id: 'jf-afterlight',
+    title: 'Afterlight',
+    kind: 'movie',
+    year: 2026,
+    overview: 'A crew races the last light across a dying colony.',
+    posterUrl: 'linear-gradient(145deg, #3d5a80, #0d1117 70%)',
+    playable: true,
+  },
+  {
+    id: 'jf-orbit',
+    title: 'Orbit Station',
+    kind: 'movie',
+    year: 2024,
+    overview: 'Docking bay politics at the edge of settled space.',
+    posterUrl: 'linear-gradient(145deg, #4a5568, #111827 70%)',
+    playable: true,
+  },
+  {
+    id: 'jf-night-transit',
+    title: 'Night Transit',
+    kind: 'movie',
+    year: 2026,
+    overview: 'A premiere without artwork in the demo catalog.',
+    artworkState: 'missing',
+    playable: true,
+  },
+  {
+    id: 'jf-cowboy-bebop',
+    title: 'Cowboy Bebop',
+    kind: 'series',
+    year: 1998,
+    overview: 'Bounty hunters chasing the past across the solar system.',
+    posterUrl: 'linear-gradient(145deg, #b45309, #1c1917 70%)',
+    playable: true,
+  },
+  {
+    id: 'jf-the-expanse',
+    title: 'The Expanse',
+    kind: 'series',
+    year: 2015,
+    overview: 'Politics and survival between Earth, Mars, and the Belt.',
+    posterUrl: 'linear-gradient(145deg, #1e3a5f, #0b1220 70%)',
+    playable: true,
+  },
+  {
+    id: 'jf-blue-hour',
+    title: 'The Blue Hour',
+    kind: 'series',
+    year: 2023,
+    overview: 'Late-night cases in a city that never fully wakes.',
+    posterUrl: 'linear-gradient(145deg, #312e81, #0f172a 70%)',
+    playable: true,
+  },
+  {
+    id: 'jf-broken-art',
+    title: 'Broken Signal',
+    kind: 'series',
+    year: 2022,
+    overview: 'Demo item with intentionally failed artwork.',
+    posterUrl: 'http://example.invalid/broken-poster.jpg',
+    artworkState: 'failed',
+    playable: true,
+  },
+];
+
+const DEMO_AUTOMATION_SUMMARY: MediaStackAutomationSummaryDto = {
+  generatedAt: '2026-07-12T18:00:00Z',
+  services: [
+    { id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'Indexers reachable' },
+    { id: 'radarr', name: 'Radarr', status: 'healthy', detail: 'Indexers reachable' },
+    { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: 'One indexer slow to respond' },
+    { id: 'sabnzbd', name: 'SABnzbd', status: 'down', detail: 'Connection refused' },
+  ],
+  preview: [
+    { id: 'preview-1', title: 'Dune: Part Two', when: 'Tonight', kind: 'movie' },
+    { id: 'preview-2', title: 'The Expanse S4 E2', when: 'Tomorrow', kind: 'episode' },
+    { id: 'preview-3', title: 'Night Transit', when: 'Jul 15', kind: 'movie' },
+  ],
+  problems: [
+    { id: 'problem-1', summary: 'SABnzbd unreachable', serviceId: 'sabnzbd', severity: 'actionable' },
+    { id: 'problem-2', summary: 'Prowlarr indexer response slow', serviceId: 'prowlarr', severity: 'warning' },
+  ],
+};
+
+const PARTIAL_AUTOMATION_SUMMARY: MediaStackAutomationSummaryDto = {
+  generatedAt: '2026-07-12T18:00:00Z',
+  services: [
+    { id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'OK' },
+  ],
+  preview: [],
+  unavailable: { preview: true, problems: true },
 };
 
 const DEMO_CRON_LOGS: MediaStackCronLogsDto = {
@@ -179,6 +286,8 @@ function copyCronLogs(source: MediaStackCronLogsDto): MediaStackCronLogsDto {
   };
 }
 
+export type AutomationScenario = 'default' | 'partial' | 'empty';
+
 @Injectable()
 export class MockMediaStackApi implements MediaStackApi {
   private torrents = DEMO_TORRENTS.map((torrent) => ({ ...torrent }));
@@ -188,7 +297,13 @@ export class MockMediaStackApi implements MediaStackApi {
     series: { ...DEMO_LIBRARY.series },
     movies: { ...DEMO_LIBRARY.movies },
   };
+  private libraryItems = DEMO_LIBRARY_ITEMS.map((item) => ({ ...item }));
   private cronLogs = copyCronLogs(DEMO_CRON_LOGS);
+  private automationScenario: AutomationScenario = 'default';
+
+  setAutomationScenario(scenario: AutomationScenario): void {
+    this.automationScenario = scenario;
+  }
 
   listTorrents(): Promise<MediaStackTorrentDto[]> {
     return Promise.resolve(this.torrents.map((torrent) => ({ ...torrent })));
@@ -227,7 +342,24 @@ export class MockMediaStackApi implements MediaStackApi {
     });
   }
 
+  listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<MediaStackLibraryItemDto[]> {
+    const items = this.libraryItems
+      .filter((item) => !filter?.kind || item.kind === filter.kind)
+      .map((item) => ({ ...item }));
+    return Promise.resolve(items);
+  }
+
+  getAutomationSummary(): Promise<MediaStackAutomationSummaryDto> {
+    const summary =
+      this.automationScenario === 'partial'
+        ? PARTIAL_AUTOMATION_SUMMARY
+        : this.automationScenario === 'empty'
+          ? { generatedAt: '2026-07-12T18:00:00Z', services: [], preview: [], problems: [] }
+          : DEMO_AUTOMATION_SUMMARY;
+    return Promise.resolve(structuredClone(summary));
+  }
   listCronLogs(): Promise<MediaStackCronLogsDto> {
     return Promise.resolve(copyCronLogs(this.cronLogs));
   }
+
 }

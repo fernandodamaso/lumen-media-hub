@@ -1,11 +1,10 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { MmButton, MmPoster, MmStateCard } from 'media-ui';
 import { LibraryItemKind } from '../downloads/media-stack-api';
 import { LIBRARY_KIND_LABEL, libraryEmptyMessage } from './library-format';
 import { LibraryFacade } from './library.facade';
 
 @Component({
-  standalone: true,
   selector: 'mm-library-board',
   imports: [MmButton, MmPoster, MmStateCard],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -54,13 +53,8 @@ import { LibraryFacade } from './library.facade';
           @for (item of facade.items(); track item.id) {
             <article
               class="poster-card"
-              [class.poster-card--open]="openedId() === item.id"
               [attr.data-artwork]="item.artworkState"
               tabindex="0"
-              (focusin)="openCard(item.id)"
-              (focusout)="onCardFocusOut($event, item.id)"
-              (mouseenter)="openCard(item.id)"
-              (mouseleave)="closeCard(item.id)"
             >
               <mm-poster [title]="item.title" [meta]="item.meta" [art]="item.art" />
               <div class="poster-card__disclosure">
@@ -148,8 +142,7 @@ import { LibraryFacade } from './library.facade';
       pointer-events: none;
     }
     .poster-card:hover .poster-card__disclosure,
-    .poster-card:focus-within .poster-card__disclosure,
-    .poster-card--open .poster-card__disclosure {
+    .poster-card:focus-within .poster-card__disclosure {
       max-height: 140px;
       opacity: 1;
       padding: 10px 12px 12px;
@@ -185,24 +178,9 @@ import { LibraryFacade } from './library.facade';
 })
 export class LibraryBoard {
   readonly facade = inject(LibraryFacade);
-  readonly openedId = signal<string | null>(null);
 
   kindLabel(kind: LibraryItemKind): string {
     return LIBRARY_KIND_LABEL[kind];
-  }
-
-  openCard(id: string): void {
-    this.openedId.set(id);
-  }
-
-  closeCard(id: string): void {
-    if (this.openedId() === id) this.openedId.set(null);
-  }
-
-  onCardFocusOut(event: FocusEvent, id: string): void {
-    const next = event.relatedTarget as Node | null;
-    if (next && (event.currentTarget as Node).contains(next)) return;
-    this.closeCard(id);
   }
 
   setKind(kind: LibraryItemKind): void {

@@ -75,7 +75,7 @@ describe('LibraryBoard', () => {
     expect(facade.setKind).toHaveBeenCalledWith('series');
   });
 
-  it('reveals disclosure on focus without covering titles and links only when href is set', () => {
+  it('exposes a focusable DOM contract for disclosure without JS open state', () => {
     facade.status.set('ready');
     facade.items.set([
       {
@@ -105,15 +105,9 @@ describe('LibraryBoard', () => {
 
     const cards = Array.from(fixture.nativeElement.querySelectorAll('.poster-card')) as HTMLElement[];
     expect(cards).toHaveLength(2);
+    expect(cards[0].tabIndex).toBe(0);
     expect(cards[0].classList.contains('poster-card--open')).toBe(false);
-
-    cards[0].dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-    fixture.detectChanges();
-
-    expect(cards[0].classList.contains('poster-card--open')).toBe(true);
     expect(cards[0].querySelector('.poster-card__disclosure')?.textContent).toContain('A mythic desert world.');
-    expect(cards[0].textContent).toContain('Dune');
-    // Title lives on MmPoster above the disclosure block (not covered by overlay).
     expect(cards[0].querySelector('mm-poster')?.textContent).toContain('Dune');
 
     const links = Array.from(fixture.nativeElement.querySelectorAll('a.poster-card__link')) as HTMLAnchorElement[];

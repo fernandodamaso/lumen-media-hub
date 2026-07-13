@@ -63,7 +63,7 @@ describe('ReportsPage', () => {
     expect(firstActionable?.textContent).toContain('Watchdog');
   });
 
-  it('expands run detail on toggle', () => {
+  it('expands run detail via native details element', () => {
     facade.status.set('mixed');
     facade.summary.set({ kind: 'mixed', total: 1, actionable: 1, quiet: 0 });
     facade.runs.set([
@@ -74,7 +74,6 @@ describe('ReportsPage', () => {
     const details = fixture.nativeElement.querySelector('.run-list .run') as HTMLDetailsElement;
     expect(details.open).toBe(false);
     details.open = true;
-    details.dispatchEvent(new Event('toggle'));
     fixture.detectChanges();
     expect(details.open).toBe(true);
     expect(details.querySelector('.run-detail')?.textContent).toContain('Disk full');

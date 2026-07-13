@@ -1,10 +1,11 @@
-﻿import { TestBed } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import {
   CALENDAR_LINK_BASES,
   MEDIA_STACK_API,
   MediaStackApi,
   MediaStackArrLibraryDto,
+  MediaStackAutomationSummaryDto,
   MediaStackCalendarEventDto,
   MediaStackTorrentDto,
 } from '../downloads/media-stack-api';
@@ -194,5 +195,8 @@ class MockApi implements MediaStackApi {
   }
   listLibraryItems() {
     return Promise.resolve([]);
+  }
+  getAutomationSummary(): Promise<MediaStackAutomationSummaryDto> {
+    return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [] });
   }
 }

@@ -3,6 +3,7 @@ import {
   LibraryItemKind,
   MediaStackApi,
   MediaStackArrLibraryDto,
+  MediaStackAutomationSummaryDto,
   MediaStackCalendarEventDto,
   MediaStackLibraryItemDto,
   MediaStackTorrentDto,
@@ -136,6 +137,36 @@ const DEMO_LIBRARY_ITEMS: MediaStackLibraryItemDto[] = [
   },
 ];
 
+const DEMO_AUTOMATION_SUMMARY: MediaStackAutomationSummaryDto = {
+  generatedAt: '2026-07-12T18:00:00Z',
+  services: [
+    { id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'Indexers reachable' },
+    { id: 'radarr', name: 'Radarr', status: 'healthy', detail: 'Indexers reachable' },
+    { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: 'One indexer slow to respond' },
+    { id: 'sabnzbd', name: 'SABnzbd', status: 'down', detail: 'Connection refused' },
+  ],
+  preview: [
+    { id: 'preview-1', title: 'Dune: Part Two', when: 'Tonight', kind: 'movie' },
+    { id: 'preview-2', title: 'The Expanse S4 E2', when: 'Tomorrow', kind: 'episode' },
+    { id: 'preview-3', title: 'Night Transit', when: 'Jul 15', kind: 'movie' },
+  ],
+  problems: [
+    { id: 'problem-1', summary: 'SABnzbd unreachable', serviceId: 'sabnzbd', severity: 'actionable' },
+    { id: 'problem-2', summary: 'Prowlarr indexer response slow', serviceId: 'prowlarr', severity: 'warning' },
+  ],
+};
+
+const PARTIAL_AUTOMATION_SUMMARY: MediaStackAutomationSummaryDto = {
+  generatedAt: '2026-07-12T18:00:00Z',
+  services: [
+    { id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'OK' },
+  ],
+  preview: [],
+  unavailable: { preview: true, problems: true },
+};
+
+export type AutomationScenario = 'default' | 'partial' | 'empty';
+
 @Injectable()
 export class MockMediaStackApi implements MediaStackApi {
   private torrents = DEMO_TORRENTS.map((torrent) => ({ ...torrent }));
@@ -146,6 +177,11 @@ export class MockMediaStackApi implements MediaStackApi {
     movies: { ...DEMO_LIBRARY.movies },
   };
   private libraryItems = DEMO_LIBRARY_ITEMS.map((item) => ({ ...item }));
+  private automationScenario: AutomationScenario = 'default';
+
+  setAutomationScenario(scenario: AutomationScenario): void {
+    this.automationScenario = scenario;
+  }
 
   listTorrents(): Promise<MediaStackTorrentDto[]> {
     return Promise.resolve(this.torrents.map((torrent) => ({ ...torrent })));
@@ -189,5 +225,15 @@ export class MockMediaStackApi implements MediaStackApi {
       .filter((item) => !filter?.kind || item.kind === filter.kind)
       .map((item) => ({ ...item }));
     return Promise.resolve(items);
+  }
+
+  getAutomationSummary(): Promise<MediaStackAutomationSummaryDto> {
+    const summary =
+      this.automationScenario === 'partial'
+        ? PARTIAL_AUTOMATION_SUMMARY
+        : this.automationScenario === 'empty'
+          ? { generatedAt: '2026-07-12T18:00:00Z', services: [], preview: [], problems: [] }
+          : DEMO_AUTOMATION_SUMMARY;
+    return Promise.resolve(structuredClone(summary));
   }
 }

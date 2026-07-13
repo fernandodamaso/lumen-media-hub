@@ -87,6 +87,7 @@ export interface MediaStackApi {
   listCalendarEvents(): Promise<MediaStackCalendarEventDto[]>;
   getArrLibrary(): Promise<MediaStackArrLibraryDto>;
   listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<MediaStackLibraryItemDto[]>;
+  getAutomationSummary(): Promise<MediaStackAutomationSummaryDto>;
 }
 
 export const MEDIA_STACK_API = new InjectionToken<MediaStackApi>('MEDIA_STACK_API');
@@ -274,3 +275,159 @@ function normalizeState(state: string): TorrentState {
 function looksLikeEpisode(additional: string): boolean {
   return /^S\d+\s*E\d+/i.test(additional.trim());
 }
+
+// ---------------------------------------------------------------------------
+// Automation summary boundary
+// ---------------------------------------------------------------------------
+
+export type MediaStackAutomationServiceStatusDto =
+  | 'healthy'
+  | 'degraded'
+  | 'down'
+  | 'unknown';
+
+export interface MediaStackAutomationServiceDto {
+  id: string;
+  name: string;
+  status: string;
+  detail?: string;
+}
+
+export interface MediaStackAutomationPreviewItemDto {
+  id: string;
+  title: string;
+  when?: string;
+  kind?: string;
+}
+
+export interface MediaStackAutomationProblemDto {
+  id: string;
+  summary: string;
+  serviceId?: string;
+  severity?: string;
+}
+
+export interface MediaStackAutomationSummaryDto {
+  generatedAt: string;
+  services?: MediaStackAutomationServiceDto[] | null;
+  preview?: MediaStackAutomationPreviewItemDto[] | null;
+  problems?: MediaStackAutomationProblemDto[] | null;
+  unavailable?: {
+    services?: boolean;
+    preview?: boolean;
+    problems?: boolean;
+  };
+}
+
+export type AutomationServiceStatus = 'healthy' | 'degraded' | 'down' | 'unknown';
+export type AutomationProblemSeverity = 'actionable' | 'warning' | 'info';
+
+export interface AutomationService {
+  id: string;
+  name: string;
+  status: AutomationServiceStatus;
+  detail: string;
+}
+
+export interface AutomationPreviewItem {
+  id: string;
+  title: string;
+  when: string;
+  kind: string;
+}
+
+export interface AutomationProblem {
+  id: string;
+  summary: string;
+  serviceId: string | null;
+  severity: AutomationProblemSeverity;
+}
+
+export interface AutomationSectionAvailability {
+  services: 'present' | 'empty' | 'unavailable';
+  preview: 'present' | 'empty' | 'unavailable';
+  problems: 'present' | 'empty' | 'unavailable';
+}
+
+export interface AutomationSummary {
+  generatedAt: string;
+  services: AutomationService[];
+  preview: AutomationPreviewItem[];
+  problems: AutomationProblem[];
+  availability: AutomationSectionAvailability;
+}
+
+const AUTOMATION_SERVICE_STATUSES: AutomationServiceStatus[] = ['healthy', 'degraded', 'down', 'unknown'];
+const AUTOMATION_PROBLEM_SEVERITIES: AutomationProblemSeverity[] = ['actionable', 'warning', 'info'];
+
+const STATUS_RANK: Record<AutomationServiceStatus, number> = {
+  down: 0,
+  degraded: 1,
+  unknown: 2,
+  healthy: 3,
+};
+
+function normalizeAutomationStatus(status: string): AutomationServiceStatus {
+  const normalized = status?.toLowerCase() ?? '';
+  return AUTOMATION_SERVICE_STATUSES.includes(normalized as AutomationServiceStatus)
+    ? (normalized as AutomationServiceStatus)
+    : 'unknown';
+}
+
+function normalizeAutomationSeverity(severity: string): AutomationProblemSeverity {
+  const normalized = severity?.toLowerCase() ?? '';
+  return AUTOMATION_PROBLEM_SEVERITIES.includes(normalized as AutomationProblemSeverity)
+    ? (normalized as AutomationProblemSeverity)
+    : 'info';
+}
+
+function deriveSectionAvailability<T>(
+  items: T[] | null | undefined,
+  unavailableFlag: boolean | undefined,
+): 'present' | 'empty' | 'unavailable' {
+  if (unavailableFlag) return 'unavailable';
+  if (items == null) return 'unavailable';
+  return items.length > 0 ? 'present' : 'empty';
+}
+
+export const normalizeAutomationSummary = (dto: MediaStackAutomationSummaryDto): AutomationSummary => ({
+  generatedAt: dto.generatedAt ?? '',
+  services: (dto.services ?? []).map((service) => ({
+    id: service.id ?? '',
+    name: service.name ?? '',
+    status: normalizeAutomationStatus(service.status),
+    detail: service.detail ?? '',
+  })),
+  preview: (dto.preview ?? []).map((item) => ({
+    id: item.id ?? '',
+    title: item.title ?? '',
+    when: item.when ?? '',
+    kind: item.kind ?? '',
+  })),
+  problems: (dto.problems ?? []).map((problem) => ({
+    id: problem.id ?? '',
+    summary: problem.summary ?? '',
+    serviceId: problem.serviceId ?? null,
+    severity: normalizeAutomationSeverity(problem.severity ?? 'info'),
+  })),
+  availability: {
+    services: deriveSectionAvailability(dto.services, dto.unavailable?.services),
+    preview: deriveSectionAvailability(dto.preview, dto.unavailable?.preview),
+    problems: deriveSectionAvailability(dto.problems, dto.unavailable?.problems),
+  },
+});
+
+export interface AutomationHealthSummary {
+  overall: AutomationServiceStatus;
+  actionableCount: number;
+}
+
+export const summarizeAutomationHealth = (summary: AutomationSummary): AutomationHealthSummary => {
+  const sortedServices = [...summary.services].sort(
+    (left, right) => STATUS_RANK[left.status] - STATUS_RANK[right.status],
+  );
+  const overall = sortedServices[0]?.status ?? 'unknown';
+  const actionableCount = summary.problems.filter((problem) => problem.severity === 'actionable').length;
+  return { overall, actionableCount };
+};
+

@@ -81,4 +81,5 @@ class MockApi implements MediaStackApi {
   listCalendarEvents() { return Promise.resolve([]); }
   getArrLibrary() { return Promise.resolve({ ok: true, series: {}, movies: {} }); }
   listLibraryItems() { return Promise.resolve([]); }
+  getAutomationSummary() { return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [] }); }
 }

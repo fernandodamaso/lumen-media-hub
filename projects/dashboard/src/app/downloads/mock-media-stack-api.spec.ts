@@ -2,6 +2,26 @@ import { MediaStackApi, normalizeTorrent, summarizeDownloads } from './media-sta
 import { MockMediaStackApi } from './mock-media-stack-api';
 
 describe('MockMediaStackApi', () => {
+  it('provides deterministic automation summary with mixed service health', async () => {
+    const api = new MockMediaStackApi();
+    const summary = await api.getAutomationSummary();
+    expect(summary.generatedAt).toBe('2026-07-12T18:00:00Z');
+    expect(summary.services?.map((service) => service.id)).toEqual(['sonarr', 'radarr', 'prowlarr', 'sabnzbd']);
+    expect(summary.services?.some((service) => service.status === 'down')).toBe(true);
+    expect(summary.services?.some((service) => service.status === 'degraded')).toBe(true);
+    expect(summary.problems?.some((problem) => problem.severity === 'actionable')).toBe(true);
+    expect(summary.preview).toHaveLength(3);
+  });
+
+  it('provides a partial automation summary marking preview and problems unavailable', async () => {
+    const api = new MockMediaStackApi();
+    api.setAutomationScenario('partial');
+    const summary = await api.getAutomationSummary();
+    expect(summary.services).toHaveLength(1);
+    expect(summary.unavailable).toEqual({ preview: true, problems: true });
+    expect(summary.preview).toEqual([]);
+  });
+
   it('provides deterministic torrents and supports pause/resume all', async () => {
     const api: MediaStackApi = new MockMediaStackApi();
     const initial = await api.listTorrents();

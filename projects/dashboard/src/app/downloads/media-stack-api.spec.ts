@@ -1,4 +1,11 @@
-import { normalizeTorrent, summarizeDownloads, normalizeCalendarEvent } from './media-stack-api';
+import {
+  normalizeTorrent,
+  summarizeDownloads,
+  normalizeCalendarEvent,
+  normalizeAutomationSummary,
+  summarizeAutomationHealth,
+  AutomationSummary,
+} from './media-stack-api';
 
 describe('media-stack API boundary', () => {
   it('normalizes qBittorrent DTO state and progress without leaking raw fields', () => {
@@ -42,5 +49,94 @@ describe('media-stack API boundary', () => {
       subtitle: 'S1 E5',
       status: 'available',
     });
+  });
+
+  it('normalizes a healthy automation summary DTO into a domain summary', () => {
+    const summary = normalizeAutomationSummary({
+      generatedAt: '2026-07-12T18:00:00Z',
+      services: [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'OK' }],
+      preview: [{ id: 'p1', title: 'Dune', when: 'Jul 13', kind: 'movie' }],
+      problems: [{ id: 'x1', summary: 'Disk low', serviceId: 'radarr', severity: 'actionable' }],
+    });
+    expect(summary.generatedAt).toBe('2026-07-12T18:00:00Z');
+    expect(summary.services).toHaveLength(1);
+    expect(summary.services[0].status).toBe('healthy');
+    expect(summary.availability).toEqual({ services: 'present', preview: 'present', problems: 'present' });
+  });
+
+  it.each(['broken', 'OFFLINE', '', undefined as unknown as string])('clamps unknown or missing automation status %j to unknown', (status) => {
+    const summary = normalizeAutomationSummary({
+      generatedAt: '',
+      services: [{ id: 'x', name: 'X', status }],
+    });
+    expect(summary.services[0].status).toBe('unknown');
+  });
+
+  it('defaults missing problem severity to info', () => {
+    const summary = normalizeAutomationSummary({
+      generatedAt: '',
+      problems: [{ id: 'x', summary: 'X', severity: undefined as unknown as string }],
+    });
+    expect(summary.problems[0].severity).toBe('info');
+  });
+
+  it('marks null sections with unavailable flag as unavailable', () => {
+    const summary = normalizeAutomationSummary({
+      generatedAt: '',
+      services: null,
+      preview: [],
+      unavailable: { services: true },
+    });
+    expect(summary.availability).toEqual({ services: 'unavailable', preview: 'empty', problems: 'unavailable' });
+  });
+
+  it('marks undefined/null sections without flag as unavailable', () => {
+    const summary = normalizeAutomationSummary({
+      generatedAt: '',
+    });
+    expect(summary.availability).toEqual({ services: 'unavailable', preview: 'unavailable', problems: 'unavailable' });
+  });
+
+  it('defaults missing generatedAt and string fields to empty values', () => {
+    const summary = normalizeAutomationSummary({
+      generatedAt: undefined as unknown as string,
+      services: [{ id: undefined as unknown as string, name: undefined as unknown as string, status: 'down' }],
+      preview: [{ id: undefined as unknown as string, title: undefined as unknown as string }],
+      problems: [{ id: undefined as unknown as string, summary: undefined as unknown as string }],
+    });
+    expect(summary.generatedAt).toBe('');
+    expect(summary.services[0]).toEqual({ id: '', name: '', status: 'down', detail: '' });
+    expect(summary.preview[0]).toEqual({ id: '', title: '', when: '', kind: '' });
+    expect(summary.problems[0]).toEqual({ id: '', summary: '', serviceId: null, severity: 'info' });
+  });
+
+  it('summarizes overall health as worst service status and counts actionable problems', () => {
+    const summary: AutomationSummary = {
+      generatedAt: '',
+      services: [
+        { id: 'a', name: 'A', status: 'healthy', detail: '' },
+        { id: 'b', name: 'B', status: 'down', detail: '' },
+        { id: 'c', name: 'C', status: 'degraded', detail: '' },
+      ],
+      preview: [],
+      problems: [
+        { id: 'p1', summary: '', serviceId: null, severity: 'actionable' },
+        { id: 'p2', summary: '', serviceId: null, severity: 'actionable' },
+        { id: 'p3', summary: '', serviceId: null, severity: 'warning' },
+      ],
+      availability: { services: 'present', preview: 'empty', problems: 'present' },
+    };
+    expect(summarizeAutomationHealth(summary)).toEqual({ overall: 'down', actionableCount: 2 });
+  });
+
+  it('summarizes empty services as unknown with zero actionables', () => {
+    const summary: AutomationSummary = {
+      generatedAt: '',
+      services: [],
+      preview: [],
+      problems: [],
+      availability: { services: 'empty', preview: 'empty', problems: 'empty' },
+    };
+    expect(summarizeAutomationHealth(summary)).toEqual({ overall: 'unknown', actionableCount: 0 });
   });
 });

@@ -12,7 +12,8 @@
     "build:dashboard": "ng build dashboard --configuration production",
     "build:media-ui": "ng build media-ui --configuration production",
     "storybook": "ng run dashboard:storybook",
-    "build:storybook": "ng run dashboard:build-storybook"
+    "build:storybook": "ng run dashboard:build-storybook",
+    "build:pages": "node scripts/build-pages.mjs"
   },
   "private": true,
   "packageManager": "npm@11.13.0",

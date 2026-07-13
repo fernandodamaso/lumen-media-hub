@@ -38,6 +38,9 @@ yarn-error.log
 testem.log
 /typings
 __screenshots__/
+.playwright-cli/
+/storybook-static
+/documentation.json
 
 # System files
 .DS_Store

@@ -158,8 +158,8 @@ export class HttpMediaStackApi implements MediaStackApi {
   }
 
   /** Reject when ok === false (used when unwrapping to non-envelope values). */
-  private async getHardEnvelope<T extends OkEnvelope>(path: string): Promise<T> {
-    const data = await this.getRaw<T>(path);
+  private async getHardEnvelope<T>(path: string): Promise<T> {
+    const data = await this.getRaw<T & OkEnvelope>(path);
     this.rejectIfFailed(data, `GET ${path} failed`);
     return data;
   }

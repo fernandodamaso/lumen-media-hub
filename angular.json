@@ -22,7 +22,9 @@
           "builder": "@angular/build:application",
           "options": {
             "browser": "projects/dashboard/src/main.ts",
-            "polyfills": ["zone.js"],
+            "polyfills": [
+              "zone.js"
+            ],
             "tsConfig": "projects/dashboard/tsconfig.app.json",
             "inlineStyleLanguage": "scss",
             "assets": [
@@ -31,7 +33,9 @@
                 "input": "projects/dashboard/public"
               }
             ],
-            "styles": ["projects/dashboard/src/styles.scss"]
+            "styles": [
+              "projects/dashboard/src/styles.scss"
+            ]
           },
           "configurations": {
             "production": {
@@ -114,30 +118,6 @@
           "builder": "@angular/build:unit-test",
           "options": {
             "tsConfig": "projects/dashboard/tsconfig.spec.json"
-          }
-        },
-        "storybook": {
-          "builder": "@storybook/angular:start-storybook",
-          "options": {
-            "configDir": ".storybook",
-            "browserTarget": "dashboard:build:development",
-            "tsConfig": "tsconfig.storybook.json",
-            "port": 6006,
-            "compodoc": true,
-            "compodocArgs": ["-e", "json"],
-            "styles": ["projects/media-ui/src/lib/media-ui.scss"]
-          }
-        },
-        "build-storybook": {
-          "builder": "@storybook/angular:build-storybook",
-          "options": {
-            "configDir": ".storybook",
-            "browserTarget": "dashboard:build:production",
-            "tsConfig": "tsconfig.storybook.json",
-            "outputDir": "storybook-static",
-            "compodoc": true,
-            "compodocArgs": ["-e", "json"],
-            "styles": ["projects/media-ui/src/lib/media-ui.scss"]
           }
         }
       }

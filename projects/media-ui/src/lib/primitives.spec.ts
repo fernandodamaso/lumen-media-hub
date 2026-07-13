@@ -36,4 +36,13 @@ describe('media-ui primitives', () => {
     state.detectChanges();
     expect(state.nativeElement.querySelector('.mm-state-card--danger')).toBeTruthy();
   });
+
+  it('lets the primary button receive keyboard focus', () => {
+    const fixture = TestBed.createComponent(MmButton);
+    fixture.componentRef.setInput('label', 'Focus me');
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    button.focus();
+    expect(document.activeElement).toBe(button);
+  });
 });

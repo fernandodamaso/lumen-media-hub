@@ -5,7 +5,7 @@
 | Project | Role |
 |---------|------|
 | `dashboard` | Shell app: routes, feature facades, mock/HTTP adapters |
-| `media-ui` | Shared theme tokens, primitives, theme picker, Storybook stories |
+| `media-ui` | Shared theme tokens, primitives, theme picker |
 
 ## Data flow
 
@@ -57,5 +57,5 @@ Tokens live in `media-ui` SCSS. Three dark themes: Nocturne, Tokyo Night, GitHub
 
 - Contract and facade specs beside each feature
 - Shell navigation and home composition specs
-- Storybook for primitive keyboard / theme interaction (manual)
+- `/ui` catalog plus Vitest coverage for primitive keyboard / theme interaction
 - `build:pages` hygiene scan for static packaging readiness

@@ -82,5 +82,11 @@ class MockApi implements MediaStackApi {
   getArrLibrary() { return Promise.resolve({ ok: true, series: {}, movies: {} }); }
   listLibraryItems() { return Promise.resolve([]); }
   getAutomationSummary() { return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [] }); }
+  listHermesRecommendations() { return Promise.resolve({ ok: true, items: [] }); }
+  submitHermesFeedback() { return Promise.resolve({ ok: true }); }
+  requestHermesMore() { return Promise.resolve({ ok: true }); }
+  listJellyseerrDiscover() { return Promise.resolve({ ok: true, items: [] }); }
+  listTraktDiscover() { return Promise.resolve({ ok: true, items: [] }); }
+  requestMedia() { return Promise.resolve({ ok: true }); }
   listCronLogs() { return Promise.resolve({ ok: true, logs: [] }); }
 }

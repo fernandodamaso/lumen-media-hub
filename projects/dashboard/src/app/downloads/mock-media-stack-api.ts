@@ -1,5 +1,7 @@
 import { Injectable } from '@angular/core';
 import {
+  DiscoverFeedback,
+  JellyseerrDiscoverKind,
   LibraryItemKind,
   MediaStackApi,
   MediaStackArrLibraryDto,
@@ -7,8 +9,15 @@ import {
   MediaStackCalendarEventDto,
   MediaStackCronLogEntryDto,
   MediaStackCronLogsDto,
+  MediaStackDiscoverActionDto,
+  MediaStackDiscoverItemDto,
+  MediaStackDiscoverRequestPayload,
+  MediaStackExternalDiscoverDto,
+  MediaStackExternalDiscoverItemDto,
+  MediaStackHermesDiscoverDto,
   MediaStackLibraryItemDto,
   MediaStackTorrentDto,
+  TraktDiscoverType,
 } from './media-stack-api';
 
 const DEMO_TORRENTS: MediaStackTorrentDto[] = [
@@ -288,6 +297,197 @@ function copyCronLogs(source: MediaStackCronLogsDto): MediaStackCronLogsDto {
 
 export type AutomationScenario = 'default' | 'partial' | 'empty';
 
+const DEMO_HERMES: MediaStackDiscoverItemDto[] = [
+  {
+    id: 'hermes-eligible',
+    source: 'hermes',
+    type: 'movie',
+    title: 'Signal Drift',
+    year: 2024,
+    tmdb_id: 101001,
+    reason: 'Matches your sci-fi taste',
+    active: true,
+    feedback: null,
+    feedback_at: null,
+    request_state: null,
+    requested_at: null,
+    jellyseerr_request_id: null,
+    in_library: false,
+    poster_url: null,
+    added_at: '2026-07-10T12:00:00Z',
+  },
+  {
+    id: 'hermes-in-library',
+    source: 'hermes',
+    type: 'tv',
+    title: 'Harbor Lights',
+    year: 2023,
+    tmdb_id: 101002,
+    reason: 'Serialized drama you already own',
+    active: true,
+    feedback: null,
+    feedback_at: null,
+    request_state: null,
+    requested_at: null,
+    jellyseerr_request_id: null,
+    in_library: true,
+    jellyfin_id: 'jf-harbor',
+    poster_url: null,
+    added_at: '2026-07-10T12:05:00Z',
+  },
+  {
+    id: 'hermes-requested',
+    source: 'hermes',
+    type: 'movie',
+    title: 'Glass Atlas',
+    year: 2025,
+    tmdb_id: 101003,
+    reason: 'Already requested earlier',
+    active: true,
+    feedback: null,
+    feedback_at: null,
+    request_state: 'requested',
+    requested_at: '2026-07-09T09:00:00Z',
+    jellyseerr_request_id: 9001,
+    in_library: false,
+    poster_url: null,
+    added_at: '2026-07-08T12:00:00Z',
+  },
+  {
+    id: 'hermes-no-tmdb',
+    source: 'hermes',
+    type: 'movie',
+    title: 'Untitled Cut',
+    year: null,
+    tmdb_id: 0,
+    reason: 'Missing catalog identity',
+    active: true,
+    feedback: null,
+    feedback_at: null,
+    request_state: null,
+    requested_at: null,
+    jellyseerr_request_id: null,
+    in_library: false,
+    poster_url: null,
+    added_at: '2026-07-10T13:00:00Z',
+  },
+  {
+    id: 'hermes-sync-failed',
+    source: 'hermes',
+    type: 'tv',
+    title: 'Night Courier',
+    year: 2022,
+    tmdb_id: 101005,
+    reason: 'Eligible until a sync-failed request',
+    active: true,
+    feedback: null,
+    feedback_at: null,
+    request_state: null,
+    requested_at: null,
+    jellyseerr_request_id: null,
+    in_library: false,
+    poster_url: null,
+    added_at: '2026-07-10T14:00:00Z',
+  },
+  {
+    id: 'hermes-history-liked',
+    source: 'hermes',
+    type: 'movie',
+    title: 'Copper Skies',
+    year: 2021,
+    tmdb_id: 201001,
+    active: false,
+    feedback: 'liked',
+    feedback_at: '2026-07-01T10:00:00Z',
+    request_state: null,
+    requested_at: null,
+    jellyseerr_request_id: null,
+    in_library: false,
+    poster_url: null,
+    added_at: '2026-06-20T12:00:00Z',
+  },
+  {
+    id: 'hermes-history-watched',
+    source: 'hermes',
+    type: 'tv',
+    title: 'River Protocol',
+    year: 2020,
+    tmdb_id: 201002,
+    active: false,
+    feedback: 'watched',
+    feedback_at: '2026-07-02T10:00:00Z',
+    request_state: null,
+    requested_at: null,
+    jellyseerr_request_id: null,
+    in_library: true,
+    poster_url: null,
+    added_at: '2026-06-21T12:00:00Z',
+  },
+  {
+    id: 'hermes-history-disliked',
+    source: 'hermes',
+    type: 'movie',
+    title: 'Static Bloom',
+    year: 2019,
+    tmdb_id: 201003,
+    active: false,
+    feedback: 'disliked',
+    feedback_at: '2026-07-03T10:00:00Z',
+    request_state: null,
+    requested_at: null,
+    jellyseerr_request_id: null,
+    in_library: false,
+    poster_url: null,
+    added_at: '2026-06-22T12:00:00Z',
+  },
+  {
+    id: 'hermes-history-skipped',
+    source: 'hermes',
+    type: 'tv',
+    title: 'Quiet Frequency',
+    year: 2018,
+    tmdb_id: 201004,
+    active: false,
+    feedback: 'skipped',
+    feedback_at: '2026-07-04T10:00:00Z',
+    request_state: 'requested',
+    requested_at: '2026-07-04T11:00:00Z',
+    jellyseerr_request_id: 9002,
+    in_library: false,
+    poster_url: null,
+    added_at: '2026-06-23T12:00:00Z',
+  },
+];
+
+const DEMO_JELLYSEERR: Record<JellyseerrDiscoverKind, MediaStackExternalDiscoverItemDto[]> = {
+  trending: [
+    { id: 'js-trending-1', source: 'jellyseerr', type: 'movie', title: 'Trending Ember', year: 2026, tmdb_id: 301001, overview: 'Jellyseerr trending movie' },
+    { id: 'js-trending-2', source: 'jellyseerr', type: 'tv', title: 'Trending Tide', year: 2025, tmdb_id: 301002, overview: 'Jellyseerr trending show' },
+  ],
+  movies: [
+    { id: 'js-movies-1', source: 'jellyseerr', type: 'movie', title: 'Neon Archive', year: 2024, tmdb_id: 302001, overview: 'Jellyseerr movies feed' },
+    { id: 'js-movies-2', source: 'jellyseerr', type: 'movie', title: 'Paper Orbit', year: 2023, tmdb_id: 302002, overview: 'Jellyseerr movies feed' },
+  ],
+  tv: [
+    { id: 'js-tv-1', source: 'jellyseerr', type: 'tv', title: 'Channel Zero Point', year: 2024, tmdb_id: 303001, overview: 'Jellyseerr tv feed' },
+    { id: 'js-tv-2', source: 'jellyseerr', type: 'tv', title: 'Late Broadcast', year: 2022, tmdb_id: 303002, overview: 'Jellyseerr tv feed' },
+  ],
+};
+
+const DEMO_TRAKT: Record<TraktDiscoverType, MediaStackExternalDiscoverItemDto[]> = {
+  movies: [
+    { id: 'trakt-movies-1', source: 'trakt', type: 'movie', title: 'Trakt Horizon', year: 2025, tmdb_id: 401001, overview: 'Trakt movies feed' },
+    { id: 'trakt-movies-2', source: 'trakt', type: 'movie', title: 'Trakt Meridian', year: 2024, tmdb_id: 401002, overview: 'Trakt movies feed' },
+  ],
+  shows: [
+    { id: 'trakt-shows-1', source: 'trakt', type: 'tv', title: 'Trakt Relay', year: 2025, tmdb_id: 402001, overview: 'Trakt shows feed' },
+    { id: 'trakt-shows-2', source: 'trakt', type: 'tv', title: 'Trakt Cascade', year: 2023, tmdb_id: 402002, overview: 'Trakt shows feed' },
+  ],
+};
+
+/** Fixture id that simulates dashboard_state_persisted: false on request. */
+export const MOCK_SYNC_FAILED_HERMES_ID = 'hermes-sync-failed';
+
 @Injectable()
 export class MockMediaStackApi implements MediaStackApi {
   private torrents = DEMO_TORRENTS.map((torrent) => ({ ...torrent }));
@@ -297,6 +497,11 @@ export class MockMediaStackApi implements MediaStackApi {
     series: { ...DEMO_LIBRARY.series },
     movies: { ...DEMO_LIBRARY.movies },
   };
+  private hermesItems = DEMO_HERMES.map((item) => ({ ...item }));
+  private hermesMorePending = false;
+  private hermesMoreRequestedAt: string | null = null;
+  private nextJellyseerrRequestId = 9100;
+  private requestedKeys = new Set<string>();
   private libraryItems = DEMO_LIBRARY_ITEMS.map((item) => ({ ...item }));
   private cronLogs = copyCronLogs(DEMO_CRON_LOGS);
   private automationScenario: AutomationScenario = 'default';
@@ -342,6 +547,7 @@ export class MockMediaStackApi implements MediaStackApi {
     });
   }
 
+
   listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<MediaStackLibraryItemDto[]> {
     const items = this.libraryItems
       .filter((item) => !filter?.kind || item.kind === filter.kind)
@@ -362,4 +568,128 @@ export class MockMediaStackApi implements MediaStackApi {
     return Promise.resolve(copyCronLogs(this.cronLogs));
   }
 
+
+  listHermesRecommendations(): Promise<MediaStackHermesDiscoverDto> {
+    const pending_request_sync = this.hermesItems
+      .filter((item) => item.id === MOCK_SYNC_FAILED_HERMES_ID && item.jellyseerr_request_id && item.request_state == null)
+      .map((item) => ({ id: item.id, jellyseerr_request_id: item.jellyseerr_request_id as number }));
+    return Promise.resolve({
+      ok: true,
+      items: this.hermesItems.map((item) => ({ ...item })),
+      pending_request_sync,
+      generation_request: this.hermesMorePending && this.hermesMoreRequestedAt
+        ? { requested_at: this.hermesMoreRequestedAt, status: 'pending' }
+        : null,
+    });
+  }
+
+  submitHermesFeedback(id: string, feedback: DiscoverFeedback, notes?: string): Promise<MediaStackDiscoverActionDto> {
+    const item = this.hermesItems.find((candidate) => candidate.id === id);
+    if (!item) {
+      return Promise.resolve({ ok: false, error: 'Recommendation not found' });
+    }
+    item.feedback = feedback;
+    item.feedback_at = new Date().toISOString();
+    item.active = false;
+    if (notes !== undefined) {
+      item.notes = notes;
+    }
+    return Promise.resolve({ ok: true, message: 'Feedback saved' });
+  }
+
+  requestHermesMore(): Promise<MediaStackDiscoverActionDto> {
+    if (this.hermesMorePending) {
+      return Promise.resolve({
+        ok: true,
+        already_pending: true,
+        queued: false,
+        message: 'A recommendation refresh is already pending',
+        requested_at: this.hermesMoreRequestedAt ?? undefined,
+      });
+    }
+    this.hermesMorePending = true;
+    this.hermesMoreRequestedAt = new Date().toISOString();
+    return Promise.resolve({
+      ok: true,
+      queued: true,
+      already_pending: false,
+      message: 'More recommendations queued',
+      requested_at: this.hermesMoreRequestedAt,
+    });
+  }
+
+  listJellyseerrDiscover(kind: JellyseerrDiscoverKind): Promise<MediaStackExternalDiscoverDto> {
+    return Promise.resolve({
+      ok: true,
+      items: (DEMO_JELLYSEERR[kind] ?? []).map((item) => ({ ...item })),
+    });
+  }
+
+  listTraktDiscover(type: TraktDiscoverType): Promise<MediaStackExternalDiscoverDto> {
+    return Promise.resolve({
+      ok: true,
+      items: (DEMO_TRAKT[type] ?? []).map((item) => ({ ...item })),
+    });
+  }
+
+  requestMedia(payload: MediaStackDiscoverRequestPayload): Promise<MediaStackDiscoverActionDto> {
+    if (!payload.mediaId) {
+      return Promise.resolve({ ok: false, error: 'Cannot request — missing TMDB id' });
+    }
+
+    const identityKey = `${payload.mediaType}:${payload.mediaId}`;
+    const hermesItem = payload.hermesId
+      ? this.hermesItems.find((item) => item.id === payload.hermesId)
+      : this.hermesItems.find(
+          (item) => item.tmdb_id === payload.mediaId && item.type === payload.mediaType,
+        );
+
+    if (hermesItem?.request_state === 'requested' || this.requestedKeys.has(identityKey)) {
+      return Promise.resolve({
+        ok: true,
+        message: 'Already requested',
+        jellyseerr_request_id: hermesItem?.jellyseerr_request_id ?? null,
+        dashboard_state_persisted: true,
+      });
+    }
+
+    const requestId = this.nextJellyseerrRequestId++;
+    const requestedAt = new Date().toISOString();
+    const syncFailed = hermesItem?.id === MOCK_SYNC_FAILED_HERMES_ID;
+
+    if (hermesItem) {
+      if (syncFailed) {
+        // Arr accepted the request but dashboard state did not persist — leave request_state null.
+        hermesItem.jellyseerr_request_id = requestId;
+        return Promise.resolve({
+          ok: true,
+          partial_success: true,
+          jellyseerr_request_id: requestId,
+          dashboard_state_persisted: false,
+          reconciliation_queued: true,
+          message: 'Added to Sonarr/Radarr; dashboard synchronization failed.',
+          requested_at: requestedAt,
+        });
+      }
+      hermesItem.request_state = 'requested';
+      hermesItem.requested_at = requestedAt;
+      hermesItem.jellyseerr_request_id = requestId;
+    }
+
+    this.requestedKeys.add(identityKey);
+
+    return Promise.resolve({
+      ok: true,
+      jellyseerr_request_id: requestId,
+      dashboard_state_persisted: true,
+      message: 'Requested',
+      requested_at: requestedAt,
+    });
+  }
+
+  /** Test helper: clear generation pending so request-more can queue again. */
+  resetHermesMorePending(): void {
+    this.hermesMorePending = false;
+    this.hermesMoreRequestedAt = null;
+  }
 }

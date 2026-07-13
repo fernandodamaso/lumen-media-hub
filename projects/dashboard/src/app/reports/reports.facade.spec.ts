@@ -194,6 +194,24 @@ class MockApi implements MediaStackApi {
   getAutomationSummary() {
     return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [] });
   }
+  listHermesRecommendations() {
+    return Promise.resolve({ ok: true, items: [] });
+  }
+  submitHermesFeedback() {
+    return Promise.resolve({ ok: true });
+  }
+  requestHermesMore() {
+    return Promise.resolve({ ok: true });
+  }
+  listJellyseerrDiscover() {
+    return Promise.resolve({ ok: true, items: [] });
+  }
+  listTraktDiscover() {
+    return Promise.resolve({ ok: true, items: [] });
+  }
+  requestMedia() {
+    return Promise.resolve({ ok: true });
+  }
   listCronLogs(): Promise<MediaStackCronLogsDto> {
     this.listCalls++;
     if (this.failure) return Promise.reject(new Error('offline'));

@@ -131,7 +131,7 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
   `,
   styles: `
     :host { display: block; }
-    .automation { margin-top: 52px; }
+    .automation { margin-top: 0; }
     .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
     h2 { margin: 0; color: var(--mm-component-text-primary); font-size: 24px; }
     .section-copy { margin-top: 6px; color: var(--mm-component-text-secondary); font-size: 14px; }
@@ -146,6 +146,12 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
     .tile-title { color: var(--mm-component-text-primary); font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tile-detail { color: var(--mm-component-text-muted); font-size: 12px; }
     .tile-empty { margin: 0; color: var(--mm-component-text-muted); font-size: 14px; }
+    @container (max-width: 520px) {
+      .tile-grid { grid-template-columns: 1fr; }
+      .section-heading { align-items: start; flex-direction: column; }
+      .preview-row { grid-template-columns: minmax(0, 1fr); }
+      .tile-row { grid-template-columns: minmax(0, 1fr); }
+    }
     @media (max-width: 950px) {
       .tile-grid { grid-template-columns: 1fr; }
       .section-heading { align-items: start; flex-direction: column; }

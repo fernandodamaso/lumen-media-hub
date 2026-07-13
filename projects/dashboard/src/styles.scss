@@ -7,7 +7,3 @@ h1, p { margin: 0; }
 .eyebrow { margin-bottom: 12px; color: var(--mm-semantic-accent); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 h1 { font-size: 42px; line-height: 1.1; letter-spacing: -.03em; }
 .lede { margin-top: 12px; color: var(--mm-semantic-text-secondary); font-size: 17px; }
-.metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 44px; }
-.metric-grid article { display: grid; gap: 18px; min-height: 124px; padding: 20px; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-md); background: var(--mm-component-card-bg); }
-.metric-grid span { color: var(--mm-component-text-muted); font-size: 13px; }
-.metric-grid strong { align-self: end; font-size: 22px; }

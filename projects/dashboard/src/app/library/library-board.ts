@@ -81,7 +81,7 @@ import { LibraryFacade } from './library.facade';
   `,
   styles: `
     :host { display: block; }
-    .library { margin-top: 52px; }
+    .library { margin-top: 0; }
     .section-heading {
       display: flex;
       align-items: end;

@@ -66,6 +66,13 @@ describe('AutomationBoard', () => {
     expect(fixture.nativeElement.querySelector('.mm-status--danger')?.textContent).toContain('Down');
   });
 
+  it('declares container-query compact layout for narrow dashboard tracks', () => {
+    fixture.detectChanges();
+    const styles = componentStyles();
+    expect(styles).toContain('@container (max-width: 520px)');
+    expect(styles).toMatch(/@container \(max-width: 520px\)[\s\S]*\.tile-grid[\s\S]*grid-template-columns:\s*1fr/);
+  });
+
   it('renders a partial banner and unavailable preview copy', () => {
     facade.status.set('partial');
     facade.summary.set({
@@ -146,4 +153,10 @@ function createFacade() {
     startPolling: vi.fn(),
     refresh,
   };
+}
+
+function componentStyles(): string {
+  return Array.from(document.querySelectorAll('style'))
+    .map((node) => node.textContent ?? '')
+    .join('\n');
 }

@@ -15,7 +15,7 @@ import { LibraryFacade } from './library.facade';
         <div>
           <p class="eyebrow">Collection</p>
           <h2 id="library-heading">Library</h2>
-          <p class="section-copy">Browse demo movies and series with stable poster fallbacks.</p>
+          <p class="section-copy">Browse movies and series in the local library.</p>
         </div>
         <div class="switcher" aria-label="Library collection">
           <button
@@ -42,13 +42,13 @@ import { LibraryFacade } from './library.facade';
       </div>
 
       @if (facade.status() === 'loading') {
-        <mm-state-card icon="◌" title="Loading library" message="Fetching the demo catalog…" />
+        <mm-state-card kind="loading" title="Loading library" message="Fetching the demo catalog…" />
       } @else if (facade.status() === 'error') {
-        <mm-state-card icon="!" title="Library unavailable" [message]="facade.error()" tone="danger">
+        <mm-state-card kind="error" title="Library unavailable" [message]="facade.error()" tone="danger">
           <mm-button label="Try again" (click)="retry()" />
         </mm-state-card>
       } @else if (facade.status() === 'empty') {
-        <mm-state-card icon="∅" title="Nothing here" [message]="emptyMessage()" />
+        <mm-state-card kind="empty" title="Nothing here" [message]="emptyMessage()" />
       } @else {
         <div class="poster-grid" aria-live="polite">
           @for (item of facade.items(); track item.id) {
@@ -70,6 +70,8 @@ import { LibraryFacade } from './library.facade';
                 @if (item.href) {
                   <a class="poster-card__link" [href]="item.href" target="_blank" rel="noreferrer">
                     Open in Jellyfin
+                    <span class="external-hint" aria-hidden="true">↗</span>
+                    <span class="sr-only"> (opens in a new tab)</span>
                   </a>
                 }
               </div>
@@ -87,7 +89,7 @@ import { LibraryFacade } from './library.facade';
       align-items: end;
       justify-content: space-between;
       gap: 16px;
-      margin-bottom: 18px;
+      margin-bottom: 14px;
       flex-wrap: wrap;
     }
     h2 { margin: 0; color: var(--mm-component-text-primary); font-size: 24px; }
@@ -111,10 +113,20 @@ import { LibraryFacade } from './library.facade';
       color: var(--mm-component-text-secondary);
       cursor: pointer;
       font: 700 13px/1 var(--mm-font-body);
+      transition: background var(--mm-transition-fast), color var(--mm-transition-fast);
     }
-    .switcher__tab--active {
+    .switcher__tab:hover {
       background: var(--mm-component-muted-bg);
       color: var(--mm-component-text-primary);
+    }
+    .switcher__tab:focus-visible {
+      outline: 3px solid var(--mm-component-focus-ring);
+      outline-offset: 2px;
+    }
+    .switcher__tab--active,
+    .switcher__tab[aria-pressed='true'] {
+      background: color-mix(in srgb, var(--mm-component-accent) 12%, transparent);
+      color: var(--mm-component-accent);
     }
     .switcher__count {
       color: var(--mm-component-text-muted);
@@ -122,8 +134,8 @@ import { LibraryFacade } from './library.facade';
     }
     .poster-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 18px;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 14px;
     }
     .poster-card {
       display: grid;
@@ -133,6 +145,7 @@ import { LibraryFacade } from './library.facade';
     .poster-card :is(mm-poster) {
       display: block;
       width: 100%;
+      max-width: 140px;
     }
     .poster-card__disclosure {
       display: grid;
@@ -144,7 +157,7 @@ import { LibraryFacade } from './library.facade';
       border: 1px solid transparent;
       border-radius: 0 0 var(--mm-radius-md) var(--mm-radius-md);
       background: var(--mm-component-card-bg);
-      transition: max-height .2s ease, opacity .18s ease, padding .18s ease;
+      transition: max-height var(--mm-transition-normal), opacity var(--mm-transition-fast), padding var(--mm-transition-fast);
       pointer-events: none;
     }
     .poster-card:hover .poster-card__disclosure,
@@ -156,6 +169,11 @@ import { LibraryFacade } from './library.facade';
       border-color: var(--mm-component-border);
       border-top-color: transparent;
       pointer-events: auto;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .poster-card__disclosure {
+        transition: none;
+      }
     }
     .poster-card__overview {
       margin: 0;
@@ -176,6 +194,21 @@ import { LibraryFacade } from './library.facade';
     .poster-card__link:hover,
     .poster-card__link:focus-visible {
       text-decoration: underline;
+    }
+    .external-hint {
+      margin-left: 4px;
+      font-weight: 700;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
     .poster-card:focus-visible {
       box-shadow: 0 0 0 2px var(--mm-component-accent);

@@ -20,7 +20,7 @@ export const CorePrimitives: Story = {
       <section style="display:flex;gap:10px;flex-wrap:wrap"><mm-status tone="success">Ready</mm-status><mm-status tone="warning">Needs review</mm-status><mm-status tone="danger">Failed</mm-status></section>
       <mm-progress [value]="68" label="Transcoding" />
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px"><mm-poster title="The Long Night" meta="2026 · 2h 08m" /><mm-poster title="Empty shelf" meta="No titles yet" art="linear-gradient(145deg, var(--mm-component-muted-bg), var(--mm-component-card-bg) 65%)" /><mm-poster title="Queued" meta="Queued · 24%" art="linear-gradient(145deg, var(--mm-component-warning), var(--mm-component-card-bg) 65%)" /></div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px"><mm-state-card icon="◌" title="Loading" message="Fetching media" /><mm-state-card icon="□" title="Empty" message="Nothing has been added" /><mm-state-card tone="danger" icon="!" title="Error" message="Try again" /></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px"><mm-state-card kind="loading" title="Loading" message="Fetching media" /><mm-state-card kind="empty" title="Empty" message="Nothing has been added" /><mm-state-card tone="danger" kind="error" title="Error" message="Try again" /></div>
     </main>`,
   }),
 };

@@ -27,11 +27,11 @@ describe('App shell', () => {
   });
 
   it.each([
-    ['/', 'Dashboard', 'Library first, operations beside it, and upcoming media in a supporting rail.'],
-    ['/dashboard', 'Dashboard', 'Library first, operations beside it, and upcoming media in a supporting rail.'],
-    ['/reports', 'Reports', 'Triage automation history'],
-    ['/discover', 'Discover', 'Explore Hermes, Jellyseerr, and Trakt picks'],
-    ['/ui', 'UI catalog', 'Explore the shared primitives that power the dashboard shell.'],
+    ['/', 'Dashboard', 'Library, downloads, automation, and upcoming releases.'],
+    ['/dashboard', 'Dashboard', 'Library, downloads, automation, and upcoming releases.'],
+    ['/reports', 'Reports', 'Failed and actionable automation runs first'],
+    ['/discover', 'Discover', 'Browse Hermes, Jellyseerr, and Trakt recommendations'],
+    ['/ui', 'UI catalog', 'Shared primitives used by the dashboard shell.'],
   ])('recognizes %s as %s and renders its destination', async (url, heading, lede) => {
     const harness = await RouterTestingHarness.create();
     const router = TestBed.inject(Router);

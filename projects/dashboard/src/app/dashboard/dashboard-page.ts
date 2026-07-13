@@ -18,7 +18,7 @@ import { LibraryFacade } from '../library/library.facade';
     <section class="page-intro region region--intro">
       <p class="eyebrow">Overview</p>
       <h1>Dashboard</h1>
-      <p class="lede">Library first, operations beside it, and upcoming media in a supporting rail.</p>
+      <p class="lede">Library, downloads, automation, and upcoming releases.</p>
     </section>
 
     <div class="home-grid" data-testid="home-grid">
@@ -48,8 +48,8 @@ import { LibraryFacade } from '../library/library.facade';
       grid-template-areas:
         'library library calendar'
         'downloads automation calendar';
-      gap: 28px;
-      margin-top: 36px;
+      gap: 22px;
+      margin-top: 28px;
       align-items: start;
     }
 

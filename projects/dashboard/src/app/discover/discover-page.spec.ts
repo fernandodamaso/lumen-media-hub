@@ -27,7 +27,7 @@ describe('DiscoverPage', () => {
     facade.status.set('ready');
     facade.visibleItems.set([card({ title: 'Signal Drift' })]);
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Explore Hermes');
+    expect(fixture.nativeElement.textContent).toContain('Browse Hermes');
 
     clickTab('Jellyseerr');
     expect(facade.setTab).toHaveBeenCalledWith('jellyseerr');
@@ -46,7 +46,7 @@ describe('DiscoverPage', () => {
     const noTmdb = buttons.find((button) => button.textContent?.includes('No TMDB ID'))!;
     expect(noTmdb.disabled).toBe(true);
 
-    const liked = buttons.find((button) => button.textContent?.includes('Liked'))!;
+    const liked = buttons.find((button) => button.getAttribute('aria-label') === 'Liked')!;
     liked.click();
     expect(facade.submitFeedback).toHaveBeenCalledWith('no-tmdb', 'liked');
     expect(facade.requestItem).not.toHaveBeenCalled();

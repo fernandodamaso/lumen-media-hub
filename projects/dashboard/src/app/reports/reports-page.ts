@@ -13,7 +13,7 @@ import { ReportsFacade } from './reports.facade';
     <section class="page-intro">
       <p class="eyebrow">Workspace</p>
       <h1>Reports</h1>
-      <p class="lede">Triage automation history — failed and actionable runs first, quiet successes when you need them.</p>
+      <p class="lede">Failed and actionable automation runs first; expand quiet successes when needed.</p>
     </section>
 
     <div class="toolbar">
@@ -38,13 +38,13 @@ import { ReportsFacade } from './reports.facade';
     }
 
     @if (facade.status() === 'loading') {
-      <mm-state-card icon="◌" title="Loading reports" message="Checking recent automation runs…" />
+      <mm-state-card kind="loading" title="Loading reports" message="Checking recent automation runs…" />
     } @else if (facade.status() === 'error') {
-      <mm-state-card icon="!" title="Reports unavailable" [message]="facade.error()" tone="danger">
+      <mm-state-card kind="error" title="Reports unavailable" [message]="facade.error()" tone="danger">
         <mm-button label="Try again" (click)="refresh()" />
       </mm-state-card>
     } @else if (facade.status() === 'empty') {
-      <mm-state-card icon="∅" title="No cron history yet" message="Automation runs will appear here once logs are available." />
+      <mm-state-card kind="empty" title="No cron history yet" message="Automation runs will appear here once logs are available." />
     } @else {
       @if (facade.status() === 'allClear') {
         <p class="health" role="status">
@@ -130,17 +130,47 @@ import { ReportsFacade } from './reports.facade';
       border: 1px solid var(--mm-component-border);
       border-radius: var(--mm-radius-md);
       background: var(--mm-component-card-bg);
+      transition: border-color var(--mm-transition-fast), background var(--mm-transition-fast);
+    }
+    .run:hover {
+      border-color: color-mix(in srgb, var(--mm-component-accent) 35%, var(--mm-component-border));
     }
     .run > summary {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       cursor: pointer;
       list-style: none;
     }
-    .run > summary::-webkit-details-marker { display: none; }
+    .run > summary::-webkit-details-marker {
+      display: none;
+    }
+    .run > summary::before {
+      content: '▸';
+      flex: 0 0 auto;
+      color: var(--mm-component-text-muted);
+      font-size: 12px;
+      line-height: 1;
+      transition: transform var(--mm-transition-fast);
+    }
+    .run[open] > summary::before {
+      transform: rotate(90deg);
+    }
+    .run > summary:hover {
+      color: var(--mm-component-text-primary);
+    }
+    .run > summary:focus-visible {
+      outline: 3px solid var(--mm-component-focus-ring);
+      outline-offset: 2px;
+      border-radius: var(--mm-radius-sm);
+    }
     .run-head {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto auto;
       align-items: center;
       gap: 12px;
+      flex: 1;
+      min-width: 0;
     }
     .run-head strong {
       color: var(--mm-component-text-primary);
@@ -176,6 +206,27 @@ import { ReportsFacade } from './reports.facade';
       color: var(--mm-component-text-secondary);
       font-size: 14px;
       font-weight: 600;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .quiet-section > summary::-webkit-details-marker {
+      display: none;
+    }
+    .quiet-section > summary::before {
+      content: '▸';
+      color: var(--mm-component-text-muted);
+      font-size: 12px;
+      transition: transform var(--mm-transition-fast);
+    }
+    .quiet-section[open] > summary::before {
+      transform: rotate(90deg);
+    }
+    .quiet-section > summary:focus-visible {
+      outline: 3px solid var(--mm-component-focus-ring);
+      outline-offset: 2px;
+      border-radius: var(--mm-radius-sm);
     }
     .quiet-list { margin-top: 12px; }
     @media (max-width: 700px) {

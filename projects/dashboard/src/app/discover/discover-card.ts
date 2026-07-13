@@ -16,7 +16,6 @@ const FEEDBACK_OPTIONS: { value: DiscoverFeedback; label: string }[] = [
 ];
 
 @Component({
-  standalone: true,
   selector: 'mm-discover-card',
   imports: [MmButton, MmPoster, MmStatus],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -65,7 +64,7 @@ const FEEDBACK_OPTIONS: { value: DiscoverFeedback; label: string }[] = [
               [disabled]="requestAction().disabled || busy()"
               [busy]="busy()"
               variant="quiet"
-              (click)="onRequest()"
+              (click)="request.emit()"
             />
           </span>
         </div>
@@ -126,10 +125,5 @@ export class DiscoverCard {
 
   requestAction() {
     return resolveRequestAction(this.item(), { syncFailed: this.syncFailed() });
-  }
-
-  onRequest(): void {
-    if (this.requestAction().disabled || this.busy()) return;
-    this.request.emit();
   }
 }

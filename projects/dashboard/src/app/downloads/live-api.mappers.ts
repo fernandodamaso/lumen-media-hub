@@ -124,17 +124,11 @@ export function mapLiveJellyfinItem(
 function serviceStatus(
   block: LiveAutomationServiceBlock | undefined,
   degraded: boolean,
-): { status: string; detail: string } {
-  if (!block) {
-    return { status: 'unknown', detail: 'No data' };
-  }
-  if (block.ok === false || block.error) {
-    return { status: 'down', detail: block.error || 'Unreachable' };
-  }
-  if (degraded) {
-    return { status: 'degraded', detail: 'Attention needed' };
-  }
-  return { status: 'healthy', detail: 'Reachable' };
+): string {
+  if (!block) return 'unknown';
+  if (block.ok === false || block.error) return 'down';
+  if (degraded) return 'degraded';
+  return 'healthy';
 }
 
 function sonarrDetail(block: LiveAutomationServiceBlock | undefined): string {
@@ -201,25 +195,25 @@ export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStac
     {
       id: 'sonarr',
       name: 'Sonarr',
-      status: serviceStatus(sonarr, sonarrDegraded).status,
+      status: serviceStatus(sonarr, sonarrDegraded),
       detail: sonarrDetail(sonarr),
     },
     {
       id: 'radarr',
       name: 'Radarr',
-      status: serviceStatus(radarr, radarrDegraded).status,
+      status: serviceStatus(radarr, radarrDegraded),
       detail: radarrDetail(radarr),
     },
     {
       id: 'prowlarr',
       name: 'Prowlarr',
-      status: serviceStatus(prowlarr, prowlarrDegraded).status,
+      status: serviceStatus(prowlarr, prowlarrDegraded),
       detail: prowlarrDetail(prowlarr),
     },
     {
       id: 'bazarr',
       name: 'Bazarr',
-      status: serviceStatus(bazarr, bazarrDegraded).status,
+      status: serviceStatus(bazarr, bazarrDegraded),
       detail: bazarrDetail(bazarr),
     },
   ];

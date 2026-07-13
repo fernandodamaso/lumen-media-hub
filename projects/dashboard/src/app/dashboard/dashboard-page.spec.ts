@@ -4,9 +4,8 @@ import { vi } from 'vitest';
 import { AutomationFacade, AutomationStatus } from '../automation/automation.facade';
 import { CalendarFacade, CalendarRailEvent, CalendarStatus } from '../calendar/calendar.facade';
 import { DownloadsAction, DownloadsFacade, DownloadsStatus } from '../downloads/downloads.facade';
-import { DownloadTorrent } from '../downloads/media-stack-api';
+import { DownloadTorrent, LibraryItem, DEFAULT_LIBRARY_ART } from '../downloads/media-stack-api';
 import { LibraryFacade, LibraryStatus } from '../library/library.facade';
-import { LibraryItem } from '../downloads/media-stack-api';
 import { DashboardPage } from './dashboard-page';
 
 describe('DashboardPage composition', () => {
@@ -148,7 +147,7 @@ function libraryItem(): LibraryItem {
     title: 'Dune',
     kind: 'movie',
     meta: '2021 · Movie',
-    art: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
+    art: DEFAULT_LIBRARY_ART,
     overview: 'Desert power.',
     href: 'https://jellyfin.example/web/index.html#!/details?id=jf-dune',
     artworkState: 'ok',

@@ -64,7 +64,7 @@ export class HttpMediaStackApi implements MediaStackApi {
   }
 
   getArrLibrary(): Promise<MediaStackArrLibraryDto> {
-    return this.getSoftEnvelope<MediaStackArrLibraryDto>('/arr/library');
+    return this.getRaw<MediaStackArrLibraryDto>('/arr/library');
   }
 
   async listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<MediaStackLibraryItemDto[]> {
@@ -101,11 +101,11 @@ export class HttpMediaStackApi implements MediaStackApi {
   }
 
   listCronLogs(): Promise<MediaStackCronLogsDto> {
-    return this.getSoftEnvelope<MediaStackCronLogsDto>('/cron/logs');
+    return this.getRaw<MediaStackCronLogsDto>('/cron/logs');
   }
 
   listHermesRecommendations(): Promise<MediaStackHermesDiscoverDto> {
-    return this.getSoftEnvelope<MediaStackHermesDiscoverDto>('/discover/hermes');
+    return this.getRaw<MediaStackHermesDiscoverDto>('/discover/hermes');
   }
 
   submitHermesFeedback(
@@ -124,11 +124,11 @@ export class HttpMediaStackApi implements MediaStackApi {
   }
 
   listJellyseerrDiscover(kind: JellyseerrDiscoverKind): Promise<MediaStackExternalDiscoverDto> {
-    return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(`/discover/jellyseerr?kind=${kind}`);
+    return this.getRaw<MediaStackExternalDiscoverDto>(`/discover/jellyseerr?kind=${kind}`);
   }
 
   listTraktDiscover(type: TraktDiscoverType): Promise<MediaStackExternalDiscoverDto> {
-    return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(`/discover/trakt?type=${type}`);
+    return this.getRaw<MediaStackExternalDiscoverDto>(`/discover/trakt?type=${type}`);
   }
 
   requestMedia(payload: MediaStackDiscoverRequestPayload): Promise<MediaStackDiscoverActionDto> {
@@ -150,11 +150,6 @@ export class HttpMediaStackApi implements MediaStackApi {
     } catch (error) {
       throw this.toError(error, `GET ${path} failed`);
     }
-  }
-
-  /** Return envelope DTOs as-is so facades can read ok/error (mock parity). */
-  private async getSoftEnvelope<T extends OkEnvelope>(path: string): Promise<T> {
-    return this.getRaw<T>(path);
   }
 
   /** Reject when ok === false (used when unwrapping to non-envelope values). */

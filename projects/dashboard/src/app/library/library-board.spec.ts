@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { vi } from 'vitest';
-import { LibraryItem } from '../downloads/media-stack-api';
+import { LibraryItem, DEFAULT_LIBRARY_ART } from '../downloads/media-stack-api';
 import { LibraryBoard } from './library-board';
 import { LibraryFacade, LibraryStatus } from './library.facade';
 
@@ -43,7 +43,7 @@ describe('LibraryBoard', () => {
         title: 'Dune',
         kind: 'movie',
         meta: '2021 · Movie',
-        art: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
+        art: DEFAULT_LIBRARY_ART,
         overview: 'Desert power.',
         href: 'https://jellyfin.example/web/index.html#!/details?id=jf-dune',
         artworkState: 'ok',
@@ -83,7 +83,7 @@ describe('LibraryBoard', () => {
         title: 'Dune',
         kind: 'movie',
         meta: '2021 · Movie',
-        art: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
+        art: DEFAULT_LIBRARY_ART,
         overview: 'A mythic desert world.',
         href: 'https://jellyfin.example/web/index.html#!/details?id=jf-dune',
         artworkState: 'ok',

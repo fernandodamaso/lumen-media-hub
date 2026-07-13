@@ -72,6 +72,34 @@ describe('LibraryFacade', () => {
     expect(facade.seriesCount()).toBe(1);
   });
 
+  it('ignores unsupported library kinds when building the catalog', async () => {
+    api.items = [
+      {
+        id: 'jf-dune',
+        title: 'Dune',
+        kind: 'movie',
+        year: 2021,
+        posterUrl: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
+      },
+      {
+        id: 'jf-season',
+        title: 'Season 1',
+        kind: 'Season',
+      },
+      {
+        id: 'jf-cowboy',
+        title: 'Cowboy Bebop',
+        kind: 'series',
+        year: 1998,
+        posterUrl: 'linear-gradient(145deg, #b45309, #1c1917 70%)',
+      },
+    ];
+    await facade.refresh();
+    expect(facade.movieCount()).toBe(1);
+    expect(facade.seriesCount()).toBe(1);
+    expect(facade.items().map((item) => item.id)).toEqual(['jf-dune']);
+  });
+
   it('keeps loading status when kind changes mid-refresh', async () => {
     let resolveLoad!: (value: MediaStackLibraryItemDto[]) => void;
     api.listLibraryItems = () =>

@@ -201,8 +201,9 @@ export const resolveCalendarLink = (
   return seriesHref ?? movieHref;
 };
 
-export const normalizeLibraryItem = (dto: MediaStackLibraryItemDto): LibraryItem => {
+export const normalizeLibraryItem = (dto: MediaStackLibraryItemDto): LibraryItem | null => {
   const kind = normalizeLibraryKind(dto.kind);
+  if (!kind) return null;
   const artworkState = normalizeArtworkState(dto.artworkState, dto.posterUrl);
   return {
     id: dto.id?.trim() || 'unknown',
@@ -232,8 +233,11 @@ export const formatLibraryMeta = (year: number | undefined, kind: LibraryItemKin
   return Number.isFinite(year) && year ? `${year} · ${kindLabel}` : kindLabel;
 };
 
-function normalizeLibraryKind(kind: string | undefined): LibraryItemKind {
-  return kind?.toLowerCase() === 'series' ? 'series' : 'movie';
+function normalizeLibraryKind(kind: string | undefined): LibraryItemKind | null {
+  const normalized = kind?.trim().toLowerCase();
+  if (normalized === 'movie') return 'movie';
+  if (normalized === 'series') return 'series';
+  return null;
 }
 
 function normalizeArtworkState(
@@ -249,7 +253,7 @@ function resolveLibraryArt(posterUrl: string | undefined, artworkState: LibraryA
   const value = posterUrl?.trim();
   if (!value) return DEFAULT_LIBRARY_ART;
   if (value.startsWith('url(') || value.includes('gradient(')) return value;
-  return `url("${value}")`;
+  return `url("${value}") center / cover no-repeat`;
 }
 
 function clamp(value: number): number {

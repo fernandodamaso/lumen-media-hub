@@ -45,10 +45,13 @@ export class LibraryFacade {
     this._status.set('loading');
     try {
       const raw = await this.api.listLibraryItems();
-      this.catalog = raw.map(normalizeLibraryItem).map((item) => ({
-        ...item,
-        href: resolveJellyfinItemLink(item, this.linkBases),
-      }));
+      this.catalog = raw
+        .map(normalizeLibraryItem)
+        .filter((item): item is LibraryItem => item !== null)
+        .map((item) => ({
+          ...item,
+          href: resolveJellyfinItemLink(item, this.linkBases),
+        }));
       this._movieCount.set(this.catalog.filter((item) => item.kind === 'movie').length);
       this._seriesCount.set(this.catalog.filter((item) => item.kind === 'series').length);
       this._error.set('');

@@ -69,7 +69,7 @@ describe('media-stack API boundary', () => {
       playable: true,
       href: null,
     });
-    expect(present.art).toContain('gradient');
+    expect(present?.art).toContain('gradient');
 
     const missing = normalizeLibraryItem({
       id: 'jf-missing',
@@ -77,9 +77,9 @@ describe('media-stack API boundary', () => {
       kind: 'movie',
       year: 2026,
     });
-    expect(missing.artworkState).toBe('missing');
-    expect(missing.art).toBe(DEFAULT_LIBRARY_ART);
-    expect(missing.meta).toBe('2026 · Movie');
+    expect(missing?.artworkState).toBe('missing');
+    expect(missing?.art).toBe(DEFAULT_LIBRARY_ART);
+    expect(missing?.meta).toBe('2026 · Movie');
 
     const failed = normalizeLibraryItem({
       id: 'jf-failed',
@@ -88,9 +88,38 @@ describe('media-stack API boundary', () => {
       posterUrl: 'http://example.invalid/poster.jpg',
       artworkState: 'failed',
     });
-    expect(failed.artworkState).toBe('failed');
-    expect(failed.art).toBe(DEFAULT_LIBRARY_ART);
-    expect(failed.meta).toBe('Series');
+    expect(failed?.artworkState).toBe('failed');
+    expect(failed?.art).toBe(DEFAULT_LIBRARY_ART);
+    expect(failed?.meta).toBe('Series');
+  });
+
+  it('drops unknown library kinds instead of coercing them to movie', () => {
+    expect(
+      normalizeLibraryItem({
+        id: 'jf-season',
+        title: 'Season 1',
+        kind: 'Season',
+      }),
+    ).toBeNull();
+    expect(
+      normalizeLibraryItem({
+        id: 'jf-folder',
+        title: 'Collections',
+        kind: 'Folder',
+      }),
+    ).toBeNull();
+  });
+
+  it('sizes remote poster URLs to cover the 2:3 art host', () => {
+    const item = normalizeLibraryItem({
+      id: 'jf-poster',
+      title: 'Afterlight',
+      kind: 'movie',
+      posterUrl: 'https://jellyfin.example/Items/jf-poster/Images/Primary',
+    });
+    expect(item?.art).toBe(
+      'url("https://jellyfin.example/Items/jf-poster/Images/Primary") center / cover no-repeat',
+    );
   });
 
   it('resolves Jellyfin detail links when configured and playable', () => {

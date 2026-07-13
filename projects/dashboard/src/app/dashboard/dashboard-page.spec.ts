@@ -55,7 +55,7 @@ describe('DashboardPage composition', () => {
     const regions = Array.from(root.querySelectorAll('[data-region]')).map(
       (node) => node.getAttribute('data-region'),
     );
-    expect(regions).toEqual(['library', 'downloads', 'automation', 'calendar']);
+    expect(regions).toEqual(['library', 'calendar', 'downloads', 'automation']);
 
     expect(root.querySelector('#library-heading')?.textContent).toContain('Library');
     expect(root.querySelector('#downloads-heading')?.textContent).toContain('Downloads');
@@ -79,6 +79,18 @@ describe('DashboardPage composition', () => {
     expect(styles).toContain('.home-grid__downloads');
     expect(styles).toContain('.home-grid__automation');
     expect(styles).toContain('.home-grid__calendar');
+  });
+
+  it('matches DOM focus order to the visual layout and collapses before tracks shrink', () => {
+    fixture.detectChanges();
+    const styles = dashboardStyles();
+    const regions = Array.from(
+      fixture.nativeElement.querySelectorAll('[data-region]') as NodeListOf<HTMLElement>,
+    ).map((node) => node.getAttribute('data-region'));
+    expect(regions).toEqual(['library', 'calendar', 'downloads', 'automation']);
+    expect(styles).toContain('@media (max-width: 1180px)');
+    expect(styles).toMatch(/@media \(max-width: 1180px\)[\s\S]*"calendar calendar"/);
+    expect(styles).toMatch(/@media \(max-width: 1180px\)[\s\S]*position:\s*static/);
   });
 
   it('keeps other regions usable when one feature fails', () => {

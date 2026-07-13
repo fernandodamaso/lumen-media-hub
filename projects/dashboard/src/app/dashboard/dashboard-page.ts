@@ -25,14 +25,14 @@ import { LibraryFacade } from '../library/library.facade';
       <div class="home-grid__library region region--library" data-region="library">
         <mm-library-board />
       </div>
+      <div class="home-grid__calendar region region--calendar" data-region="calendar">
+        <mm-calendar-board />
+      </div>
       <div class="home-grid__downloads region region--downloads" data-region="downloads">
         <mm-downloads-board />
       </div>
       <div class="home-grid__automation region region--automation" data-region="automation">
         <mm-automation-board />
-      </div>
-      <div class="home-grid__calendar region region--calendar" data-region="calendar">
-        <mm-calendar-board />
       </div>
     </div>
   `,
@@ -92,15 +92,15 @@ import { LibraryFacade } from '../library/library.facade';
       animation-delay: 40ms;
     }
 
-    .region--downloads {
+    .region--calendar {
       animation-delay: 80ms;
     }
 
-    .region--automation {
+    .region--downloads {
       animation-delay: 120ms;
     }
 
-    .region--calendar {
+    .region--automation {
       animation-delay: 160ms;
     }
 
@@ -108,6 +108,20 @@ import { LibraryFacade } from '../library/library.facade';
       to {
         opacity: 1;
         transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .home-grid {
+        grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+        grid-template-areas:
+          'library library'
+          'calendar calendar'
+          'downloads automation';
+      }
+
+      .home-grid__calendar {
+        position: static;
       }
     }
 

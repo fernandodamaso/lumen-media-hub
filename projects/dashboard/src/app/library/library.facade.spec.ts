@@ -209,4 +209,7 @@ class MockApi implements MediaStackApi {
   requestMedia() {
     return Promise.resolve({ ok: true });
   }
+  listCronLogs() {
+    return Promise.resolve({ ok: true, logs: [] });
+  }
 }

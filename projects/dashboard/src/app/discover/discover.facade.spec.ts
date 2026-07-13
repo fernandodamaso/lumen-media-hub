@@ -426,4 +426,7 @@ class MockApi implements MediaStackApi {
     this.requestCalls.push(payload);
     return Promise.resolve(this.requestResult);
   }
+  listCronLogs() {
+    return Promise.resolve({ ok: true, logs: [] });
+  }
 }

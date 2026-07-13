@@ -7,6 +7,8 @@ import {
   MediaStackArrLibraryDto,
   MediaStackAutomationSummaryDto,
   MediaStackCalendarEventDto,
+  MediaStackCronLogEntryDto,
+  MediaStackCronLogsDto,
   MediaStackDiscoverActionDto,
   MediaStackDiscoverItemDto,
   MediaStackDiscoverRequestPayload,
@@ -173,6 +175,125 @@ const PARTIAL_AUTOMATION_SUMMARY: MediaStackAutomationSummaryDto = {
   preview: [],
   unavailable: { preview: true, problems: true },
 };
+
+const DEMO_CRON_LOGS: MediaStackCronLogsDto = {
+  ok: true,
+  generatedAt: '2026-07-12T12:00:00Z',
+  logs: [
+    {
+      id: 'watchdog',
+      title: 'Watchdog',
+      file: 'watchdog.ndjson',
+      format: 'ndjson',
+      schedule: '*/15 * * * *',
+      description: 'Stack health and disk checks',
+      exists: true,
+      size: 4200,
+      mtime: '2026-07-12T11:45:00Z',
+      lastStatus: 'fatal',
+      runs: [
+        {
+          timestamp: '2026-07-12T11:45:00Z',
+          status: 'fatal',
+          detail: 'Disk usage critical on /data',
+          fatal: 'Disk usage critical on /data',
+          exitCode: 1,
+        },
+        {
+          timestamp: '2026-07-12T11:30:00Z',
+          status: 'ok',
+          detail: 'Checked 4, no repairs needed',
+          exitCode: 0,
+        },
+      ],
+    },
+    {
+      id: 'stale-metadata',
+      title: 'Stale metadata',
+      file: 'stale-metadata.ndjson',
+      format: 'ndjson',
+      schedule: '0 */6 * * *',
+      description: 'Repair stale Sonarr/Radarr metadata',
+      exists: true,
+      size: 3100,
+      mtime: '2026-07-12T10:00:00Z',
+      lastStatus: 'warn',
+      runs: [
+        {
+          timestamp: '2026-07-12T10:00:00Z',
+          status: 'warn',
+          detail: '3 stale entries need review',
+          exitCode: 0,
+        },
+        {
+          timestamp: '2026-07-12T04:00:00Z',
+          status: 'ok',
+          detail: 'Nothing to check',
+          exitCode: 0,
+        },
+      ],
+    },
+    {
+      id: 'hardlink-cleanup',
+      title: 'Hardlink cleanup',
+      file: 'hardlink-cleanup.ndjson',
+      format: 'ndjson',
+      schedule: '30 3 * * *',
+      description: 'Reclaim space from orphaned hardlinks',
+      exists: true,
+      size: 2800,
+      mtime: '2026-07-12T03:30:00Z',
+      lastStatus: 'applied',
+      runs: [
+        {
+          timestamp: '2026-07-12T03:30:00Z',
+          status: 'applied',
+          detail: 'Applied 2 repairs',
+          applied: 2,
+          evaluated: 18,
+          skipped: 0,
+          exitCode: 0,
+        },
+      ],
+    },
+    {
+      id: 'weekly-validate',
+      title: 'Weekly validate',
+      file: 'weekly-validate.log',
+      format: 'text',
+      schedule: '0 4 * * 0',
+      description: 'Weekly library integrity pass',
+      exists: true,
+      size: 1200,
+      mtime: '2026-07-06T04:00:00Z',
+      lastStatus: 'ok',
+      runs: [
+        {
+          timestamp: '2026-07-06T04:00:00Z',
+          status: 'ok',
+          detail: 'Completed',
+          exitCode: 0,
+        },
+      ],
+    },
+  ],
+};
+
+function copyCronLogs(source: MediaStackCronLogsDto): MediaStackCronLogsDto {
+  return {
+    ...source,
+    logs: source.logs.map(
+      (entry): MediaStackCronLogEntryDto => ({
+        ...entry,
+        actions: entry.actions ? [...entry.actions] : undefined,
+        runs: entry.runs?.map((run) => ({
+          ...run,
+          highlights: run.highlights ? [...run.highlights] : undefined,
+        })),
+      }),
+    ),
+  };
+}
 
 export type AutomationScenario = 'default' | 'partial' | 'empty';
 
@@ -382,6 +503,7 @@ export class MockMediaStackApi implements MediaStackApi {
   private nextJellyseerrRequestId = 9100;
   private requestedKeys = new Set<string>();
   private libraryItems = DEMO_LIBRARY_ITEMS.map((item) => ({ ...item }));
+  private cronLogs = copyCronLogs(DEMO_CRON_LOGS);
   private automationScenario: AutomationScenario = 'default';
 
   setAutomationScenario(scenario: AutomationScenario): void {
@@ -442,6 +564,10 @@ export class MockMediaStackApi implements MediaStackApi {
           : DEMO_AUTOMATION_SUMMARY;
     return Promise.resolve(structuredClone(summary));
   }
+  listCronLogs(): Promise<MediaStackCronLogsDto> {
+    return Promise.resolve(copyCronLogs(this.cronLogs));
+  }
+
 
   listHermesRecommendations(): Promise<MediaStackHermesDiscoverDto> {
     const pending_request_sync = this.hermesItems

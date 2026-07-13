@@ -10,6 +10,7 @@ import { DownloadsBoard } from './downloads/downloads-board';
 import { DownloadsFacade } from './downloads/downloads.facade';
 import { LibraryBoard } from './library/library-board';
 import { LibraryFacade } from './library/library.facade';
+import { ReportsPage } from './reports/reports-page';
 
 @Component({
   standalone: true,
@@ -35,8 +36,6 @@ import { LibraryFacade } from './library/library.facade';
 })
 export class DashboardPage {}
 
-@Component({ standalone: true, selector: 'mm-reports-page', template: `<section class="page-intro"><p class="eyebrow">Workspace</p><h1>Reports</h1><p class="lede">Reporting tools will live here.</p></section>` })
-export class ReportsPage {}
 
 @Component({ standalone: true, selector: 'mm-ui-catalog-page', imports: [MmButton, MmPoster, MmProgress, MmStateCard, MmStatus], template: `
   <section class="page-intro"><p class="eyebrow">Developer / media-ui</p><h1>UI catalog</h1><p class="lede">Explore the shared primitives that power the dashboard shell.</p></section>

@@ -88,4 +88,5 @@ class MockApi implements MediaStackApi {
   listJellyseerrDiscover() { return Promise.resolve({ ok: true, items: [] }); }
   listTraktDiscover() { return Promise.resolve({ ok: true, items: [] }); }
   requestMedia() { return Promise.resolve({ ok: true }); }
+  listCronLogs() { return Promise.resolve({ ok: true, logs: [] }); }
 }

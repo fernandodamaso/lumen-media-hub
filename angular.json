@@ -53,32 +53,6 @@
               ],
               "outputHashing": "all"
             },
-            "pages": {
-              "budgets": [
-                {
-                  "type": "initial",
-                  "maximumWarning": "500kB",
-                  "maximumError": "1MB"
-                },
-                {
-                  "type": "anyComponentStyle",
-                  "maximumWarning": "4kB",
-                  "maximumError": "8kB"
-                }
-              ],
-              "outputHashing": "all",
-              "baseHref": "/media-manager-angular/",
-              "fileReplacements": [
-                {
-                  "replace": "projects/dashboard/src/environments/environment.ts",
-                  "with": "projects/dashboard/src/environments/environment.pages.ts"
-                },
-                {
-                  "replace": "projects/dashboard/src/app/downloads/media-stack-api.providers.ts",
-                  "with": "projects/dashboard/src/app/downloads/media-stack-api.providers.pages.ts"
-                }
-              ]
-            },
             "development": {
               "optimization": false,
               "extractLicenses": false,

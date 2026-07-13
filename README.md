@@ -43,7 +43,6 @@ Live mode is **local-only**. Do not point a static host at the live configuratio
 | `npm run lint` | ESLint |
 | `npm test -- --watch=false` | Vitest unit / facade / page specs |
 | `npm run build:dashboard` | Production dashboard build |
-| `npm run build:pages` | Future static-host package: mock-only build, SPA `404.html`, hygiene scan |
 
 ## Themes
 
@@ -57,13 +56,12 @@ Switch from the top-bar theme picker; preference persists in `localStorage` (`me
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for the port → adapter → facade → page flow, mock/live/pages modes, and operational link policy.
+See [docs/architecture.md](docs/architecture.md) for the port → adapter → facade → page flow, Demo/Live modes, and operational link policy.
 
 ## Testing
 
 - **Unit / integration:** Vitest via `ng test` (facades, boards, pages, shell navigation, API boundary, UI primitives).
 - **Browser acceptance:** Manual desktop checklist in [docs/browser-acceptance.md](docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
-- **Pages packaging:** `build:pages` asserts base href, `404.html`, and absence of localhost / private-service / `/api` strings in the artifact.
 
 ## Screenshots
 
@@ -97,5 +95,4 @@ npm start
 npm run lint
 npm test -- --watch=false
 npm run build:dashboard
-npm run build:pages
 ```

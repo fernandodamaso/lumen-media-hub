@@ -9,8 +9,7 @@
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "lint": "eslint .",
-    "build:dashboard": "ng build dashboard --configuration production",
-    "build:pages": "node scripts/build-pages.mjs"
+    "build:dashboard": "ng build dashboard --configuration production"
   },
   "private": true,
   "packageManager": "npm@11.13.0",

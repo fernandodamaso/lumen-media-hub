@@ -52,4 +52,4 @@ Verified 2026-07-13 during FDM-493 Path B (local showcase) hand-off.
 
 - [x] Clean instructions in README suffice for `npm ci` + `npm start`
 - [x] Screenshots in `docs/screenshots/` match home, Discover, Reports, and a non-default theme
-- [x] `npm run lint`, unit tests, `build:dashboard`, and `build:pages` succeed
+- [x] `npm run lint`, unit tests, and `build:dashboard` succeed

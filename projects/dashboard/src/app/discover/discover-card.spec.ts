@@ -40,8 +40,8 @@ describe('DiscoverCard', () => {
     fixture.componentInstance.feedback.subscribe((value) => feedback.push(value));
     fixture.componentInstance.request.subscribe(() => requests.push());
 
-    const liked = (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find((button) =>
-      button.textContent?.includes('Liked'),
+    const liked = (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find(
+      (button) => button.getAttribute('aria-label') === 'Liked',
     )!;
     liked.click();
     expect(feedback).toEqual(['liked']);
@@ -52,8 +52,8 @@ describe('DiscoverCard', () => {
     setItem({ tmdbId: 1, title: 'Liked title', feedback: 'liked' });
     fixture.componentRef.setInput('showFeedback', true);
     fixture.detectChanges();
-    const liked = (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find((button) =>
-      button.textContent?.includes('Liked'),
+    const liked = (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find(
+      (button) => button.getAttribute('aria-label') === 'Liked',
     )!;
     expect(liked.getAttribute('aria-pressed')).toBe('true');
   });

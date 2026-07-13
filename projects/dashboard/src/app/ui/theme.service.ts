@@ -17,7 +17,6 @@ export class ThemeService {
   setTheme(theme: MediaUiTheme): void {
     if (MEDIA_UI_THEMES.includes(theme)) {
       this.theme.set(theme);
-      this.applyTheme(theme);
     }
   }
 

@@ -22,6 +22,7 @@ describe('media-ui primitives', () => {
 
     expect(status.classList).toContain('mm-status');
     expect(status.classList).toContain('mm-status--danger');
+    expect(status.getAttribute('role')).toBe('status');
   });
 
   it('exposes progress semantics and the state-card danger tone', () => {

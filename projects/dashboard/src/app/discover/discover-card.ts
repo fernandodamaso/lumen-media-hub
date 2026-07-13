@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { LucideEye, LucideSkipForward, LucideThumbsDown, LucideThumbsUp } from '@lucide/angular';
 import { MmButton, MmPoster, MmStatus } from 'media-ui';
 import { DiscoverFeedback } from '../downloads/media-stack-api';
 import {
@@ -8,16 +9,20 @@ import {
   resolveRequestAction,
 } from './discover-format';
 
-const FEEDBACK_OPTIONS: { value: DiscoverFeedback; label: string }[] = [
-  { value: 'liked', label: 'Liked' },
-  { value: 'disliked', label: 'Disliked' },
-  { value: 'watched', label: 'Watched' },
-  { value: 'skipped', label: 'Skipped' },
+const FEEDBACK_OPTIONS: {
+  value: DiscoverFeedback;
+  label: string;
+  icon: 'thumbsUp' | 'thumbsDown' | 'eye' | 'skipForward';
+}[] = [
+  { value: 'liked', label: 'Liked', icon: 'thumbsUp' },
+  { value: 'disliked', label: 'Disliked', icon: 'thumbsDown' },
+  { value: 'watched', label: 'Watched', icon: 'eye' },
+  { value: 'skipped', label: 'Skipped', icon: 'skipForward' },
 ];
 
 @Component({
   selector: 'mm-discover-card',
-  imports: [MmButton, MmPoster, MmStatus],
+  imports: [MmButton, MmPoster, MmStatus, LucideThumbsUp, LucideThumbsDown, LucideEye, LucideSkipForward],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <article class="discover-card">
@@ -48,11 +53,25 @@ const FEEDBACK_OPTIONS: { value: DiscoverFeedback; label: string }[] = [
               <button
                 type="button"
                 class="feedback-btn"
+                [attr.aria-label]="option.label"
                 [attr.aria-pressed]="item().feedback === option.value"
                 [disabled]="busy()"
                 (click)="feedback.emit(option.value)"
               >
-                {{ option.label }}
+                @switch (option.icon) {
+                  @case ('thumbsUp') {
+                    <svg lucideThumbsUp [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+                  }
+                  @case ('thumbsDown') {
+                    <svg lucideThumbsDown [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+                  }
+                  @case ('eye') {
+                    <svg lucideEye [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+                  }
+                  @case ('skipForward') {
+                    <svg lucideSkipForward [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+                  }
+                }
               </button>
             }
           </div>
@@ -64,7 +83,7 @@ const FEEDBACK_OPTIONS: { value: DiscoverFeedback; label: string }[] = [
               [disabled]="requestAction().disabled || busy()"
               [busy]="busy()"
               variant="quiet"
-              (click)="request.emit()"
+              (click)="onRequest()"
             />
           </span>
         </div>
@@ -72,37 +91,71 @@ const FEEDBACK_OPTIONS: { value: DiscoverFeedback; label: string }[] = [
     </article>
   `,
   styles: `
-    :host { display: block; }
+    :host {
+      display: block;
+    }
     .discover-card {
       display: grid;
       gap: 12px;
       align-content: start;
     }
-    .body { display: grid; gap: 10px; }
-    .badges { display: flex; flex-wrap: wrap; gap: 6px; min-height: 28px; }
+    .body {
+      display: grid;
+      gap: 10px;
+    }
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-height: 28px;
+    }
     .reason {
       margin: 0;
       color: var(--mm-component-text-secondary);
-      font-size: 13px;
+      font-size: var(--mm-text-sm);
       line-height: 1.45;
       min-height: 2.9em;
     }
-    .feedback { display: flex; flex-wrap: wrap; gap: 6px; }
+    .feedback {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
     .feedback-btn {
+      display: inline-grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      padding: 0;
       border: 1px solid var(--mm-component-border);
       border-radius: var(--mm-radius-sm);
-      padding: 6px 10px;
       background: var(--mm-component-control-bg);
       color: var(--mm-component-text-primary);
       cursor: pointer;
-      font: 700 12px/1 var(--mm-font-body);
+      transition:
+        background var(--mm-transition-fast),
+        border-color var(--mm-transition-fast),
+        color var(--mm-transition-fast);
+    }
+    .feedback-btn:hover:not(:disabled) {
+      background: var(--mm-component-muted-bg);
+    }
+    .feedback-btn:focus-visible {
+      outline: 3px solid var(--mm-component-focus-ring);
+      outline-offset: 2px;
     }
     .feedback-btn[aria-pressed='true'] {
+      background: color-mix(in srgb, var(--mm-component-accent) 12%, transparent);
       border-color: var(--mm-component-accent);
       color: var(--mm-component-accent);
     }
-    .feedback-btn:disabled { opacity: 0.65; cursor: wait; }
-    .actions { display: flex; }
+    .feedback-btn:disabled {
+      opacity: 0.65;
+      cursor: wait;
+    }
+    .actions {
+      display: flex;
+    }
   `,
 })
 export class DiscoverCard {
@@ -115,15 +168,14 @@ export class DiscoverCard {
 
   readonly feedbackOptions = FEEDBACK_OPTIONS;
 
-  meta(): string {
-    return formatDiscoverMeta(this.item());
-  }
+  readonly meta = computed(() => formatDiscoverMeta(this.item()));
+  readonly art = computed(() => posterArtFor(this.item()));
+  readonly requestAction = computed(() =>
+    resolveRequestAction(this.item(), { syncFailed: this.syncFailed() }),
+  );
 
-  art(): string {
-    return posterArtFor(this.item());
-  }
-
-  requestAction() {
-    return resolveRequestAction(this.item(), { syncFailed: this.syncFailed() });
+  onRequest(): void {
+    if (this.requestAction().disabled || this.busy()) return;
+    this.request.emit();
   }
 }

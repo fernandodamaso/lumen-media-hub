@@ -72,11 +72,17 @@ describe('ReportsPage', () => {
     fixture.detectChanges();
 
     const details = fixture.nativeElement.querySelector('.run-list .run') as HTMLDetailsElement;
+    const summary = details.querySelector('summary') as HTMLElement;
     expect(details.open).toBe(false);
-    details.open = true;
+
+    summary.click();
     fixture.detectChanges();
     expect(details.open).toBe(true);
     expect(details.querySelector('.run-detail')?.textContent).toContain('Disk full');
+
+    summary.click();
+    fixture.detectChanges();
+    expect(details.open).toBe(false);
   });
 
   it('shows calm all-clear messaging without a danger state card', () => {

@@ -114,8 +114,15 @@ describe('LibraryBoard', () => {
     expect(links).toHaveLength(1);
     expect(links[0].getAttribute('href')).toBe('https://jellyfin.example/web/index.html#!/details?id=jf-dune');
     expect(links[0].getAttribute('target')).toBe('_blank');
+    expect(links[0].textContent).toContain('opens in a new tab');
     expect(fixture.nativeElement.textContent).toContain('Broken Signal');
     expect(fixture.nativeElement.querySelector('[data-artwork="failed"]')).toBeTruthy();
+
+    cards[0].focus();
+    expect(document.activeElement).toBe(cards[0]);
+    expect(cards[0].matches(':focus')).toBe(true);
+    expect(cards[0].matches(':focus-within')).toBe(true);
+    expect(links[0].tabIndex).toBeGreaterThanOrEqual(0);
   });
 
   function findButton(label: string): HTMLButtonElement {

@@ -37,12 +37,53 @@ export interface MediaStackArrLibraryDto {
   error?: string;
 }
 
+/** Raw cron-log run from GET /cron/logs. Status values stay contract-shaped. */
+export interface MediaStackCronLogRunDto {
+  timestamp?: string;
+  exitCode?: number;
+  status?: string;
+  applied?: number;
+  evaluated?: number;
+  skipped?: number;
+  fatal?: string | null;
+  detail?: string;
+  highlights?: string[];
+}
+
+/** Per-job cron log entry from GET /cron/logs. */
+export interface MediaStackCronLogEntryDto {
+  id: string;
+  title: string;
+  file: string;
+  format: string;
+  schedule: string;
+  description?: string;
+  actions?: string[];
+  exists: boolean;
+  size?: number;
+  mtime?: string | null;
+  summary?: string;
+  lastStatus?: string;
+  runs?: MediaStackCronLogRunDto[];
+}
+
+/** Envelope returned by GET /cron/logs. */
+export interface MediaStackCronLogsDto {
+  ok: boolean;
+  generatedAt?: string;
+  tmpDir?: string;
+  logs: MediaStackCronLogEntryDto[];
+  note?: string;
+  error?: string;
+}
+
 export interface MediaStackApi {
   listTorrents(): Promise<MediaStackTorrentDto[]>;
   pauseAll(): Promise<void>;
   resumeAll(): Promise<void>;
   listCalendarEvents(): Promise<MediaStackCalendarEventDto[]>;
   getArrLibrary(): Promise<MediaStackArrLibraryDto>;
+  listCronLogs(): Promise<MediaStackCronLogsDto>;
 }
 
 export const MEDIA_STACK_API = new InjectionToken<MediaStackApi>('MEDIA_STACK_API');
@@ -155,6 +196,111 @@ export const resolveCalendarLink = (
   if (kind === 'movie') return movieHref ?? seriesHref;
   if (kind === 'episode') return seriesHref ?? movieHref;
   return seriesHref ?? movieHref;
+};
+
+export type CronRunTriage = 'actionable' | 'quiet';
+export type CronHealthKind = 'empty' | 'allClear' | 'mixed';
+
+/** Flattened triage row for Reports. Contract `status` is preserved as-is. */
+export interface CronRun {
+  id: string;
+  jobId: string;
+  jobTitle: string;
+  status: string;
+  triage: CronRunTriage;
+  timestamp: string;
+  detail: string;
+  fatal: string | null;
+  applied: number | null;
+  exitCode: number | null;
+}
+
+export interface CronHealthSummary {
+  kind: CronHealthKind;
+  total: number;
+  actionable: number;
+  quiet: number;
+}
+
+const QUIET_CORE =
+  /^(?:dry-run\s*[-–—:]\s*)?(nothing to check|checked \d+, no repairs needed|no stale\b.*|completed|no log file yet|log is empty|no recent runs)\.?$/i;
+
+/**
+ * Quiet = healthy noise to collapse. Actionable = everything else.
+ * Quiet only when status is `ok` (default), no applied repairs, no fatal,
+ * and detail matches healthy no-op patterns.
+ */
+export const isQuietRun = (run: Pick<MediaStackCronLogRunDto, 'status' | 'applied' | 'fatal' | 'detail'>): boolean => {
+  const status = (run.status || 'ok').trim().toLowerCase();
+  if (status !== 'ok') return false;
+  if (typeof run.applied === 'number' && run.applied > 0) return false;
+  if (run.fatal) return false;
+
+  const detail = (run.detail || '').trim();
+  if (!detail) return true;
+  if (QUIET_CORE.test(detail)) return true;
+  if (/can be freed|\[delete\]|\[keep\]|blocker|fail|error/i.test(detail)) return false;
+  if (/^(?:dry-run\s*[-–—:]\s*)?no .+\.?$/i.test(detail) && !/error|fail|warn/i.test(detail)) return true;
+  return false;
+};
+
+export const isActionableRun = (run: Pick<MediaStackCronLogRunDto, 'status' | 'applied' | 'fatal' | 'detail'>): boolean =>
+  !isQuietRun(run);
+
+export const normalizeCronRun = (
+  job: Pick<MediaStackCronLogEntryDto, 'id' | 'title'>,
+  run: MediaStackCronLogRunDto,
+  index: number,
+): CronRun => {
+  const status = run.status?.trim() || 'ok';
+  return {
+    id: `${job.id}-${run.timestamp ?? 'unknown'}-${index}`,
+    jobId: job.id,
+    jobTitle: job.title,
+    status,
+    triage: isQuietRun(run) ? 'quiet' : 'actionable',
+    timestamp: run.timestamp ?? '',
+    detail: run.detail?.trim() ?? '',
+    fatal: run.fatal ?? null,
+    applied: typeof run.applied === 'number' ? run.applied : null,
+    exitCode: typeof run.exitCode === 'number' ? run.exitCode : null,
+  };
+};
+
+export const flattenCronRuns = (dto: MediaStackCronLogsDto): CronRun[] =>
+  (dto.logs ?? []).flatMap((job) => (job.runs ?? []).map((run, index) => normalizeCronRun(job, run, index)));
+
+const triageRank = (triage: CronRunTriage): number => (triage === 'actionable' ? 0 : 1);
+
+const actionableSeverityRank = (status: string): number => {
+  const normalized = status.toLowerCase();
+  if (normalized === 'fatal') return 0;
+  if (normalized === 'warn' || normalized === 'applied') return 1;
+  if (normalized === 'unparsed') return 2;
+  return 3;
+};
+
+/** Actionable first (fatal before softer actionable), then quiet; newest timestamp within each band. */
+export const prioritizeCronRuns = (runs: CronRun[]): CronRun[] =>
+  [...runs].sort((left, right) => {
+    const byTriage = triageRank(left.triage) - triageRank(right.triage);
+    if (byTriage !== 0) return byTriage;
+    if (left.triage === 'actionable') {
+      const bySeverity = actionableSeverityRank(left.status) - actionableSeverityRank(right.status);
+      if (bySeverity !== 0) return bySeverity;
+    }
+    const byTime = (right.timestamp || '').localeCompare(left.timestamp || '');
+    if (byTime !== 0) return byTime;
+    return left.jobTitle.localeCompare(right.jobTitle);
+  });
+
+export const summarizeCronHealth = (runs: CronRun[]): CronHealthSummary => {
+  const total = runs.length;
+  const actionable = runs.filter((run) => run.triage === 'actionable').length;
+  const quiet = total - actionable;
+  if (total === 0) return { kind: 'empty', total: 0, actionable: 0, quiet: 0 };
+  if (actionable === 0) return { kind: 'allClear', total, actionable: 0, quiet };
+  return { kind: 'mixed', total, actionable, quiet };
 };
 
 function clamp(value: number): number {

@@ -34,4 +34,28 @@ describe('MockMediaStackApi', () => {
     expect(library.movies['dune']).toBe('dune-2021');
     expect(library.movies['night transit']).toBeUndefined();
   });
+
+  it('provides mixed cron-log history covering failures, actionable, and quiet runs', async () => {
+    const api: MediaStackApi = new MockMediaStackApi();
+    const response = await api.listCronLogs();
+    expect(response.ok).toBe(true);
+    expect(response.generatedAt).toBeTruthy();
+    expect(response.logs.map((entry) => entry.id)).toEqual([
+      'watchdog',
+      'stale-metadata',
+      'hardlink-cleanup',
+      'weekly-validate',
+    ]);
+
+    const statuses = response.logs.flatMap((entry) => (entry.runs ?? []).map((run) => run.status));
+    expect(statuses).toContain('fatal');
+    expect(statuses).toContain('warn');
+    expect(statuses).toContain('applied');
+    expect(statuses.filter((status) => status === 'ok').length).toBeGreaterThanOrEqual(2);
+
+    const again = await api.listCronLogs();
+    again.logs[0].runs![0].detail = 'mutated';
+    const fresh = await api.listCronLogs();
+    expect(fresh.logs[0].runs![0].detail).not.toBe('mutated');
+  });
 });

@@ -192,4 +192,7 @@ class MockApi implements MediaStackApi {
           movies: { ...this.library.movies },
         });
   }
+  listCronLogs() {
+    return Promise.resolve({ ok: true, logs: [] });
+  }
 }

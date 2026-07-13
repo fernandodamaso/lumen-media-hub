@@ -5,6 +5,7 @@ import { CalendarBoard } from './calendar/calendar-board';
 import { CalendarFacade } from './calendar/calendar.facade';
 import { DownloadsBoard } from './downloads/downloads-board';
 import { DownloadsFacade } from './downloads/downloads.facade';
+import { ReportsPage } from './reports/reports-page';
 
 @Component({
   standalone: true,
@@ -27,9 +28,6 @@ import { DownloadsFacade } from './downloads/downloads.facade';
   `,
 })
 export class DashboardPage {}
-
-@Component({ standalone: true, selector: 'mm-reports-page', template: `<section class="page-intro"><p class="eyebrow">Workspace</p><h1>Reports</h1><p class="lede">Reporting tools will live here.</p></section>` })
-export class ReportsPage {}
 
 @Component({ standalone: true, selector: 'mm-discover-page', template: `<section class="page-intro"><p class="eyebrow">Workspace</p><h1>Discover</h1><p class="lede">Browse and collect new media from this space.</p></section>` })
 export class DiscoverPage {}

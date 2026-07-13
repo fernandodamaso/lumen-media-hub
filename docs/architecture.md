@@ -4,8 +4,7 @@
 
 | Project | Role |
 |---------|------|
-| `dashboard` | Shell app: routes, feature facades, mock/HTTP adapters |
-| `media-ui` | Shared theme tokens, primitives, theme picker |
+| `dashboard` | Shell app: routes, feature facades, mock/HTTP adapters, UI primitives |
 
 ## Data flow
 
@@ -51,7 +50,7 @@ Empty calendar bases must not fall back to relative `/series/...` or `/movie/...
 
 ## Themes
 
-Tokens live in `media-ui` SCSS. Three dark themes: Nocturne, Tokyo Night, GitHub Dark Pro.
+Tokens live in Dashboard-owned UI SCSS (`projects/dashboard/src/app/ui`). Three dark themes: Nocturne, Tokyo Night, GitHub Dark Pro.
 
 ## Testing strategy
 

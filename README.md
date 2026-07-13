@@ -1,6 +1,6 @@
 # Media Manager Angular
 
-Angular 22 workspace for the Media Manager shell: standalone `dashboard` app and `media-ui` component library.
+Angular 22 workspace for the Media Manager shell: standalone `dashboard` app with application-owned UI primitives.
 
 This repository is currently a **private local showcase**. Public GitHub Pages is deferred; run Demo mode locally to evaluate the product.
 
@@ -43,7 +43,6 @@ Live mode is **local-only**. Do not point a static host at the live configuratio
 | `npm run lint` | ESLint |
 | `npm test -- --watch=false` | Vitest unit / facade / page specs |
 | `npm run build:dashboard` | Production dashboard build |
-| `npm run build:media-ui` | Library production build |
 | `npm run build:pages` | Future static-host package: mock-only build, SPA `404.html`, hygiene scan |
 
 ## Themes
@@ -98,6 +97,5 @@ npm start
 npm run lint
 npm test -- --watch=false
 npm run build:dashboard
-npm run build:media-ui
 npm run build:pages
 ```

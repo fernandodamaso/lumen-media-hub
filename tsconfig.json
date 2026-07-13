@@ -7,7 +7,7 @@
     "noPropertyAccessFromIndexSignature": true,
     "noImplicitReturns": true,
     "paths": {
-      "media-ui": ["./projects/media-ui/src/public-api.ts"]
+      "media-ui": ["./projects/dashboard/src/app/ui/public-api.ts"]
     },
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
@@ -29,12 +29,6 @@
     },
     {
       "path": "./projects/dashboard/tsconfig.spec.json"
-    },
-    {
-      "path": "./projects/media-ui/tsconfig.lib.json"
-    },
-    {
-      "path": "./projects/media-ui/tsconfig.spec.json"
     }
   ]
 }

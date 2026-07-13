@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   push:
@@ -17,5 +17,4 @@ jobs:
       - run: npm run lint
       - run: npm test -- --watch=false
       - run: npm run build:dashboard
-      - run: npm run build:media-ui
       - run: npm run build:pages

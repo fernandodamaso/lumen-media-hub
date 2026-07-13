@@ -121,32 +121,6 @@
           }
         }
       }
-    },
-    "media-ui": {
-      "projectType": "library",
-      "root": "projects/media-ui",
-      "sourceRoot": "projects/media-ui/src",
-      "prefix": "mm",
-      "architect": {
-        "build": {
-          "builder": "@angular/build:ng-packagr",
-          "configurations": {
-            "production": {
-              "tsConfig": "projects/media-ui/tsconfig.lib.prod.json"
-            },
-            "development": {
-              "tsConfig": "projects/media-ui/tsconfig.lib.json"
-            }
-          },
-          "defaultConfiguration": "production"
-        },
-        "test": {
-          "builder": "@angular/build:unit-test",
-          "options": {
-            "tsConfig": "projects/media-ui/tsconfig.spec.json"
-          }
-        }
-      }
     }
   }
 }

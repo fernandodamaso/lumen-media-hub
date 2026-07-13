@@ -109,8 +109,14 @@ export interface JellyfinLinkBases {
   jellyfinBase?: string;
 }
 
+/** Disabled by default; local Demo/live inject bases from environment. */
 export const DEFAULT_JELLYFIN_LINK_BASES: Required<JellyfinLinkBases> = {
-  jellyfinBase: 'http://localhost:8096',
+  jellyfinBase: '',
+};
+
+/** Explicit no-op bases for static/Pages builds and tests. */
+export const DISABLED_JELLYFIN_LINK_BASES: Required<JellyfinLinkBases> = {
+  jellyfinBase: '',
 };
 
 export const JELLYFIN_LINK_BASES = new InjectionToken<JellyfinLinkBases>('JELLYFIN_LINK_BASES', {
@@ -231,9 +237,16 @@ export interface CalendarLinkBases {
   radarrBase?: string;
 }
 
+/** Disabled by default; local Demo/live inject bases from environment. */
 export const DEFAULT_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
-  sonarrBase: 'http://localhost:8989',
-  radarrBase: 'http://localhost:7878',
+  sonarrBase: '',
+  radarrBase: '',
+};
+
+/** Explicit no-op bases for static/Pages builds and tests. */
+export const DISABLED_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
+  sonarrBase: '',
+  radarrBase: '',
 };
 
 export const CALENDAR_LINK_BASES = new InjectionToken<CalendarLinkBases>('CALENDAR_LINK_BASES', {
@@ -319,8 +332,11 @@ export const resolveCalendarLink = (
   const key = title.trim().toLowerCase();
   const sonarrBase = (bases.sonarrBase ?? DEFAULT_CALENDAR_LINK_BASES.sonarrBase).replace(/\/$/, '');
   const radarrBase = (bases.radarrBase ?? DEFAULT_CALENDAR_LINK_BASES.radarrBase).replace(/\/$/, '');
-  const seriesHref = library.series?.[key] ? `${sonarrBase}/series/${library.series[key]}` : null;
-  const movieHref = library.movies?.[key] ? `${radarrBase}/movie/${library.movies[key]}` : null;
+  // Empty bases must not emit relative /series/... or /movie/... URLs.
+  const seriesHref =
+    sonarrBase && library.series?.[key] ? `${sonarrBase}/series/${library.series[key]}` : null;
+  const movieHref =
+    radarrBase && library.movies?.[key] ? `${radarrBase}/movie/${library.movies[key]}` : null;
   if (kind === 'movie') return movieHref ?? seriesHref;
   if (kind === 'episode') return seriesHref ?? movieHref;
   return seriesHref ?? movieHref;

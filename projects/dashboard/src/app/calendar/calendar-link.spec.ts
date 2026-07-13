@@ -75,12 +75,18 @@ describe('calendar API boundary', () => {
       series: { 'cowboy bebop': 'cowboy-bebop' },
       movies: { dune: 'dune-2021' },
     };
-    expect(resolveCalendarLink('Cowboy Bebop', library, {}, 'episode')).toBe(
+    const localBases = {
+      sonarrBase: 'http://localhost:8989',
+      radarrBase: 'http://localhost:7878',
+    };
+    expect(resolveCalendarLink('Cowboy Bebop', library, localBases, 'episode')).toBe(
       'http://localhost:8989/series/cowboy-bebop',
     );
-    expect(resolveCalendarLink('Dune', library, {}, 'movie')).toBe('http://localhost:7878/movie/dune-2021');
-    expect(resolveCalendarLink('Missing', library)).toBeNull();
-    expect(resolveCalendarLink('', library)).toBeNull();
+    expect(resolveCalendarLink('Dune', library, localBases, 'movie')).toBe(
+      'http://localhost:7878/movie/dune-2021',
+    );
+    expect(resolveCalendarLink('Missing', library, localBases)).toBeNull();
+    expect(resolveCalendarLink('', library, localBases)).toBeNull();
   });
 
   it('prefers the destination matching event kind when titles collide', () => {
@@ -88,8 +94,16 @@ describe('calendar API boundary', () => {
       series: { fargo: 'fargo' },
       movies: { fargo: 'fargo-1996' },
     };
-    expect(resolveCalendarLink('Fargo', library, {}, 'movie')).toBe('http://localhost:7878/movie/fargo-1996');
-    expect(resolveCalendarLink('Fargo', library, {}, 'episode')).toBe('http://localhost:8989/series/fargo');
+    const localBases = {
+      sonarrBase: 'http://localhost:8989',
+      radarrBase: 'http://localhost:7878',
+    };
+    expect(resolveCalendarLink('Fargo', library, localBases, 'movie')).toBe(
+      'http://localhost:7878/movie/fargo-1996',
+    );
+    expect(resolveCalendarLink('Fargo', library, localBases, 'episode')).toBe(
+      'http://localhost:8989/series/fargo',
+    );
   });
 
   it('keeps external base urls configurable at the boundary', () => {
@@ -119,5 +133,17 @@ describe('calendar API boundary', () => {
         'movie',
       ),
     ).toBe('https://radarr.example/movie/dune-2021');
+  });
+
+  it('disables operational links without emitting relative service paths', () => {
+    const library = {
+      series: { 'cowboy bebop': 'cowboy-bebop' },
+      movies: { dune: 'dune-2021' },
+    };
+    expect(
+      resolveCalendarLink('Cowboy Bebop', library, { sonarrBase: '', radarrBase: '' }, 'episode'),
+    ).toBeNull();
+    expect(resolveCalendarLink('Dune', library, { sonarrBase: '', radarrBase: '' }, 'movie')).toBeNull();
+    expect(resolveCalendarLink('Cowboy Bebop', library, {}, 'episode')).toBeNull();
   });
 });

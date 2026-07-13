@@ -3,8 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideRouter, withEnabledBlockingInitialNavigation } from '@angular/router';
 
 import { routes } from './app.routes';
-import { CALENDAR_LINK_BASES, DEFAULT_CALENDAR_LINK_BASES } from './downloads/media-stack-api';
-import { provideMediaStackApi } from './downloads/media-stack-api.providers';
+import { provideMediaStackApi, provideOperationalLinkBases } from './downloads/media-stack-api.providers';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -13,6 +12,6 @@ export const appConfig: ApplicationConfig = {
     provideRouter(routes, withEnabledBlockingInitialNavigation()),
     provideHttpClient(),
     ...provideMediaStackApi(),
-    { provide: CALENDAR_LINK_BASES, useValue: { ...DEFAULT_CALENDAR_LINK_BASES } },
+    ...provideOperationalLinkBases(),
   ],
 };

@@ -141,6 +141,11 @@ describe('media-stack API boundary', () => {
     expect(resolveJellyfinItemLink({ id: 'unknown', playable: true })).toBeNull();
   });
 
+  it('disables Jellyfin detail links when the base is empty', () => {
+    expect(resolveJellyfinItemLink({ id: 'jf-dune', playable: true }, { jellyfinBase: '' })).toBeNull();
+    expect(resolveJellyfinItemLink({ id: 'jf-dune', playable: true }, {})).toBeNull();
+  });
+
   it('normalizes a healthy automation summary DTO into a domain summary', () => {
     const summary = normalizeAutomationSummary({
       generatedAt: '2026-07-12T18:00:00Z',

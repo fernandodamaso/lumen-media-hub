@@ -6,20 +6,16 @@ import {
   JELLYFIN_LINK_BASES,
   MEDIA_STACK_API,
 } from './media-stack-api';
-import { HttpMediaStackApi } from './http-media-stack-api';
 import { MockMediaStackApi } from './mock-media-stack-api';
 
-/** Bind MediaStackApi to mock (default) or HTTP adapter when live env is selected. */
+/**
+ * Pages / static showcase providers: mock API only.
+ * Intentionally omits HttpMediaStackApi so live `/api` client code is not bundled.
+ */
 export function provideMediaStackApi(): Provider[] {
-  return [
-    {
-      provide: MEDIA_STACK_API,
-      useClass: environment.useLiveApi ? HttpMediaStackApi : MockMediaStackApi,
-    },
-  ];
+  return [{ provide: MEDIA_STACK_API, useClass: MockMediaStackApi }];
 }
 
-/** Jellyfin / Sonarr / Radarr deep-link bases from the active environment. */
 export function provideOperationalLinkBases(): Provider[] {
   return [
     {

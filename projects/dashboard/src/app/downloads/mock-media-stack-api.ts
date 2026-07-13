@@ -311,10 +311,13 @@ export class MockMediaStackApi implements MediaStackApi {
   }
 
   listHermesRecommendations(): Promise<MediaStackHermesDiscoverDto> {
+    const pending_request_sync = this.hermesItems
+      .filter((item) => item.id === MOCK_SYNC_FAILED_HERMES_ID && item.jellyseerr_request_id && item.request_state == null)
+      .map((item) => ({ id: item.id, jellyseerr_request_id: item.jellyseerr_request_id as number }));
     return Promise.resolve({
       ok: true,
       items: this.hermesItems.map((item) => ({ ...item })),
-      pending_request_sync: [],
+      pending_request_sync,
       generation_request: this.hermesMorePending && this.hermesMoreRequestedAt
         ? { requested_at: this.hermesMoreRequestedAt, status: 'pending' }
         : null,

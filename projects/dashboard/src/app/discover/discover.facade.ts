@@ -6,6 +6,7 @@ import {
   MEDIA_STACK_API,
   MediaStackDiscoverItemDto,
   MediaStackExternalDiscoverItemDto,
+  MediaStackHermesDiscoverDto,
   TraktDiscoverType,
 } from '../downloads/media-stack-api';
 import {
@@ -48,7 +49,11 @@ export class DiscoverFacade {
   private readonly _busyItemId = signal<string | null>(null);
   private readonly _requestingMore = signal(false);
   private readonly _requestSyncFailedIds = signal<ReadonlySet<string>>(new Set());
+  private readonly _requestSyncFailedKeys = signal<ReadonlySet<string>>(new Set());
   private readonly _requestedKeys = signal<ReadonlySet<string>>(new Set());
+
+  /** True after a local request-more until the API has reported generation_request at least once. */
+  private generationObserved = false;
 
   readonly tab = this._tab.asReadonly();
   readonly hermesView = this._hermesView.asReadonly();
@@ -157,7 +162,7 @@ export class DiscoverFacade {
 
   async requestItem(item: DiscoverCardItem): Promise<void> {
     if (this._busyItemId()) return;
-    const action = resolveRequestAction(item, { syncFailed: this.isSyncFailed(item.id) });
+    const action = resolveRequestAction(item, { syncFailed: this.isSyncFailed(item) });
     if (action.disabled) return;
     this._busyItemId.set(item.id);
     this._notice.set('');
@@ -173,7 +178,7 @@ export class DiscoverFacade {
         return;
       }
       if (result.dashboard_state_persisted === false) {
-        this.addSyncFailed(item.id);
+        this.addSyncFailed(item);
         this._noticeTone.set('warning');
         this._notice.set(result.message ?? 'Added to Sonarr/Radarr; dashboard synchronization failed.');
       } else {
@@ -203,12 +208,12 @@ export class DiscoverFacade {
         this._notice.set(result.error ?? 'Could not queue more recommendations.');
         return;
       }
+      this._generationPending.set(true);
+      this.generationObserved = false;
       if (result.already_pending) {
-        this._generationPending.set(true);
         this._noticeTone.set('info');
         this._notice.set(result.message ?? 'A recommendation refresh is already pending.');
       } else {
-        this._generationPending.set(true);
         this._noticeTone.set('success');
         this._notice.set(result.message ?? 'More recommendations queued.');
       }
@@ -221,8 +226,14 @@ export class DiscoverFacade {
     }
   }
 
-  isSyncFailed(id: string): boolean {
-    return this._requestSyncFailedIds().has(id);
+  isSyncFailed(itemOrId: DiscoverCardItem | string): boolean {
+    if (typeof itemOrId === 'string') {
+      return this._requestSyncFailedIds().has(itemOrId);
+    }
+    return (
+      this._requestSyncFailedIds().has(itemOrId.id) ||
+      this._requestSyncFailedKeys().has(mediaIdentityKey(itemOrId.type, itemOrId.tmdbId))
+    );
   }
 
   private restartPolling(): void {
@@ -256,13 +267,12 @@ export class DiscoverFacade {
     try {
       const response = await this.api.listHermesRecommendations();
       if (!response.ok) {
+        if (this._tab() !== 'hermes') return;
         this._status.set('error');
         this._error.set(response.error ?? 'Discover is temporarily unavailable. Try again.');
         return;
       }
-      this._hermesItems.set(response.items);
-      this._generationPending.set(Boolean(response.generation_request));
-      this.reconcileSyncFailed(response.items);
+      this.applyHermesPayload(response);
       if (this._tab() !== 'hermes') return;
       const visible = this.visibleItems();
       this._status.set(visible.length ? 'ready' : 'empty');
@@ -275,9 +285,36 @@ export class DiscoverFacade {
     }
   }
 
+  private applyHermesPayload(response: MediaStackHermesDiscoverDto): void {
+    this._hermesItems.set(response.items);
+    this.seedRequestedFromHermes(response.items);
+    this.applyPendingRequestSync(response.items, response.pending_request_sync);
+    this.reconcileSyncFailed(response.items);
+    this.applyGenerationPending(Boolean(response.generation_request));
+  }
+
+  private applyGenerationPending(apiPending: boolean): void {
+    if (apiPending) {
+      this._generationPending.set(true);
+      this.generationObserved = true;
+      return;
+    }
+    if (!this._generationPending() || this.generationObserved) {
+      this._generationPending.set(false);
+      this.generationObserved = false;
+    }
+  }
+
   private async loadJellyseerr(kind: JellyseerrDiscoverKind): Promise<void> {
     const cached = this._jellyseerrCache()[kind];
-    if (!cached) this._status.set('loading');
+    if (cached) {
+      if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
+        this._status.set(cached.length ? 'ready' : 'empty');
+        this._error.set('');
+      }
+    } else {
+      this._status.set('loading');
+    }
     try {
       const response = await this.api.listJellyseerrDiscover(kind);
       if (!response.ok) {
@@ -301,7 +338,14 @@ export class DiscoverFacade {
 
   private async loadTrakt(type: TraktDiscoverType): Promise<void> {
     const cached = this._traktCache()[type];
-    if (!cached) this._status.set('loading');
+    if (cached) {
+      if (this._tab() === 'trakt' && this._traktType() === type) {
+        this._status.set(cached.length ? 'ready' : 'empty');
+        this._error.set('');
+      }
+    } else {
+      this._status.set('loading');
+    }
     try {
       const response = await this.api.listTraktDiscover(type);
       if (!response.ok) {
@@ -328,6 +372,38 @@ export class DiscoverFacade {
     this._status.set(this.visibleItems().length ? 'ready' : 'empty');
   }
 
+  private seedRequestedFromHermes(items: MediaStackDiscoverItemDto[]): void {
+    const keys = items
+      .filter((item) => item.request_state === 'requested' && item.tmdb_id)
+      .map((item) => mediaIdentityKey(item.type, item.tmdb_id));
+    if (!keys.length) return;
+    this._requestedKeys.update((existing) => {
+      const next = new Set(existing);
+      for (const key of keys) next.add(key);
+      return next;
+    });
+  }
+
+  private applyPendingRequestSync(
+    items: MediaStackDiscoverItemDto[],
+    pending?: { id: string; jellyseerr_request_id: number }[],
+  ): void {
+    if (!pending?.length) return;
+    this._requestSyncFailedIds.update((ids) => {
+      const next = new Set(ids);
+      for (const entry of pending) next.add(entry.id);
+      return next;
+    });
+    this._requestSyncFailedKeys.update((keys) => {
+      const next = new Set(keys);
+      for (const entry of pending) {
+        const item = items.find((candidate) => candidate.id === entry.id);
+        if (item?.tmdb_id) next.add(mediaIdentityKey(item.type, item.tmdb_id));
+      }
+      return next;
+    });
+  }
+
   private markRequested(type: DiscoverCardItem['type'], tmdbId: number): void {
     this._requestedKeys.update((keys) => {
       const next = new Set(keys);
@@ -336,21 +412,36 @@ export class DiscoverFacade {
     });
   }
 
-  private addSyncFailed(id: string): void {
+  private addSyncFailed(item: DiscoverCardItem): void {
     this._requestSyncFailedIds.update((ids) => {
       const next = new Set(ids);
-      next.add(id);
+      next.add(item.id);
       return next;
     });
+    if (item.tmdbId) {
+      this._requestSyncFailedKeys.update((keys) => {
+        const next = new Set(keys);
+        next.add(mediaIdentityKey(item.type, item.tmdbId));
+        return next;
+      });
+    }
   }
 
   private reconcileSyncFailed(items: MediaStackDiscoverItemDto[]): void {
-    if (!this._requestSyncFailedIds().size) return;
+    if (!this._requestSyncFailedIds().size && !this._requestSyncFailedKeys().size) return;
     this._requestSyncFailedIds.update((ids) => {
       const next = new Set(ids);
       for (const id of ids) {
         const item = items.find((candidate) => candidate.id === id);
         if (item?.request_state === 'requested') next.delete(id);
+      }
+      return next;
+    });
+    this._requestSyncFailedKeys.update((keys) => {
+      const next = new Set(keys);
+      for (const key of keys) {
+        const item = items.find((candidate) => mediaIdentityKey(candidate.type, candidate.tmdb_id) === key);
+        if (item?.request_state === 'requested') next.delete(key);
       }
       return next;
     });

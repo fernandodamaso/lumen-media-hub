@@ -114,6 +114,7 @@ function createFacade() {
     submitFeedback: vi.fn(async () => undefined),
     requestItem: vi.fn(async () => undefined),
     requestMore: vi.fn(async () => undefined),
-    isSyncFailed: (id: string) => syncFailed.has(id),
+    isSyncFailed: (itemOrId: DiscoverCardItem | string) =>
+      typeof itemOrId === 'string' ? syncFailed.has(itemOrId) : syncFailed.has(itemOrId.id),
   };
 }

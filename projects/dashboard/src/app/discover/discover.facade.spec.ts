@@ -199,6 +199,108 @@ describe('DiscoverFacade', () => {
     expect(api.requestCalls).toHaveLength(1);
   });
 
+  it('seeds requested keys from Hermes so external tabs disable duplicates', async () => {
+    api.hermes.items = [
+      {
+        ...api.hermes.items[0],
+        request_state: 'requested',
+        requested_at: '2026-07-09T09:00:00Z',
+        jellyseerr_request_id: 9001,
+      },
+    ];
+    api.jellyseerr.trending = [{ type: 'movie', title: 'Same Title', tmdb_id: 101001 }];
+    await facade.refresh();
+    facade.setTab('jellyseerr');
+    await flush();
+    expect(facade.visibleItems()[0].requestState).toBe('requested');
+    await facade.requestItem(facade.visibleItems()[0]);
+    expect(api.requestCalls).toHaveLength(0);
+  });
+
+  it('honors pending_request_sync as sync-failed across identities', async () => {
+    api.hermes = {
+      ok: true,
+      items: [
+        {
+          id: 'hermes-sync',
+          source: 'hermes',
+          type: 'tv',
+          title: 'Night Courier',
+          year: 2022,
+          tmdb_id: 101005,
+          active: true,
+          feedback: null,
+          feedback_at: null,
+          request_state: null,
+          requested_at: null,
+          jellyseerr_request_id: 55,
+          in_library: false,
+          added_at: '2026-07-10T14:00:00Z',
+        },
+      ],
+      pending_request_sync: [{ id: 'hermes-sync', jellyseerr_request_id: 55 }],
+    };
+    api.jellyseerr.trending = [{ type: 'tv', title: 'Night Courier External', tmdb_id: 101005 }];
+    await facade.refresh();
+    expect(facade.isSyncFailed('hermes-sync')).toBe(true);
+    expect(facade.isSyncFailed(facade.visibleItems()[0])).toBe(true);
+
+    facade.setTab('jellyseerr');
+    await flush();
+    expect(facade.isSyncFailed(facade.visibleItems()[0])).toBe(true);
+    await facade.requestItem(facade.visibleItems()[0]);
+    expect(api.requestCalls).toHaveLength(0);
+  });
+
+  it('ignores stale Hermes failures after switching tabs', async () => {
+    let release!: (value: MediaStackHermesDiscoverDto) => void;
+    api.hermesGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const pending = facade.refresh();
+    facade.setTab('jellyseerr');
+    await flush();
+    expect(facade.status()).toBe('ready');
+    release({ ok: false, items: [], error: 'Hermes offline' });
+    await pending;
+    expect(facade.tab()).toBe('jellyseerr');
+    expect(facade.status()).toBe('ready');
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trending Ember']);
+  });
+
+  it('keeps request-more pending when the follow-up list omits generation_request', async () => {
+    await facade.refresh();
+    api.moreResult = { ok: true, queued: true, message: 'More recommendations queued.' };
+    api.skipGenerationOnMore = true;
+    await facade.requestMore();
+    expect(facade.generationPending()).toBe(true);
+    await facade.requestMore();
+    expect(api.moreCalls).toBe(1);
+  });
+
+  it('shows cached external feeds immediately when returning to a filter', async () => {
+    facade.setTab('jellyseerr');
+    await flush();
+    expect(facade.status()).toBe('ready');
+
+    facade.setTab('hermes');
+    await flush();
+    api.hermes = { ok: true, items: [] };
+    await facade.refresh();
+    expect(facade.status()).toBe('empty');
+
+    let release!: () => void;
+    api.jellyseerrGate = new Promise((resolve) => {
+      release = () => resolve({ ok: true, items: api.jellyseerr.trending });
+    });
+    facade.setTab('jellyseerr');
+    await Promise.resolve();
+    expect(facade.status()).toBe('ready');
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trending Ember']);
+    release();
+    await flush();
+  });
+
   it('polls only while started and stops on destroy', async () => {
     vi.useFakeTimers();
     facade.startPolling();
@@ -256,8 +358,11 @@ class MockApi implements MediaStackApi {
   requestCalls: MediaStackDiscoverRequestPayload[] = [];
   moreCalls = 0;
   feedbackGate: Promise<MediaStackDiscoverActionDto> | null = null;
+  hermesGate: Promise<MediaStackHermesDiscoverDto> | null = null;
+  jellyseerrGate: Promise<{ ok: boolean; items: MediaStackExternalDiscoverItemDto[] }> | null = null;
   requestResult: MediaStackDiscoverActionDto = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
   moreResult: MediaStackDiscoverActionDto = { ok: true, queued: true };
+  skipGenerationOnMore = false;
 
   listTorrents() {
     return Promise.resolve([]);
@@ -276,7 +381,16 @@ class MockApi implements MediaStackApi {
   }
   listHermesRecommendations() {
     this.hermesCalls++;
-    return Promise.resolve({ ...this.hermes, items: this.hermes.items.map((item) => ({ ...item })) });
+    if (this.hermesGate) {
+      const gate = this.hermesGate;
+      this.hermesGate = null;
+      return gate;
+    }
+    return Promise.resolve({
+      ...this.hermes,
+      items: this.hermes.items.map((item) => ({ ...item })),
+      pending_request_sync: this.hermes.pending_request_sync?.map((entry) => ({ ...entry })),
+    });
   }
   submitHermesFeedback(id: string, feedback: DiscoverFeedback) {
     this.feedbackCalls.push({ id, feedback });
@@ -284,13 +398,18 @@ class MockApi implements MediaStackApi {
   }
   requestHermesMore() {
     this.moreCalls++;
-    if (this.moreResult.queued || this.moreResult.already_pending) {
+    if (!this.skipGenerationOnMore && (this.moreResult.queued || this.moreResult.already_pending)) {
       this.hermes.generation_request = { requested_at: '2026-07-12T00:00:00Z', status: 'pending' };
     }
     return Promise.resolve(this.moreResult);
   }
   listJellyseerrDiscover(kind: JellyseerrDiscoverKind) {
     this.jellyseerrCalls.push(kind);
+    if (this.jellyseerrGate) {
+      const gate = this.jellyseerrGate;
+      this.jellyseerrGate = null;
+      return gate;
+    }
     return Promise.resolve({ ok: true, items: this.jellyseerr[kind].map((item) => ({ ...item })) });
   }
   listTraktDiscover(type: TraktDiscoverType) {

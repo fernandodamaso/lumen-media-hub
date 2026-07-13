@@ -112,7 +112,7 @@ import { DiscoverFacade, HermesView } from './discover.facade';
           <mm-discover-card
             [item]="item"
             [showFeedback]="facade.tab() === 'hermes'"
-            [syncFailed]="facade.isSyncFailed(item.id)"
+            [syncFailed]="facade.isSyncFailed(item)"
             [busy]="facade.busyItemId() === item.id"
             (feedback)="onFeedback(item.id, $event)"
             (request)="onRequest(item)"

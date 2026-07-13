@@ -206,6 +206,18 @@ describe('HttpMediaStackApi', () => {
     await expect(seriesOnly).resolves.toHaveLength(1);
   });
 
+  it('rejects filtered jellyfin loads when the requested kind fails', async () => {
+    const moviesOnly = api.listLibraryItems({ kind: 'movie' });
+    http.expectOne('/api/jellyfin/movies').flush({ ok: false, error: 'movies down' });
+    http.expectNone('/api/jellyfin/series');
+    await expect(moviesOnly).rejects.toThrow('movies down');
+
+    const seriesOnly = api.listLibraryItems({ kind: 'series' });
+    http.expectOne('/api/jellyfin/series').flush({ ok: false, error: 'series down' });
+    http.expectNone('/api/jellyfin/movies');
+    await expect(seriesOnly).rejects.toThrow('series down');
+  });
+
   it('maps automation summary from nested live payload', async () => {
     const pending = api.getAutomationSummary();
     http.expectOne('/api/automation/summary').flush({

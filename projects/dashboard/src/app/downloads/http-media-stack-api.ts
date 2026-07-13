@@ -69,12 +69,19 @@ export class HttpMediaStackApi implements MediaStackApi {
 
   async listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<MediaStackLibraryItemDto[]> {
     const kind = filter?.kind;
-    const movieTask =
-      kind === 'series' ? Promise.resolve([] as MediaStackLibraryItemDto[]) : this.fetchJellyfinKind('movies');
-    const seriesTask =
-      kind === 'movie' ? Promise.resolve([] as MediaStackLibraryItemDto[]) : this.fetchJellyfinKind('series');
 
-    const [moviesResult, seriesResult] = await Promise.allSettled([movieTask, seriesTask]);
+    // Filtered loads: surface the requested kind's failure instead of masking as empty.
+    if (kind === 'movie') {
+      return this.fetchJellyfinKind('movies');
+    }
+    if (kind === 'series') {
+      return this.fetchJellyfinKind('series');
+    }
+
+    const [moviesResult, seriesResult] = await Promise.allSettled([
+      this.fetchJellyfinKind('movies'),
+      this.fetchJellyfinKind('series'),
+    ]);
     const movies = moviesResult.status === 'fulfilled' ? moviesResult.value : [];
     const series = seriesResult.status === 'fulfilled' ? seriesResult.value : [];
 

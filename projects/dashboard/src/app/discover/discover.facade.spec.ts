@@ -11,7 +11,7 @@ import {
   MediaStackExternalDiscoverItemDto,
   MediaStackHermesDiscoverDto,
   TraktDiscoverType,
-} from '../downloads/media-stack-api';
+} from '../media-stack/media-stack-api';
 import { DiscoverFacade } from './discover.facade';
 
 describe('DiscoverFacade', () => {

@@ -8,7 +8,7 @@ import {
   MediaStackAutomationSummaryDto,
   MediaStackCalendarEventDto,
   MediaStackTorrentDto,
-} from '../downloads/media-stack-api';
+} from '../media-stack/media-stack-api';
 import { CalendarFacade } from './calendar.facade';
 
 describe('CalendarFacade', () => {

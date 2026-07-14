@@ -3,7 +3,7 @@ import { signal, WritableSignal } from '@angular/core';
 import { vi } from 'vitest';
 import { AutomationBoard } from './automation-board';
 import { AutomationFacade, AutomationStatus } from './automation.facade';
-import { AutomationSummary, CronRun } from '../downloads/media-stack-api';
+import { AutomationSummary, CronRun } from '../media-stack/media-stack-api';
 
 interface MockAutomationFacade {
   status: WritableSignal<AutomationStatus>;

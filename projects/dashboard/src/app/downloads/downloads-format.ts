@@ -1,4 +1,4 @@
-import { TorrentState } from './media-stack-api';
+import { TorrentState } from '../media-stack/media-stack-api';
 
 export type StatusTone = 'success' | 'warning' | 'danger' | 'info';
 

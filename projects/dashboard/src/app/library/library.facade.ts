@@ -7,7 +7,7 @@ import {
   normalizeLibraryItem,
   resolveJellyfinItemLink,
   resolveJellyfinLibraryLink,
-} from '../downloads/media-stack-api';
+} from '../media-stack/media-stack-api';
 
 export type LibraryStatus = 'loading' | 'ready' | 'empty' | 'error';
 

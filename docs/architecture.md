@@ -20,7 +20,7 @@ MediaStackApi (port)
          Boards / pages
 ```
 
-Providers are selected in [media-stack-api.providers.ts](../projects/dashboard/src/app/downloads/media-stack-api.providers.ts) from [environment.ts](../projects/dashboard/src/environments/environment.ts). The Pages configuration file-replaces providers with a mock-only module so the HTTP client adapter is not bundled.
+Providers are selected in [media-stack-api.providers.ts](../projects/dashboard/src/app/media-stack/media-stack-api.providers.ts) from [environment.ts](../projects/dashboard/src/environments/environment.ts). The Pages configuration file-replaces providers with a mock-only module so the HTTP client adapter is not bundled.
 
 ## Modes
 

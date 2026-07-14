@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
-import { MEDIA_STACK_API, MediaStackApi, MediaStackTorrentDto } from './media-stack-api';
+import { MEDIA_STACK_API, MediaStackApi, MediaStackTorrentDto } from '../media-stack/media-stack-api';
 import { DownloadsFacade } from './downloads.facade';
 
 const torrent: MediaStackTorrentDto = { hash: 'a', name: 'A', state: 'downloading', progress: .5, size: 100, downloaded: 50, dlspeed: 10, upspeed: 2, eta: 30 };

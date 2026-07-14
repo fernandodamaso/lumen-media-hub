@@ -1,4 +1,4 @@
-import { MediaStackDiscoverItemDto } from '../downloads/media-stack-api';
+import { MediaStackDiscoverItemDto } from '../media-stack/media-stack-api';
 import {
   matchesHistoryFilter,
   resolveRequestAction,

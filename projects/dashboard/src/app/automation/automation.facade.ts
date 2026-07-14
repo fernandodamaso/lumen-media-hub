@@ -6,7 +6,7 @@ import {
   MEDIA_STACK_API,
   normalizeAutomationSummary,
   summarizeAutomationHealth,
-} from '../downloads/media-stack-api';
+} from '../media-stack/media-stack-api';
 
 export type AutomationStatus = 'loading' | 'ready' | 'empty' | 'partial' | 'error';
 

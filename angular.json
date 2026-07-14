@@ -70,8 +70,8 @@
                   "with": "projects/dashboard/src/environments/environment.pages.ts"
                 },
                 {
-                  "replace": "projects/dashboard/src/app/downloads/media-stack-api.providers.ts",
-                  "with": "projects/dashboard/src/app/downloads/media-stack-api.providers.pages.ts"
+                  "replace": "projects/dashboard/src/app/media-stack/media-stack-api.providers.ts",
+                  "with": "projects/dashboard/src/app/media-stack/media-stack-api.providers.pages.ts"
                 }
               ]
             },

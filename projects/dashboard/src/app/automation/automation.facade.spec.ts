@@ -7,7 +7,7 @@ import {
   MediaStackAutomationSummaryDto,
   MediaStackCalendarEventDto,
   MediaStackTorrentDto,
-} from '../downloads/media-stack-api';
+} from '../media-stack/media-stack-api';
 import { AutomationFacade } from './automation.facade';
 
 const defaultSummary: MediaStackAutomationSummaryDto = {

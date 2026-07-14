@@ -5,7 +5,7 @@ import {
   AutomationProblemSeverity,
   AutomationService,
   AutomationServiceStatus,
-} from '../downloads/media-stack-api';
+} from '../media-stack/media-stack-api';
 import { AutomationFacade } from './automation.facade';
 import {
   AUTOMATION_PROBLEM_SEVERITY_VIEW,

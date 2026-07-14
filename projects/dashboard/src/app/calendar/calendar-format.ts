@@ -1,4 +1,4 @@
-import { CalendarEventStatus, CalendarMediaKind } from '../downloads/media-stack-api';
+import { CalendarEventStatus, CalendarMediaKind } from '../media-stack/media-stack-api';
 
 export interface CalendarDateGroup<T> { key: string; label: string; events: T[]; }
 

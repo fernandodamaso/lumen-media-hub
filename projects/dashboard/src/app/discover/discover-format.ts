@@ -2,7 +2,7 @@ import {
   DiscoverFeedback,
   MediaStackDiscoverItemDto,
   MediaStackExternalDiscoverItemDto,
-} from '../downloads/media-stack-api';
+} from '../media-stack/media-stack-api';
 
 export type DiscoverHistoryFilter = 'all' | DiscoverFeedback | 'requested';
 

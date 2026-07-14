@@ -3,7 +3,7 @@ import { signal } from '@angular/core';
 import { vi } from 'vitest';
 import { DownloadsBoard } from './downloads-board';
 import { DownloadsAction, DownloadsFacade, DownloadsStatus } from './downloads.facade';
-import { DownloadTorrent } from './media-stack-api';
+import { DownloadTorrent } from '../media-stack/media-stack-api';
 
 describe('DownloadsBoard', () => {
   let fixture: ComponentFixture<DownloadsBoard>;

@@ -4,7 +4,7 @@ import {
   MediaStackApi,
   MediaStackCronLogsDto,
   MediaStackTorrentDto,
-} from '../downloads/media-stack-api';
+} from '../media-stack/media-stack-api';
 import { ReportsFacade } from './reports.facade';
 
 const mixedLogs: MediaStackCronLogsDto = {

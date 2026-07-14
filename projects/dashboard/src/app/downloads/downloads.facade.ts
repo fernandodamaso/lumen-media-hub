@@ -1,5 +1,5 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
-import { MEDIA_STACK_API, DownloadTorrent, normalizeTorrent, summarizeDownloads } from './media-stack-api';
+import { MEDIA_STACK_API, DownloadTorrent, normalizeTorrent, summarizeDownloads } from '../media-stack/media-stack-api';
 
 export type DownloadsStatus = 'loading' | 'ready' | 'empty' | 'error';
 export type DownloadsAction = 'pause' | 'resume';

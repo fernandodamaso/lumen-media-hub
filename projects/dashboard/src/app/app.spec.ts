@@ -5,8 +5,8 @@ import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { App } from './app';
 import { routes } from './app.routes';
-import { MEDIA_STACK_API } from './downloads/media-stack-api';
-import { MockMediaStackApi } from './downloads/mock-media-stack-api';
+import { MEDIA_STACK_API } from './media-stack/media-stack-api';
+import { MockMediaStackApi } from './media-stack/mock-media-stack-api';
 
 describe('App shell', () => {
   beforeEach(() => {

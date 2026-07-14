@@ -6,7 +6,7 @@ import {
   flattenCronRuns,
   prioritizeCronRuns,
   summarizeCronHealth,
-} from '../downloads/media-stack-api';
+} from '../media-stack/media-stack-api';
 
 export type ReportsStatus = 'loading' | 'empty' | 'allClear' | 'mixed' | 'error';
 

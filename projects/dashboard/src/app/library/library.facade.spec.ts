@@ -5,7 +5,7 @@ import {
   MediaStackApi,
   MediaStackLibraryItemDto,
   MediaStackTorrentDto,
-} from '../downloads/media-stack-api';
+} from '../media-stack/media-stack-api';
 import { LibraryFacade } from './library.facade';
 
 describe('LibraryFacade', () => {

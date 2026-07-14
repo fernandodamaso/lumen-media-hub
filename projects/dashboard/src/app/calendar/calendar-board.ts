@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { MmButton, MmCard, MmSkeleton, MmStateCard } from 'media-ui';
-import { CalendarEventStatus, CalendarMediaKind } from '../downloads/media-stack-api';
+import { CalendarEventStatus, CalendarMediaKind } from '../media-stack/media-stack-api';
 import { CALENDAR_KIND_VIEW, CALENDAR_STATUS_VIEW } from './calendar-format';
 import { CalendarFacade } from './calendar.facade';
 

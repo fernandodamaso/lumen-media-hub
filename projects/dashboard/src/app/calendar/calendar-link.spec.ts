@@ -1,4 +1,4 @@
-﻿import { normalizeCalendarEvent, resolveCalendarLink, compareCalendarEvents } from '../downloads/media-stack-api';
+﻿import { normalizeCalendarEvent, resolveCalendarLink, compareCalendarEvents } from '../media-stack/media-stack-api';
 
 describe('calendar API boundary', () => {
   it('normalizes episode and movie events with status and stable ids', () => {

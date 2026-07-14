@@ -5,9 +5,9 @@ import { vi } from 'vitest';
 import { AutomationFacade, AutomationStatus } from '../automation/automation.facade';
 import { CalendarFacade, CalendarRailEvent, CalendarStatus } from '../calendar/calendar.facade';
 import { DownloadsAction, DownloadsFacade, DownloadsStatus } from '../downloads/downloads.facade';
-import { DownloadTorrent } from '../downloads/media-stack-api';
+import { DownloadTorrent } from '../media-stack/media-stack-api';
 import { LibraryFacade, LibraryStatus } from '../library/library.facade';
-import { LibraryItem } from '../downloads/media-stack-api';
+import { LibraryItem } from '../media-stack/media-stack-api';
 import { DashboardPage } from './dashboard-page';
 
 describe('DashboardPage composition', () => {

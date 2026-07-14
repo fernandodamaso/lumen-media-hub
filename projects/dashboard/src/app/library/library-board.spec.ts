@@ -115,6 +115,46 @@ describe('LibraryBoard', () => {
     expect(fixture.nativeElement.querySelector('[data-artwork="failed"]')).toBeTruthy();
   });
 
+  it('places View all in the card footer with the selected collection count', () => {
+    facade.status.set('ready');
+    facade.movieCount.set(12);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.mm-card__header .view-all')).toBeNull();
+    const footerLink = fixture.nativeElement.querySelector('.mm-card__footer .view-all') as HTMLAnchorElement;
+    expect(footerLink).toBeTruthy();
+    expect(footerLink.getAttribute('href')).toBe('https://jellyfin.example/web/index.html#!/movies.html');
+    expect(fixture.nativeElement.querySelector('.mm-card__footer .library-summary')?.textContent).toContain('12 movies');
+
+    findTab('Series').click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.mm-card__footer .library-summary')?.textContent).toContain('3 series');
+
+    facade.kind.set('movie');
+    facade.movieCount.set(1);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.mm-card__footer .library-summary')?.textContent).toContain('1 movie');
+  });
+
+  it('keeps the View all action available while collection content is loading', () => {
+    fixture.detectChanges();
+
+    const footerLink = fixture.nativeElement.querySelector('.mm-card__footer .view-all') as HTMLAnchorElement;
+    expect(footerLink?.getAttribute('href')).toBe('https://jellyfin.example/web/index.html#!/movies.html');
+  });
+
+  it('limits the poster preview to two rows at normal and compact card widths', () => {
+    fixture.detectChanges();
+    const styles = componentStyles();
+
+    expect(styles).toMatch(/\.poster-grid[\s\S]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/);
+    expect(styles).toMatch(/\.poster-card[^{]*:nth-child\(n\+9\)[^{]*\{\s*display:\s*none/);
+    expect(styles).toMatch(/@container \(max-width: 639px\)[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+    expect(styles).toMatch(/@container \(max-width: 639px\)[\s\S]*\.poster-card[^{]*:nth-child\(n\+5\)[^{]*\{\s*display:\s*none/);
+    expect(styles).not.toContain('repeat(6');
+    expect(styles).not.toContain('@container (min-width: 960px)');
+  });
+
   function findButton(label: string): HTMLButtonElement {
     return (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find(
       (button) => button.textContent?.includes(label),
@@ -149,4 +189,10 @@ function createFacade() {
     setKind,
     viewAllHref,
   };
+}
+
+function componentStyles(): string {
+  return Array.from(document.querySelectorAll('style'))
+    .map((node) => node.textContent ?? '')
+    .join('\n');
 }

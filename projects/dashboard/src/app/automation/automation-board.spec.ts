@@ -69,11 +69,65 @@ describe('AutomationBoard', () => {
     expect(fixture.nativeElement.querySelector('.mm-status--danger')?.textContent).toContain('Down');
   });
 
-  it('declares container-query compact layout for narrow dashboard tracks', () => {
+  it('uses a two-column card layout that stacks only from its container width', () => {
+    facade.status.set('ready');
+    facade.summary.set({
+      generatedAt: '',
+      services: [],
+      preview: [],
+      problems: [],
+      availability: { services: 'empty', preview: 'empty', problems: 'empty' },
+    });
     fixture.detectChanges();
     const styles = componentStyles();
+    expect(fixture.nativeElement.querySelector('h2')?.textContent).toContain('Automation');
+    expect(fixture.nativeElement.querySelector('h3')?.textContent).toContain('Services');
+    expect(fixture.nativeElement.querySelectorAll('h3')[1]?.textContent).toContain('Up Next Scheduled Tasks');
+    expect(styles).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(styles).toContain('grid-column: 1/-1');
     expect(styles).toContain('@container (max-width: 520px)');
     expect(styles).toMatch(/@container \(max-width: 520px\)[\s\S]*\.tile-grid[\s\S]*grid-template-columns:\s*1fr/);
+    expect(styles).not.toContain('@media (max-width: 950px)');
+    expect(styles).toContain('background: var(--mm-component-control-bg)');
+  });
+
+  it('keeps scheduled task metadata intact and allows titles to wrap without clipping', () => {
+    facade.status.set('ready');
+    facade.summary.set({
+      generatedAt: '',
+      services: [],
+      preview: [],
+      problems: [],
+      availability: { services: 'empty', preview: 'empty', problems: 'empty' },
+    });
+    facade.tasks.set([
+      {
+        id: 'task-1',
+        jobId: 'refresh-library',
+        jobTitle: 'Refresh the complete media library index',
+        schedule: '0 */6 * * *',
+        timestamp: '2026-07-14T18:30:00Z',
+        status: 'Success',
+        triage: 'quiet',
+        detail: '',
+        fatal: null,
+        applied: null,
+        exitCode: 0,
+      },
+    ]);
+    fixture.detectChanges();
+
+    const task = fixture.nativeElement.querySelector('.preview-row');
+    expect(task.textContent).toContain('Refresh the complete media library index');
+    expect(task.querySelector('.task-schedule')?.textContent).toContain('0 */6 * * *');
+    expect(task.querySelector('.task-timestamp')?.textContent).toContain('Jul 14');
+    expect(task.textContent).toContain('Success');
+
+    const styles = componentStyles();
+    expect(styles).not.toContain('text-overflow: ellipsis');
+    expect(styles).toContain('.task-schedule');
+    expect(styles).toContain('.task-timestamp');
+    expect(styles).toContain('white-space: nowrap');
   });
 
   it('renders a partial banner when scheduled tasks are unavailable', () => {

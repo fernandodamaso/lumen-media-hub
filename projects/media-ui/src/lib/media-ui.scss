@@ -36,7 +36,7 @@
 :root, :root[data-theme="github-dark-pro"] {
   --mm-color-ink-0: #f0f3f6;
   --mm-color-ink-1: #b1bac4;
-  --mm-color-ink-2: #768390;
+  --mm-color-ink-2: #8c959f;
   --mm-color-surface-0: #0d1117;
   --mm-color-surface-1: #161b22;
   --mm-color-surface-2: #21262d;
@@ -54,13 +54,14 @@
   --mm-font-body: Inter, ui-sans-serif, system-ui, sans-serif;
   --mm-radius-sm: 6px;
   --mm-radius-md: 10px;
+  --mm-radius-lg: 14px;
   --mm-shadow-card: 0 14px 36px rgb(0 0 0 / 18%);
   --mm-space-xs: 4px;
   --mm-space-sm: 8px;
-  --mm-space-md: 14px;
+  --mm-space-md: 16px;
   --mm-space-lg: 24px;
   --mm-space-xl: 36px;
-  --mm-text-xs: 11px;
+  --mm-text-xs: 12px;
   --mm-text-sm: 13px;
   --mm-text-md: 15px;
   --mm-text-lg: 20px;
@@ -70,6 +71,7 @@
   --mm-semantic-text-primary: var(--mm-color-ink-0);
   --mm-semantic-text-secondary: var(--mm-color-ink-1);
   --mm-semantic-text-muted: var(--mm-color-ink-2);
+  --mm-semantic-text-inverse: var(--mm-color-accent-ink);
   --mm-semantic-surface-page: var(--mm-color-surface-0);
   --mm-semantic-surface-card: var(--mm-color-surface-1);
   --mm-semantic-surface-control: var(--mm-color-surface-2);
@@ -86,6 +88,7 @@
   --mm-component-text-muted: var(--mm-semantic-text-muted);
   --mm-component-control-bg: var(--mm-semantic-surface-control);
   --mm-component-card-bg: var(--mm-semantic-surface-card);
+  --mm-component-surface: var(--mm-semantic-surface-card);
   --mm-component-muted-bg: color-mix(in srgb, var(--mm-semantic-surface-control) 70%, transparent);
   --mm-component-border: var(--mm-semantic-border-default);
   --mm-component-accent: var(--mm-semantic-accent);

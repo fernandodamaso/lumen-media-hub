@@ -44,9 +44,9 @@ import { LibraryFacade } from '../library/library.facade';
     .home-grid {
       display: grid;
       grid-template-columns: repeat(12, minmax(0, 1fr));
-      gap: 22px;
-      margin-top: 28px;
-      align-items: start;
+      gap: 24px;
+      margin-top: 24px;
+      align-items: stretch;
     }
 
     .home-grid__library {
@@ -75,9 +75,15 @@ import { LibraryFacade } from '../library/library.facade';
     }
 
     .region {
+      min-width: 0;
       opacity: 0;
       transform: translateY(8px);
       animation: region-enter 180ms ease-out forwards;
+    }
+
+    .home-grid > .region > * {
+      display: block;
+      height: 100%;
     }
 
     .region--intro {

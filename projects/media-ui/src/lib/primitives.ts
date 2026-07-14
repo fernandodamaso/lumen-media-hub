@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { AfterViewChecked, ChangeDetectionStrategy, Component, ElementRef, inject, input } from '@angular/core';
 import {
   LucideAlertCircle,
   LucideCircleCheck,
@@ -31,6 +31,7 @@ import {
     .mm-button {
       display: inline-flex;
       align-items: center;
+      min-height: 40px;
       gap: var(--mm-space-sm);
       border: 0;
       border-radius: var(--mm-radius-sm);
@@ -75,6 +76,9 @@ import {
       opacity: 0.65;
     }
     .mm-button[aria-busy='true'] { cursor: wait; }
+    @media (max-width: 900px), (pointer: coarse) {
+      .mm-button { min-height: 44px; }
+    }
   `,
 })
 export class MmButton {
@@ -96,25 +100,45 @@ export class MmButton {
     </header>
     <div class="mm-card__body"><ng-content /></div>
     <footer class="mm-card__footer">
-      <div><ng-content select="[mm-card-footer]" /></div>
+      <div class="mm-card__footer-content"><ng-content select="[mm-card-footer]" /></div>
       <div class="mm-card__actions"><ng-content select="[mm-card-footer-actions]" /></div>
     </footer>
   </section>`,
   styles: `
-    :host { display: block; }
-    .mm-card { overflow: hidden; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-lg); background: var(--mm-component-surface); box-shadow: var(--mm-shadow-card); }
+    :host { container-type: inline-size; display: block; height: 100%; }
+    .mm-card { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 100%; overflow: hidden; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-lg); background: var(--mm-component-surface); box-shadow: var(--mm-shadow-card); }
     .mm-card__header, .mm-card__footer { display: flex; align-items: center; justify-content: space-between; gap: var(--mm-space-md); padding: 18px 20px; }
     .mm-card__header { border-bottom: 1px solid var(--mm-component-border); }
     .mm-card__footer { border-top: 1px solid var(--mm-component-border); }
     .mm-card__heading { min-width: 0; }
     .mm-card__actions { display: flex; align-items: center; gap: var(--mm-space-sm); }
-    .mm-card__body { padding: 20px; }
+    .mm-card__body { min-width: 0; padding: 20px; }
     .mm-card__heading:empty, .mm-card__actions:empty, .mm-card__footer > div:empty { display: none; }
     .mm-card__header:not(:has(.mm-card__heading > *)):not(:has(.mm-card__actions > *)),
-    .mm-card__footer:not(:has(> div > *)) { display: none; }
+    .mm-card__header[hidden], .mm-card__footer[hidden] { display: none; }
+    @container (max-width: 520px) {
+      .mm-card__header { align-items: stretch; flex-direction: column; }
+      .mm-card__actions { justify-content: flex-start; }
+    }
   `,
 })
-export class MmCard { readonly labelledBy = input(''); }
+export class MmCard implements AfterViewChecked {
+  readonly labelledBy = input('');
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+
+  ngAfterViewChecked(): void {
+    this.setRegionVisibility('.mm-card__header');
+    this.setRegionVisibility('.mm-card__footer');
+  }
+
+  private setRegionVisibility(regionSelector: string): void {
+    const region = this.host.nativeElement.querySelector<HTMLElement>(regionSelector);
+    if (!region) return;
+    const isEmpty = !region.querySelector(':scope > div > *');
+    region.toggleAttribute('hidden', isEmpty);
+    region.style.display = isEmpty ? 'none' : '';
+  }
+}
 
 @Component({
   selector: 'mm-status',
@@ -201,6 +225,7 @@ export class MmStatus {
       min-width: 38px;
       color: var(--mm-component-text-secondary);
       font-size: var(--mm-text-xs);
+      font-variant-numeric: tabular-nums;
       text-align: right;
     }
   `,
@@ -264,7 +289,7 @@ export class MmProgress {
     }
     .mm-poster__overlay strong { font-size: var(--mm-text-md); line-height: 1.2; }
     .mm-poster__overlay small { color: rgb(255 255 255 / 72%); font-size: var(--mm-text-xs); }
-    .mm-poster__rating { color: #f2cc60; font-size: var(--mm-text-xs); font-weight: 800; }
+    .mm-poster__rating { color: #f2cc60; font-size: var(--mm-text-xs); font-variant-numeric: tabular-nums; font-weight: 800; }
   `,
 })
 export class MmPoster {

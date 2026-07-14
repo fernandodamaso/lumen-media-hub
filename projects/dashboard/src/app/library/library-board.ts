@@ -39,7 +39,6 @@ import { LibraryFacade } from './library.facade';
             <span class="switcher__count">{{ facade.seriesCount() }}</span>
           </button>
         </div>
-        @if (facade.viewAllHref(); as href) { <a class="view-all" [href]="href" target="_blank" rel="noreferrer">View all ↗</a> }
         </div>
 
       @if (facade.status() === 'loading') {
@@ -63,6 +62,18 @@ import { LibraryFacade } from './library.facade';
           }
         </div>
       }
+      <ng-container mm-card-footer>
+        @if (facade.status() === 'ready') {
+          <span class="library-summary">
+            {{ selectedCountLabel() }}
+          </span>
+        }
+      </ng-container>
+      <ng-container mm-card-footer-actions>
+        @if (facade.viewAllHref(); as href) {
+          <a class="view-all" [href]="href" target="_blank" rel="noreferrer">View all ↗</a>
+        }
+      </ng-container>
     </mm-card>
   `,
   styles: `
@@ -81,6 +92,7 @@ import { LibraryFacade } from './library.facade';
     .switcher__tab {
       display: inline-flex;
       align-items: center;
+      min-height: 40px;
       gap: 8px;
       border: 0;
       border-radius: var(--mm-radius-sm);
@@ -125,19 +137,19 @@ import { LibraryFacade } from './library.facade';
       max-width: none;
     }
     .poster-card:nth-child(n+9) { display: none; }
-    .view-all { color: var(--mm-component-accent); font-size: 13px; font-weight: 700; text-decoration: none; }
+    .library-summary { color: var(--mm-component-text-muted); font-size: 12px; }
+    .view-all { display: inline-flex; align-items: center; min-height: 40px; color: var(--mm-component-accent); font-size: 13px; font-weight: 700; text-decoration: none; }
+    .view-all:focus-visible { outline: 3px solid var(--mm-component-focus-ring); outline-offset: 2px; border-radius: var(--mm-radius-sm); }
     .poster-card:focus-visible {
       box-shadow: 0 0 0 2px var(--mm-component-accent);
       border-radius: var(--mm-radius-md);
     }
-    @container (min-width: 960px) {
-      .poster-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-      .poster-card { display: block; }
-      .poster-card:nth-child(n+13) { display: none; }
-    }
     @container (max-width: 639px) {
       .poster-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .poster-card:nth-child(n+5) { display: none; }
+    }
+    @media (max-width: 900px), (pointer: coarse) {
+      .switcher__tab { min-height: 44px; }
     }
   `,
 })
@@ -154,6 +166,13 @@ export class LibraryBoard {
 
   emptyMessage(): string {
     return libraryEmptyMessage(this.facade.kind());
+  }
+
+  selectedCountLabel(): string {
+    const isMovie = this.facade.kind() === 'movie';
+    const count = isMovie ? this.facade.movieCount() : this.facade.seriesCount();
+    const label = isMovie ? (count === 1 ? 'movie' : 'movies') : 'series';
+    return `${count} ${label}`;
   }
 
   retry(): void {

@@ -61,7 +61,7 @@ import { CalendarFacade } from './calendar.facade';
   `,
   styles: `
     :host { display: block; }
-    .date-heading { margin: 12px 0 4px; color: var(--mm-component-text-muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    .date-heading { margin: 12px 0 4px; color: var(--mm-component-text-muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
     h2 { margin: 0; color: var(--mm-component-text-primary); font-size: 24px; }
     .section-copy { margin-top: 6px; color: var(--mm-component-text-secondary); font-size: 14px; }
     .cal-list { display: grid; gap: 8px; }

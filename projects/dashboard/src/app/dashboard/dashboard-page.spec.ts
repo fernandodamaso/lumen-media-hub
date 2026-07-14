@@ -78,6 +78,8 @@ describe('DashboardPage composition', () => {
     expect(styles).toContain('.home-grid__downloads');
     expect(styles).toContain('.home-grid__automation');
     expect(styles).toContain('.home-grid__calendar');
+    expect(styles).toContain('align-items: stretch');
+    expect(styles).toContain('gap: 24px');
   });
 
   it('matches DOM focus order to the visual layout and collapses before tracks shrink', () => {

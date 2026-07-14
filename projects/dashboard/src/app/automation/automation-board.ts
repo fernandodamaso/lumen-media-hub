@@ -85,8 +85,8 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
               }
             </article>
 
-            <article class="tile" [attr.aria-label]="'Scheduled tasks (' + facade.tasks().length + ')'">
-              <h3>Scheduled tasks</h3>
+            <article class="tile" [attr.aria-label]="'Up Next Scheduled Tasks (' + facade.tasks().length + ')'">
+              <h3>Up Next Scheduled Tasks</h3>
               @if (facade.tasksUnavailable()) {
                 <p class="tile-empty">Scheduled tasks unavailable.</p>
               } @else if (facade.tasks().length === 0) {
@@ -96,7 +96,11 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
                   @for (item of facade.tasks(); track item.jobId) {
                     <li class="tile-row preview-row">
                       <span class="tile-title" [attr.title]="item.jobTitle">{{ item.jobTitle }}</span>
-                      <span class="tile-detail">{{ item.schedule || 'Not scheduled' }} · {{ item.timestamp ? formatGeneratedAt(item.timestamp) : 'No recent run' }}</span>
+                      <span class="tile-detail task-detail">
+                        <span class="task-schedule">{{ item.schedule || 'Not scheduled' }}</span>
+                        <span aria-hidden="true">·</span>
+                        <span class="task-timestamp">{{ item.timestamp ? formatGeneratedAt(item.timestamp) : 'No recent run' }}</span>
+                      </span>
                       <mm-status [tone]="item.triage === 'actionable' ? 'warning' : 'success'">{{ item.status }}</mm-status>
                     </li>
                   }
@@ -137,24 +141,27 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
     .section-copy { margin-top: 6px; color: var(--mm-component-text-secondary); font-size: 14px; }
     .generated-at { color: var(--mm-component-text-muted); font-size: 13px; }
     .partial-banner { margin: 0 0 14px; }
-    .tile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .tile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
     .tile { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-md); background: var(--mm-component-card-bg); }
+    .tile:first-child { grid-column: 1 / -1; }
     .tile h3 { margin: 0; color: var(--mm-component-text-primary); font-size: 16px; }
     .tile-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
-    .tile-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-md); background: var(--mm-component-surface); }
-    .preview-row { grid-template-columns: minmax(0, 1fr) auto auto; }
-    .tile-title { color: var(--mm-component-text-primary); font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tile-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-md); background: var(--mm-component-control-bg); }
+    .preview-row { align-items: start; }
+    .tile-title { min-width: 0; color: var(--mm-component-text-primary); font-size: 14px; font-weight: 600; overflow-wrap: normal; word-break: normal; white-space: normal; }
     .tile-detail { color: var(--mm-component-text-muted); font-size: 12px; }
+    .tile-row .tile-detail { grid-column: 1; }
+    .task-detail { display: flex; flex-wrap: wrap; gap: 4px; }
+    .task-schedule,
+    .task-timestamp { white-space: nowrap; }
+    .tile-row mm-status { grid-column: 2; grid-row: 1 / span 2; white-space: nowrap; }
     .tile-empty { margin: 0; color: var(--mm-component-text-muted); font-size: 14px; }
     @container (max-width: 520px) {
       .tile-grid { grid-template-columns: 1fr; }
+      .tile:first-child { grid-column: auto; }
       .section-heading { align-items: start; flex-direction: column; }
-      .preview-row { grid-template-columns: minmax(0, 1fr); }
       .tile-row { grid-template-columns: minmax(0, 1fr); }
-    }
-    @media (max-width: 950px) {
-      .tile-grid { grid-template-columns: 1fr; }
-      .section-heading { align-items: start; flex-direction: column; }
+      .tile-row mm-status { grid-column: 1; grid-row: auto; justify-self: start; }
     }
   `,
 })

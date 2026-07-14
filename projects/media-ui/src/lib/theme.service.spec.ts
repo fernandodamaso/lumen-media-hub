@@ -18,6 +18,14 @@ describe('ThemeService', () => {
     expect(service.themes).toEqual(MEDIA_UI_THEMES);
   });
 
+  it('falls back to GitHub Dark Pro on first run', () => {
+    const service = TestBed.inject(ThemeService);
+    TestBed.tick();
+
+    expect(service.theme()).toBe('github-dark-pro');
+    expect(document.documentElement.dataset['theme']).toBe('github-dark-pro');
+  });
+
   it('persists only supported selections', () => {
     const service = TestBed.inject(ThemeService);
 

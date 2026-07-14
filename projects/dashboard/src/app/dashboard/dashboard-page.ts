@@ -15,12 +15,7 @@ import { LibraryFacade } from '../library/library.facade';
   providers: [CalendarFacade, DownloadsFacade, LibraryFacade, AutomationFacade],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="page-intro region region--intro">
-      <p class="eyebrow">Overview</p>
-      <h1>Dashboard</h1>
-      <p class="lede">Library, downloads, automation, and upcoming releases.</p>
-    </section>
-
+    <h1 class="sr-only">Dashboard</h1>
     <div class="home-grid" data-testid="home-grid">
       <div class="home-grid__library region region--library" data-region="library">
         <mm-library-board />
@@ -44,8 +39,7 @@ import { LibraryFacade } from '../library/library.facade';
     .home-grid {
       display: grid;
       grid-template-columns: repeat(12, minmax(0, 1fr));
-      gap: 24px;
-      margin-top: 24px;
+      gap: 20px;
       align-items: stretch;
     }
 
@@ -76,9 +70,7 @@ import { LibraryFacade } from '../library/library.facade';
 
     .region {
       min-width: 0;
-      opacity: 0;
-      transform: translateY(8px);
-      animation: region-enter 180ms ease-out forwards;
+      opacity: 1;
     }
 
     .home-grid > .region > * {
@@ -86,31 +78,16 @@ import { LibraryFacade } from '../library/library.facade';
       height: 100%;
     }
 
-    .region--intro {
-      animation-delay: 0ms;
-    }
-
-    .region--library {
-      animation-delay: 40ms;
-    }
-
-    .region--calendar {
-      animation-delay: 80ms;
-    }
-
-    .region--downloads {
-      animation-delay: 120ms;
-    }
-
-    .region--automation {
-      animation-delay: 160ms;
-    }
-
-    @keyframes region-enter {
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
 
     @media (max-width: 1279px) {
@@ -118,14 +95,6 @@ import { LibraryFacade } from '../library/library.facade';
         grid-template-columns: 1fr;
       }
       .home-grid > * { grid-column: 1; grid-row: auto; }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .region {
-        opacity: 1;
-        transform: none;
-        animation: none;
-      }
     }
   `,
 })

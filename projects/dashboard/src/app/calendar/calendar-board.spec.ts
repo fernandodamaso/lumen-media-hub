@@ -20,7 +20,7 @@ describe('CalendarBoard', () => {
 
   it('renders loading, empty, and error states with retry recovery', async () => {
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Loading calendar');
+    expect(fixture.nativeElement.querySelectorAll('.cal-skeleton__row').length).toBeGreaterThan(0);
 
     facade.status.set('empty');
     fixture.detectChanges();
@@ -77,7 +77,6 @@ describe('CalendarBoard', () => {
     expect(text).toContain('Cowboy Bebop');
     expect(text).toContain('Episode');
     expect(text).toContain('Movie');
-    expect(text).toContain('Upcoming');
     expect(text).toContain('Available');
 
     const links = Array.from(fixture.nativeElement.querySelectorAll('a.cal-link')) as HTMLAnchorElement[];
@@ -97,8 +96,7 @@ describe('CalendarBoard', () => {
     fixture.detectChanges();
     const styles = componentStyles();
     expect(styles).toContain('@container (max-width: 420px)');
-    expect(styles).toMatch(/@container \(max-width: 420px\)[\s\S]*grid-template-areas:[\s\S]*"time kind status"/);
-    expect(styles).toMatch(/@container \(max-width: 420px\)[\s\S]*\.section-copy[\s\S]*display:\s*none/);
+    expect(styles).toMatch(/@container \(max-width: 420px\)[\s\S]*\.cal-row[\s\S]*grid-template-columns:\s*38px minmax\(0,\s*1fr\)/);
   });
 
   function findButton(label: string): HTMLButtonElement {

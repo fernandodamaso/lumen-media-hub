@@ -31,7 +31,7 @@ describe('AutomationBoard', () => {
 
   it('renders loading, empty, and error states with retry recovery', async () => {
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Loading automation');
+    expect(fixture.nativeElement.querySelectorAll('.tile-grid--skeleton').length).toBeGreaterThan(0);
 
     facade.status.set('empty');
     fixture.detectChanges();
@@ -61,11 +61,11 @@ describe('AutomationBoard', () => {
     });
     fixture.detectChanges();
 
-    const tileRows = fixture.nativeElement.querySelectorAll('.tile-row');
-    expect(tileRows[0].textContent).toContain('SABnzbd');
-    expect(tileRows[0].textContent).toContain('Down');
-    expect(tileRows[1].textContent).toContain('Radarr');
-    expect(tileRows[1].textContent).toContain('Healthy');
+    const flatRows = fixture.nativeElement.querySelectorAll('.flat-row');
+    expect(flatRows[0].textContent).toContain('SABnzbd');
+    expect(flatRows[0].textContent).toContain('Down');
+    expect(flatRows[1].textContent).toContain('Radarr');
+    expect(flatRows[1].textContent).toContain('Healthy');
     expect(fixture.nativeElement.querySelector('.mm-status--danger')?.textContent).toContain('Down');
   });
 
@@ -88,7 +88,7 @@ describe('AutomationBoard', () => {
     expect(styles).toContain('@container (max-width: 520px)');
     expect(styles).toMatch(/@container \(max-width: 520px\)[\s\S]*\.tile-grid[\s\S]*grid-template-columns:\s*1fr/);
     expect(styles).not.toContain('@media (max-width: 950px)');
-    expect(styles).toContain('background: var(--mm-component-control-bg)');
+    expect(styles).toContain('background: var(--mm-component-raised-bg)');
   });
 
   it('keeps scheduled task metadata intact and allows titles to wrap without clipping', () => {
@@ -160,11 +160,11 @@ describe('AutomationBoard', () => {
     });
     fixture.detectChanges();
 
-    const tileRows = fixture.nativeElement.querySelectorAll('.tile-row');
-    expect(tileRows[0].textContent).toContain('Service down');
-    expect(tileRows[0].textContent).toContain('Needs attention');
-    expect(tileRows[1].textContent).toContain('Slow indexer');
-    expect(tileRows[1].textContent).toContain('Warning');
+    const flatRows = fixture.nativeElement.querySelectorAll('.flat-row');
+    expect(flatRows[0].textContent).toContain('Service down');
+    expect(flatRows[0].textContent).toContain('Needs attention');
+    expect(flatRows[1].textContent).toContain('Slow indexer');
+    expect(flatRows[1].textContent).toContain('Warning');
   });
 
   it('renders items with missing IDs without duplicate tracking errors', () => {
@@ -186,7 +186,7 @@ describe('AutomationBoard', () => {
       availability: { services: 'present', preview: 'present', problems: 'present' },
     });
     expect(() => fixture.detectChanges()).not.toThrow();
-    expect(fixture.nativeElement.querySelectorAll('.tile-row').length).toBe(4);
+    expect(fixture.nativeElement.querySelectorAll('.flat-row').length).toBe(4);
   });
 
   function findButton(label: string): HTMLButtonElement {

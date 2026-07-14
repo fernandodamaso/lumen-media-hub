@@ -27,8 +27,8 @@ describe('App shell', () => {
   });
 
   it.each([
-    ['/', 'Dashboard', 'Library, downloads, automation, and upcoming releases.'],
-    ['/dashboard', 'Dashboard', 'Library, downloads, automation, and upcoming releases.'],
+    ['/', 'Dashboard', null],
+    ['/dashboard', 'Dashboard', null],
     ['/reports', 'Reports', 'Failed and actionable automation runs first'],
     ['/discover', 'Discover', 'Browse Hermes, Jellyseerr, and Trakt recommendations'],
     ['/ui', 'UI catalog', 'Shared primitives used by the dashboard shell.'],
@@ -38,8 +38,10 @@ describe('App shell', () => {
     await harness.navigateByUrl(url);
     expect(router.url).toBe(url === '/dashboard' ? '/' : url);
     expect(router.routerState.snapshot.root.firstChild?.routeConfig?.path).toBe(url === '/' || url === '/dashboard' ? '' : url.slice(1));
-    expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toContain(heading);
-    expect(harness.routeNativeElement?.textContent).toContain(lede);
+    expect(harness.routeNativeElement?.textContent).toContain(heading);
+    if (lede) {
+      expect(harness.routeNativeElement?.textContent).toContain(lede);
+    }
   });
 
   it('renders the library board on the dashboard', async () => {

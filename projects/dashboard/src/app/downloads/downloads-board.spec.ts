@@ -20,7 +20,7 @@ describe('DownloadsBoard', () => {
 
   it('renders loading, empty, and error states with retry recovery', async () => {
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Loading downloads');
+    expect(fixture.nativeElement.querySelectorAll('.download-skeleton').length).toBeGreaterThan(0);
 
     facade.status.set('empty');
     fixture.detectChanges();
@@ -71,7 +71,7 @@ describe('DownloadsBoard', () => {
     fixture.detectChanges();
     const styles = componentStyles();
     expect(styles).toContain('@container (max-width: 560px)');
-    expect(styles).toMatch(/\.summary[\s\S]*grid-template-columns:\s*repeat\(2,\s*1fr\)/);
+    expect(styles).toMatch(/\.torrent-head[\s\S]*display:\s*flex/);
   });
 
   function findButton(label: string): HTMLButtonElement {

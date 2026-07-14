@@ -127,7 +127,7 @@ export const JELLYFIN_LINK_BASES = new InjectionToken<JellyfinLinkBases>('JELLYF
 });
 
 export const DEFAULT_LIBRARY_ART =
-  'linear-gradient(145deg, var(--mm-component-accent), var(--mm-component-card-bg) 65%)';
+  'linear-gradient(145deg, color-mix(in srgb, var(--mm-component-accent) 28%, var(--mm-component-card-bg)), var(--mm-component-card-bg) 72%)';
 
 
 export type DiscoverFeedback = 'liked' | 'disliked' | 'watched' | 'skipped';

@@ -36,6 +36,14 @@ const DEMO_CALENDAR: MediaStackCalendarEventDto[] = [
     kind: 'episode',
   },
   {
+    title: 'The Blue Hour',
+    additional: 'S2 E3',
+    date: 'Jul 12',
+    airDate: '2026-07-12T21:30:00Z',
+    hasFile: false,
+    kind: 'episode',
+  },
+  {
     title: 'Dune',
     additional: 'Theatrical',
     date: 'Jul 13',

@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { MmButton, MmCard, MmStateCard, MmStatus } from 'media-ui';
+import { MmButton, MmCard, MmSkeleton, MmStateCard } from 'media-ui';
 import { CalendarEventStatus, CalendarMediaKind } from '../downloads/media-stack-api';
 import { CALENDAR_KIND_VIEW, CALENDAR_STATUS_VIEW } from './calendar-format';
 import { CalendarFacade } from './calendar.facade';
@@ -7,18 +7,26 @@ import { CalendarFacade } from './calendar.facade';
 @Component({
   standalone: true,
   selector: 'mm-calendar-board',
-  imports: [MmButton, MmCard, MmStateCard, MmStatus],
+  imports: [MmButton, MmCard, MmSkeleton, MmStateCard],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <mm-card class="calendar" labelledBy="calendar-heading">
-        <div mm-card-header>
-          <p class="eyebrow">Schedule</p>
-          <h2 id="calendar-heading">Upcoming</h2>
-          <p class="section-copy">Scan the next episodes and movies in your stack.</p>
-        </div>
+      <div mm-card-header>
+        <h2 id="calendar-heading">Upcoming</h2>
+      </div>
 
       @if (facade.status() === 'loading') {
-        <mm-state-card kind="loading" title="Loading calendar" message="Checking upcoming releases…" />
+        <div class="cal-skeleton" aria-hidden="true">
+          @for (i of rowSkeletons; track i) {
+            <div class="cal-skeleton__row">
+              <div class="cal-skeleton__date">
+                <mm-skeleton variant="text" width="24px" />
+                <mm-skeleton variant="text" width="20px" />
+              </div>
+              <mm-skeleton variant="text" width="70%" />
+            </div>
+          }
+        </div>
       } @else if (facade.status() === 'error') {
         <mm-state-card kind="error" title="Calendar unavailable" [message]="facade.error()" tone="danger">
           <mm-button label="Try again" (click)="retry()" />
@@ -29,31 +37,38 @@ import { CalendarFacade } from './calendar.facade';
         <div class="cal-list" aria-live="polite">
           @for (group of facade.groups(); track group.key) {
             <h3 class="date-heading">{{ group.label }}</h3>
-          @for (event of group.events; track event.id) {
-            <article class="cal-row">
-              <span class="cal-time">{{ event.time }}</span>
-              <mm-status [tone]="kindView(event.kind).tone">{{ kindView(event.kind).label }}</mm-status>
-              <div class="cal-copy">
-                @if (event.href) {
-                  <a
-                    class="cal-title cal-link"
-                    [href]="event.href"
-                    target="_blank"
-                    rel="noreferrer"
-                    [attr.title]="event.title"
-                  >
-                    {{ event.title }}
-                    <span class="external-hint" aria-hidden="true">↗</span>
-                    <span class="sr-only"> (opens in a new tab)</span>
-                  </a>
-                } @else {
-                  <span class="cal-title" [attr.title]="event.title">{{ event.title }}</span>
-                }
-                <span class="cal-subtitle">{{ event.subtitle }}</span>
-              </div>
-              <mm-status [tone]="statusView(event.status).tone">{{ statusView(event.status).label }}</mm-status>
-            </article>
-          }
+            @for (event of group.events; track event.id) {
+              <article class="cal-row">
+                <div class="cal-date">
+                  <span class="cal-date__day">{{ dateBlock(event.airDate).day }}</span>
+                  <span class="cal-date__month">{{ dateBlock(event.airDate).month }}</span>
+                </div>
+                <div class="cal-copy">
+                  <div class="cal-title-row">
+                    @if (event.href) {
+                      <a
+                        class="cal-title cal-link"
+                        [href]="event.href"
+                        target="_blank"
+                        rel="noreferrer"
+                        [attr.title]="event.title"
+                      >
+                        {{ event.title }}
+                      </a>
+                    } @else {
+                      <span class="cal-title" [attr.title]="event.title">{{ event.title }}</span>
+                    }
+                    @if (event.status === 'available') {
+                      <span class="cal-status cal-status--available">
+                        <span class="cal-status__dot" aria-hidden="true"></span>
+                        {{ statusLabel(event.status) }}
+                      </span>
+                    }
+                  </div>
+                  <span class="cal-subtitle">{{ kindLabel(event.kind) }} · {{ formatTime(event.airDate) }} · {{ event.subtitle }}</span>
+                </div>
+              </article>
+            }
           }
         </div>
       }
@@ -61,99 +76,143 @@ import { CalendarFacade } from './calendar.facade';
   `,
   styles: `
     :host { display: block; }
-    .date-heading { margin: 12px 0 4px; color: var(--mm-component-text-muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
-    h2 { margin: 0; color: var(--mm-component-text-primary); font-size: 24px; }
-    .section-copy { margin-top: 6px; color: var(--mm-component-text-secondary); font-size: 14px; }
+    .date-heading { margin: 14px 0 6px; color: var(--mm-component-text-muted); font-size: var(--mm-text-xs); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    h2 { margin: 0; color: var(--mm-component-text-primary); font-size: var(--mm-text-lg); font-weight: 700; letter-spacing: -0.01em; }
     .cal-list { display: grid; gap: 8px; }
     .cal-row {
       display: grid;
-      grid-template-columns: 64px auto minmax(0, 1fr) auto;
+      grid-template-columns: 44px minmax(0, 1fr);
       align-items: center;
       gap: 12px;
-      padding: 14px 16px;
+      padding: 11px 12px;
       border: 1px solid var(--mm-component-border);
       border-radius: var(--mm-radius-md);
-      background: var(--mm-component-card-bg);
+      background: color-mix(in srgb, var(--mm-component-raised-bg) 55%, var(--mm-component-card-bg));
     }
-    .cal-time {
-      color: var(--mm-component-text-muted);
-      font-size: 12px;
+    .cal-date {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      min-width: 0;
+    }
+    .cal-date__day {
+      color: var(--mm-component-text-primary);
+      font-size: 18px;
+      font-weight: 800;
+      line-height: 1;
       font-variant-numeric: tabular-nums;
     }
-    .cal-copy { display: grid; gap: 4px; min-width: 0; }
+    .cal-date__month {
+      color: var(--mm-component-text-muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .cal-copy { display: grid; gap: 3px; min-width: 0; }
+    .cal-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
     .cal-title {
       color: var(--mm-component-text-primary);
-      font-size: 14px;
+      font-size: var(--mm-text-md);
       font-weight: 600;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     .cal-link {
-      color: var(--mm-component-accent);
+      color: var(--mm-component-text-primary);
       text-decoration: none;
     }
     .cal-link:hover,
     .cal-link:focus-visible {
       text-decoration: underline;
     }
-    .external-hint {
-      margin-left: 4px;
+    .cal-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+      color: var(--mm-component-warning);
+      font-size: 10px;
       font-weight: 700;
+      letter-spacing: .03em;
+      text-transform: uppercase;
     }
-    .sr-only {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      padding: 0;
-      margin: -1px;
-      overflow: hidden;
-      clip: rect(0, 0, 0, 0);
-      white-space: nowrap;
-      border: 0;
+    .cal-status--available { color: var(--mm-component-success); }
+    .cal-status__dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
     }
     .cal-subtitle {
       color: var(--mm-component-text-muted);
-      font-size: 12px;
+      font-size: var(--mm-text-xs);
     }
+    .cal-skeleton { display: grid; gap: 8px; }
+    .cal-skeleton__row {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr);
+      align-items: center;
+      gap: 12px;
+      padding: 11px 12px;
+      border: 1px solid var(--mm-component-border);
+      border-radius: var(--mm-radius-md);
+      background: color-mix(in srgb, var(--mm-component-raised-bg) 55%, var(--mm-component-card-bg));
+    }
+    .cal-skeleton__date { display: flex; flex-direction: column; gap: 4px; }
     @container (max-width: 420px) {
-      .section-copy { display: none; }
-      .cal-row {
-        grid-template-columns: 56px 1fr auto;
-        grid-template-areas:
-          "time kind status"
-          "copy copy copy";
-        gap: 8px;
-        padding: 12px;
+      .cal-row,
+      .cal-skeleton__row {
+        grid-template-columns: 38px minmax(0, 1fr);
+        gap: 10px;
+        padding: 10px;
       }
-      .cal-time { grid-area: time; }
-      .cal-copy { grid-area: copy; }
     }
     @media (max-width: 850px) {
-      .cal-row {
-        grid-template-columns: 56px 1fr auto;
-        grid-template-areas:
-          "time kind status"
-          "copy copy copy";
+      .cal-row,
+      .cal-skeleton__row {
+        grid-template-columns: 38px minmax(0, 1fr);
+        gap: 10px;
+        padding: 10px;
       }
-      .cal-time { grid-area: time; }
-      .cal-copy { grid-area: copy; }
     }
   `,
 })
 export class CalendarBoard {
   readonly facade = inject(CalendarFacade);
+  readonly rowSkeletons = [0, 1, 2];
 
   constructor() {
     this.facade.startPolling();
   }
 
-  kindView(kind: CalendarMediaKind) {
-    return CALENDAR_KIND_VIEW[kind];
+  dateBlock(airDate: string): { day: string; month: string } {
+    const match = airDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return { day: '--', month: '---' };
+    const [, , monthNum, day] = match;
+    const date = new Date(2000, Number(monthNum) - 1, 1);
+    const month = new Intl.DateTimeFormat('en', { month: 'short' }).format(date);
+    return { day: String(Number(day)), month: month.toUpperCase() };
   }
 
-  statusView(status: CalendarEventStatus) {
-    return CALENDAR_STATUS_VIEW[status];
+  formatTime(airDate: string): string {
+    const match = airDate.match(/T(\d{2}):(\d{2})/);
+    return match ? `${match[1]}:${match[2]}` : '—';
+  }
+
+  kindLabel(kind: CalendarMediaKind): string {
+    return CALENDAR_KIND_VIEW[kind].label;
+  }
+
+  statusLabel(status: CalendarEventStatus): string {
+    return CALENDAR_STATUS_VIEW[status].label;
   }
 
   retry(): void {

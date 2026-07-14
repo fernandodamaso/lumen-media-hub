@@ -79,7 +79,7 @@ describe('DashboardPage composition', () => {
     expect(styles).toContain('.home-grid__automation');
     expect(styles).toContain('.home-grid__calendar');
     expect(styles).toContain('align-items: stretch');
-    expect(styles).toContain('gap: 24px');
+    expect(styles).toContain('gap: 20px');
   });
 
   it('matches DOM focus order to the visual layout and collapses before tracks shrink', () => {
@@ -125,13 +125,11 @@ describe('DashboardPage composition', () => {
     expect(root.querySelector('[data-region="calendar"]')?.textContent).toContain('Cowboy Bebop');
   });
 
-  it('declares reduced-motion suppression for region enter animation', () => {
+  it('renders regions immediately without an entrance animation', () => {
     fixture.detectChanges();
     const styles = dashboardStyles();
-    expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
-    expect(styles).toMatch(/@keyframes[\s\S]*region-enter/);
-    expect(styles).toMatch(/animation:[\s\S]*region-enter 180ms ease-out forwards/);
-    expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*animation:\s*none/);
+    expect(styles).not.toMatch(/@keyframes[\s\S]*region-enter/);
+    expect(styles).not.toContain('animation: region-enter');
     expect(fixture.nativeElement.querySelectorAll('.region').length).toBeGreaterThanOrEqual(4);
   });
 });

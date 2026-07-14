@@ -1,12 +1,30 @@
-:host { display: block; min-height: 100vh; }
+:host { display: block; min-height: 100dvh; }
 
-.shell { min-height: 100vh; background: var(--mm-semantic-surface-page); color: var(--mm-semantic-text-primary); }
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  z-index: 10000;
+  padding: 8px 16px;
+  background: var(--mm-component-accent);
+  color: var(--mm-component-on-accent);
+  font-weight: 700;
+  text-decoration: none;
+  transition: top var(--mm-transition-fast);
+}
+.skip-link:focus {
+  top: 0;
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
+}
+
+.shell { min-height: 100dvh; background: var(--mm-semantic-surface-page); color: var(--mm-semantic-text-primary); }
 .topbar { height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; background: var(--mm-component-card-bg); border-bottom: 1px solid var(--mm-component-border); }
 .topbar-actions { display: flex; align-items: center; gap: 16px; }
 .demo-badge { border: 1px solid var(--mm-component-accent); border-radius: 999px; padding: 6px 10px; color: var(--mm-component-accent); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .brand { display: inline-flex; align-items: center; min-height: 40px; gap: 10px; color: inherit; font-size: 17px; font-weight: 700; text-decoration: none; }
 .brand-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--mm-semantic-accent-strong); color: var(--mm-semantic-on-accent); }
-.shell-body { display: flex; min-height: calc(100vh - 68px); }
+.shell-body { display: flex; min-height: calc(100dvh - 68px); }
 .sidebar { width: 216px; flex: 0 0 216px; padding: 28px 16px; background: var(--mm-component-card-bg); border-right: 1px solid var(--mm-component-border); }
 .sidebar a { display: flex; align-items: center; min-height: 40px; margin: 3px 0; padding: 10px 12px; border-radius: 7px; color: var(--mm-component-text-secondary); font-size: 14px; text-decoration: none; }
 .sidebar a:hover, .sidebar a.active { background: var(--mm-component-muted-bg); color: var(--mm-component-accent); font-weight: 600; }

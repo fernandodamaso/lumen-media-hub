@@ -22,6 +22,7 @@ describe('MockMediaStackApi', () => {
     const events = await api.listCalendarEvents();
     expect(events.map((event) => event.title)).toEqual([
       'Cowboy Bebop',
+      'The Blue Hour',
       'Dune',
       'The Expanse',
       'Night Transit',

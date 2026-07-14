@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { MmButton, MmCard, MmStateCard, MmStatus } from 'media-ui';
+import { MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus } from 'media-ui';
 import {
   AutomationProblem,
   AutomationProblemSeverity,
@@ -30,25 +30,46 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
 @Component({
   standalone: true,
   selector: 'mm-automation-board',
-  imports: [MmButton, MmCard, MmStateCard, MmStatus],
+  imports: [MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <mm-card class="automation" labelledBy="automation-heading">
       <div mm-card-header>
         <div>
-          <p class="eyebrow">Operations</p>
           <h2 id="automation-heading">Automation</h2>
-          <p class="section-copy">Service health, upcoming work, and open problems at a glance.</p>
         </div>
-      </div>
-      <div mm-card-header-actions>
-        @if (facade.summary(); as summary) {
-          <span class="generated-at">{{ formatGeneratedAt(summary.generatedAt) }}</span>
-        }
       </div>
 
       @if (facade.status() === 'loading') {
-        <mm-state-card kind="loading" title="Loading automation" message="Checking automations…" />
+        <div class="tile-grid tile-grid--skeleton" aria-hidden="true">
+          <div class="tile tile--wide">
+            <mm-skeleton variant="text" width="72px" height="14px" />
+            @for (i of rowSkeletons; track i) {
+              <div class="tile-row tile-row--skeleton">
+                <mm-skeleton variant="text" width="45%" />
+                <mm-skeleton variant="text" width="64px" />
+              </div>
+            }
+          </div>
+          <div class="tile">
+            <mm-skeleton variant="text" width="90px" height="14px" />
+            @for (i of rowSkeletons; track i) {
+              <div class="tile-row tile-row--skeleton">
+                <mm-skeleton variant="text" width="70%" />
+                <mm-skeleton variant="text" width="48px" />
+              </div>
+            }
+          </div>
+          <div class="tile">
+            <mm-skeleton variant="text" width="72px" height="14px" />
+            @for (i of rowSkeletons; track i) {
+              <div class="tile-row tile-row--skeleton">
+                <mm-skeleton variant="text" width="60%" />
+                <mm-skeleton variant="text" width="56px" />
+              </div>
+            }
+          </div>
+        </div>
       } @else if (facade.status() === 'error') {
         <mm-state-card kind="error" title="Automation unavailable" [message]="facade.error()" tone="danger">
           <mm-button label="Try again" (click)="retry()" />
@@ -71,12 +92,13 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
               } @else if (summary.services.length === 0) {
                 <p class="tile-empty">No services reported.</p>
               } @else {
-                <ul class="tile-list" aria-live="polite">
+                <ul class="flat-list" aria-live="polite">
                   @for (service of sortedServices(); track service.id || $index) {
-                    <li class="tile-row">
-                      <span class="tile-title" [attr.title]="service.name">{{ service.name }}</span>
+                    <li class="flat-row">
+                      <span class="status-dot" [class.status-dot--healthy]="service.status === 'healthy'" [class.status-dot--degraded]="service.status === 'degraded'" [class.status-dot--down]="service.status === 'down'" [class.status-dot--unknown]="service.status === 'unknown'" aria-hidden="true"></span>
+                      <span class="flat-name" [attr.title]="service.name">{{ service.name }}</span>
                       @if (service.detail) {
-                        <span class="tile-detail">{{ service.detail }}</span>
+                        <span class="flat-detail">{{ service.detail }}</span>
                       }
                       <mm-status [tone]="serviceStatusView(service.status).tone">{{ serviceStatusView(service.status).label }}</mm-status>
                     </li>
@@ -115,12 +137,12 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
               } @else if (summary.problems.length === 0) {
                 <p class="tile-empty">No open problems.</p>
               } @else {
-                <ul class="tile-list" aria-live="polite">
+                <ul class="flat-list" aria-live="polite">
                   @for (problem of sortedProblems(); track problem.id || $index) {
-                    <li class="tile-row">
-                      <span class="tile-title" [attr.title]="problem.summary">{{ problem.summary }}</span>
+                    <li class="flat-row">
+                      <span class="flat-name" [attr.title]="problem.summary">{{ problem.summary }}</span>
                       @if (problem.serviceId) {
-                        <span class="tile-detail">{{ problem.serviceId }}</span>
+                        <span class="flat-detail">{{ problem.serviceId }}</span>
                       }
                       <mm-status [tone]="problemSeverityView(problem.severity).tone">{{ problemSeverityView(problem.severity).label }}</mm-status>
                     </li>
@@ -136,29 +158,41 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
   styles: `
     :host { display: block; }
     .automation { margin-top: 0; }
-    .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
-    h2 { margin: 0; color: var(--mm-component-text-primary); font-size: 24px; }
-    .section-copy { margin-top: 6px; color: var(--mm-component-text-secondary); font-size: 14px; }
-    .generated-at { color: var(--mm-component-text-muted); font-size: 13px; }
-    .partial-banner { margin: 0 0 14px; }
-    .tile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-    .tile { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-md); background: var(--mm-component-card-bg); }
+    h2 { margin: 0; color: var(--mm-component-text-primary); font-size: var(--mm-text-lg); font-weight: 700; letter-spacing: -0.01em; }
+    .partial-banner { margin: 0 0 12px; }
+    .tile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .tile-grid--skeleton .tile { gap: 10px; }
+    .tile { display: grid; align-content: start; gap: 10px; padding: 14px; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-md); background: var(--mm-component-raised-bg); }
     .tile:first-child { grid-column: 1 / -1; }
-    .tile h3 { margin: 0; color: var(--mm-component-text-primary); font-size: 16px; }
-    .tile-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
-    .tile-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-md); background: var(--mm-component-control-bg); }
+    .tile--wide { grid-column: 1 / -1; }
+    .tile h3 { margin: 0; color: var(--mm-component-text-secondary); font-size: var(--mm-text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+    .flat-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+    .flat-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; color: var(--mm-component-text-primary); font-size: var(--mm-text-md); }
+    .flat-row + .flat-row { border-top: 1px solid var(--mm-component-border); }
+    .flat-name { min-width: 0; font-weight: 600; }
+    .flat-detail { color: var(--mm-component-text-muted); font-size: var(--mm-text-xs); }
+    .flat-row .flat-detail { margin-right: auto; }
+    .flat-row mm-status { flex-shrink: 0; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--mm-component-text-muted); flex-shrink: 0; }
+    .status-dot--healthy { background: var(--mm-component-success); box-shadow: 0 0 6px var(--mm-component-success); }
+    .status-dot--degraded { background: var(--mm-component-warning); box-shadow: 0 0 6px var(--mm-component-warning); }
+    .status-dot--down { background: var(--mm-component-danger); box-shadow: 0 0 6px var(--mm-component-danger); }
+    .tile-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+    .tile-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 11px; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-md); background: var(--mm-component-card-bg); }
+    .tile-row--skeleton { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
     .preview-row { align-items: start; }
-    .tile-title { min-width: 0; color: var(--mm-component-text-primary); font-size: 14px; font-weight: 600; overflow-wrap: normal; word-break: normal; white-space: normal; }
-    .tile-detail { color: var(--mm-component-text-muted); font-size: 12px; }
+    .tile-title { min-width: 0; color: var(--mm-component-text-primary); font-size: var(--mm-text-md); font-weight: 600; overflow-wrap: normal; word-break: normal; white-space: normal; }
+    .tile-detail { color: var(--mm-component-text-muted); font-size: var(--mm-text-xs); }
     .tile-row .tile-detail { grid-column: 1; }
     .task-detail { display: flex; flex-wrap: wrap; gap: 4px; }
     .task-schedule,
     .task-timestamp { white-space: nowrap; }
     .tile-row mm-status { grid-column: 2; grid-row: 1 / span 2; white-space: nowrap; }
-    .tile-empty { margin: 0; color: var(--mm-component-text-muted); font-size: 14px; }
+    .tile-empty { margin: 0; color: var(--mm-component-text-muted); font-size: var(--mm-text-md); }
     @container (max-width: 520px) {
       .tile-grid { grid-template-columns: 1fr; }
       .tile:first-child { grid-column: auto; }
+      .tile--wide { grid-column: auto; }
       .section-heading { align-items: start; flex-direction: column; }
       .tile-row { grid-template-columns: minmax(0, 1fr); }
       .tile-row mm-status { grid-column: 1; grid-row: auto; justify-self: start; }
@@ -167,6 +201,7 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
 })
 export class AutomationBoard {
   readonly facade = inject(AutomationFacade);
+  readonly rowSkeletons = [0, 1, 2];
   readonly formatGeneratedAt = formatGeneratedAt;
   readonly sortedServices = computed(() => this.sortServices(this.facade.summary()?.services ?? []));
   readonly sortedProblems = computed(() => this.sortProblems(this.facade.summary()?.problems ?? []));

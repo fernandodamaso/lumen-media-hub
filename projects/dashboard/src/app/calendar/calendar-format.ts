@@ -12,11 +12,13 @@ export function groupCalendarEvents<T extends { airDate: string }>(events: T[], 
     const key = match ? match[0] : 'undated';
     let group = groups.get(key);
     if (!group) {
-      let label = 'Date unavailable';
+      let label = 'DATE UNAVAILABLE';
       if (match) {
         const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
-        const suffix = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(date);
-        label = key === today ? `Today · ${suffix}` : key === tomorrow ? `Tomorrow · ${suffix}` : `${new Intl.DateTimeFormat('en', { weekday: 'short' }).format(date)} · ${suffix}`;
+        const month = new Intl.DateTimeFormat('en', { month: 'short' }).format(date).toUpperCase();
+        const day = String(date.getDate());
+        const weekday = new Intl.DateTimeFormat('en', { weekday: 'short' }).format(date).toUpperCase();
+        label = key === today ? `TODAY, ${month} ${day}` : key === tomorrow ? `TOMORROW, ${month} ${day}` : `${weekday}, ${month} ${day}`;
       }
       group = { key, label, events: [] };
       groups.set(key, group);

@@ -20,7 +20,7 @@ describe('LibraryBoard', () => {
 
   it('renders loading, empty, and error states with retry recovery', async () => {
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Loading library');
+    expect(fixture.nativeElement.querySelectorAll('.poster-skeleton').length).toBeGreaterThan(0);
 
     facade.status.set('empty');
     fixture.detectChanges();
@@ -147,10 +147,10 @@ describe('LibraryBoard', () => {
     fixture.detectChanges();
     const styles = componentStyles();
 
-    expect(styles).toMatch(/\.poster-grid[\s\S]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/);
-    expect(styles).toMatch(/\.poster-card[^{]*:nth-child\(n\+9\)[^{]*\{\s*display:\s*none/);
-    expect(styles).toMatch(/@container \(max-width: 639px\)[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
-    expect(styles).toMatch(/@container \(max-width: 639px\)[\s\S]*\.poster-card[^{]*:nth-child\(n\+5\)[^{]*\{\s*display:\s*none/);
+    expect(styles).toMatch(/\.poster-grid[\s\S]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(124px,\s*1fr\)\)/);
+    expect(styles).toMatch(/\.poster-card[^{]*:nth-child\(n\+17\)[^{]*\{\s*display:\s*none/);
+    expect(styles).toMatch(/@container \(max-width: 639px\)[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+    expect(styles).toMatch(/@container \(max-width: 639px\)[\s\S]*\.poster-card[^{]*:nth-child\(n\+10\)[^{]*\{\s*display:\s*none/);
     expect(styles).not.toContain('repeat(6');
     expect(styles).not.toContain('@container (min-width: 960px)');
   });

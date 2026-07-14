@@ -1,0 +1,60 @@
+<mm-card class="downloads" labelledBy="downloads-heading">
+  <div mm-card-header>
+    <h2 id="downloads-heading">Downloads</h2>
+  </div>
+  <div mm-card-header-actions class="header-tools">
+    <div class="speed"><span>Down speed</span><strong>{{ formatRate(facade.summary().downloadRate) }}</strong></div>
+    <div class="speed"><span>Up speed</span><strong>{{ formatRate(facade.summary().uploadRate) }}</strong></div>
+    <div class="actions" aria-label="Download controls">
+      <mm-button label="Pause all" variant="quiet" [disabled]="facade.pendingAction() !== null" [busy]="facade.pendingAction() === 'pause'" (click)="pauseAll()" />
+      <mm-button label="Resume all" variant="quiet" [disabled]="facade.pendingAction() !== null" [busy]="facade.pendingAction() === 'resume'" (click)="resumeAll()" />
+    </div>
+  </div>
+  @if (facade.notice()) {
+    <p class="notice" role="status" aria-live="polite"><mm-status tone="success">{{ facade.notice() }}</mm-status></p>
+  }
+  @if (facade.status() === 'loading') {
+    <div class="download-skeleton" aria-hidden="true">
+      @for (i of torrentSkeletons; track i) {
+        <div class="torrent torrent--skeleton">
+          <div class="torrent-head">
+            <div><mm-skeleton variant="text" width="160px" height="16px" /><mm-skeleton variant="text" width="56px" /></div>
+            <mm-skeleton variant="text" width="72px" />
+          </div>
+          <div class="progress-row"><mm-skeleton variant="text" height="6px" /></div>
+          <div class="torrent-meta">
+            <mm-skeleton variant="text" width="90px" />
+            <mm-skeleton variant="text" width="70px" />
+            <mm-skeleton variant="text" width="70px" />
+            <mm-skeleton variant="text" width="60px" />
+          </div>
+        </div>
+      }
+    </div>
+  } @else if (facade.status() === 'error') {
+    <mm-state-card kind="error" title="Downloads unavailable" [message]="facade.error()" tone="danger"><mm-button label="Try again" (click)="retry()" /></mm-state-card>
+  } @else if (facade.status() === 'empty') {
+    <mm-state-card kind="empty" title="No active downloads" message="Your queue is clear. New downloads will appear here." />
+  } @else {
+    <div class="torrent-list" aria-live="polite">
+      @for (torrent of facade.torrents(); track torrent.id) {
+        <article class="torrent">
+          <div class="torrent-head">
+            <div>
+              <h3>{{ torrent.name }}</h3>
+              <span class="category">{{ torrent.category }}</span>
+            </div>
+            <mm-status [tone]="stateView(torrent.state).tone">{{ stateView(torrent.state).label }}</mm-status>
+          </div>
+          <div class="progress-row"><mm-progress [value]="torrent.progress" [label]="torrent.name + ' progress'" /></div>
+          <div class="torrent-meta">
+            <span>{{ formatBytes(torrent.downloaded) }} / {{ formatBytes(torrent.size) }}</span>
+            <span>{{ formatRate(torrent.downloadRate) }} ↓</span>
+            <span>{{ formatRate(torrent.uploadRate) }} ↑</span>
+            <span>{{ torrent.eta ? formatEta(torrent.eta) + ' left' : 'Complete' }}</span>
+          </div>
+        </article>
+      }
+    </div>
+  }
+</mm-card>

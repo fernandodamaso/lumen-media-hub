@@ -1,0 +1,64 @@
+<article class="discover-card">
+  <mm-poster [title]="item().title" [meta]="meta()" [art]="art()" />
+  <div class="body">
+    <div class="badges">
+      @if (item().inLibrary) {
+        <mm-status tone="success">In library</mm-status>
+      }
+      @if (item().requestState === 'requested') {
+        <mm-status tone="info">Requested</mm-status>
+      }
+      @if (syncFailed()) {
+        <mm-status tone="warning">Sync failed</mm-status>
+      }
+      @if (item().feedback) {
+        <mm-status tone="info">{{ item().feedback }}</mm-status>
+      }
+    </div>
+    @if (item().reason) {
+      <p class="reason">{{ item().reason }}</p>
+    } @else if (item().overview) {
+      <p class="reason">{{ item().overview }}</p>
+    }
+    @if (showFeedback()) {
+      <div class="feedback" role="group" [attr.aria-label]="'Feedback for ' + item().title">
+        @for (option of feedbackOptions; track option.value) {
+          <button
+            type="button"
+            class="feedback-btn"
+            [attr.aria-label]="option.label"
+            [attr.aria-pressed]="item().feedback === option.value"
+            [disabled]="busy()"
+            (click)="feedback.emit(option.value)"
+          >
+            @switch (option.icon) {
+              @case ('thumbsUp') {
+                <svg lucideThumbsUp [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+              }
+              @case ('thumbsDown') {
+                <svg lucideThumbsDown [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+              }
+              @case ('eye') {
+                <svg lucideEye [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+              }
+              @case ('skipForward') {
+                <svg lucideSkipForward [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+              }
+            }
+          </button>
+        }
+      </div>
+    }
+    <div class="actions">
+      <span [attr.title]="requestAction().title">
+        <mm-button
+          [label]="requestAction().label"
+          [disabled]="requestAction().disabled || busy()"
+          [busy]="busy()"
+          variant="quiet"
+          (click)="onRequest()"
+        />
+      </span>
+    </div>
+  </div>
+</article>

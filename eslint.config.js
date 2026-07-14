@@ -11,6 +11,7 @@ module.exports = [
       'storybook-static/**',
       '.worktrees/**',
       '**/.worktrees/**',
+      'docs/mockups/**',
     ],
   },
   ...tseslint.configs.recommended,

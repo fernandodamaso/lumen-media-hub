@@ -49,3 +49,6 @@ Thumbs.db
 # Git worktrees
 .worktrees/
 
+# Local design-exploration mockups (logs, screenshots, scratch HTML)
+/docs/mockups/
+

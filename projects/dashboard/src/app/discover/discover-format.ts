@@ -1,8 +1,4 @@
-import {
-  DiscoverFeedback,
-  MediaStackDiscoverItemDto,
-  MediaStackExternalDiscoverItemDto,
-} from '../media-stack/media-stack-api';
+import { DiscoverFeedback, DiscoverItem, ExternalDiscoverItem } from './discover.models';
 
 export type DiscoverHistoryFilter = 'all' | DiscoverFeedback | 'requested';
 
@@ -29,7 +25,7 @@ export type DiscoverCardItem = {
   rating?: number | null;
 };
 
-export function toHermesCardItem(item: MediaStackDiscoverItemDto): DiscoverCardItem {
+export function toHermesCardItem(item: DiscoverItem): DiscoverCardItem {
   return {
     id: item.id,
     title: item.title,
@@ -51,7 +47,7 @@ export function mediaIdentityKey(type: DiscoverCardItem['type'], tmdbId: number)
 }
 
 export function toExternalCardItem(
-  item: MediaStackExternalDiscoverItemDto,
+  item: ExternalDiscoverItem,
   source: string,
   requestedKeys: ReadonlySet<string> = new Set(),
 ): DiscoverCardItem {
@@ -111,7 +107,7 @@ export function resolveRequestAction(
   };
 }
 
-export function matchesHistoryFilter(item: MediaStackDiscoverItemDto, filter: DiscoverHistoryFilter): boolean {
+export function matchesHistoryFilter(item: DiscoverItem, filter: DiscoverHistoryFilter): boolean {
   if (filter === 'all') return true;
   if (filter === 'requested') return item.request_state === 'requested';
   if (filter === 'watched') return item.feedback === 'watched' || item.feedback === 'liked';

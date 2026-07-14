@@ -1,4 +1,4 @@
-import { LibraryItemKind, formatLibraryMeta } from '../media-stack/media-stack-api';
+import { LibraryItemKind, formatLibraryMeta } from './library.models';
 
 export { formatLibraryMeta };
 

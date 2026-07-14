@@ -1,11 +1,9 @@
 import { Provider } from '@angular/core';
 
 import { environment } from '../../environments/environment';
-import {
-  CALENDAR_LINK_BASES,
-  JELLYFIN_LINK_BASES,
-  MEDIA_STACK_API,
-} from './media-stack-api';
+import { CALENDAR_LINK_BASES } from '../calendar/calendar.models';
+import { JELLYFIN_LINK_BASES } from '../library/library.models';
+import { MEDIA_STACK_API } from './media-stack-api';
 import { HttpMediaStackApi } from './http-media-stack-api';
 import { MockMediaStackApi } from './mock-media-stack-api';
 

@@ -1,20 +1,25 @@
-import { MediaStackApi, normalizeTorrent, summarizeDownloads } from './media-stack-api';
+import { summarizeDownloads } from '../downloads/downloads.models';
+import { MediaStackApi } from './media-stack-api';
 import { MockMediaStackApi, MOCK_SYNC_FAILED_HERMES_ID } from './mock-media-stack-api';
 
 describe('MockMediaStackApi', () => {
   it('provides deterministic torrents and supports pause/resume all', async () => {
     const api: MediaStackApi = new MockMediaStackApi();
     const initial = await api.listTorrents();
-    expect(initial.map((torrent) => torrent.hash)).toEqual(['demo-afterlight', 'demo-blue-hour', 'demo-orbit']);
+    expect(initial.map((torrent) => torrent.id)).toEqual(['demo-afterlight', 'demo-blue-hour', 'demo-orbit']);
     expect(initial.filter((torrent) => torrent.state === 'downloading')).toHaveLength(2);
 
     await api.pauseAll();
     const paused = await api.listTorrents();
-    expect(paused.every((torrent) => torrent.state === 'paused' && torrent.dlspeed === 0 && torrent.upspeed === 0)).toBe(true);
-    expect(summarizeDownloads(paused.map(normalizeTorrent))).toMatchObject({ downloadRate: 0, uploadRate: 0 });
+    expect(paused.every((torrent) => torrent.state === 'paused' && torrent.downloadRate === 0 && torrent.uploadRate === 0)).toBe(
+      true,
+    );
+    expect(summarizeDownloads(paused)).toMatchObject({ downloadRate: 0, uploadRate: 0 });
     await api.resumeAll();
     const resumed = await api.listTorrents();
-    expect(resumed.map(({ hash, dlspeed, upspeed }) => ({ hash, dlspeed, upspeed }))).toEqual(initial.map(({ hash, dlspeed, upspeed }) => ({ hash, dlspeed, upspeed })));
+    expect(resumed.map(({ id, downloadRate, uploadRate }) => ({ id, downloadRate, uploadRate }))).toEqual(
+      initial.map(({ id, downloadRate, uploadRate }) => ({ id, downloadRate, uploadRate })),
+    );
   });
 
   it('provides ordered mixed calendar events and arr library mappings', async () => {
@@ -53,7 +58,9 @@ describe('MockMediaStackApi', () => {
     expect(jellyseerrTrending.items.map((item) => item.title)).toEqual(['Trending Ember', 'Trending Tide']);
     expect(jellyseerrMovies.items.map((item) => item.title)).toEqual(['Neon Archive', 'Paper Orbit']);
     expect(jellyseerrTv.items.map((item) => item.title)).toEqual(['Channel Zero Point', 'Late Broadcast']);
-    expect(jellyseerrTrending.items.map((item) => item.tmdb_id)).not.toEqual(jellyseerrMovies.items.map((item) => item.tmdb_id));
+    expect(jellyseerrTrending.items.map((item) => item.tmdb_id)).not.toEqual(
+      jellyseerrMovies.items.map((item) => item.tmdb_id),
+    );
 
     const traktMovies = await api.listTraktDiscover('movies');
     const traktShows = await api.listTraktDiscover('shows');
@@ -129,24 +136,31 @@ describe('MockMediaStackApi', () => {
     const second = await api.requestMedia({ mediaType: 'movie', mediaId: 301001 });
     expect(second.message).toBe('Already requested');
   });
+
   it('provides deterministic automation summary with mixed service health', async () => {
     const api = new MockMediaStackApi();
     const summary = await api.getAutomationSummary();
     expect(summary.generatedAt).toBe('2026-07-12T18:00:00Z');
-    expect(summary.services?.map((service) => service.id)).toEqual(['sonarr', 'radarr', 'prowlarr', 'sabnzbd']);
-    expect(summary.services?.some((service) => service.status === 'down')).toBe(true);
-    expect(summary.services?.some((service) => service.status === 'degraded')).toBe(true);
-    expect(summary.problems?.some((problem) => problem.severity === 'actionable')).toBe(true);
+    expect(summary.services.map((service) => service.id)).toEqual(['sonarr', 'radarr', 'prowlarr', 'sabnzbd']);
+    expect(summary.services.some((service) => service.status === 'down')).toBe(true);
+    expect(summary.services.some((service) => service.status === 'degraded')).toBe(true);
+    expect(summary.problems.some((problem) => problem.severity === 'actionable')).toBe(true);
     expect(summary.preview).toHaveLength(3);
   });
+
   it('provides a partial automation summary marking preview and problems unavailable', async () => {
     const api = new MockMediaStackApi();
     api.setAutomationScenario('partial');
     const summary = await api.getAutomationSummary();
     expect(summary.services).toHaveLength(1);
-    expect(summary.unavailable).toEqual({ preview: true, problems: true });
+    expect(summary.availability).toEqual({
+      services: 'present',
+      preview: 'unavailable',
+      problems: 'unavailable',
+    });
     expect(summary.preview).toEqual([]);
   });
+
   it('lists library items with kind filter and defensive copies', async () => {
     const api: MediaStackApi = new MockMediaStackApi();
     const all = await api.listLibraryItems();
@@ -163,28 +177,28 @@ describe('MockMediaStackApi', () => {
     const again = await api.listLibraryItems({ kind: 'movie' });
     expect(again[0].title).not.toBe('Mutated');
   });
+
   it('provides mixed cron-log history covering failures, actionable, and quiet runs', async () => {
     const api: MediaStackApi = new MockMediaStackApi();
     const response = await api.listCronLogs();
     expect(response.ok).toBe(true);
     expect(response.generatedAt).toBeTruthy();
-    expect(response.logs.map((entry) => entry.id)).toEqual([
+    expect([...new Set(response.runs.map((run) => run.jobId))]).toEqual([
       'watchdog',
       'stale-metadata',
       'hardlink-cleanup',
       'weekly-validate',
     ]);
 
-    const statuses = response.logs.flatMap((entry) => (entry.runs ?? []).map((run) => run.status));
+    const statuses = response.runs.map((run) => run.status);
     expect(statuses).toContain('fatal');
     expect(statuses).toContain('warn');
     expect(statuses).toContain('applied');
     expect(statuses.filter((status) => status === 'ok').length).toBeGreaterThanOrEqual(2);
 
     const again = await api.listCronLogs();
-    again.logs[0].runs![0].detail = 'mutated';
+    again.runs[0].detail = 'mutated';
     const fresh = await api.listCronLogs();
-    expect(fresh.logs[0].runs![0].detail).not.toBe('mutated');
+    expect(fresh.runs[0].detail).not.toBe('mutated');
   });
-
 });

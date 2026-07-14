@@ -3,11 +3,10 @@ import { groupCalendarEvents } from './calendar-format';
 import {
   CALENDAR_LINK_BASES,
   CalendarEvent,
-  MEDIA_STACK_API,
   compareCalendarEvents,
-  normalizeCalendarEvent,
   resolveCalendarLink,
-} from '../media-stack/media-stack-api';
+} from './calendar.models';
+import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 
 export type CalendarStatus = 'loading' | 'ready' | 'empty' | 'error';
 
@@ -43,8 +42,7 @@ export class CalendarFacade {
     try {
       const rawEvents = await this.api.listCalendarEvents();
       const library = await this.loadLibrary();
-      const events = rawEvents
-        .map(normalizeCalendarEvent)
+      const events = [...rawEvents]
         .sort(compareCalendarEvents)
         .map((event) => ({
           ...event,

@@ -1,4 +1,4 @@
-import { AutomationProblemSeverity, AutomationServiceStatus } from '../media-stack/media-stack-api';
+import { AutomationProblemSeverity, AutomationServiceStatus } from './automation.models';
 
 export type AutomationStatusTone = 'success' | 'warning' | 'danger' | 'info';
 

@@ -1,24 +1,39 @@
 import { Injectable } from '@angular/core';
+
+import { ArrLibrary, CalendarEvent } from '../calendar/calendar.models';
 import {
+  DiscoverAction,
   DiscoverFeedback,
+  DiscoverRequestPayload,
+  ExternalDiscover,
+  HermesDiscover,
   JellyseerrDiscoverKind,
-  LibraryItemKind,
-  MediaStackApi,
-  MediaStackArrLibraryDto,
-  MediaStackAutomationSummaryDto,
-  MediaStackCalendarEventDto,
-  MediaStackCronLogEntryDto,
-  MediaStackCronLogsDto,
-  MediaStackDiscoverActionDto,
-  MediaStackDiscoverItemDto,
-  MediaStackDiscoverRequestPayload,
-  MediaStackExternalDiscoverDto,
-  MediaStackExternalDiscoverItemDto,
-  MediaStackHermesDiscoverDto,
-  MediaStackLibraryItemDto,
-  MediaStackTorrentDto,
   TraktDiscoverType,
-} from './media-stack-api';
+} from '../discover/discover.models';
+import { DownloadTorrent } from '../downloads/downloads.models';
+import { LibraryItem, LibraryItemKind } from '../library/library.models';
+import { AutomationSummary } from '../automation/automation.models';
+import { CronLogs } from '../reports/reports.models';
+import { MediaStackApi } from './media-stack-api';
+import { mapArrLibrary, mapCalendarEvent } from './mappers/calendar';
+import { mapAutomationSummary } from './mappers/automation';
+import { mapCronLogs } from './mappers/cron';
+import {
+  mapDiscoverAction,
+  mapExternalDiscover,
+  mapHermesDiscover,
+} from './mappers/discover';
+import { mapLibraryItem } from './mappers/library';
+import { mapTorrent } from './mappers/torrents';
+import { MediaStackArrLibraryDto, MediaStackCalendarEventDto } from './wire/calendar';
+import { MediaStackAutomationSummaryDto } from './wire/automation';
+import { MediaStackCronLogEntryDto, MediaStackCronLogsDto } from './wire/cron';
+import {
+  MediaStackDiscoverItemDto,
+  MediaStackExternalDiscoverItemDto,
+} from './wire/discover';
+import { MediaStackLibraryItemDto } from './wire/library';
+import { MediaStackTorrentDto } from './wire/torrents';
 
 const DEMO_TORRENTS: MediaStackTorrentDto[] = [
   { hash: 'demo-afterlight', name: 'Afterlight', state: 'downloading', progress: 0.68, size: 7_400_000_000, downloaded: 5_032_000_000, dlspeed: 4_200_000, upspeed: 320_000, eta: 540, category: 'Movies' },
@@ -518,8 +533,8 @@ export class MockMediaStackApi implements MediaStackApi {
     this.automationScenario = scenario;
   }
 
-  listTorrents(): Promise<MediaStackTorrentDto[]> {
-    return Promise.resolve(this.torrents.map((torrent) => ({ ...torrent })));
+  listTorrents(): Promise<DownloadTorrent[]> {
+    return Promise.resolve(this.torrents.map((torrent) => mapTorrent({ ...torrent })));
   }
 
   pauseAll(): Promise<void> {
@@ -540,61 +555,66 @@ export class MockMediaStackApi implements MediaStackApi {
     return Promise.resolve();
   }
 
-  listCalendarEvents(): Promise<MediaStackCalendarEventDto[]> {
+  listCalendarEvents(): Promise<CalendarEvent[]> {
     const events = this.calendar
       .map((event) => ({ ...event }))
-      .sort((left, right) => (left.airDate ?? '').localeCompare(right.airDate ?? ''));
+      .sort((left, right) => (left.airDate ?? '').localeCompare(right.airDate ?? ''))
+      .map(mapCalendarEvent);
     return Promise.resolve(events);
   }
 
-  getArrLibrary(): Promise<MediaStackArrLibraryDto> {
-    return Promise.resolve({
-      ok: this.library.ok,
-      series: { ...this.library.series },
-      movies: { ...this.library.movies },
-    });
+  getArrLibrary(): Promise<ArrLibrary> {
+    return Promise.resolve(
+      mapArrLibrary({
+        ok: this.library.ok,
+        series: { ...this.library.series },
+        movies: { ...this.library.movies },
+      }),
+    );
   }
 
-
-  listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<MediaStackLibraryItemDto[]> {
+  listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<LibraryItem[]> {
     const items = this.libraryItems
       .filter((item) => !filter?.kind || item.kind === filter.kind)
-      .map((item) => ({ ...item }));
+      .map((item) => mapLibraryItem({ ...item }))
+      .filter((item): item is LibraryItem => item !== null);
     return Promise.resolve(items);
   }
 
-  getAutomationSummary(): Promise<MediaStackAutomationSummaryDto> {
+  getAutomationSummary(): Promise<AutomationSummary> {
     const summary =
       this.automationScenario === 'partial'
         ? PARTIAL_AUTOMATION_SUMMARY
         : this.automationScenario === 'empty'
           ? { generatedAt: '2026-07-12T18:00:00Z', services: [], preview: [], problems: [] }
           : DEMO_AUTOMATION_SUMMARY;
-    return Promise.resolve(structuredClone(summary));
-  }
-  listCronLogs(): Promise<MediaStackCronLogsDto> {
-    return Promise.resolve(copyCronLogs(this.cronLogs));
+    return Promise.resolve(mapAutomationSummary(structuredClone(summary)));
   }
 
+  listCronLogs(): Promise<CronLogs> {
+    return Promise.resolve(mapCronLogs(copyCronLogs(this.cronLogs)));
+  }
 
-  listHermesRecommendations(): Promise<MediaStackHermesDiscoverDto> {
+  listHermesRecommendations(): Promise<HermesDiscover> {
     const pending_request_sync = this.hermesItems
       .filter((item) => item.id === MOCK_SYNC_FAILED_HERMES_ID && item.jellyseerr_request_id && item.request_state == null)
       .map((item) => ({ id: item.id, jellyseerr_request_id: item.jellyseerr_request_id as number }));
-    return Promise.resolve({
-      ok: true,
-      items: this.hermesItems.map((item) => ({ ...item })),
-      pending_request_sync,
-      generation_request: this.hermesMorePending && this.hermesMoreRequestedAt
-        ? { requested_at: this.hermesMoreRequestedAt, status: 'pending' }
-        : null,
-    });
+    return Promise.resolve(
+      mapHermesDiscover({
+        ok: true,
+        items: this.hermesItems.map((item) => ({ ...item })),
+        pending_request_sync,
+        generation_request: this.hermesMorePending && this.hermesMoreRequestedAt
+          ? { requested_at: this.hermesMoreRequestedAt, status: 'pending' }
+          : null,
+      }),
+    );
   }
 
-  submitHermesFeedback(id: string, feedback: DiscoverFeedback, notes?: string): Promise<MediaStackDiscoverActionDto> {
+  submitHermesFeedback(id: string, feedback: DiscoverFeedback, notes?: string): Promise<DiscoverAction> {
     const item = this.hermesItems.find((candidate) => candidate.id === id);
     if (!item) {
-      return Promise.resolve({ ok: false, error: 'Recommendation not found' });
+      return Promise.resolve(mapDiscoverAction({ ok: false, error: 'Recommendation not found' }));
     }
     item.feedback = feedback;
     item.feedback_at = new Date().toISOString();
@@ -602,47 +622,55 @@ export class MockMediaStackApi implements MediaStackApi {
     if (notes !== undefined) {
       item.notes = notes;
     }
-    return Promise.resolve({ ok: true, message: 'Feedback saved' });
+    return Promise.resolve(mapDiscoverAction({ ok: true, message: 'Feedback saved' }));
   }
 
-  requestHermesMore(): Promise<MediaStackDiscoverActionDto> {
+  requestHermesMore(): Promise<DiscoverAction> {
     if (this.hermesMorePending) {
-      return Promise.resolve({
-        ok: true,
-        already_pending: true,
-        queued: false,
-        message: 'A recommendation refresh is already pending',
-        requested_at: this.hermesMoreRequestedAt ?? undefined,
-      });
+      return Promise.resolve(
+        mapDiscoverAction({
+          ok: true,
+          already_pending: true,
+          queued: false,
+          message: 'A recommendation refresh is already pending',
+          requested_at: this.hermesMoreRequestedAt ?? undefined,
+        }),
+      );
     }
     this.hermesMorePending = true;
     this.hermesMoreRequestedAt = new Date().toISOString();
-    return Promise.resolve({
-      ok: true,
-      queued: true,
-      already_pending: false,
-      message: 'More recommendations queued',
-      requested_at: this.hermesMoreRequestedAt,
-    });
+    return Promise.resolve(
+      mapDiscoverAction({
+        ok: true,
+        queued: true,
+        already_pending: false,
+        message: 'More recommendations queued',
+        requested_at: this.hermesMoreRequestedAt,
+      }),
+    );
   }
 
-  listJellyseerrDiscover(kind: JellyseerrDiscoverKind): Promise<MediaStackExternalDiscoverDto> {
-    return Promise.resolve({
-      ok: true,
-      items: (DEMO_JELLYSEERR[kind] ?? []).map((item) => ({ ...item })),
-    });
+  listJellyseerrDiscover(kind: JellyseerrDiscoverKind): Promise<ExternalDiscover> {
+    return Promise.resolve(
+      mapExternalDiscover({
+        ok: true,
+        items: (DEMO_JELLYSEERR[kind] ?? []).map((item) => ({ ...item })),
+      }),
+    );
   }
 
-  listTraktDiscover(type: TraktDiscoverType): Promise<MediaStackExternalDiscoverDto> {
-    return Promise.resolve({
-      ok: true,
-      items: (DEMO_TRAKT[type] ?? []).map((item) => ({ ...item })),
-    });
+  listTraktDiscover(type: TraktDiscoverType): Promise<ExternalDiscover> {
+    return Promise.resolve(
+      mapExternalDiscover({
+        ok: true,
+        items: (DEMO_TRAKT[type] ?? []).map((item) => ({ ...item })),
+      }),
+    );
   }
 
-  requestMedia(payload: MediaStackDiscoverRequestPayload): Promise<MediaStackDiscoverActionDto> {
+  requestMedia(payload: DiscoverRequestPayload): Promise<DiscoverAction> {
     if (!payload.mediaId) {
-      return Promise.resolve({ ok: false, error: 'Cannot request — missing TMDB id' });
+      return Promise.resolve(mapDiscoverAction({ ok: false, error: 'Cannot request — missing TMDB id' }));
     }
 
     const identityKey = `${payload.mediaType}:${payload.mediaId}`;
@@ -653,12 +681,14 @@ export class MockMediaStackApi implements MediaStackApi {
         );
 
     if (hermesItem?.request_state === 'requested' || this.requestedKeys.has(identityKey)) {
-      return Promise.resolve({
-        ok: true,
-        message: 'Already requested',
-        jellyseerr_request_id: hermesItem?.jellyseerr_request_id ?? null,
-        dashboard_state_persisted: true,
-      });
+      return Promise.resolve(
+        mapDiscoverAction({
+          ok: true,
+          message: 'Already requested',
+          jellyseerr_request_id: hermesItem?.jellyseerr_request_id ?? null,
+          dashboard_state_persisted: true,
+        }),
+      );
     }
 
     const requestId = this.nextJellyseerrRequestId++;
@@ -669,15 +699,17 @@ export class MockMediaStackApi implements MediaStackApi {
       if (syncFailed) {
         // Arr accepted the request but dashboard state did not persist — leave request_state null.
         hermesItem.jellyseerr_request_id = requestId;
-        return Promise.resolve({
-          ok: true,
-          partial_success: true,
-          jellyseerr_request_id: requestId,
-          dashboard_state_persisted: false,
-          reconciliation_queued: true,
-          message: 'Added to Sonarr/Radarr; dashboard synchronization failed.',
-          requested_at: requestedAt,
-        });
+        return Promise.resolve(
+          mapDiscoverAction({
+            ok: true,
+            partial_success: true,
+            jellyseerr_request_id: requestId,
+            dashboard_state_persisted: false,
+            reconciliation_queued: true,
+            message: 'Added to Sonarr/Radarr; dashboard synchronization failed.',
+            requested_at: requestedAt,
+          }),
+        );
       }
       hermesItem.request_state = 'requested';
       hermesItem.requested_at = requestedAt;
@@ -686,13 +718,15 @@ export class MockMediaStackApi implements MediaStackApi {
 
     this.requestedKeys.add(identityKey);
 
-    return Promise.resolve({
-      ok: true,
-      jellyseerr_request_id: requestId,
-      dashboard_state_persisted: true,
-      message: 'Requested',
-      requested_at: requestedAt,
-    });
+    return Promise.resolve(
+      mapDiscoverAction({
+        ok: true,
+        jellyseerr_request_id: requestId,
+        dashboard_state_persisted: true,
+        message: 'Requested',
+        requested_at: requestedAt,
+      }),
+    );
   }
 
   /** Test helper: clear generation pending so request-more can queue again. */

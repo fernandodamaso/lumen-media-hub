@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { computed, signal } from '@angular/core';
 import { vi } from 'vitest';
-import { LibraryItem } from '../media-stack/media-stack-api';
+import { LibraryItem } from './library.models';
 import { LibraryBoard } from './library-board';
 import { LibraryFacade, LibraryStatus } from './library.facade';
 

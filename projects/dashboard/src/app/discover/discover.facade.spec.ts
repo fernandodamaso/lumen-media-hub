@@ -1,17 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
-import {
-  DiscoverFeedback,
-  JellyseerrDiscoverKind,
-  MEDIA_STACK_API,
-  MediaStackApi,
-  MediaStackDiscoverActionDto,
-  MediaStackDiscoverItemDto,
-  MediaStackDiscoverRequestPayload,
-  MediaStackExternalDiscoverItemDto,
-  MediaStackHermesDiscoverDto,
-  TraktDiscoverType,
-} from '../media-stack/media-stack-api';
+import { DiscoverAction, DiscoverFeedback, DiscoverItem, DiscoverRequestPayload, ExternalDiscoverItem, HermesDiscover, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
+import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { DiscoverFacade } from './discover.facade';
 
 describe('DiscoverFacade', () => {
@@ -253,7 +243,7 @@ describe('DiscoverFacade', () => {
   });
 
   it('ignores stale Hermes failures after switching tabs', async () => {
-    let release!: (value: MediaStackHermesDiscoverDto) => void;
+    let release!: (value: HermesDiscover) => void;
     api.hermesGate = new Promise((resolve) => {
       release = resolve;
     });
@@ -321,7 +311,7 @@ async function flush(): Promise<void> {
 }
 
 class MockApi implements MediaStackApi {
-  hermes: MediaStackHermesDiscoverDto = {
+  hermes: HermesDiscover = {
     ok: true,
     items: [
       {
@@ -339,15 +329,15 @@ class MockApi implements MediaStackApi {
         jellyseerr_request_id: null,
         in_library: false,
         added_at: '2026-07-10T12:00:00Z',
-      } satisfies MediaStackDiscoverItemDto,
+      } satisfies DiscoverItem,
     ],
   };
-  jellyseerr: Record<JellyseerrDiscoverKind, MediaStackExternalDiscoverItemDto[]> = {
+  jellyseerr: Record<JellyseerrDiscoverKind, ExternalDiscoverItem[]> = {
     trending: [{ type: 'movie', title: 'Trending Ember', tmdb_id: 1 }],
     movies: [{ type: 'movie', title: 'Neon Archive', tmdb_id: 2 }],
     tv: [{ type: 'tv', title: 'Late Broadcast', tmdb_id: 3 }],
   };
-  trakt: Record<TraktDiscoverType, MediaStackExternalDiscoverItemDto[]> = {
+  trakt: Record<TraktDiscoverType, ExternalDiscoverItem[]> = {
     movies: [{ type: 'movie', title: 'Trakt Horizon', tmdb_id: 4 }],
     shows: [{ type: 'tv', title: 'Trakt Relay', tmdb_id: 5 }],
   };
@@ -355,13 +345,13 @@ class MockApi implements MediaStackApi {
   jellyseerrCalls: JellyseerrDiscoverKind[] = [];
   traktCalls: TraktDiscoverType[] = [];
   feedbackCalls: { id: string; feedback: DiscoverFeedback }[] = [];
-  requestCalls: MediaStackDiscoverRequestPayload[] = [];
+  requestCalls: DiscoverRequestPayload[] = [];
   moreCalls = 0;
-  feedbackGate: Promise<MediaStackDiscoverActionDto> | null = null;
-  hermesGate: Promise<MediaStackHermesDiscoverDto> | null = null;
-  jellyseerrGate: Promise<{ ok: boolean; items: MediaStackExternalDiscoverItemDto[] }> | null = null;
-  requestResult: MediaStackDiscoverActionDto = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
-  moreResult: MediaStackDiscoverActionDto = { ok: true, queued: true };
+  feedbackGate: Promise<DiscoverAction> | null = null;
+  hermesGate: Promise<HermesDiscover> | null = null;
+  jellyseerrGate: Promise<{ ok: boolean; items: ExternalDiscoverItem[] }> | null = null;
+  requestResult: DiscoverAction = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
+  moreResult: DiscoverAction = { ok: true, queued: true };
   skipGenerationOnMore = false;
 
   listTorrents() {
@@ -383,7 +373,7 @@ class MockApi implements MediaStackApi {
     return Promise.resolve([]);
   }
   getAutomationSummary() {
-    return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [] });
+    return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [], availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const } });
   }
   listHermesRecommendations() {
     this.hermesCalls++;
@@ -422,11 +412,11 @@ class MockApi implements MediaStackApi {
     this.traktCalls.push(type);
     return Promise.resolve({ ok: true, items: this.trakt[type].map((item) => ({ ...item })) });
   }
-  requestMedia(payload: MediaStackDiscoverRequestPayload) {
+  requestMedia(payload: DiscoverRequestPayload) {
     this.requestCalls.push(payload);
     return Promise.resolve(this.requestResult);
   }
   listCronLogs() {
-    return Promise.resolve({ ok: true, logs: [] });
+    return Promise.resolve({ ok: true, runs: [] });
   }
 }

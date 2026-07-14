@@ -1,14 +1,5 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
-import {
-  DiscoverFeedback,
-  DiscoverSourceTab,
-  JellyseerrDiscoverKind,
-  MEDIA_STACK_API,
-  MediaStackDiscoverItemDto,
-  MediaStackExternalDiscoverItemDto,
-  MediaStackHermesDiscoverDto,
-  TraktDiscoverType,
-} from '../media-stack/media-stack-api';
+import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 import {
   DiscoverCardItem,
   DiscoverHistoryFilter,
@@ -18,6 +9,15 @@ import {
   toExternalCardItem,
   toHermesCardItem,
 } from './discover-format';
+import {
+  DiscoverFeedback,
+  DiscoverItem,
+  DiscoverSourceTab,
+  ExternalDiscoverItem,
+  HermesDiscover,
+  JellyseerrDiscoverKind,
+  TraktDiscoverType,
+} from './discover.models';
 
 export type DiscoverStatus = 'loading' | 'ready' | 'empty' | 'error';
 export type HermesView = 'active' | 'history';
@@ -41,10 +41,10 @@ export class DiscoverFacade {
   private readonly _notice = signal('');
   private readonly _noticeTone = signal<'success' | 'warning' | 'danger' | 'info'>('info');
 
-  private readonly _hermesItems = signal<MediaStackDiscoverItemDto[]>([]);
+  private readonly _hermesItems = signal<DiscoverItem[]>([]);
   private readonly _generationPending = signal(false);
-  private readonly _jellyseerrCache = signal<Partial<Record<JellyseerrDiscoverKind, MediaStackExternalDiscoverItemDto[]>>>({});
-  private readonly _traktCache = signal<Partial<Record<TraktDiscoverType, MediaStackExternalDiscoverItemDto[]>>>({});
+  private readonly _jellyseerrCache = signal<Partial<Record<JellyseerrDiscoverKind, ExternalDiscoverItem[]>>>({});
+  private readonly _traktCache = signal<Partial<Record<TraktDiscoverType, ExternalDiscoverItem[]>>>({});
 
   private readonly _busyItemId = signal<string | null>(null);
   private readonly _requestingMore = signal(false);
@@ -285,7 +285,7 @@ export class DiscoverFacade {
     }
   }
 
-  private applyHermesPayload(response: MediaStackHermesDiscoverDto): void {
+  private applyHermesPayload(response: HermesDiscover): void {
     this._hermesItems.set(response.items);
     this.seedRequestedFromHermes(response.items);
     this.applyPendingRequestSync(response.items, response.pending_request_sync);
@@ -372,7 +372,7 @@ export class DiscoverFacade {
     this._status.set(this.visibleItems().length ? 'ready' : 'empty');
   }
 
-  private seedRequestedFromHermes(items: MediaStackDiscoverItemDto[]): void {
+  private seedRequestedFromHermes(items: DiscoverItem[]): void {
     const keys = items
       .filter((item) => item.request_state === 'requested' && item.tmdb_id)
       .map((item) => mediaIdentityKey(item.type, item.tmdb_id));
@@ -385,7 +385,7 @@ export class DiscoverFacade {
   }
 
   private applyPendingRequestSync(
-    items: MediaStackDiscoverItemDto[],
+    items: DiscoverItem[],
     pending?: { id: string; jellyseerr_request_id: number }[],
   ): void {
     if (!pending?.length) return;
@@ -427,7 +427,7 @@ export class DiscoverFacade {
     }
   }
 
-  private reconcileSyncFailed(items: MediaStackDiscoverItemDto[]): void {
+  private reconcileSyncFailed(items: DiscoverItem[]): void {
     if (!this._requestSyncFailedIds().size && !this._requestSyncFailedKeys().size) return;
     this._requestSyncFailedIds.update((ids) => {
       const next = new Set(ids);

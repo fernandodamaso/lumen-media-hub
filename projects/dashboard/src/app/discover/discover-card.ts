@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { LucideEye, LucideSkipForward, LucideThumbsDown, LucideThumbsUp } from '@lucide/angular';
 import { MmButton, MmPoster, MmStatus } from '@app/ui';
-import { DiscoverFeedback } from '../media-stack/media-stack-api';
+import { DiscoverFeedback } from './discover.models';
 import {
   DiscoverCardItem,
   formatDiscoverMeta,

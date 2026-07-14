@@ -1,12 +1,54 @@
 import { TestBed } from '@angular/core/testing';
-import {
-  JELLYFIN_LINK_BASES,
-  MEDIA_STACK_API,
-  MediaStackApi,
-  MediaStackLibraryItemDto,
-  MediaStackTorrentDto,
-} from '../media-stack/media-stack-api';
+import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
+import { JELLYFIN_LINK_BASES, LibraryItem } from './library.models';
 import { LibraryFacade } from './library.facade';
+
+const defaultItems: LibraryItem[] = [
+  {
+    id: 'jf-dune',
+    title: 'Dune',
+    kind: 'movie',
+    meta: '2021 · Movie',
+    art: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
+    overview: '',
+    href: null,
+    artworkState: 'ok',
+    playable: true,
+  },
+  {
+    id: 'jf-night',
+    title: 'Night Transit',
+    kind: 'movie',
+    meta: '2026 · Movie',
+    art: 'linear-gradient(145deg, color-mix(in srgb, var(--mm-component-accent) 28%, var(--mm-component-card-bg)), var(--mm-component-card-bg) 72%)',
+    overview: '',
+    href: null,
+    artworkState: 'missing',
+    playable: true,
+  },
+  {
+    id: 'jf-cowboy',
+    title: 'Cowboy Bebop',
+    kind: 'series',
+    meta: '1998 · Series',
+    art: 'linear-gradient(145deg, #b45309, #1c1917 70%)',
+    overview: '',
+    href: null,
+    artworkState: 'ok',
+    playable: true,
+  },
+  {
+    id: 'jf-broken',
+    title: 'Broken Signal',
+    kind: 'series',
+    meta: 'Series',
+    art: 'linear-gradient(145deg, color-mix(in srgb, var(--mm-component-accent) 28%, var(--mm-component-card-bg)), var(--mm-component-card-bg) 72%)',
+    overview: '',
+    href: null,
+    artworkState: 'failed',
+    playable: true,
+  },
+];
 
 describe('LibraryFacade', () => {
   let api: MockApi;
@@ -61,8 +103,12 @@ describe('LibraryFacade', () => {
         id: 'jf-cowboy',
         title: 'Cowboy Bebop',
         kind: 'series',
-        year: 1998,
-        posterUrl: 'linear-gradient(145deg, #b45309, #1c1917 70%)',
+        meta: '1998 · Series',
+        art: 'linear-gradient(145deg, #b45309, #1c1917 70%)',
+        overview: '',
+        href: null,
+        artworkState: 'ok',
+        playable: true,
       },
     ];
     await facade.refresh();
@@ -72,36 +118,8 @@ describe('LibraryFacade', () => {
     expect(facade.seriesCount()).toBe(1);
   });
 
-  it('ignores unsupported library kinds when building the catalog', async () => {
-    api.items = [
-      {
-        id: 'jf-dune',
-        title: 'Dune',
-        kind: 'movie',
-        year: 2021,
-        posterUrl: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
-      },
-      {
-        id: 'jf-season',
-        title: 'Season 1',
-        kind: 'Season',
-      },
-      {
-        id: 'jf-cowboy',
-        title: 'Cowboy Bebop',
-        kind: 'series',
-        year: 1998,
-        posterUrl: 'linear-gradient(145deg, #b45309, #1c1917 70%)',
-      },
-    ];
-    await facade.refresh();
-    expect(facade.movieCount()).toBe(1);
-    expect(facade.seriesCount()).toBe(1);
-    expect(facade.items().map((item) => item.id)).toEqual(['jf-dune']);
-  });
-
   it('keeps loading status when kind changes mid-refresh', async () => {
-    let resolveLoad!: (value: MediaStackLibraryItemDto[]) => void;
+    let resolveLoad!: (value: LibraryItem[]) => void;
     api.listLibraryItems = () =>
       new Promise((resolve) => {
         resolveLoad = resolve;
@@ -136,45 +154,16 @@ describe('LibraryFacade', () => {
 });
 
 class MockApi implements MediaStackApi {
-  items: MediaStackLibraryItemDto[] = [
-    {
-      id: 'jf-dune',
-      title: 'Dune',
-      kind: 'movie',
-      year: 2021,
-      posterUrl: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
-    },
-    {
-      id: 'jf-night',
-      title: 'Night Transit',
-      kind: 'movie',
-      year: 2026,
-      artworkState: 'missing',
-    },
-    {
-      id: 'jf-cowboy',
-      title: 'Cowboy Bebop',
-      kind: 'series',
-      year: 1998,
-      posterUrl: 'linear-gradient(145deg, #b45309, #1c1917 70%)',
-    },
-    {
-      id: 'jf-broken',
-      title: 'Broken Signal',
-      kind: 'series',
-      artworkState: 'failed',
-      posterUrl: 'http://example.invalid/x.jpg',
-    },
-  ];
+  items: LibraryItem[] = defaultItems.map((item) => ({ ...item }));
   failure = false;
 
-  listTorrents(): Promise<MediaStackTorrentDto[]> {
+  listTorrents() {
     return Promise.resolve([]);
   }
-  pauseAll(): Promise<void> {
+  pauseAll() {
     return Promise.resolve();
   }
-  resumeAll(): Promise<void> {
+  resumeAll() {
     return Promise.resolve();
   }
   listCalendarEvents() {
@@ -189,7 +178,13 @@ class MockApi implements MediaStackApi {
       : Promise.resolve(this.items.map((item) => ({ ...item })));
   }
   getAutomationSummary() {
-    return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [] });
+    return Promise.resolve({
+      generatedAt: '',
+      services: [],
+      preview: [],
+      problems: [],
+      availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const },
+    });
   }
   listHermesRecommendations() {
     return Promise.resolve({ ok: true, items: [] });
@@ -210,6 +205,6 @@ class MockApi implements MediaStackApi {
     return Promise.resolve({ ok: true });
   }
   listCronLogs() {
-    return Promise.resolve({ ok: true, logs: [] });
+    return Promise.resolve({ ok: true, runs: [] });
   }
 }

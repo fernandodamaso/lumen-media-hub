@@ -1,21 +1,25 @@
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
-import {
-  MEDIA_STACK_API,
-  MediaStackApi,
-  MediaStackArrLibraryDto,
-  MediaStackAutomationSummaryDto,
-  MediaStackCalendarEventDto,
-  MediaStackTorrentDto,
-} from '../media-stack/media-stack-api';
+import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
+import { AutomationSummary } from './automation.models';
+import { CronLogs } from '../reports/reports.models';
 import { AutomationFacade } from './automation.facade';
 
-const defaultSummary: MediaStackAutomationSummaryDto = {
+const defaultSummary: AutomationSummary = {
   generatedAt: '2026-07-12T18:00:00Z',
   services: [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'OK' }],
   preview: [{ id: 'p1', title: 'Dune', when: 'Jul 13', kind: 'movie' }],
   problems: [{ id: 'x1', summary: 'Disk low', serviceId: 'radarr', severity: 'actionable' }],
+  availability: { services: 'present', preview: 'present', problems: 'present' },
 };
+
+const emptySummary = (): AutomationSummary => ({
+  generatedAt: '2026-07-12T18:00:00Z',
+  services: [],
+  preview: [],
+  problems: [],
+  availability: { services: 'empty', preview: 'empty', problems: 'empty' },
+});
 
 describe('AutomationFacade', () => {
   let api: MockApi;
@@ -38,21 +42,41 @@ describe('AutomationFacade', () => {
   });
 
   it('reports empty when no sections have data', async () => {
-    api.summary = { generatedAt: '2026-07-12T18:00:00Z', services: [], preview: [], problems: [] };
+    api.summary = emptySummary();
     await facade.refresh();
     expect(facade.status()).toBe('empty');
   });
 
   it('reports ready when scheduled tasks are the only available signal', async () => {
-    api.summary = { generatedAt: '2026-07-12T18:00:00Z', services: [], preview: [], problems: [] };
-    api.cronLogs = [{ id: 'cleanup', title: 'Cleanup', file: 'cleanup.log', format: 'text', exists: true, schedule: 'Hourly', mtime: '2026-07-14T12:00:00Z' }];
+    api.summary = emptySummary();
+    api.cronLogs = {
+      ok: true,
+      runs: [
+        {
+          id: 'cleanup-1',
+          jobId: 'cleanup',
+          jobTitle: 'Cleanup',
+          status: 'ok',
+          triage: 'quiet',
+          timestamp: '2026-07-14T12:00:00Z',
+          detail: '',
+          fatal: null,
+          applied: null,
+          exitCode: null,
+          schedule: 'Hourly',
+        },
+      ],
+    };
     await facade.refresh();
     expect(facade.status()).toBe('ready');
     expect(facade.tasks()).toHaveLength(1);
   });
 
   it('reports partial when a section is unavailable', async () => {
-    api.summary = { generatedAt: '2026-07-12T18:00:00Z', services: [], preview: [], problems: [], unavailable: { services: true } };
+    api.summary = {
+      ...emptySummary(),
+      availability: { services: 'unavailable', preview: 'empty', problems: 'empty' },
+    };
     await facade.refresh();
     expect(facade.status()).toBe('partial');
     expect(facade.summary()).not.toBeNull();
@@ -86,30 +110,30 @@ describe('AutomationFacade', () => {
 });
 
 class MockApi implements MediaStackApi {
-  summary: MediaStackAutomationSummaryDto = { ...defaultSummary };
+  summary: AutomationSummary = { ...defaultSummary, availability: { ...defaultSummary.availability } };
   calls = 0;
   failure = false;
   cronFailure = false;
-  cronLogs: Array<{ id: string; title: string; file: string; format: string; exists: boolean; schedule: string; mtime: string }> = [];
+  cronLogs: CronLogs = { ok: true, runs: [] };
 
-  getAutomationSummary(): Promise<MediaStackAutomationSummaryDto> {
+  getAutomationSummary(): Promise<AutomationSummary> {
     this.calls++;
-    return this.failure ? Promise.reject(new Error('offline')) : Promise.resolve({ ...this.summary });
+    return this.failure ? Promise.reject(new Error('offline')) : Promise.resolve(structuredClone(this.summary));
   }
 
-  listTorrents(): Promise<MediaStackTorrentDto[]> {
+  listTorrents() {
     return Promise.resolve([]);
   }
-  pauseAll(): Promise<void> {
+  pauseAll() {
     return Promise.resolve();
   }
-  resumeAll(): Promise<void> {
+  resumeAll() {
     return Promise.resolve();
   }
-  listCalendarEvents(): Promise<MediaStackCalendarEventDto[]> {
+  listCalendarEvents() {
     return Promise.resolve([]);
   }
-  getArrLibrary(): Promise<MediaStackArrLibraryDto> {
+  getArrLibrary() {
     return Promise.resolve({ ok: true, series: {}, movies: {} });
   }
   listLibraryItems() {
@@ -134,6 +158,8 @@ class MockApi implements MediaStackApi {
     return Promise.resolve({ ok: true });
   }
   listCronLogs() {
-    return this.cronFailure ? Promise.reject(new Error('offline')) : Promise.resolve({ ok: true, logs: this.cronLogs });
+    return this.cronFailure
+      ? Promise.reject(new Error('offline'))
+      : Promise.resolve(structuredClone(this.cronLogs));
   }
 }

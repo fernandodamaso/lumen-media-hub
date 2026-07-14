@@ -1,54 +1,59 @@
 import { TestBed } from '@angular/core/testing';
-import {
-  MEDIA_STACK_API,
-  MediaStackApi,
-  MediaStackCronLogsDto,
-  MediaStackTorrentDto,
-} from '../media-stack/media-stack-api';
+import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
+import { CronLogs, CronRun } from './reports.models';
 import { ReportsFacade } from './reports.facade';
 
-const mixedLogs: MediaStackCronLogsDto = {
+const mixedRuns: CronRun[] = [
+  {
+    id: 'watchdog-2026-07-12T11:45:00Z-0',
+    jobId: 'watchdog',
+    jobTitle: 'Watchdog',
+    status: 'fatal',
+    triage: 'actionable',
+    timestamp: '2026-07-12T11:45:00Z',
+    detail: 'Disk full',
+    fatal: 'Disk full',
+    applied: null,
+    exitCode: 1,
+    schedule: '*/15 * * * *',
+  },
+  {
+    id: 'watchdog-2026-07-12T11:30:00Z-1',
+    jobId: 'watchdog',
+    jobTitle: 'Watchdog',
+    status: 'ok',
+    triage: 'quiet',
+    timestamp: '2026-07-12T11:30:00Z',
+    detail: 'Checked 1, no repairs needed',
+    fatal: null,
+    applied: null,
+    exitCode: 0,
+    schedule: '*/15 * * * *',
+  },
+];
+
+const mixedLogs: CronLogs = {
   ok: true,
   generatedAt: '2026-07-12T12:00:00Z',
-  logs: [
-    {
-      id: 'watchdog',
-      title: 'Watchdog',
-      file: 'watchdog.ndjson',
-      format: 'ndjson',
-      schedule: '*/15 * * * *',
-      exists: true,
-      runs: [
-        {
-          timestamp: '2026-07-12T11:45:00Z',
-          status: 'fatal',
-          detail: 'Disk full',
-          fatal: 'Disk full',
-          exitCode: 1,
-        },
-        {
-          timestamp: '2026-07-12T11:30:00Z',
-          status: 'ok',
-          detail: 'Checked 1, no repairs needed',
-          exitCode: 0,
-        },
-      ],
-    },
-  ],
+  runs: mixedRuns,
 };
 
-const allClearLogs: MediaStackCronLogsDto = {
+const allClearLogs: CronLogs = {
   ok: true,
   generatedAt: '2026-07-12T13:00:00Z',
-  logs: [
+  runs: [
     {
-      id: 'weekly-validate',
-      title: 'Weekly validate',
-      file: 'weekly-validate.log',
-      format: 'text',
+      id: 'weekly-validate-2026-07-06T04:00:00Z-0',
+      jobId: 'weekly-validate',
+      jobTitle: 'Weekly validate',
+      status: 'ok',
+      triage: 'quiet',
+      timestamp: '2026-07-06T04:00:00Z',
+      detail: 'Completed',
+      fatal: null,
+      applied: null,
+      exitCode: 0,
       schedule: '0 4 * * 0',
-      exists: true,
-      runs: [{ timestamp: '2026-07-06T04:00:00Z', status: 'ok', detail: 'Completed', exitCode: 0 }],
     },
   ],
 };
@@ -79,7 +84,7 @@ describe('ReportsFacade', () => {
     expect(facade.summary().actionable).toBe(0);
     expect(facade.generatedAt()).toBe('2026-07-12T13:00:00Z');
 
-    api.response = { ok: true, generatedAt: '2026-07-12T14:00:00Z', logs: [] };
+    api.response = { ok: true, generatedAt: '2026-07-12T14:00:00Z', runs: [] };
     await facade.refresh();
     expect(facade.status()).toBe('empty');
     expect(facade.runs()).toEqual([]);
@@ -94,7 +99,7 @@ describe('ReportsFacade', () => {
   });
 
   it('treats soft ok:false envelopes as load/refresh failures', async () => {
-    api.response = { ok: false, error: 'backend offline', logs: [] };
+    api.response = { ok: false, error: 'backend offline', runs: [] };
     await facade.load();
     expect(facade.status()).toBe('error');
     expect(facade.runs()).toEqual([]);
@@ -103,7 +108,7 @@ describe('ReportsFacade', () => {
     await facade.load();
     expect(facade.status()).toBe('mixed');
 
-    api.response = { ok: false, error: 'backend offline', logs: [], generatedAt: '2026-07-12T99:00:00Z' };
+    api.response = { ok: false, error: 'backend offline', runs: [], generatedAt: '2026-07-12T99:00:00Z' };
     await facade.refresh();
     expect(facade.status()).toBe('mixed');
     expect(facade.generatedAt()).toBe('2026-07-12T12:00:00Z');
@@ -144,7 +149,7 @@ describe('ReportsFacade', () => {
   });
 
   it('ignores stale responses when a newer refresh wins the race', async () => {
-    let resolveInitial!: (value: MediaStackCronLogsDto) => void;
+    let resolveInitial!: (value: CronLogs) => void;
     api.nextResponse = new Promise((resolve) => {
       resolveInitial = resolve;
     });
@@ -168,18 +173,18 @@ describe('ReportsFacade', () => {
 });
 
 class MockApi implements MediaStackApi {
-  response: MediaStackCronLogsDto = structuredClone(mixedLogs);
-  nextResponse?: Promise<MediaStackCronLogsDto>;
+  response: CronLogs = structuredClone(mixedLogs);
+  nextResponse?: Promise<CronLogs>;
   failure = false;
   listCalls = 0;
 
-  listTorrents(): Promise<MediaStackTorrentDto[]> {
+  listTorrents() {
     return Promise.resolve([]);
   }
-  pauseAll(): Promise<void> {
+  pauseAll() {
     return Promise.resolve();
   }
-  resumeAll(): Promise<void> {
+  resumeAll() {
     return Promise.resolve();
   }
   listCalendarEvents() {
@@ -192,7 +197,13 @@ class MockApi implements MediaStackApi {
     return Promise.resolve([]);
   }
   getAutomationSummary() {
-    return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [] });
+    return Promise.resolve({
+      generatedAt: '',
+      services: [],
+      preview: [],
+      problems: [],
+      availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const },
+    });
   }
   listHermesRecommendations() {
     return Promise.resolve({ ok: true, items: [] });
@@ -212,7 +223,7 @@ class MockApi implements MediaStackApi {
   requestMedia() {
     return Promise.resolve({ ok: true });
   }
-  listCronLogs(): Promise<MediaStackCronLogsDto> {
+  listCronLogs(): Promise<CronLogs> {
     this.listCalls++;
     if (this.failure) return Promise.reject(new Error('offline'));
     if (this.nextResponse) return this.nextResponse;

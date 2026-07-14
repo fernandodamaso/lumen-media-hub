@@ -1,5 +1,6 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
-import { MEDIA_STACK_API, DownloadTorrent, normalizeTorrent, summarizeDownloads } from '../media-stack/media-stack-api';
+import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
+import { DownloadTorrent, summarizeDownloads } from './downloads.models';
 
 export type DownloadsStatus = 'loading' | 'ready' | 'empty' | 'error';
 export type DownloadsAction = 'pause' | 'resume';
@@ -33,7 +34,7 @@ export class DownloadsFacade {
 
   async refresh(): Promise<void> {
     try {
-      const torrents = (await this.api.listTorrents()).map(normalizeTorrent);
+      const torrents = await this.api.listTorrents();
       this._torrents.set(torrents);
       this._status.set(torrents.length ? 'ready' : 'empty');
       this._error.set('');

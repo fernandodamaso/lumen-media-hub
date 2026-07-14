@@ -1,12 +1,7 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
-import {
-  AutomationSummary,
-  CronRun,
-  flattenCronRuns,
-  MEDIA_STACK_API,
-  normalizeAutomationSummary,
-  summarizeAutomationHealth,
-} from '../media-stack/media-stack-api';
+import { AutomationSummary, summarizeAutomationHealth } from './automation.models';
+import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
+import { CronRun } from '../reports/reports.models';
 
 export type AutomationStatus = 'loading' | 'ready' | 'empty' | 'partial' | 'error';
 
@@ -48,16 +43,14 @@ export class AutomationFacade {
       this.api.listCronLogs(),
     ]);
     if (summaryResult.status === 'fulfilled') {
-      const dto = summaryResult.value;
-      const summary = normalizeAutomationSummary(dto);
-      this._summary.set(summary);
+      this._summary.set(summaryResult.value);
       this._summaryUnavailable.set(false);
     } else {
       this._summaryUnavailable.set(true);
     }
     if (cronResult.status === 'fulfilled' && cronResult.value.ok !== false) {
       const latest = new Map<string, CronRun>();
-      for (const run of flattenCronRuns(cronResult.value)) {
+      for (const run of cronResult.value.runs) {
         const current = latest.get(run.jobId);
         if (!current || (run.timestamp || '') > (current.timestamp || '')) latest.set(run.jobId, run);
       }

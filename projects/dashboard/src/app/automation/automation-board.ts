@@ -1,11 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
-import {
-  AutomationProblem,
-  AutomationProblemSeverity,
-  AutomationService,
-  AutomationServiceStatus,
-} from '../media-stack/media-stack-api';
+import { AutomationProblem, AutomationProblemSeverity, AutomationService, AutomationServiceStatus } from './automation.models';
 import { AutomationFacade } from './automation.facade';
 import {
   AUTOMATION_PROBLEM_SEVERITY_VIEW,

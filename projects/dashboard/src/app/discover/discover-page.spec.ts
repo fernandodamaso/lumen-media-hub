@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { vi } from 'vitest';
-import { DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from '../media-stack/media-stack-api';
+import { DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { DiscoverCardItem, DiscoverHistoryFilter } from './discover-format';
 import { DiscoverPage } from './discover-page';
 import { DiscoverFacade, DiscoverStatus, HermesView } from './discover.facade';

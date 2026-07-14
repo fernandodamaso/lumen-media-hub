@@ -132,7 +132,7 @@ describe('HttpMediaStackApi', () => {
       },
     ]);
     await expect(pending).resolves.toEqual([
-      expect.objectContaining({ hash: 'h1', downloaded: 100, progress: 0.25 }),
+      expect.objectContaining({ id: 'h1', downloaded: 100, progress: 25 }),
     ]);
   });
 
@@ -163,7 +163,7 @@ describe('HttpMediaStackApi', () => {
       events: [{ title: 'Show', additional: 'S01E01', date: '20:00', airDate: '2026-07-13' }],
     });
     await expect(pending).resolves.toEqual([
-      expect.objectContaining({ title: 'Show', additional: 'S01E01' }),
+      expect.objectContaining({ title: 'Show', subtitle: 'S01E01' }),
     ]);
 
     const failed = api.listCalendarEvents();
@@ -178,7 +178,7 @@ describe('HttpMediaStackApi', () => {
 
     const logs = api.listCronLogs();
     http.expectOne('/api/cron/logs').flush({ ok: true, logs: [] });
-    await expect(logs).resolves.toMatchObject({ ok: true, logs: [] });
+    await expect(logs).resolves.toMatchObject({ ok: true, runs: [] });
   });
 
   it('merges jellyfin movies and series for listLibraryItems', async () => {

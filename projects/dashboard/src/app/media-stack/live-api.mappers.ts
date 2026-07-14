@@ -1,12 +1,12 @@
+import { LibraryItemKind } from '../library/library.models';
 import {
-  LibraryItemKind,
   MediaStackAutomationPreviewItemDto,
   MediaStackAutomationProblemDto,
   MediaStackAutomationServiceDto,
   MediaStackAutomationSummaryDto,
-  MediaStackLibraryItemDto,
-  MediaStackTorrentDto,
-} from './media-stack-api';
+} from './wire/automation';
+import { MediaStackLibraryItemDto } from './wire/library';
+import { MediaStackTorrentDto } from './wire/torrents';
 
 /** Raw qBittorrent payload from GET /qbt/torrents. */
 export interface LiveQbtTorrent {
@@ -182,7 +182,7 @@ function mapPreviewItems(
 
 /**
  * Translate nested homepage-actions automation summary into the flat Angular DTO
- * consumed by normalizeAutomationSummary.
+ * consumed by mapAutomationSummary.
  */
 export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStackAutomationSummaryDto {
   if (live && live.ok === false && !live.sonarr && !live.radarr && !live.prowlarr && !live.bazarr) {

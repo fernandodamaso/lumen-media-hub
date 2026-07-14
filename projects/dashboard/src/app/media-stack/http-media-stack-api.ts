@@ -3,23 +3,35 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import { environment } from '../../environments/environment';
+import { ArrLibrary, CalendarEvent } from '../calendar/calendar.models';
 import {
+  DiscoverAction,
   DiscoverFeedback,
+  DiscoverRequestPayload,
+  ExternalDiscover,
+  HermesDiscover,
   JellyseerrDiscoverKind,
-  LibraryItemKind,
-  MediaStackApi,
-  MediaStackArrLibraryDto,
-  MediaStackAutomationSummaryDto,
-  MediaStackCalendarEventDto,
-  MediaStackCronLogsDto,
-  MediaStackDiscoverActionDto,
-  MediaStackDiscoverRequestPayload,
-  MediaStackExternalDiscoverDto,
-  MediaStackHermesDiscoverDto,
-  MediaStackLibraryItemDto,
-  MediaStackTorrentDto,
   TraktDiscoverType,
-} from './media-stack-api';
+} from '../discover/discover.models';
+import { DownloadTorrent } from '../downloads/downloads.models';
+import { LibraryItem, LibraryItemKind } from '../library/library.models';
+import { AutomationSummary } from '../automation/automation.models';
+import { CronLogs } from '../reports/reports.models';
+import { MediaStackApi } from './media-stack-api';
+import { mapArrLibrary, mapCalendarEvent } from './mappers/calendar';
+import { mapAutomationSummary } from './mappers/automation';
+import { mapCronLogs } from './mappers/cron';
+import {
+  mapDiscoverAction,
+  mapExternalDiscover,
+  mapHermesDiscover,
+  toDiscoverRequestPayloadDto,
+} from './mappers/discover';
+import { mapLibraryItem } from './mappers/library';
+import { mapTorrent } from './mappers/torrents';
+import { MediaStackArrLibraryDto, MediaStackCalendarEventDto } from './wire/calendar';
+import { MediaStackCronLogsDto } from './wire/cron';
+import { MediaStackDiscoverActionDto, MediaStackExternalDiscoverDto, MediaStackHermesDiscoverDto } from './wire/discover';
 import {
   LiveAutomationSummary,
   LiveJellyfinListResponse,
@@ -39,10 +51,10 @@ export class HttpMediaStackApi implements MediaStackApi {
   private readonly http = inject(HttpClient);
   private readonly base = environment.apiBaseUrl.replace(/\/$/, '');
 
-  listTorrents(): Promise<MediaStackTorrentDto[]> {
+  listTorrents(): Promise<DownloadTorrent[]> {
     return this.getRaw<LiveQbtTorrent[] | OkEnvelope>('/qbt/torrents').then((data) => {
       if (Array.isArray(data)) {
-        return data.map((item, index) => mapLiveTorrent(item, index));
+        return data.map((item, index) => mapTorrent(mapLiveTorrent(item, index)));
       }
       this.rejectIfFailed(data, 'Failed to list torrents');
       throw new Error('Malformed torrents response');
@@ -57,17 +69,17 @@ export class HttpMediaStackApi implements MediaStackApi {
     return this.postVoid('/start-all');
   }
 
-  listCalendarEvents(): Promise<MediaStackCalendarEventDto[]> {
+  listCalendarEvents(): Promise<CalendarEvent[]> {
     return this.getHardEnvelope<{ ok?: boolean; error?: string; events?: MediaStackCalendarEventDto[] }>(
       '/sonarr/calendar',
-    ).then((data) => data.events ?? []);
+    ).then((data) => (data.events ?? []).map(mapCalendarEvent));
   }
 
-  getArrLibrary(): Promise<MediaStackArrLibraryDto> {
-    return this.getSoftEnvelope<MediaStackArrLibraryDto>('/arr/library');
+  getArrLibrary(): Promise<ArrLibrary> {
+    return this.getSoftEnvelope<MediaStackArrLibraryDto>('/arr/library').then(mapArrLibrary);
   }
 
-  async listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<MediaStackLibraryItemDto[]> {
+  async listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<LibraryItem[]> {
     const kind = filter?.kind;
 
     // Filtered loads: surface the requested kind's failure instead of masking as empty.
@@ -94,54 +106,60 @@ export class HttpMediaStackApi implements MediaStackApi {
     return [...movies, ...series];
   }
 
-  getAutomationSummary(): Promise<MediaStackAutomationSummaryDto> {
+  getAutomationSummary(): Promise<AutomationSummary> {
     return this.getRaw<LiveAutomationSummary>('/automation/summary').then((data) =>
-      mapLiveAutomationSummary(data),
+      mapAutomationSummary(mapLiveAutomationSummary(data)),
     );
   }
 
-  listCronLogs(): Promise<MediaStackCronLogsDto> {
-    return this.getSoftEnvelope<MediaStackCronLogsDto>('/cron/logs');
+  listCronLogs(): Promise<CronLogs> {
+    return this.getSoftEnvelope<MediaStackCronLogsDto>('/cron/logs').then(mapCronLogs);
   }
 
-  listHermesRecommendations(): Promise<MediaStackHermesDiscoverDto> {
-    return this.getSoftEnvelope<MediaStackHermesDiscoverDto>('/discover/hermes');
+  listHermesRecommendations(): Promise<HermesDiscover> {
+    return this.getSoftEnvelope<MediaStackHermesDiscoverDto>('/discover/hermes').then(mapHermesDiscover);
   }
 
   submitHermesFeedback(
     id: string,
     feedback: DiscoverFeedback,
     notes?: string,
-  ): Promise<MediaStackDiscoverActionDto> {
+  ): Promise<DiscoverAction> {
     return this.mutateSoft(`/discover/hermes/${encodeURIComponent(id)}`, 'PATCH', {
       status: feedback,
       notes,
     });
   }
 
-  requestHermesMore(): Promise<MediaStackDiscoverActionDto> {
+  requestHermesMore(): Promise<DiscoverAction> {
     return this.mutateSoft('/discover/hermes/request-more', 'POST');
   }
 
-  listJellyseerrDiscover(kind: JellyseerrDiscoverKind): Promise<MediaStackExternalDiscoverDto> {
-    return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(`/discover/jellyseerr?kind=${kind}`);
+  listJellyseerrDiscover(kind: JellyseerrDiscoverKind): Promise<ExternalDiscover> {
+    return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(`/discover/jellyseerr?kind=${kind}`).then(
+      mapExternalDiscover,
+    );
   }
 
-  listTraktDiscover(type: TraktDiscoverType): Promise<MediaStackExternalDiscoverDto> {
-    return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(`/discover/trakt?type=${type}`);
+  listTraktDiscover(type: TraktDiscoverType): Promise<ExternalDiscover> {
+    return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(`/discover/trakt?type=${type}`).then(
+      mapExternalDiscover,
+    );
   }
 
-  requestMedia(payload: MediaStackDiscoverRequestPayload): Promise<MediaStackDiscoverActionDto> {
-    return this.mutateSoft('/discover/request', 'POST', payload);
+  requestMedia(payload: DiscoverRequestPayload): Promise<DiscoverAction> {
+    return this.mutateSoft('/discover/request', 'POST', toDiscoverRequestPayloadDto(payload));
   }
 
-  private async fetchJellyfinKind(kind: 'movies' | 'series'): Promise<MediaStackLibraryItemDto[]> {
+  private async fetchJellyfinKind(kind: 'movies' | 'series'): Promise<LibraryItem[]> {
     const data = await this.getRaw<LiveJellyfinListResponse>(`/jellyfin/${kind}`);
     if (data?.ok === false) {
       throw new Error(data.error || `Failed to list jellyfin ${kind}`);
     }
     const itemKind: LibraryItemKind = kind === 'movies' ? 'movie' : 'series';
-    return (data.items ?? []).map((item) => mapLiveJellyfinItem(item, itemKind));
+    return (data.items ?? [])
+      .map((item) => mapLibraryItem(mapLiveJellyfinItem(item, itemKind)))
+      .filter((item): item is LibraryItem => item !== null);
   }
 
   private async getRaw<T>(path: string): Promise<T> {
@@ -182,7 +200,7 @@ export class HttpMediaStackApi implements MediaStackApi {
     path: string,
     method: 'POST' | 'PATCH',
     body?: unknown,
-  ): Promise<MediaStackDiscoverActionDto> {
+  ): Promise<DiscoverAction> {
     try {
       const data =
         method === 'PATCH'
@@ -194,7 +212,7 @@ export class HttpMediaStackApi implements MediaStackApi {
                 ? this.http.post<MediaStackDiscoverActionDto>(`${this.base}${path}`, null)
                 : this.http.post<MediaStackDiscoverActionDto>(`${this.base}${path}`, body),
             );
-      return data ?? { ok: true };
+      return mapDiscoverAction(data ?? { ok: true });
     } catch (error) {
       throw this.toError(error, `${method} ${path} failed`);
     }

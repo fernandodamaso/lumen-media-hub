@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { MmButton, MmStateCard, MmStatus } from '@app/ui';
-import { DiscoverFeedback, DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from '../media-stack/media-stack-api';
+import { DiscoverFeedback, DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { DiscoverCard } from './discover-card';
 import { DiscoverHistoryFilter } from './discover-format';
 import { DiscoverFacade, HermesView } from './discover.facade';

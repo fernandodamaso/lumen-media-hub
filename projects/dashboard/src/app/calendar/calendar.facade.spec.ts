@@ -1,14 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
-import {
-  CALENDAR_LINK_BASES,
-  MEDIA_STACK_API,
-  MediaStackApi,
-  MediaStackArrLibraryDto,
-  MediaStackAutomationSummaryDto,
-  MediaStackCalendarEventDto,
-  MediaStackTorrentDto,
-} from '../media-stack/media-stack-api';
+import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
+import { ArrLibrary, CALENDAR_LINK_BASES, CalendarEvent } from './calendar.models';
 import { CalendarFacade } from './calendar.facade';
 
 describe('CalendarFacade', () => {
@@ -49,19 +42,22 @@ describe('CalendarFacade', () => {
   it('keeps undated events after dated ones', async () => {
     api.events = [
       {
-        title: 'Night Transit',
-        additional: 'Premiere',
-        date: 'Jul 15',
-        hasFile: false,
+        id: 'Night Transit-Premiere-Jul 15',
+        time: 'Jul 15',
         kind: 'movie',
+        title: 'Night Transit',
+        subtitle: 'Premiere',
+        status: 'pending',
+        airDate: '',
       },
       {
-        title: 'Cowboy Bebop',
-        additional: 'S1 E5',
-        date: 'Jul 12',
-        airDate: '2026-07-12T18:00:00Z',
-        hasFile: false,
+        id: 'Cowboy Bebop-S1 E5-2026-07-12T18:00:00Z',
+        time: 'Jul 12',
         kind: 'episode',
+        title: 'Cowboy Bebop',
+        subtitle: 'S1 E5',
+        status: 'pending',
+        airDate: '2026-07-12T18:00:00Z',
       },
     ];
     await facade.refresh();
@@ -94,20 +90,22 @@ describe('CalendarFacade', () => {
   it('resolves colliding titles using event kind', async () => {
     api.events = [
       {
-        title: 'Fargo',
-        additional: 'Theatrical',
-        date: 'Jul 13',
-        airDate: '2026-07-13T00:00:00Z',
-        hasFile: true,
+        id: 'Fargo-Theatrical-2026-07-13T00:00:00Z',
+        time: 'Jul 13',
         kind: 'movie',
+        title: 'Fargo',
+        subtitle: 'Theatrical',
+        status: 'available',
+        airDate: '2026-07-13T00:00:00Z',
       },
       {
-        title: 'Fargo',
-        additional: 'S1 E1',
-        date: 'Jul 12',
-        airDate: '2026-07-12T18:00:00Z',
-        hasFile: false,
+        id: 'Fargo-S1 E1-2026-07-12T18:00:00Z',
+        time: 'Jul 12',
         kind: 'episode',
+        title: 'Fargo',
+        subtitle: 'S1 E1',
+        status: 'pending',
+        airDate: '2026-07-12T18:00:00Z',
       },
     ];
     api.library = {
@@ -136,33 +134,36 @@ describe('CalendarFacade', () => {
 });
 
 class MockApi implements MediaStackApi {
-  events: MediaStackCalendarEventDto[] = [
+  events: CalendarEvent[] = [
     {
+      id: 'Night Transit-Premiere-2026-07-15T12:00:00Z',
+      time: 'Jul 15',
+      kind: 'movie',
       title: 'Night Transit',
-      additional: 'Premiere',
-      date: 'Jul 15',
+      subtitle: 'Premiere',
+      status: 'pending',
       airDate: '2026-07-15T12:00:00Z',
-      hasFile: false,
-      kind: 'movie',
     },
     {
-      title: 'Cowboy Bebop',
-      additional: 'S1 E5',
-      date: 'Jul 12',
-      airDate: '2026-07-12T18:00:00Z',
-      hasFile: false,
+      id: 'Cowboy Bebop-S1 E5-2026-07-12T18:00:00Z',
+      time: 'Jul 12',
       kind: 'episode',
+      title: 'Cowboy Bebop',
+      subtitle: 'S1 E5',
+      status: 'pending',
+      airDate: '2026-07-12T18:00:00Z',
     },
     {
-      title: 'Dune',
-      additional: 'Theatrical',
-      date: 'Jul 13',
-      airDate: '2026-07-13T00:00:00Z',
-      hasFile: true,
+      id: 'Dune-Theatrical-2026-07-13T00:00:00Z',
+      time: 'Jul 13',
       kind: 'movie',
+      title: 'Dune',
+      subtitle: 'Theatrical',
+      status: 'available',
+      airDate: '2026-07-13T00:00:00Z',
     },
   ];
-  library: MediaStackArrLibraryDto = {
+  library: ArrLibrary = {
     ok: true,
     series: { 'cowboy bebop': 'cowboy-bebop' },
     movies: { dune: 'dune-2021' },
@@ -171,20 +172,22 @@ class MockApi implements MediaStackApi {
   failure = false;
   libraryFailure = false;
 
-  listTorrents(): Promise<MediaStackTorrentDto[]> {
+  listTorrents() {
     return Promise.resolve([]);
   }
-  pauseAll(): Promise<void> {
+  pauseAll() {
     return Promise.resolve();
   }
-  resumeAll(): Promise<void> {
+  resumeAll() {
     return Promise.resolve();
   }
-  listCalendarEvents(): Promise<MediaStackCalendarEventDto[]> {
+  listCalendarEvents(): Promise<CalendarEvent[]> {
     this.calendarCalls++;
-    return this.failure ? Promise.reject(new Error('offline')) : Promise.resolve(this.events.map((event) => ({ ...event })));
+    return this.failure
+      ? Promise.reject(new Error('offline'))
+      : Promise.resolve(this.events.map((event) => ({ ...event })));
   }
-  getArrLibrary(): Promise<MediaStackArrLibraryDto> {
+  getArrLibrary(): Promise<ArrLibrary> {
     return this.libraryFailure || this.failure
       ? Promise.reject(new Error('offline'))
       : Promise.resolve({
@@ -196,8 +199,14 @@ class MockApi implements MediaStackApi {
   listLibraryItems() {
     return Promise.resolve([]);
   }
-  getAutomationSummary(): Promise<MediaStackAutomationSummaryDto> {
-    return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [] });
+  getAutomationSummary() {
+    return Promise.resolve({
+      generatedAt: '',
+      services: [],
+      preview: [],
+      problems: [],
+      availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const },
+    });
   }
   listHermesRecommendations() {
     return Promise.resolve({ ok: true, items: [] });
@@ -218,6 +227,6 @@ class MockApi implements MediaStackApi {
     return Promise.resolve({ ok: true });
   }
   listCronLogs() {
-    return Promise.resolve({ ok: true, logs: [] });
+    return Promise.resolve({ ok: true, runs: [] });
   }
 }

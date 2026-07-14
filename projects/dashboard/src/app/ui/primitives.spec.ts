@@ -1,6 +1,6 @@
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { MmButton, MmCard, MmProgress, MmStateCard, MmStatus } from './primitives';
+import { MmButton, MmCard, MmProgress, MmStateCard, MmStatus } from './index';
 
 @Component({
   standalone: true,

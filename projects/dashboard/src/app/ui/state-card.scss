@@ -1,0 +1,39 @@
+.mm-state-card {
+  display: grid;
+  justify-items: start;
+  gap: var(--mm-space-sm);
+  padding: 18px;
+  border: 1px dashed var(--mm-component-border);
+  border-radius: var(--mm-radius-md);
+  background: var(--mm-component-card-bg);
+}
+
+.mm-state-card__icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--mm-component-muted-bg);
+  color: var(--mm-component-accent);
+}
+
+.mm-state-card--danger .mm-state-card__icon {
+  color: var(--mm-component-danger);
+}
+
+h3,
+p {
+  margin: 0;
+}
+
+h3 {
+  color: var(--mm-component-text-primary);
+  font-size: var(--mm-text-md);
+}
+
+p {
+  color: var(--mm-component-text-secondary);
+  font-size: var(--mm-text-sm);
+  line-height: 1.5;
+}

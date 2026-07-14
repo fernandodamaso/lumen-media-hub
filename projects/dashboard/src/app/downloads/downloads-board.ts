@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { MmButton, MmProgress, MmStateCard, MmStatus } from 'media-ui';
+import { MmButton, MmCard, MmProgress, MmStateCard, MmStatus } from 'media-ui';
 import { formatBytes, formatEta, formatRate, TORRENT_STATE_VIEW } from './downloads-format';
 import { DownloadsFacade } from './downloads.facade';
 import { TorrentState } from './media-stack-api';
@@ -7,15 +7,19 @@ import { TorrentState } from './media-stack-api';
 @Component({
   standalone: true,
   selector: 'mm-downloads-board',
-  imports: [MmButton, MmProgress, MmStateCard, MmStatus],
+  imports: [MmButton, MmCard, MmProgress, MmStateCard, MmStatus],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="downloads" aria-labelledby="downloads-heading">
-      <div class="section-heading">
+    <mm-card class="downloads" labelledBy="downloads-heading">
+      <div mm-card-header>
         <div><p class="eyebrow">Live activity</p><h2 id="downloads-heading">Downloads</h2><p class="section-copy">Track and control your media queue.</p></div>
+      </div>
+      <div mm-card-header-actions class="header-tools">
+        <div class="speed"><span>Down speed</span><strong>{{ formatRate(facade.summary().downloadRate) }}</strong></div>
+        <div class="speed"><span>Up speed</span><strong>{{ formatRate(facade.summary().uploadRate) }}</strong></div>
         <div class="actions" aria-label="Download controls">
-          <mm-button label="Pause all" variant="quiet" [disabled]="facade.pendingAction() !== null" [busy]="facade.pendingAction() === 'pause'" (click)="pauseAll()" />
-          <mm-button label="Resume all" [disabled]="facade.pendingAction() !== null" [busy]="facade.pendingAction() === 'resume'" (click)="resumeAll()" />
+          <mm-button label="Pause all" variant="warning" [disabled]="facade.pendingAction() !== null" [busy]="facade.pendingAction() === 'pause'" (click)="pauseAll()" />
+          <mm-button label="Resume all" variant="success" [disabled]="facade.pendingAction() !== null" [busy]="facade.pendingAction() === 'resume'" (click)="resumeAll()" />
         </div>
       </div>
       @if (facade.notice()) {
@@ -25,7 +29,7 @@ import { TorrentState } from './media-stack-api';
       @else if (facade.status() === 'error') { <mm-state-card kind="error" title="Downloads unavailable" [message]="facade.error()" tone="danger"><mm-button label="Try again" (click)="retry()" /></mm-state-card> }
       @else if (facade.status() === 'empty') { <mm-state-card kind="empty" title="No active downloads" message="Your queue is clear. New downloads will appear here." /> }
       @else {
-        <div class="summary" aria-label="Download summary"><div><strong>{{ facade.summary().active }}</strong><span>active</span></div><div><strong>{{ formatBytes(facade.summary().downloaded) }}</strong><span>downloaded of {{ formatBytes(facade.summary().size) }}</span></div><div><strong>{{ formatRate(facade.summary().downloadRate) }}</strong><span>download speed</span></div><div><strong>{{ formatRate(facade.summary().uploadRate) }}</strong><span>upload speed</span></div></div>
+        <div class="summary" aria-label="Download summary"><div><strong>{{ facade.summary().active }}</strong><span>active</span></div><div><strong>{{ formatBytes(facade.summary().downloaded) }}</strong><span>downloaded of {{ formatBytes(facade.summary().size) }}</span></div></div>
         <div class="torrent-list" aria-live="polite">
           @for (torrent of facade.torrents(); track torrent.id) {
             <article class="torrent">
@@ -37,15 +41,16 @@ import { TorrentState } from './media-stack-api';
               <div class="torrent-meta">
                 <span>{{ formatBytes(torrent.downloaded) }} / {{ formatBytes(torrent.size) }}</span>
                 <span>{{ formatRate(torrent.downloadRate) }} ↓</span>
+                <span>{{ formatRate(torrent.uploadRate) }} ↑</span>
                 <span>{{ torrent.eta ? formatEta(torrent.eta) + ' left' : 'Complete' }}</span>
               </div>
             </article>
           }
         </div>
       }
-    </section>
+    </mm-card>
   `,
-  styles: `:host { display: block; } .downloads { margin-top: 0; } .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 18px; } h2 { margin: 0; color: var(--mm-component-text-primary); font-size: 24px; } .section-copy { margin-top: 6px; color: var(--mm-component-text-secondary); font-size: 14px; } .actions { display: flex; flex-wrap: wrap; gap: 10px; } .notice { margin: 0 0 14px; } .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-bottom: 14px; overflow: hidden; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-md); background: var(--mm-component-border); } .summary div { display: grid; gap: 5px; padding: 16px; background: var(--mm-component-card-bg); } .summary strong { color: var(--mm-component-text-primary); font-size: 18px; } .summary span, .category, .torrent-meta { color: var(--mm-component-text-muted); font-size: 12px; } .torrent-list { display: grid; gap: 10px; } .torrent { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-md); background: var(--mm-component-card-bg); } .torrent-head, .torrent-meta { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; } h3 { margin: 0 0 4px; color: var(--mm-component-text-primary); font-size: 15px; } .progress-row { display: flex; } .torrent-meta { justify-content: flex-start; gap: 24px; } @container (max-width: 560px) { .section-heading { align-items: start; flex-direction: column; } .summary { grid-template-columns: repeat(2, 1fr); } .torrent-meta { gap: 12px; } } @media (max-width: 850px) { .section-heading { align-items: start; flex-direction: column; } .summary { grid-template-columns: repeat(2, 1fr); } }`,
+  styles: `:host { display: block; } .header-tools { display:flex; align-items:center; gap:14px; flex-wrap:wrap; } .speed { display:grid; gap:3px; } .speed span { color:var(--mm-component-text-muted); font-size:10px; font-weight:700; text-transform:uppercase; } .speed strong { color:var(--mm-component-text-primary); font-size:15px; } h2 { margin: 0; color: var(--mm-component-text-primary); font-size: 24px; } .section-copy { margin-top: 6px; color: var(--mm-component-text-secondary); font-size: 14px; } .actions { display: flex; flex-wrap: wrap; gap: 10px; } .notice { margin: 0 0 14px; } .summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; margin-bottom: 14px; overflow: hidden; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-md); background: var(--mm-component-border); } .summary div { display: grid; gap: 5px; padding: 16px; background: var(--mm-component-card-bg); } .summary strong { color: var(--mm-component-text-primary); font-size: 18px; } .summary span, .category, .torrent-meta { color: var(--mm-component-text-muted); font-size: 12px; } .torrent-list { display: grid; gap: 10px; } .torrent { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-md); background: var(--mm-component-card-bg); } .torrent-head, .torrent-meta { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; } h3 { margin: 0 0 4px; color: var(--mm-component-text-primary); font-size: 15px; } .progress-row { display: flex; } .torrent-meta { justify-content: flex-start; gap: 24px; } @container (max-width: 560px) { .header-tools { align-items: start; } .torrent-meta { gap: 12px; } }`,
 })
 export class DownloadsBoard {
   readonly facade = inject(DownloadsFacade);

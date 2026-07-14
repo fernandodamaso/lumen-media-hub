@@ -43,39 +43,35 @@ import { LibraryFacade } from '../library/library.facade';
 
     .home-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(280px, 320px);
-      grid-template-rows: auto auto;
-      grid-template-areas:
-        'library library calendar'
-        'downloads automation calendar';
+      grid-template-columns: repeat(12, minmax(0, 1fr));
       gap: 22px;
       margin-top: 28px;
       align-items: start;
     }
 
     .home-grid__library {
-      grid-area: library;
+      grid-column: 1 / span 8;
       min-width: 0;
+      container-type: inline-size;
     }
 
     .home-grid__downloads {
-      grid-area: downloads;
+      grid-column: 1 / span 7;
       min-width: 0;
       container-type: inline-size;
     }
 
     .home-grid__automation {
-      grid-area: automation;
+      grid-column: 8 / span 5;
       min-width: 0;
       container-type: inline-size;
     }
 
     .home-grid__calendar {
-      grid-area: calendar;
+      grid-column: 9 / span 4;
+      grid-row: 1;
       min-width: 0;
       container-type: inline-size;
-      position: sticky;
-      top: 24px;
     }
 
     .region {
@@ -111,18 +107,11 @@ import { LibraryFacade } from '../library/library.facade';
       }
     }
 
-    @media (max-width: 1180px) {
+    @media (max-width: 1279px) {
       .home-grid {
-        grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-        grid-template-areas:
-          'library library'
-          'calendar calendar'
-          'downloads automation';
+        grid-template-columns: 1fr;
       }
-
-      .home-grid__calendar {
-        position: static;
-      }
+      .home-grid > * { grid-column: 1; grid-row: auto; }
     }
 
     @media (prefers-reduced-motion: reduce) {

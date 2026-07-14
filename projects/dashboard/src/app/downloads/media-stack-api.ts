@@ -91,6 +91,7 @@ export interface MediaStackLibraryItemDto {
   posterUrl?: string;
   artworkState?: LibraryArtworkState;
   playable?: boolean;
+  rating?: number | null;
 }
 
 export interface LibraryItem {
@@ -103,6 +104,7 @@ export interface LibraryItem {
   href: string | null;
   artworkState: LibraryArtworkState;
   playable: boolean;
+  rating?: number | null;
 }
 
 export interface JellyfinLinkBases {
@@ -357,6 +359,7 @@ export interface CronRun {
   fatal: string | null;
   applied: number | null;
   exitCode: number | null;
+  schedule?: string;
 }
 
 export interface CronHealthSummary {
@@ -400,7 +403,7 @@ export const isActionableRun = (
 ): boolean => !isQuietRun(run);
 
 export const normalizeCronRun = (
-  job: Pick<MediaStackCronLogEntryDto, 'id' | 'title'>,
+  job: Pick<MediaStackCronLogEntryDto, 'id' | 'title'> & Partial<Pick<MediaStackCronLogEntryDto, 'schedule'>>,
   run: MediaStackCronLogRunDto,
   index: number,
 ): CronRun => {
@@ -416,6 +419,7 @@ export const normalizeCronRun = (
     fatal: run.fatal ?? null,
     applied: typeof run.applied === 'number' ? run.applied : null,
     exitCode: typeof run.exitCode === 'number' ? run.exitCode : null,
+    schedule: job.schedule || 'Not scheduled',
   };
 };
 
@@ -489,8 +493,24 @@ export const normalizeLibraryItem = (dto: MediaStackLibraryItemDto): LibraryItem
     href: null,
     artworkState,
     playable: dto.playable !== false,
+    rating: normalizeRating(dto.rating),
   };
 };
+
+export const resolveJellyfinLibraryLink = (
+  kind: LibraryItemKind,
+  bases: JellyfinLinkBases = {},
+): string | null => {
+  const base = (bases.jellyfinBase ?? DEFAULT_JELLYFIN_LINK_BASES.jellyfinBase).replace(/\/$/, '');
+  if (!base) return null;
+  return `${base}/web/index.html#!/${kind === 'movie' ? 'movies' : 'tv'}.html`;
+};
+
+function normalizeRating(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 10
+    ? Math.round(value * 10) / 10
+    : null;
+}
 
 export const resolveJellyfinItemLink = (
   item: Pick<LibraryItem, 'id' | 'playable'>,

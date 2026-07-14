@@ -1,4 +1,5 @@
-import { DestroyRef, inject, Injectable, signal } from '@angular/core';
+import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
+import { groupCalendarEvents } from './calendar-format';
 import {
   CALENDAR_LINK_BASES,
   CalendarEvent,
@@ -24,6 +25,7 @@ export class CalendarFacade {
   private readonly _error = signal('');
   readonly status = this._status.asReadonly();
   readonly events = this._events.asReadonly();
+  readonly groups = computed(() => groupCalendarEvents(this._events()));
   readonly error = this._error.asReadonly();
   private pollHandle?: ReturnType<typeof setInterval>;
 

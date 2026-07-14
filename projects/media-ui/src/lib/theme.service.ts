@@ -27,9 +27,9 @@ export class ThemeService {
     if (this.isTheme(bootTheme)) return bootTheme;
     try {
       const savedTheme = localStorage.getItem(STORAGE_KEY);
-      return this.isTheme(savedTheme) ? savedTheme : 'nocturne';
+      return this.isTheme(savedTheme) ? savedTheme : 'github-dark-pro';
     } catch {
-      return 'nocturne';
+      return 'github-dark-pro';
     }
   }
 

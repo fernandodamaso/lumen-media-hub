@@ -3,12 +3,15 @@ import { signal, WritableSignal } from '@angular/core';
 import { vi } from 'vitest';
 import { AutomationBoard } from './automation-board';
 import { AutomationFacade, AutomationStatus } from './automation.facade';
-import { AutomationSummary } from '../downloads/media-stack-api';
+import { AutomationSummary, CronRun } from '../downloads/media-stack-api';
 
 interface MockAutomationFacade {
   status: WritableSignal<AutomationStatus>;
   summary: WritableSignal<AutomationSummary | null>;
   error: WritableSignal<string>;
+  tasks: WritableSignal<CronRun[]>;
+  summaryUnavailable: WritableSignal<boolean>;
+  tasksUnavailable: WritableSignal<boolean>;
   startPolling: () => void;
   refresh: () => Promise<void>;
 }
@@ -73,7 +76,7 @@ describe('AutomationBoard', () => {
     expect(styles).toMatch(/@container \(max-width: 520px\)[\s\S]*\.tile-grid[\s\S]*grid-template-columns:\s*1fr/);
   });
 
-  it('renders a partial banner and unavailable preview copy', () => {
+  it('renders a partial banner when scheduled tasks are unavailable', () => {
     facade.status.set('partial');
     facade.summary.set({
       generatedAt: '2026-07-12T18:00:00Z',
@@ -82,10 +85,10 @@ describe('AutomationBoard', () => {
       problems: [],
       availability: { services: 'present', preview: 'unavailable', problems: 'unavailable' },
     });
+    facade.tasksUnavailable.set(true);
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('Preview and Problems are unavailable');
-    expect(fixture.nativeElement.textContent).toContain('Preview unavailable');
+    expect(fixture.nativeElement.textContent).toContain('Scheduled tasks unavailable');
     expect(fixture.nativeElement.textContent).toContain('Problem list unavailable');
   });
 
@@ -129,7 +132,7 @@ describe('AutomationBoard', () => {
       availability: { services: 'present', preview: 'present', problems: 'present' },
     });
     expect(() => fixture.detectChanges()).not.toThrow();
-    expect(fixture.nativeElement.querySelectorAll('.tile-row').length).toBe(6);
+    expect(fixture.nativeElement.querySelectorAll('.tile-row').length).toBe(4);
   });
 
   function findButton(label: string): HTMLButtonElement {
@@ -143,6 +146,7 @@ function createFacade() {
   const status = signal<AutomationStatus>('loading');
   const summary = signal<AutomationSummary | null>(null);
   const error = signal('');
+  const tasks = signal<CronRun[]>([]);
   const refresh = vi.fn(async () => {
     status.set('ready');
   });
@@ -150,6 +154,9 @@ function createFacade() {
     status,
     summary,
     error,
+    tasks,
+    summaryUnavailable: signal(false),
+    tasksUnavailable: signal(false),
     startPolling: vi.fn(),
     refresh,
   };

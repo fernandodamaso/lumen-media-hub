@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import { MmButton, MmPoster, MmStateCard } from 'media-ui';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { MmButton, MmCard, MmPoster, MmStateCard } from 'media-ui';
 import { LibraryItemKind } from '../downloads/media-stack-api';
 import { LIBRARY_KIND_LABEL, libraryEmptyMessage } from './library-format';
 import { LibraryFacade } from './library.facade';
@@ -7,16 +7,16 @@ import { LibraryFacade } from './library.facade';
 @Component({
   standalone: true,
   selector: 'mm-library-board',
-  imports: [MmButton, MmPoster, MmStateCard],
+  imports: [MmButton, MmCard, MmPoster, MmStateCard],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="library" aria-labelledby="library-heading">
-      <div class="section-heading">
-        <div>
+    <mm-card class="library" labelledBy="library-heading">
+        <div mm-card-header>
           <p class="eyebrow">Collection</p>
           <h2 id="library-heading">Library</h2>
           <p class="section-copy">Browse movies and series in the local library.</p>
         </div>
+        <div mm-card-header-actions class="header-actions">
         <div class="switcher" aria-label="Library collection">
           <button
             type="button"
@@ -39,7 +39,8 @@ import { LibraryFacade } from './library.facade';
             <span class="switcher__count">{{ facade.seriesCount() }}</span>
           </button>
         </div>
-      </div>
+        @if (facade.viewAllHref(); as href) { <a class="view-all" [href]="href" target="_blank" rel="noreferrer">View all ↗</a> }
+        </div>
 
       @if (facade.status() === 'loading') {
         <mm-state-card kind="loading" title="Loading library" message="Fetching the demo catalog…" />
@@ -52,46 +53,21 @@ import { LibraryFacade } from './library.facade';
       } @else {
         <div class="poster-grid" aria-live="polite">
           @for (item of facade.items(); track item.id) {
-            <article
-              class="poster-card"
-              [class.poster-card--open]="openedId() === item.id"
-              [attr.data-artwork]="item.artworkState"
-              tabindex="0"
-              (focusin)="openCard(item.id)"
-              (focusout)="onCardFocusOut($event, item.id)"
-              (mouseenter)="openCard(item.id)"
-              (mouseleave)="closeCard(item.id)"
-            >
-              <mm-poster [title]="item.title" [meta]="item.meta" [art]="item.art" />
-              <div class="poster-card__disclosure">
-                @if (item.overview) {
-                  <p class="poster-card__overview">{{ item.overview }}</p>
-                }
-                @if (item.href) {
-                  <a class="poster-card__link" [href]="item.href" target="_blank" rel="noreferrer">
-                    Open in Jellyfin
-                    <span class="external-hint" aria-hidden="true">↗</span>
-                    <span class="sr-only"> (opens in a new tab)</span>
-                  </a>
-                }
-              </div>
-            </article>
+            @if (item.href) {
+              <a class="poster-card" [attr.data-artwork]="item.artworkState" [href]="item.href" target="_blank" rel="noreferrer" [attr.aria-label]="item.title + ' (opens in a new tab)'">
+                <mm-poster [title]="item.title" [meta]="item.meta" [art]="item.art" [rating]="item.rating ?? null" />
+              </a>
+            } @else {
+              <div class="poster-card" [attr.data-artwork]="item.artworkState"><mm-poster [title]="item.title" [meta]="item.meta" [art]="item.art" [rating]="item.rating ?? null" /></div>
+            }
           }
         </div>
       }
-    </section>
+    </mm-card>
   `,
   styles: `
     :host { display: block; }
-    .library { margin-top: 0; }
-    .section-heading {
-      display: flex;
-      align-items: end;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 14px;
-      flex-wrap: wrap;
-    }
+    .header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     h2 { margin: 0; color: var(--mm-component-text-primary); font-size: 24px; }
     .section-copy { margin-top: 6px; color: var(--mm-component-text-secondary); font-size: 14px; }
     .switcher {
@@ -134,108 +110,42 @@ import { LibraryFacade } from './library.facade';
     }
     .poster-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 14px;
     }
     .poster-card {
-      display: grid;
-      gap: 0;
+      display: block;
       outline: none;
+      color: inherit;
+      text-decoration: none;
     }
     .poster-card :is(mm-poster) {
       display: block;
       width: 100%;
-      max-width: 140px;
+      max-width: none;
     }
-    .poster-card__disclosure {
-      display: grid;
-      gap: 8px;
-      max-height: 0;
-      opacity: 0;
-      overflow: hidden;
-      padding: 0 12px;
-      border: 1px solid transparent;
-      border-radius: 0 0 var(--mm-radius-md) var(--mm-radius-md);
-      background: var(--mm-component-card-bg);
-      transition: max-height var(--mm-transition-normal), opacity var(--mm-transition-fast), padding var(--mm-transition-fast);
-      pointer-events: none;
-    }
-    .poster-card:hover .poster-card__disclosure,
-    .poster-card:focus-within .poster-card__disclosure,
-    .poster-card--open .poster-card__disclosure {
-      max-height: 140px;
-      opacity: 1;
-      padding: 10px 12px 12px;
-      border-color: var(--mm-component-border);
-      border-top-color: transparent;
-      pointer-events: auto;
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .poster-card__disclosure {
-        transition: none;
-      }
-    }
-    .poster-card__overview {
-      margin: 0;
-      color: var(--mm-component-text-secondary);
-      font-size: 12px;
-      line-height: 1.45;
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-    }
-    .poster-card__link {
-      color: var(--mm-component-accent);
-      font-size: 12px;
-      font-weight: 700;
-      text-decoration: none;
-    }
-    .poster-card__link:hover,
-    .poster-card__link:focus-visible {
-      text-decoration: underline;
-    }
-    .external-hint {
-      margin-left: 4px;
-      font-weight: 700;
-    }
-    .sr-only {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      padding: 0;
-      margin: -1px;
-      overflow: hidden;
-      clip: rect(0, 0, 0, 0);
-      white-space: nowrap;
-      border: 0;
-    }
+    .poster-card:nth-child(n+9) { display: none; }
+    .view-all { color: var(--mm-component-accent); font-size: 13px; font-weight: 700; text-decoration: none; }
     .poster-card:focus-visible {
       box-shadow: 0 0 0 2px var(--mm-component-accent);
       border-radius: var(--mm-radius-md);
+    }
+    @container (min-width: 960px) {
+      .poster-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+      .poster-card { display: block; }
+      .poster-card:nth-child(n+13) { display: none; }
+    }
+    @container (max-width: 639px) {
+      .poster-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .poster-card:nth-child(n+5) { display: none; }
     }
   `,
 })
 export class LibraryBoard {
   readonly facade = inject(LibraryFacade);
-  readonly openedId = signal<string | null>(null);
 
   kindLabel(kind: LibraryItemKind): string {
     return LIBRARY_KIND_LABEL[kind];
-  }
-
-  openCard(id: string): void {
-    this.openedId.set(id);
-  }
-
-  closeCard(id: string): void {
-    if (this.openedId() === id) this.openedId.set(null);
-  }
-
-  onCardFocusOut(event: FocusEvent, id: string): void {
-    const next = event.relatedTarget as Node | null;
-    if (next && (event.currentTarget as Node).contains(next)) return;
-    this.closeCard(id);
   }
 
   setKind(kind: LibraryItemKind): void {

@@ -1,4 +1,4 @@
-import { inject, Injectable, signal } from '@angular/core';
+import { computed, inject, Injectable, signal } from '@angular/core';
 import {
   JELLYFIN_LINK_BASES,
   LibraryItem,
@@ -6,6 +6,7 @@ import {
   MEDIA_STACK_API,
   normalizeLibraryItem,
   resolveJellyfinItemLink,
+  resolveJellyfinLibraryLink,
 } from '../downloads/media-stack-api';
 
 export type LibraryStatus = 'loading' | 'ready' | 'empty' | 'error';
@@ -28,6 +29,7 @@ export class LibraryFacade {
   readonly movieCount = this._movieCount.asReadonly();
   readonly seriesCount = this._seriesCount.asReadonly();
   readonly error = this._error.asReadonly();
+  readonly viewAllHref = computed(() => resolveJellyfinLibraryLink(this._kind(), this.linkBases));
 
   constructor() {
     void this.refresh();

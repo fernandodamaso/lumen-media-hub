@@ -43,6 +43,14 @@ describe('AutomationFacade', () => {
     expect(facade.status()).toBe('empty');
   });
 
+  it('reports ready when scheduled tasks are the only available signal', async () => {
+    api.summary = { generatedAt: '2026-07-12T18:00:00Z', services: [], preview: [], problems: [] };
+    api.cronLogs = [{ id: 'cleanup', title: 'Cleanup', file: 'cleanup.log', format: 'text', exists: true, schedule: 'Hourly', mtime: '2026-07-14T12:00:00Z' }];
+    await facade.refresh();
+    expect(facade.status()).toBe('ready');
+    expect(facade.tasks()).toHaveLength(1);
+  });
+
   it('reports partial when a section is unavailable', async () => {
     api.summary = { generatedAt: '2026-07-12T18:00:00Z', services: [], preview: [], problems: [], unavailable: { services: true } };
     await facade.refresh();
@@ -52,10 +60,12 @@ describe('AutomationFacade', () => {
 
   it('reports error and preserves recoverability', async () => {
     api.failure = true;
+    api.cronFailure = true;
     await facade.refresh();
     expect(facade.status()).toBe('error');
     expect(facade.error()).toContain('temporarily unavailable');
     api.failure = false;
+    api.cronFailure = false;
     await facade.refresh();
     expect(facade.status()).toBe('ready');
   });
@@ -79,6 +89,8 @@ class MockApi implements MediaStackApi {
   summary: MediaStackAutomationSummaryDto = { ...defaultSummary };
   calls = 0;
   failure = false;
+  cronFailure = false;
+  cronLogs: Array<{ id: string; title: string; file: string; format: string; exists: boolean; schedule: string; mtime: string }> = [];
 
   getAutomationSummary(): Promise<MediaStackAutomationSummaryDto> {
     this.calls++;
@@ -122,6 +134,6 @@ class MockApi implements MediaStackApi {
     return Promise.resolve({ ok: true });
   }
   listCronLogs() {
-    return Promise.resolve({ ok: true, logs: [] });
+    return this.cronFailure ? Promise.reject(new Error('offline')) : Promise.resolve({ ok: true, logs: this.cronLogs });
   }
 }

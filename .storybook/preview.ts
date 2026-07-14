@@ -4,7 +4,7 @@ const preview: Preview = {
   globalTypes: {
     theme: {
       description: 'Global media-ui theme',
-      defaultValue: 'nocturne',
+      defaultValue: 'github-dark-pro',
       toolbar: {
         icon: 'paintbrush',
         items: [

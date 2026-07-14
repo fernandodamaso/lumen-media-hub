@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { computed, signal } from '@angular/core';
+import { groupCalendarEvents } from '../calendar/calendar-format';
 import { vi } from 'vitest';
 import { AutomationFacade, AutomationStatus } from '../automation/automation.facade';
 import { CalendarFacade, CalendarRailEvent, CalendarStatus } from '../calendar/calendar.facade';
@@ -70,11 +71,9 @@ describe('DashboardPage composition', () => {
     fixture.detectChanges();
     const styles = dashboardStyles();
 
-    expect(styles).toContain('grid-template-areas: "library library calendar"');
-    expect(styles).toContain('"downloads automation calendar"');
-    expect(styles).toContain('grid-area: library');
-    expect(styles).toContain('grid-area: calendar');
-    expect(styles).toContain('position: sticky');
+    expect(styles).toContain('grid-template-columns: repeat(12, minmax(0, 1fr))');
+    expect(styles).toContain('grid-column: 1/span 8');
+    expect(styles).toContain('grid-column: 9/span 4');
     expect(styles).toContain('container-type: inline-size');
     expect(styles).toContain('.home-grid__downloads');
     expect(styles).toContain('.home-grid__automation');
@@ -88,9 +87,8 @@ describe('DashboardPage composition', () => {
       fixture.nativeElement.querySelectorAll('[data-region]') as NodeListOf<HTMLElement>,
     ).map((node) => node.getAttribute('data-region'));
     expect(regions).toEqual(['library', 'calendar', 'downloads', 'automation']);
-    expect(styles).toContain('@media (max-width: 1180px)');
-    expect(styles).toMatch(/@media \(max-width: 1180px\)[\s\S]*"calendar calendar"/);
-    expect(styles).toMatch(/@media \(max-width: 1180px\)[\s\S]*position:\s*static/);
+    expect(styles).toContain('@media (max-width: 1279px)');
+    expect(styles).toMatch(/@media \(max-width: 1279px\)[\s\S]*grid-column:\s*1;/);
   });
 
   it('keeps other regions usable when one feature fails', () => {
@@ -185,15 +183,17 @@ function calendarEvent(): CalendarRailEvent {
 }
 
 function createLibraryFacade() {
+  const kind = signal<'movie' | 'series'>('movie');
   return {
     status: signal<LibraryStatus>('loading'),
-    kind: signal<'movie' | 'series'>('movie'),
+    kind,
     items: signal<LibraryItem[]>([]),
     movieCount: signal(0),
     seriesCount: signal(0),
     error: signal(''),
     setKind: vi.fn(),
     refresh: vi.fn(),
+    viewAllHref: computed(() => 'https://jellyfin.example/web/index.html#!/movies.html'),
   };
 }
 
@@ -217,15 +217,20 @@ function createAutomationFacade() {
     summary: signal(null),
     error: signal(''),
     health: signal({ overall: 'unknown' as const, actionableCount: 0 }),
+    tasks: signal([]),
+    summaryUnavailable: signal(false),
+    tasksUnavailable: signal(false),
     startPolling: vi.fn(),
     refresh: vi.fn(),
   };
 }
 
 function createCalendarFacade() {
+  const events = signal<CalendarRailEvent[]>([]);
   return {
     status: signal<CalendarStatus>('loading'),
-    events: signal<CalendarRailEvent[]>([]),
+    events,
+    groups: computed(() => groupCalendarEvents(events())),
     error: signal(''),
     startPolling: vi.fn(),
     refresh: vi.fn(),

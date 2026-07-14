@@ -1,4 +1,4 @@
-:root, :root[data-theme="nocturne"] {
+:root[data-theme="nocturne"] {
   color-scheme: dark;
   --mm-color-ink-0: #f7f8ff;
   --mm-color-ink-1: #c4c9d8;
@@ -33,7 +33,7 @@
   --mm-focus-ring: #c0caf5;
 }
 
-:root[data-theme="github-dark-pro"] {
+:root, :root[data-theme="github-dark-pro"] {
   --mm-color-ink-0: #f0f3f6;
   --mm-color-ink-1: #b1bac4;
   --mm-color-ink-2: #768390;

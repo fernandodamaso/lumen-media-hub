@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { MmButton, MmStateCard, MmStatus } from 'media-ui';
+import { MmButton, MmCard, MmStateCard, MmStatus } from 'media-ui';
 import {
   AutomationProblem,
   AutomationProblemSeverity,
@@ -30,16 +30,18 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
 @Component({
   standalone: true,
   selector: 'mm-automation-board',
-  imports: [MmButton, MmStateCard, MmStatus],
+  imports: [MmButton, MmCard, MmStateCard, MmStatus],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="automation" aria-labelledby="automation-heading">
-      <div class="section-heading">
+    <mm-card class="automation" labelledBy="automation-heading">
+      <div mm-card-header>
         <div>
           <p class="eyebrow">Operations</p>
           <h2 id="automation-heading">Automation</h2>
           <p class="section-copy">Service health, upcoming work, and open problems at a glance.</p>
         </div>
+      </div>
+      <div mm-card-header-actions>
         @if (facade.summary(); as summary) {
           <span class="generated-at">{{ formatGeneratedAt(summary.generatedAt) }}</span>
         }
@@ -83,21 +85,19 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
               }
             </article>
 
-            <article class="tile" [attr.aria-label]="'Preview (' + summary.preview.length + ')'">
-              <h3>Up next</h3>
-              @if (summary.availability.preview === 'unavailable') {
-                <p class="tile-empty">Preview unavailable.</p>
-              } @else if (summary.preview.length === 0) {
-                <p class="tile-empty">Nothing upcoming.</p>
+            <article class="tile" [attr.aria-label]="'Scheduled tasks (' + facade.tasks().length + ')'">
+              <h3>Scheduled tasks</h3>
+              @if (facade.tasksUnavailable()) {
+                <p class="tile-empty">Scheduled tasks unavailable.</p>
+              } @else if (facade.tasks().length === 0) {
+                <p class="tile-empty">No scheduled tasks.</p>
               } @else {
                 <ul class="tile-list" aria-live="polite">
-                  @for (item of summary.preview; track item.id || $index) {
+                  @for (item of facade.tasks(); track item.jobId) {
                     <li class="tile-row preview-row">
-                      <span class="tile-title" [attr.title]="item.title">{{ item.title }}</span>
-                      <span class="tile-detail">{{ item.when }}</span>
-                      @if (item.kind) {
-                        <mm-status tone="info">{{ item.kind }}</mm-status>
-                      }
+                      <span class="tile-title" [attr.title]="item.jobTitle">{{ item.jobTitle }}</span>
+                      <span class="tile-detail">{{ item.schedule || 'Not scheduled' }} · {{ item.timestamp ? formatGeneratedAt(item.timestamp) : 'No recent run' }}</span>
+                      <mm-status [tone]="item.triage === 'actionable' ? 'warning' : 'success'">{{ item.status }}</mm-status>
                     </li>
                   }
                 </ul>
@@ -127,7 +127,7 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
           </div>
         }
       }
-    </section>
+    </mm-card>
   `,
   styles: `
     :host { display: block; }
@@ -165,10 +165,11 @@ export class AutomationBoard {
   readonly sortedProblems = computed(() => this.sortProblems(this.facade.summary()?.problems ?? []));
   readonly partialMessage = computed(() => {
     const summary = this.facade.summary();
-    if (!summary) return 'Some automation data is unavailable.';
-    const names = Object.entries(summary.availability)
-      .filter(([, value]) => value === 'unavailable')
-      .map(([key]) => key);
+    const names: string[] = [];
+    if (this.facade.summaryUnavailable()) names.push('automation summary');
+    if (summary?.availability.services === 'unavailable') names.push('services');
+    if (summary?.availability.problems === 'unavailable') names.push('problem list');
+    if (this.facade.tasksUnavailable()) names.push('scheduled tasks');
     if (names.length === 0) return 'Some automation data is unavailable.';
     return `${this.joinNames(names)} unavailable.`;
   });

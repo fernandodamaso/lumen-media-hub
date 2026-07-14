@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { MmButton, MmStateCard, MmStatus } from 'media-ui';
+import { MmButton, MmCard, MmStateCard, MmStatus } from 'media-ui';
 import { CalendarEventStatus, CalendarMediaKind } from '../downloads/media-stack-api';
 import { CALENDAR_KIND_VIEW, CALENDAR_STATUS_VIEW } from './calendar-format';
 import { CalendarFacade } from './calendar.facade';
@@ -7,17 +7,15 @@ import { CalendarFacade } from './calendar.facade';
 @Component({
   standalone: true,
   selector: 'mm-calendar-board',
-  imports: [MmButton, MmStateCard, MmStatus],
+  imports: [MmButton, MmCard, MmStateCard, MmStatus],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="calendar" aria-labelledby="calendar-heading">
-      <div class="section-heading">
-        <div>
+    <mm-card class="calendar" labelledBy="calendar-heading">
+        <div mm-card-header>
           <p class="eyebrow">Schedule</p>
           <h2 id="calendar-heading">Upcoming</h2>
           <p class="section-copy">Scan the next episodes and movies in your stack.</p>
         </div>
-      </div>
 
       @if (facade.status() === 'loading') {
         <mm-state-card kind="loading" title="Loading calendar" message="Checking upcoming releases…" />
@@ -29,7 +27,9 @@ import { CalendarFacade } from './calendar.facade';
         <mm-state-card kind="empty" title="Nothing upcoming" message="No episodes or movies are scheduled yet." />
       } @else {
         <div class="cal-list" aria-live="polite">
-          @for (event of facade.events(); track event.id) {
+          @for (group of facade.groups(); track group.key) {
+            <h3 class="date-heading">{{ group.label }}</h3>
+          @for (event of group.events; track event.id) {
             <article class="cal-row">
               <span class="cal-time">{{ event.time }}</span>
               <mm-status [tone]="kindView(event.kind).tone">{{ kindView(event.kind).label }}</mm-status>
@@ -54,14 +54,14 @@ import { CalendarFacade } from './calendar.facade';
               <mm-status [tone]="statusView(event.status).tone">{{ statusView(event.status).label }}</mm-status>
             </article>
           }
+          }
         </div>
       }
-    </section>
+    </mm-card>
   `,
   styles: `
     :host { display: block; }
-    .calendar { margin-top: 0; }
-    .section-heading { margin-bottom: 18px; }
+    .date-heading { margin: 12px 0 4px; color: var(--mm-component-text-muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
     h2 { margin: 0; color: var(--mm-component-text-primary); font-size: 24px; }
     .section-copy { margin-top: 6px; color: var(--mm-component-text-secondary); font-size: 14px; }
     .cal-list { display: grid; gap: 8px; }

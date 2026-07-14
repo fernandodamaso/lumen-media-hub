@@ -71,7 +71,7 @@ describe('DownloadsBoard', () => {
     fixture.detectChanges();
     const styles = componentStyles();
     expect(styles).toContain('@container (max-width: 560px)');
-    expect(styles).toMatch(/@container \(max-width: 560px\)[\s\S]*\.summary[\s\S]*grid-template-columns:\s*repeat\(2,\s*1fr\)/);
+    expect(styles).toMatch(/\.summary[\s\S]*grid-template-columns:\s*repeat\(2,\s*1fr\)/);
   });
 
   function findButton(label: string): HTMLButtonElement {

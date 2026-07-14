@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { computed, signal } from '@angular/core';
 import { vi } from 'vitest';
 import { LibraryItem } from '../downloads/media-stack-api';
 import { LibraryBoard } from './library-board';
@@ -75,7 +75,7 @@ describe('LibraryBoard', () => {
     expect(facade.setKind).toHaveBeenCalledWith('series');
   });
 
-  it('reveals disclosure on focus without covering titles and links only when href is set', () => {
+  it('uses the whole poster as the link and keeps unlinked titles visible', () => {
     facade.status.set('ready');
     facade.items.set([
       {
@@ -105,18 +105,9 @@ describe('LibraryBoard', () => {
 
     const cards = Array.from(fixture.nativeElement.querySelectorAll('.poster-card')) as HTMLElement[];
     expect(cards).toHaveLength(2);
-    expect(cards[0].classList.contains('poster-card--open')).toBe(false);
-
-    cards[0].dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-    fixture.detectChanges();
-
-    expect(cards[0].classList.contains('poster-card--open')).toBe(true);
-    expect(cards[0].querySelector('.poster-card__disclosure')?.textContent).toContain('A mythic desert world.');
     expect(cards[0].textContent).toContain('Dune');
-    // Title lives on MmPoster above the disclosure block (not covered by overlay).
-    expect(cards[0].querySelector('mm-poster')?.textContent).toContain('Dune');
 
-    const links = Array.from(fixture.nativeElement.querySelectorAll('a.poster-card__link')) as HTMLAnchorElement[];
+    const links = Array.from(fixture.nativeElement.querySelectorAll('a.poster-card')) as HTMLAnchorElement[];
     expect(links).toHaveLength(1);
     expect(links[0].getAttribute('href')).toBe('https://jellyfin.example/web/index.html#!/details?id=jf-dune');
     expect(links[0].getAttribute('target')).toBe('_blank');
@@ -146,6 +137,7 @@ function createFacade() {
   const error = signal('');
   const refresh = vi.fn(async () => status.set('ready'));
   const setKind = vi.fn((next: 'movie' | 'series') => kind.set(next));
+  const viewAllHref = computed(() => 'https://jellyfin.example/web/index.html#!/movies.html');
   return {
     status,
     kind,
@@ -155,5 +147,6 @@ function createFacade() {
     error,
     refresh,
     setKind,
+    viewAllHref,
   };
 }

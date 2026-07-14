@@ -29,6 +29,7 @@ export interface LiveJellyfinItem {
   year?: number | null;
   id?: string;
   image?: string | null;
+  rating?: number | null;
 }
 
 export interface LiveJellyfinListResponse {
@@ -118,6 +119,7 @@ export function mapLiveJellyfinItem(
     posterUrl,
     artworkState: posterUrl ? 'ok' : 'missing',
     playable: true,
+    rating: item.rating,
   };
 }
 

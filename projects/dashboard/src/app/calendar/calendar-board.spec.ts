@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { computed, signal } from '@angular/core';
+import { groupCalendarEvents } from './calendar-format';
 import { vi } from 'vitest';
 import { CalendarBoard } from './calendar-board';
 import { CalendarFacade, CalendarRailEvent, CalendarStatus } from './calendar.facade';
@@ -118,6 +119,7 @@ function createFacade() {
     error,
     startPolling: vi.fn(),
     refresh,
+    groups: computed(() => groupCalendarEvents(events())),
   };
 }
 

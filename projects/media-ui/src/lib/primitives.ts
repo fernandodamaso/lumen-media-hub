@@ -15,7 +15,7 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<button
     [type]="type()"
-    [disabled]="disabled()"
+    [disabled]="disabled() || busy()"
     [attr.aria-busy]="busy() || null"
     [class]="'mm-button mm-button--' + variant()"
   >
@@ -62,19 +62,59 @@ import {
     .mm-button--quiet:hover:not(:disabled) {
       background: var(--mm-component-muted-bg);
     }
+    .mm-button--success {
+      background: var(--mm-component-success);
+      color: var(--mm-component-on-accent);
+    }
+    .mm-button--warning {
+      background: var(--mm-component-warning);
+      color: var(--mm-semantic-text-inverse);
+    }
     .mm-button:disabled {
-      cursor: wait;
+      cursor: not-allowed;
       opacity: 0.65;
     }
+    .mm-button[aria-busy='true'] { cursor: wait; }
   `,
 })
 export class MmButton {
   readonly label = input('Continue');
-  readonly variant = input<'primary' | 'quiet'>('primary');
+  readonly variant = input<'primary' | 'quiet' | 'success' | 'warning'>('primary');
   readonly disabled = input(false);
   readonly busy = input(false);
   readonly type = input<'button' | 'submit'>('button');
 }
+
+@Component({
+  selector: 'mm-card',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<section class="mm-card" [attr.aria-labelledby]="labelledBy() || null">
+    <header class="mm-card__header">
+      <div class="mm-card__heading"><ng-content select="[mm-card-header]" /></div>
+      <div class="mm-card__actions"><ng-content select="[mm-card-header-actions]" /></div>
+    </header>
+    <div class="mm-card__body"><ng-content /></div>
+    <footer class="mm-card__footer">
+      <div><ng-content select="[mm-card-footer]" /></div>
+      <div class="mm-card__actions"><ng-content select="[mm-card-footer-actions]" /></div>
+    </footer>
+  </section>`,
+  styles: `
+    :host { display: block; }
+    .mm-card { overflow: hidden; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-lg); background: var(--mm-component-surface); box-shadow: var(--mm-shadow-card); }
+    .mm-card__header, .mm-card__footer { display: flex; align-items: center; justify-content: space-between; gap: var(--mm-space-md); padding: 18px 20px; }
+    .mm-card__header { border-bottom: 1px solid var(--mm-component-border); }
+    .mm-card__footer { border-top: 1px solid var(--mm-component-border); }
+    .mm-card__heading { min-width: 0; }
+    .mm-card__actions { display: flex; align-items: center; gap: var(--mm-space-sm); }
+    .mm-card__body { padding: 20px; }
+    .mm-card__heading:empty, .mm-card__actions:empty, .mm-card__footer > div:empty { display: none; }
+    .mm-card__header:not(:has(.mm-card__heading > *)):not(:has(.mm-card__actions > *)),
+    .mm-card__footer:not(:has(> div > *)) { display: none; }
+  `,
+})
+export class MmCard { readonly labelledBy = input(''); }
 
 @Component({
   selector: 'mm-status',
@@ -176,11 +216,11 @@ export class MmProgress {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<article class="mm-poster">
     <div class="mm-poster__art" [style.background]="art()">
-      <span class="mm-poster__overlay" aria-hidden="true">{{ title() }}</span>
-    </div>
-    <div class="mm-poster__body">
-      <strong>{{ title() }}</strong>
-      <small>{{ meta() }}</small>
+      <div class="mm-poster__overlay">
+        <small>{{ meta() }}</small>
+        <strong>{{ title() }}</strong>
+        @if (rating() !== null) { <span class="mm-poster__rating" aria-label="Rating {{ rating() }} out of 10">★ {{ rating() }}</span> }
+      </div>
     </div>
   </article>`,
   styles: `
@@ -218,24 +258,19 @@ export class MmProgress {
     .mm-poster__overlay {
       position: relative;
       z-index: 1;
-    }
-    .mm-poster__body {
       display: grid;
-      gap: 5px;
-      padding: 12px;
+      gap: 6px;
+      width: 100%;
     }
-    .mm-poster__body strong {
-      color: var(--mm-component-text-primary);
-      font-size: var(--mm-text-sm);
-    }
-    .mm-poster__body small {
-      color: var(--mm-component-text-muted);
-    }
+    .mm-poster__overlay strong { font-size: var(--mm-text-md); line-height: 1.2; }
+    .mm-poster__overlay small { color: rgb(255 255 255 / 72%); font-size: var(--mm-text-xs); }
+    .mm-poster__rating { color: #f2cc60; font-size: var(--mm-text-xs); font-weight: 800; }
   `,
 })
 export class MmPoster {
   readonly title = input('Moonrise');
   readonly meta = input('2026 · Drama');
+  readonly rating = input<number | null>(null);
   readonly art = input('linear-gradient(145deg, var(--mm-component-accent), var(--mm-component-card-bg) 65%)');
 }
 

@@ -22,7 +22,7 @@ describe('App shell', () => {
 
     expect(fixture.nativeElement.querySelector('.brand')?.textContent).toContain('Media Manager');
     expect(fixture.nativeElement.querySelector('.demo-badge')?.textContent).toContain('Demo');
-    expect(fixture.nativeElement.querySelectorAll('nav a')).toHaveLength(4);
+    expect(fixture.nativeElement.querySelectorAll('nav a')).toHaveLength(3);
     expect(fixture.nativeElement.querySelector('router-outlet')).toBeTruthy();
   });
 
@@ -31,7 +31,6 @@ describe('App shell', () => {
     ['/dashboard', 'Dashboard', null],
     ['/reports', 'Reports', 'Failed and actionable automation runs first'],
     ['/discover', 'Discover', 'Browse Hermes, Jellyseerr, and Trakt recommendations'],
-    ['/ui', 'UI catalog', 'Shared primitives used by the dashboard shell.'],
   ])('recognizes %s as %s and renders its destination', async (url, heading, lede) => {
     const harness = await RouterTestingHarness.create();
     const router = TestBed.inject(Router);

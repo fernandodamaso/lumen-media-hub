@@ -22,6 +22,7 @@ describe('media-ui primitives', () => {
 
     expect(status.classList).toContain('mm-status');
     expect(status.classList).toContain('mm-status--danger');
+    expect(status.getAttribute('role')).toBe('status');
   });
 
   it('exposes progress semantics and the state-card danger tone', () => {
@@ -35,5 +36,14 @@ describe('media-ui primitives', () => {
     state.componentRef.setInput('tone', 'danger');
     state.detectChanges();
     expect(state.nativeElement.querySelector('.mm-state-card--danger')).toBeTruthy();
+  });
+
+  it('lets the primary button receive keyboard focus', () => {
+    const fixture = TestBed.createComponent(MmButton);
+    fixture.componentRef.setInput('label', 'Focus me');
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    button.focus();
+    expect(document.activeElement).toBe(button);
   });
 });

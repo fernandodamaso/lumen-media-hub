@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { MEDIA_UI_THEMES, ThemeService } from './theme.service';
+import { ThemeService } from './theme.service';
 
 describe('ThemeService', () => {
   beforeEach(() => {
@@ -15,7 +15,6 @@ describe('ThemeService', () => {
 
     expect(service.theme()).toBe('tokyo-night');
     expect(document.documentElement.dataset['theme']).toBe('tokyo-night');
-    expect(service.themes).toEqual(MEDIA_UI_THEMES);
   });
 
   it('persists only supported selections', () => {

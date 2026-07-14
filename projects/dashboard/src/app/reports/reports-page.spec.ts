@@ -63,7 +63,7 @@ describe('ReportsPage', () => {
     expect(firstActionable?.textContent).toContain('Watchdog');
   });
 
-  it('expands run detail on toggle', () => {
+  it('expands run detail via native details element', () => {
     facade.status.set('mixed');
     facade.summary.set({ kind: 'mixed', total: 1, actionable: 1, quiet: 0 });
     facade.runs.set([
@@ -72,12 +72,17 @@ describe('ReportsPage', () => {
     fixture.detectChanges();
 
     const details = fixture.nativeElement.querySelector('.run-list .run') as HTMLDetailsElement;
+    const summary = details.querySelector('summary') as HTMLElement;
     expect(details.open).toBe(false);
-    details.open = true;
-    details.dispatchEvent(new Event('toggle'));
+
+    summary.click();
     fixture.detectChanges();
     expect(details.open).toBe(true);
     expect(details.querySelector('.run-detail')?.textContent).toContain('Disk full');
+
+    summary.click();
+    fixture.detectChanges();
+    expect(details.open).toBe(false);
   });
 
   it('shows calm all-clear messaging without a danger state card', () => {

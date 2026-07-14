@@ -2,7 +2,15 @@
 const tseslint = require('typescript-eslint');
 
 module.exports = [
-  { ignores: ['dist/**', '.angular/**', 'node_modules/**', '.storybook/**', 'storybook-static/**'] },
+  {
+    ignores: [
+      'dist/**',
+      '.angular/**',
+      'node_modules/**',
+      '.worktrees/**',
+      '**/.worktrees/**',
+    ],
+  },
   ...tseslint.configs.recommended,
   {
     files: ['**/*.ts'],

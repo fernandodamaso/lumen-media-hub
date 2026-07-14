@@ -21,9 +21,9 @@ import { TorrentState } from './media-stack-api';
       @if (facade.notice()) {
         <p class="notice" role="status" aria-live="polite"><mm-status tone="success">{{ facade.notice() }}</mm-status></p>
       }
-      @if (facade.status() === 'loading') { <mm-state-card icon="◌" title="Loading downloads" message="Checking the queue…" /> }
-      @else if (facade.status() === 'error') { <mm-state-card icon="!" title="Downloads unavailable" [message]="facade.error()" tone="danger"><mm-button label="Try again" (click)="retry()" /></mm-state-card> }
-      @else if (facade.status() === 'empty') { <mm-state-card icon="∅" title="No active downloads" message="Your queue is clear. New downloads will appear here." /> }
+      @if (facade.status() === 'loading') { <mm-state-card kind="loading" title="Loading downloads" message="Checking the queue…" /> }
+      @else if (facade.status() === 'error') { <mm-state-card kind="error" title="Downloads unavailable" [message]="facade.error()" tone="danger"><mm-button label="Try again" (click)="retry()" /></mm-state-card> }
+      @else if (facade.status() === 'empty') { <mm-state-card kind="empty" title="No active downloads" message="Your queue is clear. New downloads will appear here." /> }
       @else {
         <div class="summary" aria-label="Download summary"><div><strong>{{ facade.summary().active }}</strong><span>active</span></div><div><strong>{{ formatBytes(facade.summary().downloaded) }}</strong><span>downloaded of {{ formatBytes(facade.summary().size) }}</span></div><div><strong>{{ formatRate(facade.summary().downloadRate) }}</strong><span>download speed</span></div><div><strong>{{ formatRate(facade.summary().uploadRate) }}</strong><span>upload speed</span></div></div>
         <div class="torrent-list" aria-live="polite">

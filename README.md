@@ -1,6 +1,6 @@
 # Media Manager Angular
 
-Angular 22 workspace for the Media Manager shell: standalone `dashboard` app and `media-ui` component library.
+Angular 22 workspace for the Media Manager shell: standalone `dashboard` app with application-owned UI primitives.
 
 This repository is currently a **private local showcase**. Public GitHub Pages is deferred; run Demo mode locally to evaluate the product.
 
@@ -18,8 +18,7 @@ Open [http://localhost:4200/](http://localhost:4200/). Default startup uses in-p
 | `/` | Asymmetric home dashboard (library, downloads, automation, calendar) |
 | `/reports` | Status-weighted automation / cron triage |
 | `/discover` | Hermes, Jellyseerr, and Trakt recommendations |
-| `/ui` | In-app UI catalog |
-| Storybook | `npm run storybook` → [http://localhost:6006/](http://localhost:6006/) |
+| `/ui` | In-app UI catalog and accessibility workbench |
 
 ## Live mode (optional)
 
@@ -44,10 +43,6 @@ Live mode is **local-only**. Do not point a static host at the live configuratio
 | `npm run lint` | ESLint |
 | `npm test -- --watch=false` | Vitest unit / facade / page specs |
 | `npm run build:dashboard` | Production dashboard build |
-| `npm run build:media-ui` | Library production build |
-| `npm run storybook` | Interactive Storybook (includes a11y addon / play functions) |
-| `npm run build:storybook` | Compile Storybook static output (does **not** run a11y or play tests) |
-| `npm run build:pages` | Future static-host package: mock-only build, SPA `404.html`, hygiene scan |
 
 ## Themes
 
@@ -61,14 +56,12 @@ Switch from the top-bar theme picker; preference persists in `localStorage` (`me
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for the port → adapter → facade → page flow, mock/live/pages modes, and operational link policy.
+See [docs/architecture.md](docs/architecture.md) for the port → adapter → facade → page flow, Demo/Live modes, and operational link policy.
 
 ## Testing
 
-- **Unit / integration:** Vitest via `ng test` (facades, boards, pages, shell navigation, API boundary).
-- **Storybook:** Interactive review and addon-a11y while `npm run storybook` is running. `build:storybook` only compiles.
+- **Unit / integration:** Vitest via `ng test` (facades, boards, pages, shell navigation, API boundary, UI primitives).
 - **Browser acceptance:** Manual desktop checklist in [docs/browser-acceptance.md](docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
-- **Pages packaging:** `build:pages` asserts base href, `404.html`, and absence of localhost / private-service / `/api` strings in the artifact.
 
 ## Screenshots
 
@@ -81,8 +74,6 @@ Representative Demo captures (local showcase):
 | Reports | Tokyo Night |
 |---------|-------------|
 | ![Reports](docs/screenshots/reports.png) | ![Tokyo Night theme](docs/screenshots/theme-tokyo-night.png) |
-
-![Storybook gallery](docs/screenshots/storybook.png)
 
 See [docs/screenshots/README.md](docs/screenshots/README.md) to regenerate.
 
@@ -104,7 +95,4 @@ npm start
 npm run lint
 npm test -- --watch=false
 npm run build:dashboard
-npm run build:media-ui
-npm run build:storybook
-npm run build:pages
 ```

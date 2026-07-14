@@ -20,13 +20,13 @@ import { CalendarFacade } from './calendar.facade';
       </div>
 
       @if (facade.status() === 'loading') {
-        <mm-state-card icon="◌" title="Loading calendar" message="Checking upcoming releases…" />
+        <mm-state-card kind="loading" title="Loading calendar" message="Checking upcoming releases…" />
       } @else if (facade.status() === 'error') {
-        <mm-state-card icon="!" title="Calendar unavailable" [message]="facade.error()" tone="danger">
+        <mm-state-card kind="error" title="Calendar unavailable" [message]="facade.error()" tone="danger">
           <mm-button label="Try again" (click)="retry()" />
         </mm-state-card>
       } @else if (facade.status() === 'empty') {
-        <mm-state-card icon="∅" title="Nothing upcoming" message="No episodes or movies are scheduled yet." />
+        <mm-state-card kind="empty" title="Nothing upcoming" message="No episodes or movies are scheduled yet." />
       } @else {
         <div class="cal-list" aria-live="polite">
           @for (event of facade.events(); track event.id) {
@@ -43,6 +43,8 @@ import { CalendarFacade } from './calendar.facade';
                     [attr.title]="event.title"
                   >
                     {{ event.title }}
+                    <span class="external-hint" aria-hidden="true">↗</span>
+                    <span class="sr-only"> (opens in a new tab)</span>
                   </a>
                 } @else {
                   <span class="cal-title" [attr.title]="event.title">{{ event.title }}</span>
@@ -94,6 +96,21 @@ import { CalendarFacade } from './calendar.facade';
     .cal-link:hover,
     .cal-link:focus-visible {
       text-decoration: underline;
+    }
+    .external-hint {
+      margin-left: 4px;
+      font-weight: 700;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
     .cal-subtitle {
       color: var(--mm-component-text-muted);

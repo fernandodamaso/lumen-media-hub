@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { vi } from 'vitest';
-import { LibraryItem } from '../downloads/media-stack-api';
+import { LibraryItem, DEFAULT_LIBRARY_ART } from '../downloads/media-stack-api';
 import { LibraryBoard } from './library-board';
 import { LibraryFacade, LibraryStatus } from './library.facade';
 
@@ -43,7 +43,7 @@ describe('LibraryBoard', () => {
         title: 'Dune',
         kind: 'movie',
         meta: '2021 · Movie',
-        art: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
+        art: DEFAULT_LIBRARY_ART,
         overview: 'Desert power.',
         href: 'https://jellyfin.example/web/index.html#!/details?id=jf-dune',
         artworkState: 'ok',
@@ -75,7 +75,7 @@ describe('LibraryBoard', () => {
     expect(facade.setKind).toHaveBeenCalledWith('series');
   });
 
-  it('reveals disclosure on focus without covering titles and links only when href is set', () => {
+  it('exposes a focusable DOM contract for disclosure without JS open state', () => {
     facade.status.set('ready');
     facade.items.set([
       {
@@ -83,7 +83,7 @@ describe('LibraryBoard', () => {
         title: 'Dune',
         kind: 'movie',
         meta: '2021 · Movie',
-        art: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
+        art: DEFAULT_LIBRARY_ART,
         overview: 'A mythic desert world.',
         href: 'https://jellyfin.example/web/index.html#!/details?id=jf-dune',
         artworkState: 'ok',
@@ -105,23 +105,24 @@ describe('LibraryBoard', () => {
 
     const cards = Array.from(fixture.nativeElement.querySelectorAll('.poster-card')) as HTMLElement[];
     expect(cards).toHaveLength(2);
+    expect(cards[0].tabIndex).toBe(0);
     expect(cards[0].classList.contains('poster-card--open')).toBe(false);
-
-    cards[0].dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-    fixture.detectChanges();
-
-    expect(cards[0].classList.contains('poster-card--open')).toBe(true);
     expect(cards[0].querySelector('.poster-card__disclosure')?.textContent).toContain('A mythic desert world.');
-    expect(cards[0].textContent).toContain('Dune');
-    // Title lives on MmPoster above the disclosure block (not covered by overlay).
     expect(cards[0].querySelector('mm-poster')?.textContent).toContain('Dune');
 
     const links = Array.from(fixture.nativeElement.querySelectorAll('a.poster-card__link')) as HTMLAnchorElement[];
     expect(links).toHaveLength(1);
     expect(links[0].getAttribute('href')).toBe('https://jellyfin.example/web/index.html#!/details?id=jf-dune');
     expect(links[0].getAttribute('target')).toBe('_blank');
+    expect(links[0].textContent).toContain('opens in a new tab');
     expect(fixture.nativeElement.textContent).toContain('Broken Signal');
     expect(fixture.nativeElement.querySelector('[data-artwork="failed"]')).toBeTruthy();
+
+    cards[0].focus();
+    expect(document.activeElement).toBe(cards[0]);
+    expect(cards[0].matches(':focus')).toBe(true);
+    expect(cards[0].matches(':focus-within')).toBe(true);
+    expect(links[0].tabIndex).toBeGreaterThanOrEqual(0);
   });
 
   function findButton(label: string): HTMLButtonElement {

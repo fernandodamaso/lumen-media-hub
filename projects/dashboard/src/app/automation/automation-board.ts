@@ -46,13 +46,13 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
       </div>
 
       @if (facade.status() === 'loading') {
-        <mm-state-card icon="◌" title="Loading automation" message="Checking automations…" />
+        <mm-state-card kind="loading" title="Loading automation" message="Checking automations…" />
       } @else if (facade.status() === 'error') {
-        <mm-state-card icon="!" title="Automation unavailable" [message]="facade.error()" tone="danger">
+        <mm-state-card kind="error" title="Automation unavailable" [message]="facade.error()" tone="danger">
           <mm-button label="Try again" (click)="retry()" />
         </mm-state-card>
       } @else if (facade.status() === 'empty') {
-        <mm-state-card icon="∅" title="No automation data" message="No services, previews, or problems have been reported yet." />
+        <mm-state-card kind="empty" title="No automation data" message="No services, previews, or problems have been reported yet." />
       } @else {
         @if (facade.status() === 'partial') {
           <p class="partial-banner" role="status" aria-live="polite">

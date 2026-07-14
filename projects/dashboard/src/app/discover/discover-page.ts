@@ -6,7 +6,6 @@ import { DiscoverHistoryFilter } from './discover-format';
 import { DiscoverFacade, HermesView } from './discover.facade';
 
 @Component({
-  standalone: true,
   selector: 'mm-discover-page',
   imports: [MmButton, MmStateCard, MmStatus, DiscoverCard],
   providers: [DiscoverFacade],
@@ -15,18 +14,18 @@ import { DiscoverFacade, HermesView } from './discover.facade';
     <section class="page-intro">
       <p class="eyebrow">Workspace</p>
       <h1>Discover</h1>
-      <p class="lede">Explore Hermes, Jellyseerr, and Trakt picks, leave feedback, and request eligible titles.</p>
+      <p class="lede">Browse Hermes, Jellyseerr, and Trakt recommendations. Request eligible titles.</p>
     </section>
 
     <div class="toolbar">
-      <div class="tabs" role="tablist" aria-label="Discover sources">
+      <div class="tabs" role="radiogroup" aria-label="Discover sources">
         @for (tab of tabs; track tab.id) {
           <button
             type="button"
-            role="tab"
+            role="radio"
             class="tab"
-            [attr.aria-selected]="facade.tab() === tab.id"
-            (click)="setTab(tab.id)"
+            [attr.aria-checked]="facade.tab() === tab.id"
+            (click)="facade.setTab(tab.id)"
           >
             {{ tab.label }}
           </button>
@@ -39,10 +38,10 @@ import { DiscoverFacade, HermesView } from './discover.facade';
             variant="quiet"
             [disabled]="facade.requestingMore() || facade.generationPending()"
             [busy]="facade.requestingMore()"
-            (click)="requestMore()"
+            (click)="facade.requestMore()"
           />
         }
-        <mm-button label="Refresh" variant="quiet" (click)="refresh()" />
+        <mm-button label="Refresh" variant="quiet" (click)="facade.refresh()" />
       </div>
     </div>
 
@@ -50,7 +49,7 @@ import { DiscoverFacade, HermesView } from './discover.facade';
       <div class="filters" aria-label="Hermes filters">
         <div class="filter-group" role="group" aria-label="Hermes view">
           @for (view of hermesViews; track view.id) {
-            <button type="button" class="chip" [attr.aria-pressed]="facade.hermesView() === view.id" (click)="setHermesView(view.id)">
+            <button type="button" class="chip" [attr.aria-pressed]="facade.hermesView() === view.id" (click)="facade.setHermesView(view.id)">
               {{ view.label }}
             </button>
           }
@@ -62,7 +61,7 @@ import { DiscoverFacade, HermesView } from './discover.facade';
                 type="button"
                 class="chip"
                 [attr.aria-pressed]="facade.historyFilter() === filter.id"
-                (click)="setHistoryFilter(filter.id)"
+                (click)="facade.setHistoryFilter(filter.id)"
               >
                 {{ filter.label }}
               </button>
@@ -75,7 +74,7 @@ import { DiscoverFacade, HermesView } from './discover.facade';
     @if (facade.tab() === 'jellyseerr') {
       <div class="filters" role="group" aria-label="Jellyseerr kind">
         @for (kind of jellyseerrKinds; track kind.id) {
-          <button type="button" class="chip" [attr.aria-pressed]="facade.jellyseerrKind() === kind.id" (click)="setJellyseerrKind(kind.id)">
+          <button type="button" class="chip" [attr.aria-pressed]="facade.jellyseerrKind() === kind.id" (click)="facade.setJellyseerrKind(kind.id)">
             {{ kind.label }}
           </button>
         }
@@ -85,7 +84,7 @@ import { DiscoverFacade, HermesView } from './discover.facade';
     @if (facade.tab() === 'trakt') {
       <div class="filters" role="group" aria-label="Trakt type">
         @for (type of traktTypes; track type.id) {
-          <button type="button" class="chip" [attr.aria-pressed]="facade.traktType() === type.id" (click)="setTraktType(type.id)">
+          <button type="button" class="chip" [attr.aria-pressed]="facade.traktType() === type.id" (click)="facade.setTraktType(type.id)">
             {{ type.label }}
           </button>
         }
@@ -99,13 +98,13 @@ import { DiscoverFacade, HermesView } from './discover.facade';
     }
 
     @if (facade.status() === 'loading') {
-      <mm-state-card icon="◌" title="Loading discover" message="Fetching recommendations…" />
+      <mm-state-card kind="loading" title="Loading discover" message="Fetching recommendations…" />
     } @else if (facade.status() === 'error') {
-      <mm-state-card icon="!" title="Discover unavailable" [message]="facade.error()" tone="danger">
-        <mm-button label="Try again" (click)="refresh()" />
+      <mm-state-card kind="error" title="Discover unavailable" [message]="facade.error()" tone="danger">
+        <mm-button label="Try again" (click)="facade.refresh()" />
       </mm-state-card>
     } @else if (facade.status() === 'empty') {
-      <mm-state-card icon="∅" title="Nothing to show" message="No titles match this source and filter yet." />
+      <mm-state-card kind="empty" title="Nothing to show" message="No titles match this source and filter yet." />
     } @else {
       <div class="grid" aria-live="polite">
         @for (item of facade.visibleItems(); track item.id) {
@@ -122,35 +121,66 @@ import { DiscoverFacade, HermesView } from './discover.facade';
     }
   `,
   styles: `
-    :host { display: block; }
+    :host {
+      display: block;
+    }
     .toolbar {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: 14px;
+      gap: var(--mm-space-md);
       margin: 28px 0 16px;
     }
-    .tabs, .filters, .filter-group, .toolbar-actions {
+    .tabs,
+    .filters,
+    .filter-group,
+    .toolbar-actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: var(--mm-space-sm);
     }
-    .filters { margin-bottom: 16px; }
-    .tab, .chip {
+    .filters {
+      margin-bottom: 16px;
+    }
+    .tab,
+    .chip {
       border: 1px solid var(--mm-component-border);
       border-radius: var(--mm-radius-sm);
-      padding: 8px 12px;
       background: var(--mm-component-control-bg);
       color: var(--mm-component-text-primary);
       cursor: pointer;
-      font: 700 13px/1 var(--mm-font-body);
+      transition:
+        background var(--mm-transition-fast),
+        border-color var(--mm-transition-fast),
+        color var(--mm-transition-fast);
     }
-    .tab[aria-selected='true'], .chip[aria-pressed='true'] {
+    .tab {
+      padding: 10px 14px;
+      font: 700 14px/1 var(--mm-font-body);
+    }
+    .chip {
+      padding: 8px 12px;
+      font: 700 var(--mm-text-sm)/1 var(--mm-font-body);
+    }
+    .tab:hover,
+    .chip:hover {
+      background: var(--mm-component-muted-bg);
+    }
+    .tab:focus-visible,
+    .chip:focus-visible {
+      outline: 3px solid var(--mm-component-focus-ring);
+      outline-offset: 2px;
+    }
+    .tab[aria-checked='true'],
+    .chip[aria-pressed='true'] {
+      background: color-mix(in srgb, var(--mm-component-accent) 12%, transparent);
       border-color: var(--mm-component-accent);
       color: var(--mm-component-accent);
     }
-    .notice { margin: 0 0 14px; }
+    .notice {
+      margin: 0 0 14px;
+    }
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -190,34 +220,6 @@ export class DiscoverPage {
 
   constructor() {
     this.facade.startPolling();
-  }
-
-  setTab(tab: DiscoverSourceTab): void {
-    this.facade.setTab(tab);
-  }
-
-  setHermesView(view: HermesView): void {
-    this.facade.setHermesView(view);
-  }
-
-  setHistoryFilter(filter: DiscoverHistoryFilter): void {
-    this.facade.setHistoryFilter(filter);
-  }
-
-  setJellyseerrKind(kind: JellyseerrDiscoverKind): void {
-    this.facade.setJellyseerrKind(kind);
-  }
-
-  setTraktType(type: TraktDiscoverType): void {
-    this.facade.setTraktType(type);
-  }
-
-  refresh(): void {
-    void this.facade.refresh();
-  }
-
-  requestMore(): void {
-    void this.facade.requestMore();
   }
 
   onFeedback(id: string, feedback: DiscoverFeedback): void {

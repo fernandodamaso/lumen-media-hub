@@ -5,6 +5,13 @@ describe('ThemeService', () => {
   beforeEach(() => {
     localStorage.clear();
     document.documentElement.dataset['theme'] = '';
+    let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.setAttribute('name', 'theme-color');
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute('content', '#000000');
     TestBed.resetTestingModule();
   });
 
@@ -43,5 +50,21 @@ describe('ThemeService', () => {
     localStorage.setItem('media-ui-theme', 'tokyo-night');
 
     expect(TestBed.inject(ThemeService).theme()).toBe('github-dark-pro');
+  });
+
+  it('updates the theme-color meta tag when the theme changes', () => {
+    const service = TestBed.inject(ThemeService);
+    TestBed.tick();
+    const meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+
+    expect(meta?.getAttribute('content')).toBe('#0d1117');
+
+    service.setTheme('nocturne');
+    TestBed.tick();
+    expect(meta?.getAttribute('content')).toBe('#0b0e14');
+
+    service.setTheme('tokyo-night');
+    TestBed.tick();
+    expect(meta?.getAttribute('content')).toBe('#16161e');
   });
 });

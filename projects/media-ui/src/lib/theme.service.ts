@@ -5,6 +5,12 @@ export const MEDIA_UI_THEMES = ['nocturne', 'tokyo-night', 'github-dark-pro'] as
 export type MediaUiTheme = (typeof MEDIA_UI_THEMES)[number];
 const STORAGE_KEY = 'media-ui-theme';
 
+const THEME_SURFACE_COLOR: Record<MediaUiTheme, string> = {
+  nocturne: '#0b0e14',
+  'tokyo-night': '#16161e',
+  'github-dark-pro': '#0d1117',
+};
+
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
   private readonly document = inject(DOCUMENT);
@@ -40,7 +46,15 @@ export class ThemeService {
   private applyTheme(theme: MediaUiTheme): void {
     this.document.documentElement.dataset['theme'] = theme;
     this.document.documentElement.style.colorScheme = 'dark';
+    this.updateThemeColor(THEME_SURFACE_COLOR[theme]);
     this.persist(theme);
+  }
+
+  private updateThemeColor(color: string): void {
+    const meta = this.document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+    if (meta) {
+      meta.setAttribute('content', color);
+    }
   }
 
   private isTheme(value: string | undefined | null): value is MediaUiTheme {

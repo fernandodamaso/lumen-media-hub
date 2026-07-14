@@ -31,11 +31,11 @@ import {
     .mm-button {
       display: inline-flex;
       align-items: center;
-      min-height: 40px;
+      min-height: 34px;
       gap: var(--mm-space-sm);
       border: 0;
       border-radius: var(--mm-radius-sm);
-      padding: 10px 14px;
+      padding: 8px 12px;
       background: var(--mm-component-accent);
       color: var(--mm-component-on-accent);
       cursor: pointer;
@@ -106,8 +106,11 @@ export class MmButton {
   </section>`,
   styles: `
     :host { container-type: inline-size; display: block; height: 100%; }
-    .mm-card { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 100%; overflow: hidden; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-lg); background: var(--mm-component-surface); box-shadow: var(--mm-shadow-card); }
-    .mm-card__header, .mm-card__footer { display: flex; align-items: center; justify-content: space-between; gap: var(--mm-space-md); padding: 18px 20px; }
+    .mm-card { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 100%; overflow: hidden; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-lg); background: var(--mm-component-surface); box-shadow: var(--mm-shadow-card); transition: transform var(--mm-transition-fast), box-shadow var(--mm-transition-fast); }
+    @media (hover: hover) and (pointer: fine) {
+      .mm-card:hover { transform: translateY(-1px); box-shadow: var(--mm-shadow-card-hover); }
+    }
+    .mm-card__header, .mm-card__footer { display: flex; align-items: center; justify-content: space-between; gap: var(--mm-space-md); padding: 16px 20px; }
     .mm-card__header { border-bottom: 1px solid var(--mm-component-border); }
     .mm-card__footer { border-top: 1px solid var(--mm-component-border); }
     .mm-card__heading { min-width: 0; }
@@ -161,9 +164,9 @@ export class MmCard implements AfterViewChecked {
     .mm-status {
       display: inline-flex;
       align-items: center;
-      gap: 7px;
+      gap: 5px;
       border-radius: 999px;
-      padding: 6px 10px;
+      padding: 4px 8px;
       background: var(--mm-component-muted-bg);
       color: var(--mm-component-text-secondary);
       font: 700 var(--mm-text-xs)/1 var(--mm-font-body);
@@ -242,9 +245,11 @@ export class MmProgress {
   template: `<article class="mm-poster">
     <div class="mm-poster__art" [style.background]="art()">
       <div class="mm-poster__overlay">
+        <div class="mm-poster__head">
+          <strong>{{ title() }}</strong>
+          @if (rating() !== null) { <span class="mm-poster__rating" aria-label="Rating {{ rating() }} out of 10">★ {{ rating() }}</span> }
+        </div>
         <small>{{ meta() }}</small>
-        <strong>{{ title() }}</strong>
-        @if (rating() !== null) { <span class="mm-poster__rating" aria-label="Rating {{ rating() }} out of 10">★ {{ rating() }}</span> }
       </div>
     </div>
   </article>`,
@@ -273,6 +278,16 @@ export class MmProgress {
       font-weight: 800;
       letter-spacing: -0.03em;
     }
+    .mm-poster__art::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 20% 30%, rgb(255 255 255 / 0.06) 0px, rgb(255 255 255 / 0.06) 1px, transparent 1px),
+        radial-gradient(circle at 70% 60%, rgb(255 255 255 / 0.05) 0px, rgb(255 255 255 / 0.05) 2px, transparent 2px),
+        radial-gradient(circle at 40% 80%, rgb(255 255 255 / 0.04) 0px, rgb(255 255 255 / 0.04) 1px, transparent 1px);
+      pointer-events: none;
+    }
     .mm-poster__art::after {
       content: '';
       position: absolute;
@@ -287,16 +302,22 @@ export class MmProgress {
       gap: 6px;
       width: 100%;
     }
-    .mm-poster__overlay strong { font-size: var(--mm-text-md); line-height: 1.2; }
-    .mm-poster__overlay small { color: rgb(255 255 255 / 72%); font-size: var(--mm-text-xs); }
-    .mm-poster__rating { color: #f2cc60; font-size: var(--mm-text-xs); font-variant-numeric: tabular-nums; font-weight: 800; }
+    .mm-poster__head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .mm-poster__head strong { font-size: var(--mm-text-md); line-height: 1.2; }
+    .mm-poster__overlay small { color: rgb(255 255 255 / 60%); font-size: var(--mm-text-xs); font-weight: 500; }
+    .mm-poster__rating { flex: none; color: #f2cc60; font-size: var(--mm-text-xs); font-variant-numeric: tabular-nums; font-weight: 800; }
   `,
 })
 export class MmPoster {
   readonly title = input('Moonrise');
   readonly meta = input('2026 · Drama');
   readonly rating = input<number | null>(null);
-  readonly art = input('linear-gradient(145deg, var(--mm-component-accent), var(--mm-component-card-bg) 65%)');
+  readonly art = input('linear-gradient(145deg, color-mix(in srgb, var(--mm-component-accent) 28%, var(--mm-component-card-bg)), var(--mm-component-card-bg) 72%)');
 }
 
 export type MmStateCardKind = 'loading' | 'empty' | 'error';
@@ -325,7 +346,7 @@ export type MmStateCardKind = 'loading' | 'empty' | 'error';
       display: grid;
       justify-items: start;
       gap: var(--mm-space-sm);
-      padding: 22px;
+      padding: 18px;
       border: 1px dashed var(--mm-component-border);
       border-radius: var(--mm-radius-md);
       background: var(--mm-component-card-bg);
@@ -362,4 +383,56 @@ export class MmStateCard {
   readonly title = input('Nothing here yet');
   readonly message = input('There is no content to show right now.');
   readonly tone = input<'default' | 'danger'>('default');
+}
+
+export type MmSkeletonVariant = 'text' | 'rect' | 'circle';
+
+@Component({
+  selector: 'mm-skeleton',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<span
+    class="mm-skeleton"
+    [class.mm-skeleton--text]="variant() === 'text'"
+    [class.mm-skeleton--rect]="variant() === 'rect'"
+    [class.mm-skeleton--circle]="variant() === 'circle'"
+    [style.width]="width()"
+    [style.height]="height()"
+    aria-hidden="true"
+  ></span>`,
+  styles: `
+    :host { display: inline-block; }
+    .mm-skeleton {
+      display: inline-block;
+      background: var(--mm-component-muted-bg);
+      border-radius: var(--mm-radius-sm);
+    }
+    .mm-skeleton--text {
+      width: 100%;
+      height: 1em;
+      border-radius: calc(1em / 2);
+    }
+    .mm-skeleton--circle {
+      border-radius: 50%;
+      aspect-ratio: 1 / 1;
+    }
+    .mm-skeleton--rect {
+      width: 100%;
+      height: 100%;
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .mm-skeleton {
+        animation: mm-skeleton-pulse 2s ease-in-out infinite;
+      }
+    }
+    @keyframes mm-skeleton-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.45; }
+    }
+  `,
+})
+export class MmSkeleton {
+  readonly variant = input<MmSkeletonVariant>('text');
+  readonly width = input<string | undefined>(undefined);
+  readonly height = input<string | undefined>(undefined);
 }

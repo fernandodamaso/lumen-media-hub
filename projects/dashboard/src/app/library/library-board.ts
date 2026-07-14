@@ -5,7 +5,6 @@ import { LIBRARY_KIND_LABEL, libraryEmptyMessage } from './library-format';
 import { LibraryFacade } from './library.facade';
 
 @Component({
-  standalone: true,
   selector: 'mm-library-board',
   imports: [MmButton, MmCard, MmPoster, MmSkeleton, MmStateCard],
   changeDetection: ChangeDetectionStrategy.OnPush,

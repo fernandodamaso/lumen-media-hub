@@ -5,7 +5,6 @@ import { CALENDAR_KIND_VIEW, CALENDAR_STATUS_VIEW } from './calendar-format';
 import { CalendarFacade } from './calendar.facade';
 
 @Component({
-  standalone: true,
   selector: 'mm-calendar-board',
   imports: [MmButton, MmCard, MmSkeleton, MmStateCard],
   changeDetection: ChangeDetectionStrategy.OnPush,

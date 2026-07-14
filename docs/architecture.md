@@ -2,22 +2,26 @@
 
 ## Workspace
 
-| Project | Role |
-|---------|------|
-| `dashboard` | Shell app: routes, feature facades, mock/HTTP adapters |
-| `media-ui` | Shared theme tokens, primitives, theme picker, Storybook stories |
+Single Angular app (`dashboard`) owning the shell, feature boards, design system (`app/ui`), and API boundary (`app/media-stack`).
+
+| Area | Role |
+|------|------|
+| `app/` shell | Bootstrap, routes, layout, navigation, environment providers |
+| `app/ui` | Design tokens, primitives, theme picker, Storybook stories |
+| `app/media-stack` | `MediaStackApi` port, mock/HTTP adapters, providers, wire mappers |
+| Feature folders | `dashboard`, `downloads`, `reports`, `discover`, plus home boards `library`, `calendar`, `automation` |
 
 ## Data flow
 
 ```text
-MediaStackApi (port)
+MediaStackApi (port)  ← app/media-stack
         │
         ├── MockMediaStackApi     ← Demo default / Pages packaging
         └── HttpMediaStackApi     ← live serve only (`start:live`)
                 │
          Feature facades
                 │
-         Boards / pages
+         Boards / pages  →  app/ui primitives
 ```
 
 Providers are selected in [media-stack-api.providers.ts](../projects/dashboard/src/app/media-stack/media-stack-api.providers.ts) from [environment.ts](../projects/dashboard/src/environments/environment.ts). The Pages configuration file-replaces providers with a mock-only module so the HTTP client adapter is not bundled.
@@ -39,8 +43,9 @@ Empty calendar bases must not fall back to relative `/series/...` or `/movie/...
 | `/` | Asymmetric home: library hero, operations column, calendar rail |
 | `/reports` | Cron log triage |
 | `/discover` | Hermes / Jellyseerr / Trakt |
-| `/ui` | Component catalog inside the shell |
 | `/dashboard` | Redirects to `/` |
+
+Design-system showcase is Storybook (`npm run storybook`), not an in-app `/ui` route.
 
 ## Local API expectations (live mode)
 
@@ -51,11 +56,12 @@ Empty calendar bases must not fall back to relative `/series/...` or `/movie/...
 
 ## Themes
 
-Tokens live in `media-ui` SCSS. Three dark themes: Nocturne, Tokyo Night, GitHub Dark Pro.
+Tokens live in [`app/ui/media-ui.scss`](../projects/dashboard/src/app/ui/media-ui.scss). Three dark themes: Nocturne, Tokyo Night, GitHub Dark Pro.
 
 ## Testing strategy
 
 - Contract and facade specs beside each feature
 - Shell navigation and home composition specs
+- Provider specs proving Demo→mock and Live→HTTP
 - Storybook for primitive keyboard / theme interaction (manual)
 - `build:pages` hygiene scan for static packaging readiness

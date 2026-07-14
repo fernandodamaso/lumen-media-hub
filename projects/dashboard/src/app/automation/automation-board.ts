@@ -28,7 +28,6 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
 };
 
 @Component({
-  standalone: true,
   selector: 'mm-automation-board',
   imports: [MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus],
   changeDetection: ChangeDetectionStrategy.OnPush,

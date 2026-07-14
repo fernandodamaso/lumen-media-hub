@@ -5,7 +5,6 @@ import { DownloadsFacade } from './downloads.facade';
 import { TorrentState } from '../media-stack/media-stack-api';
 
 @Component({
-  standalone: true,
   selector: 'mm-downloads-board',
   imports: [MmButton, MmCard, MmProgress, MmSkeleton, MmStateCard, MmStatus],
   changeDetection: ChangeDetectionStrategy.OnPush,

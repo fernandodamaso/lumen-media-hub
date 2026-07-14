@@ -33,7 +33,7 @@ class BodyOnlyCardHost {}
 })
 class ContainerRegionsHost {}
 
-describe('media-ui primitives', () => {
+describe('app/ui primitives', () => {
   it('renders button content and preserves its base and variant classes', () => {
     const fixture = TestBed.createComponent(MmButton);
     fixture.componentRef.setInput('variant', 'quiet');

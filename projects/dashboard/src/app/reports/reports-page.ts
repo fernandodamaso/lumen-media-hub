@@ -4,7 +4,6 @@ import { cronStatusView, formatGeneratedAt, formatRunTimestamp } from './reports
 import { ReportsFacade } from './reports.facade';
 
 @Component({
-  standalone: true,
   selector: 'mm-reports-page',
   imports: [MmButton, MmStateCard, MmStatus],
   providers: [ReportsFacade],

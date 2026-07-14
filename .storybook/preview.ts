@@ -3,7 +3,7 @@ import type { Preview } from '@storybook/angular';
 const preview: Preview = {
   globalTypes: {
     theme: {
-      description: 'Global media-ui theme',
+      description: 'Global dashboard UI theme',
       defaultValue: 'github-dark-pro',
       toolbar: {
         icon: 'paintbrush',

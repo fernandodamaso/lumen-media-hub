@@ -6,7 +6,6 @@ import { DiscoverHistoryFilter } from './discover-format';
 import { DiscoverFacade, HermesView } from './discover.facade';
 
 @Component({
-  standalone: true,
   selector: 'mm-discover-page',
   imports: [MmButton, MmStateCard, MmStatus, DiscoverCard],
   providers: [DiscoverFacade],

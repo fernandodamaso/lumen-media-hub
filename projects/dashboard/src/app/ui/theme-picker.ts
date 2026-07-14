@@ -4,7 +4,6 @@ import { MEDIA_UI_THEMES, ThemeService, MediaUiTheme } from './theme.service';
 
 @Component({
   selector: 'mm-theme-picker',
-  standalone: true,
   imports: [LucideCheck, LucideChevronDown],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './theme-picker.html',

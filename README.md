@@ -1,6 +1,6 @@
 # Media Manager Angular
 
-Angular 22 workspace for the Media Manager shell: standalone `dashboard` app and `media-ui` component library.
+Angular 22 workspace for the Media Manager shell: a single `dashboard` app with local design system (`app/ui`) and API boundary (`app/media-stack`).
 
 This repository is currently a **private local showcase**. Public GitHub Pages is deferred; run Demo mode locally to evaluate the product.
 
@@ -18,8 +18,7 @@ Open [http://localhost:4200/](http://localhost:4200/). Default startup uses in-p
 | `/` | Asymmetric home dashboard (library, downloads, automation, calendar) |
 | `/reports` | Status-weighted automation / cron triage |
 | `/discover` | Hermes, Jellyseerr, and Trakt recommendations |
-| `/ui` | In-app UI catalog |
-| Storybook | `npm run storybook` → [http://localhost:6006/](http://localhost:6006/) |
+| Storybook | Design-system showcase — `npm run storybook` → [http://localhost:6006/](http://localhost:6006/) |
 
 ## Live mode (optional)
 

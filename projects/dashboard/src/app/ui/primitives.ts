@@ -10,7 +10,6 @@ import {
 
 @Component({
   selector: 'mm-button',
-  standalone: true,
   imports: [LucideLoaderCircle],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<button
@@ -91,7 +90,6 @@ export class MmButton {
 
 @Component({
   selector: 'mm-card',
-  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<section class="mm-card" [attr.aria-labelledby]="labelledBy() || null">
     <header class="mm-card__header">
@@ -145,7 +143,6 @@ export class MmCard implements AfterViewChecked {
 
 @Component({
   selector: 'mm-status',
-  standalone: true,
   imports: [LucideCircleCheck, LucideInfo, LucideAlertCircle, LucideTriangleAlert],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<span role="status" [class]="'mm-status mm-status--' + tone()">
@@ -191,7 +188,6 @@ export class MmStatus {
 
 @Component({
   selector: 'mm-progress',
-  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div
       class="mm-progress"
@@ -240,7 +236,6 @@ export class MmProgress {
 
 @Component({
   selector: 'mm-poster',
-  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<article class="mm-poster">
     <div class="mm-poster__art" [style.background]="art()">
@@ -324,7 +319,6 @@ export type MmStateCardKind = 'loading' | 'empty' | 'error';
 
 @Component({
   selector: 'mm-state-card',
-  standalone: true,
   imports: [LucideLoaderCircle, LucideInbox, LucideAlertCircle],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<section [class]="'mm-state-card mm-state-card--' + tone()">
@@ -389,7 +383,6 @@ export type MmSkeletonVariant = 'text' | 'rect' | 'circle';
 
 @Component({
   selector: 'mm-skeleton',
-  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<span
     class="mm-skeleton"

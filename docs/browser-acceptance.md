@@ -6,9 +6,10 @@ Verified 2026-07-13 during FDM-493 Path B (local showcase) hand-off.
 
 ## Navigation
 
-- [x] Sidebar: Dashboard, Reports, Discover, UI catalog
+- [x] Sidebar: Dashboard, Reports, Discover
 - [x] Each destination loads with the expected title / primary content
 - [x] Browser Back / Forward restores the previous route without a blank shell
+- [x] Design-system review uses Storybook (`npm run storybook`), not an in-app catalog
 
 ## Home hierarchy
 

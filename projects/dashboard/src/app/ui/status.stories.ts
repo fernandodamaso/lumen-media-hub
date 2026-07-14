@@ -21,4 +21,13 @@ export const Tones: Story = {
       <mm-status tone="info">Processing</mm-status>
     </div>`,
   }),
+  play: async ({ canvasElement }) => {
+    const statuses = canvasElement.querySelectorAll('[role="status"]');
+    if (statuses.length !== 4) throw new Error(`Expected 4 status chips, found ${statuses.length}`);
+    for (const tone of ['success', 'warning', 'danger', 'info']) {
+      if (!canvasElement.querySelector(`.mm-status--${tone}`)) {
+        throw new Error(`Missing status tone: ${tone}`);
+      }
+    }
+  },
 };

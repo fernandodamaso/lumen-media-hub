@@ -21,4 +21,16 @@ export const Variants: Story = {
       <mm-skeleton variant="circle" width="48px" height="48px" />
     </div>`,
   }),
+  play: async ({ canvasElement }) => {
+    const skeletons = canvasElement.querySelectorAll('.mm-skeleton');
+    if (skeletons.length !== 4) throw new Error(`Expected 4 skeletons, found ${skeletons.length}`);
+    for (const skeleton of skeletons) {
+      if (skeleton.getAttribute('aria-hidden') !== 'true') {
+        throw new Error('Skeleton placeholders must be aria-hidden');
+      }
+    }
+    if (!canvasElement.querySelector('.mm-skeleton--text')) throw new Error('Missing text skeleton');
+    if (!canvasElement.querySelector('.mm-skeleton--rect')) throw new Error('Missing rect skeleton');
+    if (!canvasElement.querySelector('.mm-skeleton--circle')) throw new Error('Missing circle skeleton');
+  },
 };

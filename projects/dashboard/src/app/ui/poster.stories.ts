@@ -20,4 +20,16 @@ export const Gallery: Story = {
       <mm-poster title="Queued" meta="Queued · 24%" art="linear-gradient(145deg, var(--mm-component-warning), var(--mm-component-card-bg) 65%)" />
     </div>`,
   }),
+  play: async ({ canvasElement }) => {
+    const posters = canvasElement.querySelectorAll('.mm-poster');
+    if (posters.length !== 3) throw new Error(`Expected 3 posters, found ${posters.length}`);
+    const titles = [...canvasElement.querySelectorAll('.mm-poster strong')].map((el) => el.textContent?.trim());
+    if (!titles.includes('The Long Night') || !titles.includes('Empty shelf') || !titles.includes('Queued')) {
+      throw new Error(`Poster titles missing: ${titles.join(', ')}`);
+    }
+    const rating = canvasElement.querySelector('.mm-poster__rating');
+    if (!rating?.textContent?.includes('8.4')) {
+      throw new Error('Rated poster is missing its rating badge');
+    }
+  },
 };

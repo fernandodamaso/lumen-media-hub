@@ -43,7 +43,7 @@ Live mode is **local-only**. Do not point a static host at the live configuratio
 | `npm run lint` | ESLint |
 | `npm test -- --watch=false` | Vitest unit / facade / page specs |
 | `npm run build:dashboard` | Production dashboard build |
-| | `npm run storybook` | Interactive Storybook (includes a11y addon / play functions) |
+| `npm run storybook` | Interactive Storybook (includes a11y addon / play functions) |
 | `npm run build:storybook` | Compile Storybook static output (does **not** run a11y or play tests) |
 | `npm run build:pages` | Future static-host package: mock-only build, SPA `404.html`, hygiene scan |
 

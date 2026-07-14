@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { MmButton, MmCard, MmPoster, MmSkeleton, MmStateCard } from 'media-ui';
+import { MmButton, MmCard, MmPoster, MmSkeleton, MmStateCard } from '@app/ui';
 import { LibraryItemKind } from '../media-stack/media-stack-api';
 import { LIBRARY_KIND_LABEL, libraryEmptyMessage } from './library-format';
 import { LibraryFacade } from './library.facade';

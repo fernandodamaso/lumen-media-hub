@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { MmButton, MmCard, MmProgress, MmSkeleton, MmStateCard, MmStatus } from 'media-ui';
+import { MmButton, MmCard, MmProgress, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { formatBytes, formatEta, formatRate, TORRENT_STATE_VIEW } from './downloads-format';
 import { DownloadsFacade } from './downloads.facade';
 import { TorrentState } from '../media-stack/media-stack-api';

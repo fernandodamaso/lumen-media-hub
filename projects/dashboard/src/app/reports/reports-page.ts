@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { MmButton, MmStateCard, MmStatus } from 'media-ui';
+import { MmButton, MmStateCard, MmStatus } from '@app/ui';
 import { cronStatusView, formatGeneratedAt, formatRunTimestamp } from './reports-format';
 import { ReportsFacade } from './reports.facade';
 

@@ -1,6 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { MmThemePicker, ThemeService } from 'media-ui';
+import { MmThemePicker, ThemeService } from '@app/ui';
 
 import { environment } from '../environments/environment';
 

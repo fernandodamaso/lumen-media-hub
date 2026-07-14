@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus } from 'media-ui';
+import { MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import {
   AutomationProblem,
   AutomationProblemSeverity,

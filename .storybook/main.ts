@@ -1,7 +1,7 @@
 import type { StorybookConfig } from '@storybook/angular';
 
 const config: StorybookConfig = {
-  stories: ['../projects/media-ui/src/**/*.stories.ts'],
+  stories: ['../projects/dashboard/src/app/ui/**/*.stories.ts'],
   addons: ['@storybook/addon-a11y', '@storybook/addon-docs'],
   framework: {
     name: '@storybook/angular',

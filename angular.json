@@ -22,7 +22,9 @@
           "builder": "@angular/build:application",
           "options": {
             "browser": "projects/dashboard/src/main.ts",
-            "polyfills": ["zone.js"],
+            "polyfills": [
+              "zone.js"
+            ],
             "tsConfig": "projects/dashboard/tsconfig.app.json",
             "inlineStyleLanguage": "scss",
             "assets": [
@@ -31,7 +33,9 @@
                 "input": "projects/dashboard/public"
               }
             ],
-            "styles": ["projects/dashboard/src/styles.scss"]
+            "styles": [
+              "projects/dashboard/src/styles.scss"
+            ]
           },
           "configurations": {
             "production": {
@@ -124,8 +128,13 @@
             "tsConfig": "tsconfig.storybook.json",
             "port": 6006,
             "compodoc": true,
-            "compodocArgs": ["-e", "json"],
-            "styles": ["projects/media-ui/src/lib/media-ui.scss"]
+            "compodocArgs": [
+              "-e",
+              "json"
+            ],
+            "styles": [
+              "projects/dashboard/src/app/ui/media-ui.scss"
+            ]
           }
         },
         "build-storybook": {
@@ -136,34 +145,13 @@
             "tsConfig": "tsconfig.storybook.json",
             "outputDir": "storybook-static",
             "compodoc": true,
-            "compodocArgs": ["-e", "json"],
-            "styles": ["projects/media-ui/src/lib/media-ui.scss"]
-          }
-        }
-      }
-    },
-    "media-ui": {
-      "projectType": "library",
-      "root": "projects/media-ui",
-      "sourceRoot": "projects/media-ui/src",
-      "prefix": "mm",
-      "architect": {
-        "build": {
-          "builder": "@angular/build:ng-packagr",
-          "configurations": {
-            "production": {
-              "tsConfig": "projects/media-ui/tsconfig.lib.prod.json"
-            },
-            "development": {
-              "tsConfig": "projects/media-ui/tsconfig.lib.json"
-            }
-          },
-          "defaultConfiguration": "production"
-        },
-        "test": {
-          "builder": "@angular/build:unit-test",
-          "options": {
-            "tsConfig": "projects/media-ui/tsconfig.spec.json"
+            "compodocArgs": [
+              "-e",
+              "json"
+            ],
+            "styles": [
+              "projects/dashboard/src/app/ui/media-ui.scss"
+            ]
           }
         }
       }

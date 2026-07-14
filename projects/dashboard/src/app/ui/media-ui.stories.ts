@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/angular';
-import { MmButton, MmPoster, MmProgress, MmStateCard, MmStatus } from '../public-api';
-import { MmThemePicker } from '../public-api';
+import { MmButton, MmPoster, MmProgress, MmStateCard, MmStatus } from './index';
+import { MmThemePicker } from './index';
 
 const meta = {
   title: 'media-ui/Gallery',

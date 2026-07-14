@@ -1,6 +1,6 @@
 import { Component } from '@angular/core';
 import { Routes } from '@angular/router';
-import { MmButton, MmPoster, MmProgress, MmStateCard, MmStatus } from 'media-ui';
+import { MmButton, MmPoster, MmProgress, MmStateCard, MmStatus } from '@app/ui';
 import { DashboardPage } from './dashboard/dashboard-page';
 import { DiscoverPage } from './discover/discover-page';
 import { ReportsPage } from './reports/reports-page';

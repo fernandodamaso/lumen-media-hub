@@ -18,33 +18,35 @@ import { LibraryItem, LibraryItemKind } from '../library/library.models';
 import { AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { MediaStackApi } from './media-stack-api';
-import { mapArrLibrary, mapCalendarEvent } from './mappers/calendar';
-import { mapAutomationSummary } from './mappers/automation';
-import { mapCronLogs } from './mappers/cron';
+import { mapArrLibrary, mapCalendarEvent } from '../calendar/calendar-format';
+import { mapAutomationSummary } from '../automation/automation-format';
+import { mapCronLogs } from '../reports/reports-format';
 import {
   mapDiscoverAction,
   mapExternalDiscover,
   mapHermesDiscover,
   toDiscoverRequestPayloadDto,
-} from './mappers/discover';
-import { mapLibraryItem } from './mappers/library';
-import { mapTorrent } from './mappers/torrents';
+} from '../discover/discover-format';
+import { mapLibraryItem } from '../library/library-format';
+import { mapTorrent } from '../downloads/downloads-format';
 import { MediaStackArrLibraryDto, MediaStackCalendarEventDto } from './wire/calendar';
 import { MediaStackCronLogsDto } from './wire/cron';
 import { MediaStackDiscoverActionDto, MediaStackExternalDiscoverDto, MediaStackHermesDiscoverDto } from './wire/discover';
 import {
   LiveAutomationSummary,
   LiveJellyfinListResponse,
-  LiveQbtTorrent,
   mapLiveAutomationSummary,
   mapLiveJellyfinItem,
   mapLiveTorrent,
 } from './live-api.mappers';
-
-interface OkEnvelope {
-  ok?: boolean;
-  error?: string;
-}
+import {
+  OkEnvelope,
+  isRecord,
+  requireArrayField,
+  requireHardEnvelope,
+  requireOkEnvelope,
+  requireSoftEnvelope,
+} from './http-response';
 
 @Injectable()
 export class HttpMediaStackApi implements MediaStackApi {
@@ -52,11 +54,14 @@ export class HttpMediaStackApi implements MediaStackApi {
   private readonly base = environment.apiBaseUrl.replace(/\/$/, '');
 
   listTorrents(): Promise<DownloadTorrent[]> {
-    return this.getRaw<LiveQbtTorrent[] | OkEnvelope>('/qbt/torrents').then((data) => {
+    return this.getRaw<unknown>('/qbt/torrents').then((data) => {
       if (Array.isArray(data)) {
         return data.map((item, index) => mapTorrent(mapLiveTorrent(item, index)));
       }
-      this.rejectIfFailed(data, 'Failed to list torrents');
+      const envelope = requireOkEnvelope(data, 'Malformed torrents response');
+      if (envelope.ok === false) {
+        throw new Error(envelope.error || 'Failed to list torrents');
+      }
       throw new Error('Malformed torrents response');
     });
   }
@@ -70,13 +75,20 @@ export class HttpMediaStackApi implements MediaStackApi {
   }
 
   listCalendarEvents(): Promise<CalendarEvent[]> {
-    return this.getHardEnvelope<{ ok?: boolean; error?: string; events?: MediaStackCalendarEventDto[] }>(
+    return this.getHardEnvelope<OkEnvelope & { events?: MediaStackCalendarEventDto[] }>(
       '/sonarr/calendar',
+      (data) => {
+        requireArrayField(data as unknown as Record<string, unknown>, 'events', 'Malformed calendar response');
+      },
     ).then((data) => (data.events ?? []).map(mapCalendarEvent));
   }
 
   getArrLibrary(): Promise<ArrLibrary> {
-    return this.getSoftEnvelope<MediaStackArrLibraryDto>('/arr/library').then(mapArrLibrary);
+    return this.getSoftEnvelope<MediaStackArrLibraryDto>('/arr/library', (data) => {
+      if (!isRecord(data['series']) || !isRecord(data['movies'])) {
+        throw new Error('Malformed arr library response');
+      }
+    }).then(mapArrLibrary);
   }
 
   async listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<LibraryItem[]> {
@@ -107,17 +119,34 @@ export class HttpMediaStackApi implements MediaStackApi {
   }
 
   getAutomationSummary(): Promise<AutomationSummary> {
-    return this.getRaw<LiveAutomationSummary>('/automation/summary').then((data) =>
-      mapAutomationSummary(mapLiveAutomationSummary(data)),
-    );
+    return this.getRaw<unknown>('/automation/summary').then((data) => {
+      const envelope = requireSoftEnvelope<OkEnvelope & Partial<LiveAutomationSummary>>(
+        data,
+        'Malformed automation summary response',
+        (value) => {
+          if (
+            !['sonarr', 'radarr', 'prowlarr', 'bazarr'].some(
+              (key) => isRecord((value as unknown as Record<string, unknown>)[key]),
+            )
+          ) {
+            throw new Error('Malformed automation summary response');
+          }
+        },
+      );
+      return mapAutomationSummary(mapLiveAutomationSummary(envelope as LiveAutomationSummary));
+    });
   }
 
   listCronLogs(): Promise<CronLogs> {
-    return this.getSoftEnvelope<MediaStackCronLogsDto>('/cron/logs').then(mapCronLogs);
+    return this.getSoftEnvelope<MediaStackCronLogsDto>('/cron/logs', (data) => {
+      requireArrayField(data as unknown as Record<string, unknown>, 'logs', 'Malformed cron logs response');
+    }).then(mapCronLogs);
   }
 
   listHermesRecommendations(): Promise<HermesDiscover> {
-    return this.getSoftEnvelope<MediaStackHermesDiscoverDto>('/discover/hermes').then(mapHermesDiscover);
+    return this.getSoftEnvelope<MediaStackHermesDiscoverDto>('/discover/hermes', (data) => {
+      requireArrayField(data as unknown as Record<string, unknown>, 'items', 'Malformed Hermes response');
+    }).then(mapHermesDiscover);
   }
 
   submitHermesFeedback(
@@ -136,15 +165,18 @@ export class HttpMediaStackApi implements MediaStackApi {
   }
 
   listJellyseerrDiscover(kind: JellyseerrDiscoverKind): Promise<ExternalDiscover> {
-    return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(`/discover/jellyseerr?kind=${kind}`).then(
-      mapExternalDiscover,
-    );
+    return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(
+      `/discover/jellyseerr?kind=${kind}`,
+      (data) => {
+        requireArrayField(data as unknown as Record<string, unknown>, 'items', 'Malformed Jellyseerr response');
+      },
+    ).then(mapExternalDiscover);
   }
 
   listTraktDiscover(type: TraktDiscoverType): Promise<ExternalDiscover> {
-    return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(`/discover/trakt?type=${type}`).then(
-      mapExternalDiscover,
-    );
+    return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(`/discover/trakt?type=${type}`, (data) => {
+      requireArrayField(data as unknown as Record<string, unknown>, 'items', 'Malformed Trakt response');
+    }).then(mapExternalDiscover);
   }
 
   requestMedia(payload: DiscoverRequestPayload): Promise<DiscoverAction> {
@@ -153,11 +185,22 @@ export class HttpMediaStackApi implements MediaStackApi {
 
   private async fetchJellyfinKind(kind: 'movies' | 'series'): Promise<LibraryItem[]> {
     const data = await this.getRaw<LiveJellyfinListResponse>(`/jellyfin/${kind}`);
-    if (data?.ok === false) {
-      throw new Error(data.error || `Failed to list jellyfin ${kind}`);
+    const envelope = requireSoftEnvelope<OkEnvelope & { items?: unknown }>(
+      data,
+      `Failed to list jellyfin ${kind}`,
+      (value) => {
+        requireArrayField(
+          value as unknown as Record<string, unknown>,
+          'items',
+          `Malformed jellyfin ${kind} response`,
+        );
+      },
+    );
+    if (envelope.ok === false) {
+      throw new Error(envelope.error || `Failed to list jellyfin ${kind}`);
     }
     const itemKind: LibraryItemKind = kind === 'movies' ? 'movie' : 'series';
-    return (data.items ?? [])
+    return ((data as LiveJellyfinListResponse).items ?? [])
       .map((item) => mapLibraryItem(mapLiveJellyfinItem(item, itemKind)))
       .filter((item): item is LibraryItem => item !== null);
   }
@@ -170,31 +213,42 @@ export class HttpMediaStackApi implements MediaStackApi {
     }
   }
 
-  /** Return envelope DTOs as-is so facades can read ok/error (mock parity). */
-  private async getSoftEnvelope<T extends OkEnvelope>(path: string): Promise<T> {
-    return this.getRaw<T>(path);
+  /** Return envelope DTOs when valid so facades can read ok/error (mock parity). */
+  private async getSoftEnvelope<T extends OkEnvelope>(
+    path: string,
+    validate?: (envelope: T) => void,
+  ): Promise<T> {
+    const data = await this.getRaw<unknown>(path);
+    return requireSoftEnvelope<T>(data, `Malformed response for GET ${path}`, validate);
   }
 
-  /** Reject when ok === false (used when unwrapping to non-envelope values). */
-  private async getHardEnvelope<T>(path: string): Promise<T> {
-    const data = await this.getRaw<T & OkEnvelope>(path);
-    this.rejectIfFailed(data, `GET ${path} failed`);
-    return data;
+  /** Reject malformed payloads and when ok === false. */
+  private async getHardEnvelope<T extends OkEnvelope>(
+    path: string,
+    validate?: (envelope: T) => void,
+  ): Promise<T> {
+    const data = await this.getRaw<unknown>(path);
+    const envelope = requireHardEnvelope<T>(data, `GET ${path} failed`);
+    validate?.(envelope);
+    return envelope;
   }
 
-  /** Void mutations: ok:false and transport errors reject. */
+  /** Void mutations: malformed, ok:false, and transport errors reject. */
   private async postVoid(path: string): Promise<void> {
     try {
-      const data = await firstValueFrom(this.http.post<OkEnvelope>(`${this.base}${path}`, null));
-      this.rejectIfFailed(data, `POST ${path} failed`);
+      const data = await firstValueFrom(this.http.post<unknown>(`${this.base}${path}`, null));
+      const envelope = requireOkEnvelope(data, `Malformed response for POST ${path}`);
+      if (envelope.ok === false) {
+        throw new Error(envelope.error || `POST ${path} failed`);
+      }
     } catch (error) {
       throw this.toError(error, `POST ${path} failed`);
     }
   }
 
   /**
-   * Discover/action mutations: HTTP 200 with ok:false returns the DTO so facades
-   * can surface result.error. Transport failures still reject.
+   * Discover/action mutations: HTTP 200 with ok:false returns the action so facades
+   * can surface result.error. Null/malformed bodies and transport failures reject.
    */
   private async mutateSoft(
     path: string,
@@ -204,23 +258,19 @@ export class HttpMediaStackApi implements MediaStackApi {
     try {
       const data =
         method === 'PATCH'
-          ? await firstValueFrom(
-              this.http.patch<MediaStackDiscoverActionDto>(`${this.base}${path}`, body ?? null),
-            )
+          ? await firstValueFrom(this.http.patch<unknown>(`${this.base}${path}`, body ?? null))
           : await firstValueFrom(
               body === undefined
-                ? this.http.post<MediaStackDiscoverActionDto>(`${this.base}${path}`, null)
-                : this.http.post<MediaStackDiscoverActionDto>(`${this.base}${path}`, body),
+                ? this.http.post<unknown>(`${this.base}${path}`, null)
+                : this.http.post<unknown>(`${this.base}${path}`, body),
             );
-      return mapDiscoverAction(data ?? { ok: true });
+      const envelope = requireOkEnvelope(
+        data,
+        `Malformed response for ${method} ${path}`,
+      ) as MediaStackDiscoverActionDto;
+      return mapDiscoverAction(envelope);
     } catch (error) {
       throw this.toError(error, `${method} ${path} failed`);
-    }
-  }
-
-  private rejectIfFailed(data: OkEnvelope | null | undefined, fallback: string): void {
-    if (data && data.ok === false) {
-      throw new Error(data.error || fallback);
     }
   }
 

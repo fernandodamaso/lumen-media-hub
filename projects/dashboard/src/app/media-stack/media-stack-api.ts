@@ -5,7 +5,6 @@ import {
   DiscoverAction,
   DiscoverFeedback,
   DiscoverRequestPayload,
-  DiscoverSourceTab,
   ExternalDiscover,
   HermesDiscover,
   JellyseerrDiscoverKind,

@@ -1,4 +1,13 @@
-import { CalendarEventStatus, CalendarMediaKind } from './calendar.models';
+import {
+  ArrLibrary,
+  CalendarEvent,
+  CalendarEventStatus,
+  CalendarMediaKind,
+} from './calendar.models';
+import {
+  MediaStackArrLibraryDto,
+  MediaStackCalendarEventDto,
+} from '../media-stack/wire/calendar';
 
 export interface CalendarDateGroup<T> { key: string; label: string; events: T[]; }
 
@@ -43,3 +52,28 @@ export const CALENDAR_STATUS_VIEW: Record<CalendarEventStatus, { label: string; 
   available: { label: 'Available', tone: 'success' },
   pending: { label: 'Upcoming', tone: 'warning' },
 };
+
+export const mapCalendarEvent = (event: MediaStackCalendarEventDto): CalendarEvent => {
+  const airDate = event.airDate ?? '';
+  const kind = event.kind ?? (looksLikeEpisode(event.additional) ? 'episode' : 'movie');
+  return {
+    id: `${event.title}-${event.additional}-${airDate || event.date}`,
+    time: event.date,
+    kind,
+    title: event.title,
+    subtitle: event.additional,
+    status: event.hasFile ? 'available' : 'pending',
+    airDate,
+  };
+};
+
+export const mapArrLibrary = (dto: MediaStackArrLibraryDto): ArrLibrary => ({
+  ok: dto.ok,
+  series: dto.series ?? {},
+  movies: dto.movies ?? {},
+  error: dto.error,
+});
+
+function looksLikeEpisode(additional: string): boolean {
+  return /^S\d+\s*E\d+/i.test(additional.trim());
+}

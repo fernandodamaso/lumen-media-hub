@@ -15,16 +15,16 @@ import { LibraryItem, LibraryItemKind } from '../library/library.models';
 import { AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { MediaStackApi } from './media-stack-api';
-import { mapArrLibrary, mapCalendarEvent } from './mappers/calendar';
-import { mapAutomationSummary } from './mappers/automation';
-import { mapCronLogs } from './mappers/cron';
+import { mapArrLibrary, mapCalendarEvent } from '../calendar/calendar-format';
+import { mapAutomationSummary } from '../automation/automation-format';
+import { mapCronLogs } from '../reports/reports-format';
 import {
   mapDiscoverAction,
   mapExternalDiscover,
   mapHermesDiscover,
-} from './mappers/discover';
-import { mapLibraryItem } from './mappers/library';
-import { mapTorrent } from './mappers/torrents';
+} from '../discover/discover-format';
+import { mapLibraryItem } from '../library/library-format';
+import { mapTorrent } from '../downloads/downloads-format';
 import { MediaStackArrLibraryDto, MediaStackCalendarEventDto } from './wire/calendar';
 import { MediaStackAutomationSummaryDto } from './wire/automation';
 import { MediaStackCronLogEntryDto, MediaStackCronLogsDto } from './wire/cron';

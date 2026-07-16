@@ -330,4 +330,139 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/stop-all').flush({ ok: false, error: 'token required' });
     await expect(actionFail).rejects.toThrow('token required');
   });
+
+  it('rejects null mutation responses instead of inventing success', async () => {
+    const pending = api.requestHermesMore();
+    http.expectOne('/api/discover/hermes/request-more').flush(null);
+    await expect(pending).rejects.toThrow(/Malformed response/);
+  });
+
+  it('rejects discover actions missing a boolean ok field', async () => {
+    const pending = api.submitHermesFeedback('rec-1', 'liked');
+    http.expectOne('/api/discover/hermes/rec-1').flush({ error: 'nope' });
+    await expect(pending).rejects.toThrow(/Malformed response/);
+  });
+
+  it('rejects soft envelopes that are null, primitives, or missing ok', async () => {
+    const nullLogs = api.listCronLogs();
+    http.expectOne('/api/cron/logs').flush(null);
+    await expect(nullLogs).rejects.toThrow(/Malformed response/);
+
+    const stringLogs = api.listCronLogs();
+    http.expectOne('/api/cron/logs').flush('oops');
+    await expect(stringLogs).rejects.toThrow(/Malformed response/);
+
+    const missingOk = api.listHermesRecommendations();
+    http.expectOne('/api/discover/hermes').flush({ items: [] });
+    await expect(missingOk).rejects.toThrow(/Malformed response/);
+  });
+
+  it('rejects malformed list payloads inside soft envelopes', async () => {
+    const badLogs = api.listCronLogs();
+    http.expectOne('/api/cron/logs').flush({ ok: true, logs: 'nope' });
+    await expect(badLogs).rejects.toThrow(/Malformed cron logs/);
+
+    const badHermes = api.listHermesRecommendations();
+    http.expectOne('/api/discover/hermes').flush({ ok: true, items: {} });
+    await expect(badHermes).rejects.toThrow(/Malformed Hermes/);
+  });
+
+  it('rejects void mutations with null or invalid envelopes', async () => {
+    const nullPause = api.pauseAll();
+    http.expectOne('/api/stop-all').flush(null);
+    await expect(nullPause).rejects.toThrow(/Malformed response/);
+
+    const invalidPause = api.pauseAll();
+    http.expectOne('/api/stop-all').flush({ success: true });
+    await expect(invalidPause).rejects.toThrow(/Malformed response/);
+  });
+
+  it('rejects torrents when the payload is neither an array nor a failed envelope', async () => {
+    const pending = api.listTorrents();
+    http.expectOne('/api/qbt/torrents').flush({ unexpected: true });
+    await expect(pending).rejects.toThrow(/Malformed/);
+  });
+
+  it('rejects ok:true soft envelopes that lack a required array', async () => {
+    const missingLogs = api.listCronLogs();
+    http.expectOne('/api/cron/logs').flush({ ok: true });
+    await expect(missingLogs).rejects.toThrow(/Malformed cron logs/);
+
+    const missingItems = api.listHermesRecommendations();
+    http.expectOne('/api/discover/hermes').flush({ ok: true });
+    await expect(missingItems).rejects.toThrow(/Malformed Hermes/);
+  });
+
+  it('preserves ok:false soft envelopes without success-only payload fields', async () => {
+    const logs = api.listCronLogs();
+    http.expectOne('/api/cron/logs').flush({ ok: false, error: 'no logs' });
+    await expect(logs).resolves.toMatchObject({ ok: false, error: 'no logs' });
+
+    const hermes = api.listHermesRecommendations();
+    http.expectOne('/api/discover/hermes').flush({ ok: false, error: 'hermes down' });
+    await expect(hermes).resolves.toMatchObject({ ok: false, error: 'hermes down' });
+  });
+
+  it('accepts valid empty arrays in ok:true soft envelopes', async () => {
+    const logs = api.listCronLogs();
+    http.expectOne('/api/cron/logs').flush({ ok: true, logs: [] });
+    await expect(logs).resolves.toMatchObject({ ok: true, runs: [] });
+
+    const hermes = api.listHermesRecommendations();
+    http.expectOne('/api/discover/hermes').flush({ ok: true, items: [] });
+    await expect(hermes).resolves.toMatchObject({ ok: true, items: [] });
+  });
+
+  it('rejects malformed automation summaries at the HTTP boundary', async () => {
+    const primitive = api.getAutomationSummary();
+    http.expectOne('/api/automation/summary').flush('nope');
+    await expect(primitive).rejects.toThrow(/Malformed automation summary/);
+
+    const array = api.getAutomationSummary();
+    http.expectOne('/api/automation/summary').flush([{ ok: true }]);
+    await expect(array).rejects.toThrow(/Malformed automation summary/);
+
+    const emptyObject = api.getAutomationSummary();
+    http.expectOne('/api/automation/summary').flush({});
+    await expect(emptyObject).rejects.toThrow(/Malformed automation summary/);
+
+    const missingOk = api.getAutomationSummary();
+    http.expectOne('/api/automation/summary').flush({ sonarr: { ok: true } });
+    await expect(missingOk).rejects.toThrow(/Malformed automation summary/);
+
+    const okTrueNoServices = api.getAutomationSummary();
+    http.expectOne('/api/automation/summary').flush({ ok: true, generatedAt: '2026-07-13T12:00:00Z' });
+    await expect(okTrueNoServices).rejects.toThrow(/Malformed automation summary/);
+
+    const invalidService = api.getAutomationSummary();
+    http.expectOne('/api/automation/summary').flush({ ok: true, sonarr: 'down' });
+    await expect(invalidService).rejects.toThrow(/Malformed automation summary/);
+  });
+
+  it('preserves backend error for automation ok:false without full summary', async () => {
+    const pending = api.getAutomationSummary();
+    http.expectOne('/api/automation/summary').flush({ ok: false, error: 'automation backend unavailable' });
+    await expect(pending).rejects.toThrow('automation backend unavailable');
+  });
+
+  it('accepts partial automation summaries when ok:true and some service blocks are present', async () => {
+    const pending = api.getAutomationSummary();
+    http.expectOne('/api/automation/summary').flush({
+      ok: true,
+      sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
+    });
+    const summary = await pending;
+    const sonarr = summary.services?.find((s) => s.id === 'sonarr');
+    expect(sonarr).toMatchObject({ status: 'healthy' });
+  });
+
+  it('rejects with a stable Error on a real transport network failure', async () => {
+    const pending = api.listTorrents();
+    const req = http.expectOne('/api/qbt/torrents');
+    req.error(new ProgressEvent('error'));
+    await expect(pending).rejects.toSatisfy((error: unknown) => {
+      if (!(error instanceof Error)) return false;
+      return error.message.includes('/api/qbt/torrents');
+    });
+  });
 });

@@ -1,4 +1,20 @@
-import { DiscoverFeedback, DiscoverItem, ExternalDiscoverItem } from './discover.models';
+import {
+  DiscoverAction,
+  DiscoverFeedback,
+  DiscoverItem,
+  DiscoverRequestPayload,
+  ExternalDiscover,
+  ExternalDiscoverItem,
+  HermesDiscover,
+} from './discover.models';
+import {
+  MediaStackDiscoverActionDto,
+  MediaStackDiscoverItemDto,
+  MediaStackDiscoverRequestPayloadDto,
+  MediaStackExternalDiscoverDto,
+  MediaStackExternalDiscoverItemDto,
+  MediaStackHermesDiscoverDto,
+} from '../media-stack/wire/discover';
 
 export type DiscoverHistoryFilter = 'all' | DiscoverFeedback | 'requested';
 
@@ -121,6 +137,32 @@ export function posterArtFor(item: Pick<DiscoverCardItem, 'title' | 'posterUrl'>
   const hue = hashHue(item.title);
   return `linear-gradient(145deg, hsl(${hue} 42% 42%), var(--mm-component-card-bg) 70%)`;
 }
+
+export const mapDiscoverItem = (dto: MediaStackDiscoverItemDto): DiscoverItem => ({ ...dto });
+
+export const mapExternalDiscoverItem = (dto: MediaStackExternalDiscoverItemDto): ExternalDiscoverItem => ({
+  ...dto,
+});
+
+export const mapHermesDiscover = (dto: MediaStackHermesDiscoverDto): HermesDiscover => ({
+  ok: dto.ok,
+  items: (dto.items ?? []).map(mapDiscoverItem),
+  pending_request_sync: dto.pending_request_sync,
+  generation_request: dto.generation_request,
+  error: dto.error,
+});
+
+export const mapExternalDiscover = (dto: MediaStackExternalDiscoverDto): ExternalDiscover => ({
+  ok: dto.ok,
+  items: (dto.items ?? []).map(mapExternalDiscoverItem),
+  error: dto.error,
+});
+
+export const mapDiscoverAction = (dto: MediaStackDiscoverActionDto): DiscoverAction => ({ ...dto });
+
+export const toDiscoverRequestPayloadDto = (
+  payload: DiscoverRequestPayload,
+): MediaStackDiscoverRequestPayloadDto => ({ ...payload });
 
 export function formatDiscoverMeta(item: Pick<DiscoverCardItem, 'year' | 'type' | 'rating'>): string {
   const parts = [item.year ? String(item.year) : null, item.type === 'tv' ? 'TV' : 'Movie', item.rating != null ? `${item.rating.toFixed(1)}★` : null].filter(

@@ -1,6 +1,35 @@
-import { TorrentState } from './downloads.models';
+import { DownloadTorrent, TorrentState } from './downloads.models';
+import { MediaStackTorrentDto } from '../media-stack/wire/torrents';
 
 export type StatusTone = 'success' | 'warning' | 'danger' | 'info';
+
+export const mapTorrent = (torrent: MediaStackTorrentDto): DownloadTorrent => ({
+  id: torrent.hash,
+  name: torrent.name,
+  state: normalizeState(torrent.state),
+  progress: clamp(torrent.progress * 100),
+  size: Math.max(0, torrent.size),
+  downloaded: Math.max(0, torrent.downloaded),
+  downloadRate: Math.max(0, torrent.dlspeed),
+  uploadRate: Math.max(0, torrent.upspeed),
+  eta: Math.max(0, torrent.eta),
+  category: torrent.category ?? 'Uncategorized',
+});
+
+function clamp(value: number): number {
+  return Math.round(Math.min(100, Math.max(0, value)) * 10) / 10;
+}
+
+function normalizeState(state: string): TorrentState {
+  const normalized = state.toLowerCase();
+  if (normalized.includes('paused')) return 'paused';
+  if (normalized.includes('error')) return 'error';
+  if (normalized.includes('check')) return 'checking';
+  if (normalized.includes('queued')) return 'queued';
+  if (normalized === 'downloading' || normalized === 'forceddl') return 'downloading';
+  if (normalized.includes('up') || normalized === 'seeding') return 'seeding';
+  return 'queued';
+}
 
 export const TORRENT_STATE_VIEW: Record<TorrentState, { label: string; tone: StatusTone }> = {
   downloading: { label: 'Downloading', tone: 'info' },
@@ -10,6 +39,22 @@ export const TORRENT_STATE_VIEW: Record<TorrentState, { label: string; tone: Sta
   checking: { label: 'Checking', tone: 'warning' },
   error: { label: 'Error', tone: 'danger' },
 };
+
+const STATE_ORDER: TorrentState[] = ['error', 'downloading', 'queued', 'checking', 'paused', 'seeding'];
+
+export interface TorrentGroup {
+  state: TorrentState;
+  label: string;
+  torrents: DownloadTorrent[];
+}
+
+export function groupTorrents(torrents: DownloadTorrent[]): TorrentGroup[] {
+  return STATE_ORDER.map((state) => ({
+    state,
+    label: TORRENT_STATE_VIEW[state].label,
+    torrents: torrents.filter((torrent) => torrent.state === state),
+  })).filter((group) => group.torrents.length > 0);
+}
 
 export function formatBytes(bytes: number): string {
   if (!bytes) return '0 B';

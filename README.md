@@ -42,10 +42,10 @@ Live mode is **local-only**. Do not point a static host at the live configuratio
 | `npm run start:live` | Live serve with API proxy |
 | `npm run lint` | ESLint |
 | `npm test -- --watch=false` | Vitest unit / facade / page specs |
-| `npm run build:dashboard` | Production dashboard build |
+| `npm run build` | Canonical production dashboard build |
 | `npm run storybook` | Interactive Storybook (includes a11y addon / play functions) |
-| `npm run build:storybook` | Compile Storybook static output (does **not** run a11y or play tests) |
-| `npm run build:pages` | Future static-host package: mock-only build, SPA `404.html`, hygiene scan |
+| `npm run build:storybook` | Compile Storybook static output |
+| `npm run test:storybook` | Serve `storybook-static` and run interaction/a11y checks (`@storybook/test-runner`) |
 
 ## Themes
 
@@ -59,14 +59,13 @@ Switch from the top-bar theme picker; preference persists in `localStorage` (`me
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for the port → adapter → facade → page flow, mock/live/pages modes, and operational link policy.
+See [docs/architecture.md](docs/architecture.md) for the port → adapter → facade → page flow, Demo/Live modes, and operational link policy.
 
 ## Testing
 
 - **Unit / integration:** Vitest via `ng test` (facades, boards, pages, shell navigation, API boundary).
-- **Storybook:** Interactive review and addon-a11y while `npm run storybook` is running. `build:storybook` only compiles.
+- **Storybook:** Interactive review via `npm run storybook`. CI runs `build:storybook` then `test:storybook` (play functions + a11y).
 - **Browser acceptance:** Manual desktop checklist in [docs/browser-acceptance.md](docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
-- **Pages packaging:** `build:pages` asserts base href, `404.html`, and absence of localhost / private-service / `/api` strings in the artifact.
 
 ## Screenshots
 
@@ -101,7 +100,7 @@ npm start
 # in another shell:
 npm run lint
 npm test -- --watch=false
-npm run build:dashboard
+npm run build
 npm run build:storybook
-npm run build:pages
+npm run test:storybook
 ```

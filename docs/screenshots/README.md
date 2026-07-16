@@ -7,7 +7,7 @@ Captured from local Demo (`npm start`) and Storybook (`npm run storybook`) at ap
 | `home.png` | Asymmetric home dashboard (Nocturne) |
 | `discover.png` | Discover page |
 | `reports.png` | Reports triage |
-| `storybook.png` | Design-system Storybook gallery |
+| `storybook.png` | Current `UI/*` Storybook story (not the removed in-app catalog) |
 | `theme-tokyo-night.png` | Home with Tokyo Night theme |
 
 ## Regenerate

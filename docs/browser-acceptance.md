@@ -2,7 +2,7 @@
 
 Run against `npm start` at ~1440×900. Check only behaviors reachable in the default Demo UI.
 
-Verified 2026-07-13 during FDM-493 Path B (local showcase) hand-off.
+Verified 2026-07-15 during architecture correction round on feat/architecture-api-ready.
 
 ## Navigation
 
@@ -21,6 +21,7 @@ Verified 2026-07-13 during FDM-493 Path B (local showcase) hand-off.
 
 - [x] Switch Nocturne → Tokyo Night → GitHub Dark Pro; UI tokens update
 - [x] Reload keeps the selected theme (`media-ui-theme`)
+- [ ] Light themes remain out of scope; only dark themes are implemented
 
 ## Keyboard focus
 
@@ -49,8 +50,15 @@ Verified 2026-07-13 during FDM-493 Path B (local showcase) hand-off.
 | Reports refresh failure retains prior data | reports facade / page specs |
 | Discover source isolation / disabled request reasons | discover facade / page specs |
 
-## Local showcase gate (Path B)
+## Live-mode smoke test
+
+- [x] `npm run start:live` proxies `/api` to `http://127.0.0.1:8085`
+- [x] Home loads with `Live` badge and real backend data (read-only inspection only)
+- [x] Library, Downloads, and Calendar regions render from the live service
+
+## Local showcase gate
 
 - [x] Clean instructions in README suffice for `npm ci` + `npm start`
 - [x] Screenshots in `docs/screenshots/` match home, Discover, Reports, Storybook, and a non-default theme
-- [x] `npm run lint`, unit tests, `build:dashboard`, `build:storybook`, and `build:pages` succeed
+- [x] `npm run lint`, unit tests, canonical `npm run build`, `build:storybook`, and `test:storybook` succeed
+- [x] Obsolete `build:pages` target/script/provider removed

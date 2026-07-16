@@ -8,15 +8,15 @@ Single Angular app (`dashboard`) owning the shell, feature boards, design system
 |------|------|
 | `app/` shell | Bootstrap, routes, layout, navigation, environment providers |
 | `app/ui` | Design tokens, primitives, theme picker, Storybook stories |
-| `app/media-stack` | `MediaStackApi` port, mock/HTTP adapters, providers, wire mappers |
-| Feature folders | `dashboard`, `downloads`, `reports`, `discover`, plus home boards `library`, `calendar`, `automation` |
+| `app/media-stack` | `MediaStackApi` port, mock/HTTP adapters, providers, wire DTOs + mappers |
+| Feature folders | Domain/display models, facades, boards/pages for `dashboard`, `downloads`, `reports`, `discover`, `library`, `calendar`, `automation` |
 
 ## Data flow
 
 ```text
 MediaStackApi (port)  ← app/media-stack
         │
-        ├── MockMediaStackApi     ← Demo default / Pages packaging
+        ├── MockMediaStackApi     ← Demo default
         └── HttpMediaStackApi     ← live serve only (`start:live`)
                 │
          Feature facades
@@ -24,7 +24,9 @@ MediaStackApi (port)  ← app/media-stack
          Boards / pages  →  app/ui primitives
 ```
 
-Providers are selected in [media-stack-api.providers.ts](../projects/dashboard/src/app/media-stack/media-stack-api.providers.ts) from [environment.ts](../projects/dashboard/src/environments/environment.ts). The Pages configuration file-replaces providers with a mock-only module so the HTTP client adapter is not bundled.
+Providers are selected in [media-stack-api.providers.ts](../projects/dashboard/src/app/media-stack/media-stack-api.providers.ts) from [environment.ts](../projects/dashboard/src/environments/environment.ts).
+
+Feature code imports domain models from its own folder and talks to the backend only through `MEDIA_STACK_API`. Wire `*Dto` types stay inside `app/media-stack`.
 
 ## Modes
 
@@ -32,9 +34,10 @@ Providers are selected in [media-stack-api.providers.ts](../projects/dashboard/s
 |------|-----|-----|------------------------|
 | Demo | `npm start` | Mock | Local Jellyfin / Sonarr / Radarr bases from environment |
 | Live | `npm run start:live` | HTTP → `:8085` via `/api` proxy | Same local bases |
-| Pages package | `npm run build:pages` | Mock only | **Disabled** (empty bases → `href: null`) |
 
 Empty calendar bases must not fall back to relative `/series/...` or `/movie/...` URLs. Resolvers treat a missing or blank base as “no link.”
+
+Public static hosting (GitHub Pages) remains deferred and is not packaged from this repo.
 
 ## Routes
 
@@ -50,7 +53,7 @@ Design-system showcase is Storybook (`npm run storybook`), not an in-app `/ui` r
 ## Local API expectations (live mode)
 
 - Service: `homepage-actions` listening on `http://127.0.0.1:8085`
-- Browser calls `/api/...`; Vite proxy strips `/api` and forwards
+- Browser calls `/api/...`; proxy strips `/api` and forwards
 - Optional `ACTIONS_TOKEN` for mutating methods
 - Demo mode never requires this service
 
@@ -63,5 +66,4 @@ Tokens live in [`app/ui/media-ui.scss`](../projects/dashboard/src/app/ui/media-u
 - Contract and facade specs beside each feature
 - Shell navigation and home composition specs
 - Provider specs proving Demo→mock and Live→HTTP
-- Storybook for primitive keyboard / theme interaction (manual)
-- `build:pages` hygiene scan for static packaging readiness
+- Storybook interaction + accessibility via `npm run test:storybook` (after `build:storybook`)

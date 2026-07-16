@@ -1,6 +1,7 @@
 :host { display: block; }
 .header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-h2 { margin: 0; color: var(--mm-component-text-primary); font-size: var(--mm-text-lg); font-weight: 700; letter-spacing: -0.01em; }
+h2 { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--mm-component-text-primary); font-size: var(--mm-text-heading); font-weight: 700; letter-spacing: -0.01em; }
+h2 svg { color: var(--mm-component-accent); }
 .switcher {
   display: inline-flex;
   gap: 4px;
@@ -42,8 +43,10 @@ h2 { margin: 0; color: var(--mm-component-text-primary); font-size: var(--mm-tex
 }
 .poster-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+  gap: 14px;
+  height: 100%;
+  align-content: safe center;
 }
 .poster-card {
   display: block;
@@ -57,7 +60,7 @@ h2 { margin: 0; color: var(--mm-component-text-primary); font-size: var(--mm-tex
     transform: translateY(-2px);
   }
   .poster-card:hover :is(mm-poster) {
-    box-shadow: 0 18px 44px rgb(0 0 0 / 28%);
+    box-shadow: 0 8px 22px rgb(0 0 0 / 18%);
   }
 }
 .poster-card :is(mm-poster) {
@@ -66,7 +69,7 @@ h2 { margin: 0; color: var(--mm-component-text-primary); font-size: var(--mm-tex
   max-width: none;
   transition: box-shadow var(--mm-transition-fast);
 }
-.poster-card:nth-child(n+17) { display: none; }
+.poster-card:nth-child(n+13) { display: none; }
 .poster-skeleton {
   aspect-ratio: 2 / 3;
   border-radius: var(--mm-radius-md);
@@ -85,7 +88,7 @@ h2 { margin: 0; color: var(--mm-component-text-primary); font-size: var(--mm-tex
   border-radius: var(--mm-radius-md);
 }
 @container (max-width: 639px) {
-  .poster-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .poster-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .poster-card:nth-child(n+10) { display: none; }
 }
 @media (max-width: 900px), (pointer: coarse) {

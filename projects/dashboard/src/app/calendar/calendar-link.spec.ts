@@ -1,4 +1,4 @@
-﻿import { mapCalendarEvent } from '../media-stack/mappers/calendar';
+import { mapCalendarEvent } from './calendar-format';
 import { resolveCalendarLink, compareCalendarEvents } from './calendar.models';
 
 describe('calendar API boundary', () => {

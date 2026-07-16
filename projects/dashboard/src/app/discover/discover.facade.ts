@@ -101,14 +101,13 @@ export class DiscoverFacade {
     this.destroyRef.onDestroy(() => this.stopPolling());
   }
 
-  startPolling(): void {
-    this.restartPolling();
-  }
-
-  setTab(tab: DiscoverSourceTab): void {
-    if (this._tab() === tab) return;
-    this._tab.set(tab);
-    this._notice.set('');
+  async setTab(tab: DiscoverSourceTab): Promise<void> {
+    const changed = this._tab() !== tab;
+    if (changed) {
+      this._tab.set(tab);
+      this._notice.set('');
+    }
+    await this.refreshCurrentTab();
     this.restartPolling();
   }
 
@@ -125,17 +124,32 @@ export class DiscoverFacade {
   setJellyseerrKind(kind: JellyseerrDiscoverKind): void {
     if (this._jellyseerrKind() === kind) return;
     this._jellyseerrKind.set(kind);
-    void this.refreshActive();
+    void this.refreshCurrentTab();
   }
 
   setTraktType(type: TraktDiscoverType): void {
     if (this._traktType() === type) return;
     this._traktType.set(type);
-    void this.refreshActive();
+    void this.refreshCurrentTab();
   }
 
-  async refresh(): Promise<void> {
-    await this.refreshActive();
+  private async refreshCurrentTab(): Promise<void> {
+    const tab = this._tab();
+    if (tab === 'hermes') {
+      await this.loadHermes();
+      return;
+    }
+    if (tab === 'jellyseerr') {
+      await this.loadJellyseerr(this._jellyseerrKind());
+      return;
+    }
+    await this.loadTrakt(this._traktType());
+  }
+
+  private restartPolling(): void {
+    this.stopPolling();
+    const interval = this._tab() === 'hermes' ? HERMES_POLL_MS : EXTERNAL_POLL_MS;
+    this.pollHandle = setInterval(() => void this.refreshCurrentTab(), interval);
   }
 
   async submitFeedback(id: string, feedback: DiscoverFeedback): Promise<void> {
@@ -236,29 +250,9 @@ export class DiscoverFacade {
     );
   }
 
-  private restartPolling(): void {
-    this.stopPolling();
-    void this.refreshActive();
-    const interval = this._tab() === 'hermes' ? HERMES_POLL_MS : EXTERNAL_POLL_MS;
-    this.pollHandle = setInterval(() => void this.refreshActive(), interval);
-  }
-
   private stopPolling(): void {
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = undefined;
-  }
-
-  private async refreshActive(): Promise<void> {
-    const tab = this._tab();
-    if (tab === 'hermes') {
-      await this.loadHermes();
-      return;
-    }
-    if (tab === 'jellyseerr') {
-      await this.loadJellyseerr(this._jellyseerrKind());
-      return;
-    }
-    await this.loadTrakt(this._traktType());
   }
 
   private async loadHermes(): Promise<void> {

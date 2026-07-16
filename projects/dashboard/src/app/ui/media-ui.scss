@@ -17,6 +17,7 @@
 }
 
 :root[data-theme="tokyo-night"] {
+  color-scheme: dark;
   --mm-color-ink-0: #e6e9f2;
   --mm-color-ink-1: #a9b1c6;
   --mm-color-ink-2: #737d98;
@@ -34,6 +35,7 @@
 }
 
 :root, :root[data-theme="github-dark-pro"] {
+  color-scheme: dark;
   --mm-color-ink-0: #f0f3f6;
   --mm-color-ink-1: #b1bac4;
   --mm-color-ink-2: #8c959f;
@@ -67,6 +69,7 @@
   --mm-text-md: 13px;
   --mm-text-lg: 15px;
   --mm-text-xl: 24px;
+  --mm-text-heading: 17px;
   --mm-transition-fast: 0.15s ease;
   --mm-transition-normal: 0.2s ease;
   --mm-semantic-text-primary: var(--mm-color-ink-0);

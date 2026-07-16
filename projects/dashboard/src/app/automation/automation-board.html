@@ -1,39 +1,19 @@
 <mm-card class="automation" labelledBy="automation-heading">
   <div mm-card-header>
-    <div>
-      <h2 id="automation-heading">Automation</h2>
-    </div>
+    <h2 id="automation-heading">
+      <svg lucideSettings [size]="18" aria-hidden="true"></svg>
+      <span>Automation System</span>
+    </h2>
   </div>
 
   @if (facade.status() === 'loading') {
-    <div class="tile-grid tile-grid--skeleton" aria-hidden="true">
-      <div class="tile tile--wide">
-        <mm-skeleton variant="text" width="72px" height="14px" />
-        @for (i of rowSkeletons; track i) {
-          <div class="tile-row tile-row--skeleton">
-            <mm-skeleton variant="text" width="45%" />
-            <mm-skeleton variant="text" width="64px" />
-          </div>
-        }
-      </div>
-      <div class="tile">
-        <mm-skeleton variant="text" width="90px" height="14px" />
-        @for (i of rowSkeletons; track i) {
-          <div class="tile-row tile-row--skeleton">
-            <mm-skeleton variant="text" width="70%" />
-            <mm-skeleton variant="text" width="48px" />
-          </div>
-        }
-      </div>
-      <div class="tile">
-        <mm-skeleton variant="text" width="72px" height="14px" />
-        @for (i of rowSkeletons; track i) {
-          <div class="tile-row tile-row--skeleton">
-            <mm-skeleton variant="text" width="60%" />
-            <mm-skeleton variant="text" width="56px" />
-          </div>
-        }
-      </div>
+    <div class="card-section" aria-hidden="true">
+      @for (i of rowSkeletons; track i) {
+        <div class="compact-row compact-row--skeleton">
+          <mm-skeleton variant="text" width="120px" height="14px" />
+          <mm-skeleton variant="text" width="64px" height="14px" />
+        </div>
+      }
     </div>
   } @else if (facade.status() === 'error') {
     <mm-state-card kind="error" title="Automation unavailable" [message]="facade.error()" tone="danger">
@@ -49,73 +29,53 @@
     }
 
     @if (facade.summary(); as summary) {
-      <div class="tile-grid">
-        <article class="tile" [attr.aria-label]="'Services (' + summary.services.length + ')'">
-          <h3>Services</h3>
+      <div class="automation-body">
+        <section class="card-section" aria-label="Connected Services">
+          <h3 class="section-heading">Connected services</h3>
           @if (summary.availability.services === 'unavailable') {
-            <p class="tile-empty">Service status unavailable.</p>
+            <p class="section-empty">Service status unavailable.</p>
           } @else if (summary.services.length === 0) {
-            <p class="tile-empty">No services reported.</p>
+            <p class="section-empty">No services reported.</p>
           } @else {
-            <ul class="flat-list" aria-live="polite">
+            <ul class="compact-list" aria-live="polite">
               @for (service of sortedServices(); track service.id || $index) {
-                <li class="flat-row">
-                  <span class="status-dot" [class.status-dot--healthy]="service.status === 'healthy'" [class.status-dot--degraded]="service.status === 'degraded'" [class.status-dot--down]="service.status === 'down'" [class.status-dot--unknown]="service.status === 'unknown'" aria-hidden="true"></span>
-                  <span class="flat-name" [attr.title]="service.name">{{ service.name }}</span>
-                  @if (service.detail) {
-                    <span class="flat-detail">{{ service.detail }}</span>
-                  }
-                  <mm-status [tone]="serviceStatusView(service.status).tone">{{ serviceStatusView(service.status).label }}</mm-status>
-                </li>
-              }
-            </ul>
-          }
-        </article>
-
-        <article class="tile" [attr.aria-label]="'Up Next Scheduled Tasks (' + facade.tasks().length + ')'">
-          <h3>Up Next Scheduled Tasks</h3>
-          @if (facade.tasksUnavailable()) {
-            <p class="tile-empty">Scheduled tasks unavailable.</p>
-          } @else if (facade.tasks().length === 0) {
-            <p class="tile-empty">No scheduled tasks.</p>
-          } @else {
-            <ul class="tile-list" aria-live="polite">
-              @for (item of facade.tasks(); track item.jobId) {
-                <li class="tile-row preview-row">
-                  <span class="tile-title" [attr.title]="item.jobTitle">{{ item.jobTitle }}</span>
-                  <span class="tile-detail task-detail">
-                    <span class="task-schedule">{{ item.schedule || 'Not scheduled' }}</span>
-                    <span aria-hidden="true">·</span>
-                    <span class="task-timestamp">{{ item.timestamp ? formatGeneratedAt(item.timestamp) : 'No recent run' }}</span>
+                <li class="compact-row">
+                  <span class="compact-name" [attr.title]="service.name">{{ service.name }}</span>
+                  <span class="service-status" [class.service-status--healthy]="service.status === 'healthy'" [class.service-status--degraded]="service.status === 'degraded'" [class.service-status--down]="service.status === 'down'">
+                    <span class="service-status__dot" aria-hidden="true"></span>
+                    <span>{{ serviceStatusView(service.status).label }}</span>
                   </span>
-                  <mm-status [tone]="item.triage === 'actionable' ? 'warning' : 'success'">{{ item.status }}</mm-status>
                 </li>
               }
             </ul>
           }
-        </article>
+        </section>
 
-        <article class="tile" [attr.aria-label]="'Problems (' + summary.problems.length + ')'">
-          <h3>Problems</h3>
-          @if (summary.availability.problems === 'unavailable') {
-            <p class="tile-empty">Problem list unavailable.</p>
-          } @else if (summary.problems.length === 0) {
-            <p class="tile-empty">No open problems.</p>
+        <section class="card-section" aria-label="Recent runs">
+          <h3 class="section-heading">Recent runs</h3>
+          @if (facade.tasksUnavailable()) {
+            <p class="section-empty">Scheduled tasks unavailable.</p>
+          } @else if (facade.tasks().length === 0) {
+            <p class="section-empty">No scheduled tasks.</p>
           } @else {
-            <ul class="flat-list" aria-live="polite">
-              @for (problem of sortedProblems(); track problem.id || $index) {
-                <li class="flat-row">
-                  <span class="flat-name" [attr.title]="problem.summary">{{ problem.summary }}</span>
-                  @if (problem.serviceId) {
-                    <span class="flat-detail">{{ problem.serviceId }}</span>
-                  }
-                  <mm-status [tone]="problemSeverityView(problem.severity).tone">{{ problemSeverityView(problem.severity).label }}</mm-status>
+            <ul class="compact-list" aria-live="polite">
+              @for (item of facade.tasks(); track item.jobId) {
+                <li class="compact-row">
+                  <span class="compact-name" [attr.title]="item.jobTitle">{{ item.jobTitle }}</span>
+                  <span class="compact-time">{{ item.timestamp ? formatRelativeTime(item.timestamp) : '' }}</span>
                 </li>
               }
             </ul>
           }
-        </article>
+        </section>
+
       </div>
     }
   }
+
+  <ng-container mm-card-footer>
+    @if (facade.summary()?.generatedAt) {
+      <span class="last-summary">Last summary: {{ formatRelativeTime(facade.summary()!.generatedAt) }}</span>
+    }
+  </ng-container>
 </mm-card>

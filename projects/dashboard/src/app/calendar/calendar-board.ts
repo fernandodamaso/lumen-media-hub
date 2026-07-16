@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { LucideCalendarDays } from '@lucide/angular';
 import { MmButton, MmCard, MmSkeleton, MmStateCard } from '@app/ui';
 import { CalendarEventStatus, CalendarMediaKind } from './calendar.models';
 import { CALENDAR_KIND_VIEW, CALENDAR_STATUS_VIEW } from './calendar-format';
@@ -6,7 +7,7 @@ import { CalendarFacade } from './calendar.facade';
 
 @Component({
   selector: 'mm-calendar-board',
-  imports: [MmButton, MmCard, MmSkeleton, MmStateCard],
+  imports: [MmButton, MmCard, MmSkeleton, MmStateCard, LucideCalendarDays],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './calendar-board.html',
   styleUrl: './calendar-board.scss',
@@ -17,15 +18,6 @@ export class CalendarBoard {
 
   constructor() {
     this.facade.startPolling();
-  }
-
-  dateBlock(airDate: string): { day: string; month: string } {
-    const match = airDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!match) return { day: '--', month: '---' };
-    const [, , monthNum, day] = match;
-    const date = new Date(2000, Number(monthNum) - 1, 1);
-    const month = new Intl.DateTimeFormat('en', { month: 'short' }).format(date);
-    return { day: String(Number(day)), month: month.toUpperCase() };
   }
 
   formatTime(airDate: string): string {

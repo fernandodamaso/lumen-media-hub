@@ -16,13 +16,15 @@
 }
 
 .home-grid__downloads {
-  grid-column: 1 / span 7;
+  grid-column: 1 / span 6;
+  grid-row: 2;
   min-width: 0;
   container-type: inline-size;
 }
 
 .home-grid__automation {
-  grid-column: 8 / span 5;
+  grid-column: 7 / span 6;
+  grid-row: 2;
   min-width: 0;
   container-type: inline-size;
 }

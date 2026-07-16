@@ -147,11 +147,11 @@ describe('LibraryBoard', () => {
     fixture.detectChanges();
     const styles = componentStyles();
 
-    expect(styles).toMatch(/\.poster-grid[\s\S]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(124px,\s*1fr\)\)/);
-    expect(styles).toMatch(/\.poster-card[^{]*:nth-child\(n\+17\)[^{]*\{\s*display:\s*none/);
-    expect(styles).toMatch(/@container \(max-width: 639px\)[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+    expect(styles).toMatch(/\.poster-grid[\s\S]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(108px,\s*1fr\)\)/);
+    expect(styles).toMatch(/\.poster-card[^{]*:nth-child\(n\+13\)[^{]*\{\s*display:\s*none/);
+    expect(styles).toMatch(/@container \(max-width: 639px\)[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
     expect(styles).toMatch(/@container \(max-width: 639px\)[\s\S]*\.poster-card[^{]*:nth-child\(n\+10\)[^{]*\{\s*display:\s*none/);
-    expect(styles).not.toContain('repeat(6');
+    expect(styles).not.toContain('repeat(auto-fill');
     expect(styles).not.toContain('@container (min-width: 960px)');
   });
 

@@ -1,45 +1,69 @@
 :host { display: block; }
-.date-heading { margin: 14px 0 6px; color: var(--mm-component-text-muted); font-size: var(--mm-text-xs); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-h2 { margin: 0; color: var(--mm-component-text-primary); font-size: var(--mm-text-lg); font-weight: 700; letter-spacing: -0.01em; }
-.cal-list { display: grid; gap: 8px; }
-.cal-row {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  padding: 11px 12px;
-  border: 1px solid var(--mm-component-border);
-  border-radius: var(--mm-radius-md);
-  background: color-mix(in srgb, var(--mm-component-raised-bg) 55%, var(--mm-component-card-bg));
-}
-.cal-date {
+
+h2 {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  min-width: 0;
-}
-.cal-date__day {
+  gap: 8px;
+  margin: 0;
   color: var(--mm-component-text-primary);
-  font-size: 18px;
-  font-weight: 800;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
+  font-size: var(--mm-text-heading);
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
-.cal-date__month {
+
+h2 svg {
+  color: var(--mm-component-accent);
+}
+
+.date-heading {
+  margin: 18px 0 0;
   color: var(--mm-component-text-muted);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: .08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
-.cal-copy { display: grid; gap: 3px; min-width: 0; }
+
+.date-heading:first-child {
+  margin-top: 0;
+}
+
+.cal-list {
+  display: grid;
+  gap: 0;
+}
+
+.cal-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--mm-component-border);
+
+  &:first-child {
+    padding-top: 0;
+  }
+
+  &:last-child {
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+}
+
+.cal-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
 .cal-title-row {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
+
 .cal-title {
   color: var(--mm-component-text-primary);
   font-size: var(--mm-text-md);
@@ -48,61 +72,64 @@ h2 { margin: 0; color: var(--mm-component-text-primary); font-size: var(--mm-tex
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .cal-link {
   color: var(--mm-component-text-primary);
   text-decoration: none;
 }
+
 .cal-link:hover,
 .cal-link:focus-visible {
   text-decoration: underline;
 }
+
 .cal-status {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   flex-shrink: 0;
-  color: var(--mm-component-warning);
+  color: var(--mm-component-success);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: .03em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
-.cal-status--available { color: var(--mm-component-success); }
+
 .cal-status__dot {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: currentColor;
 }
+
 .cal-subtitle {
   color: var(--mm-component-text-muted);
   font-size: var(--mm-text-xs);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.cal-skeleton { display: grid; gap: 8px; }
+
+.cal-skeleton {
+  display: grid;
+  gap: 0;
+}
+
 .cal-skeleton__row {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
-  padding: 11px 12px;
-  border: 1px solid var(--mm-component-border);
-  border-radius: var(--mm-radius-md);
-  background: color-mix(in srgb, var(--mm-component-raised-bg) 55%, var(--mm-component-card-bg));
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--mm-component-border);
 }
-.cal-skeleton__date { display: flex; flex-direction: column; gap: 4px; }
+
 @container (max-width: 420px) {
   .cal-row,
   .cal-skeleton__row {
-    grid-template-columns: 38px minmax(0, 1fr);
-    gap: 10px;
-    padding: 10px;
-  }
-}
-@media (max-width: 850px) {
-  .cal-row,
-  .cal-skeleton__row {
-    grid-template-columns: 38px minmax(0, 1fr);
-    gap: 10px;
-    padding: 10px;
+    gap: 12px;
+    padding: 12px 0;
   }
 }

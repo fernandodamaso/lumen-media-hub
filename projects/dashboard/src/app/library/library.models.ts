@@ -25,7 +25,7 @@ export const DEFAULT_JELLYFIN_LINK_BASES: Required<JellyfinLinkBases> = {
   jellyfinBase: '',
 };
 
-/** Explicit no-op bases for static/Pages builds and tests. */
+/** Explicit no-op bases for tests and link-disabled states. */
 export const DISABLED_JELLYFIN_LINK_BASES: Required<JellyfinLinkBases> = {
   jellyfinBase: '',
 };

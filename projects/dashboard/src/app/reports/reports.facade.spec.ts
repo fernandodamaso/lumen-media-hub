@@ -149,10 +149,8 @@ describe('ReportsFacade', () => {
   });
 
   it('ignores stale responses when a newer refresh wins the race', async () => {
-    let resolveInitial!: (value: CronLogs) => void;
-    api.nextResponse = new Promise((resolve) => {
-      resolveInitial = resolve;
-    });
+    const { promise: initialPromise, resolve: resolveInitial } = Promise.withResolvers<CronLogs>();
+    api.nextResponse = initialPromise;
 
     const loadPromise = facade.load();
     expect(facade.refreshing()).toBe(true);

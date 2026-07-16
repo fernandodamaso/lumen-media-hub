@@ -1,27 +1,40 @@
 <mm-card class="downloads" labelledBy="downloads-heading">
   <div mm-card-header>
-    <h2 id="downloads-heading">Downloads</h2>
+    <h2 id="downloads-heading">
+      <svg lucideDownload [size]="18" aria-hidden="true"></svg>
+      <span>Downloads</span>
+    </h2>
   </div>
   <div mm-card-header-actions class="header-tools">
-    <div class="speed"><span>Down speed</span><strong>{{ formatRate(facade.summary().downloadRate) }}</strong></div>
-    <div class="speed"><span>Up speed</span><strong>{{ formatRate(facade.summary().uploadRate) }}</strong></div>
+    <div class="speed-pair">
+      <div class="speed">
+        <span>Down</span>
+        <strong>{{ formatRate(facade.summary().downloadRate) }}</strong>
+      </div>
+      <div class="speed">
+        <span>Up</span>
+        <strong>{{ formatRate(facade.summary().uploadRate) }}</strong>
+      </div>
+    </div>
     <div class="actions" aria-label="Download controls">
-      <mm-button label="Pause all" variant="quiet" [disabled]="facade.pendingAction() !== null" [busy]="facade.pendingAction() === 'pause'" (click)="pauseAll()" />
-      <mm-button label="Resume all" variant="quiet" [disabled]="facade.pendingAction() !== null" [busy]="facade.pendingAction() === 'resume'" (click)="resumeAll()" />
+      <mm-button label="Pause all" variant="warning" icon="pause" [disabled]="facade.pendingAction() !== null || !hasActive()" [busy]="facade.pendingAction() === 'pause'" (click)="pauseAll()" />
+      <mm-button label="Resume all" variant="primary" icon="play" [disabled]="facade.pendingAction() !== null || !hasPaused()" [busy]="facade.pendingAction() === 'resume'" (click)="resumeAll()" />
     </div>
   </div>
+
   @if (facade.notice()) {
     <p class="notice" role="status" aria-live="polite"><mm-status tone="success">{{ facade.notice() }}</mm-status></p>
   }
+
   @if (facade.status() === 'loading') {
-    <div class="download-skeleton" aria-hidden="true">
+    <div class="torrent-list download-skeleton" aria-hidden="true">
       @for (i of torrentSkeletons; track i) {
         <div class="torrent torrent--skeleton">
           <div class="torrent-head">
-            <div><mm-skeleton variant="text" width="160px" height="16px" /><mm-skeleton variant="text" width="56px" /></div>
-            <mm-skeleton variant="text" width="72px" />
+            <mm-skeleton variant="text" width="160px" height="14px" />
+            <mm-skeleton variant="text" width="72px" height="14px" />
           </div>
-          <div class="progress-row"><mm-skeleton variant="text" height="6px" /></div>
+          <div class="torrent-line"><mm-skeleton variant="text" height="6px" /></div>
           <div class="torrent-meta">
             <mm-skeleton variant="text" width="90px" />
             <mm-skeleton variant="text" width="70px" />
@@ -37,23 +50,35 @@
     <mm-state-card kind="empty" title="No active downloads" message="Your queue is clear. New downloads will appear here." />
   } @else {
     <div class="torrent-list" aria-live="polite">
-      @for (torrent of facade.torrents(); track torrent.id) {
-        <article class="torrent">
-          <div class="torrent-head">
-            <div>
-              <h3>{{ torrent.name }}</h3>
-              <span class="category">{{ torrent.category }}</span>
+      @for (group of groups(); track group.state) {
+        @if (showGroupHeadings()) {
+          <h3 class="group-heading">{{ group.label }}</h3>
+        }
+        @for (torrent of group.torrents; track torrent.id) {
+          <article class="torrent" [class.torrent--seeding]="torrent.state === 'seeding'" [class.torrent--paused]="torrent.state === 'paused'">
+            <div class="torrent-head">
+              <div class="torrent-title">
+                <h3>{{ torrent.name }}</h3>
+                <span class="category">{{ torrent.category }}</span>
+              </div>
+              <div class="torrent-status">
+                <mm-status [tone]="stateView(torrent.state).tone">{{ stateView(torrent.state).label }}</mm-status>
+                <span class="torrent-percent">{{ torrent.progress }}%</span>
+              </div>
             </div>
-            <mm-status [tone]="stateView(torrent.state).tone">{{ stateView(torrent.state).label }}</mm-status>
-          </div>
-          <div class="progress-row"><mm-progress [value]="torrent.progress" [label]="torrent.name + ' progress'" /></div>
-          <div class="torrent-meta">
-            <span>{{ formatBytes(torrent.downloaded) }} / {{ formatBytes(torrent.size) }}</span>
-            <span>{{ formatRate(torrent.downloadRate) }} ↓</span>
-            <span>{{ formatRate(torrent.uploadRate) }} ↑</span>
-            <span>{{ torrent.eta ? formatEta(torrent.eta) + ' left' : 'Complete' }}</span>
-          </div>
-        </article>
+            <div class="torrent-line">
+              <mm-progress [value]="torrent.progress" [showLabel]="false" [label]="torrent.name + ' progress'" />
+              <div class="torrent-meta">
+                <span class="meta-size">{{ formatBytes(torrent.downloaded) }} / {{ formatBytes(torrent.size) }}</span>
+                <span class="meta-rates">
+                  <span class="meta-down"><svg lucideArrowDown [size]="12" aria-hidden="true"></svg> {{ formatRate(torrent.downloadRate) }}</span>
+                  <span class="meta-up"><svg lucideArrowUp [size]="12" aria-hidden="true"></svg> {{ formatRate(torrent.uploadRate) }}</span>
+                </span>
+                <span class="meta-eta">{{ torrent.eta ? formatEta(torrent.eta) + ' left' : 'Complete' }}</span>
+              </div>
+            </div>
+          </article>
+        }
       }
     </div>
   }

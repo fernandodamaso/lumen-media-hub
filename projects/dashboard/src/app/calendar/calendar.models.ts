@@ -31,7 +31,7 @@ export const DEFAULT_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
   radarrBase: '',
 };
 
-/** Explicit no-op bases for static/Pages builds and tests. */
+/** Explicit no-op bases for tests and link-disabled states. */
 export const DISABLED_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
   sonarrBase: '',
   radarrBase: '',

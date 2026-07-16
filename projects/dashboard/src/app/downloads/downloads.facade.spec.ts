@@ -40,10 +40,9 @@ describe('DownloadsFacade', () => {
   });
 
   it('prevents conflicting actions and refreshes after success', async () => {
-    let release!: () => void;
-    api.action = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: actionPromise, resolve } = Promise.withResolvers<void>();
+    const release = resolve;
+    api.action = actionPromise;
     const first = facade.runAction('pause');
     expect(facade.pendingAction()).toBe('pause');
     await facade.runAction('resume');

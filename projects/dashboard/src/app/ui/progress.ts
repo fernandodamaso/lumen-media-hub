@@ -13,7 +13,9 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
     >
       <div class="mm-progress__bar" [style.width.%]="value()"></div>
     </div>
-    <span class="mm-progress__label">{{ value() }}%</span>`,
+    @if (showLabel()) {
+      <span class="mm-progress__label">{{ value() }}%</span>
+    }`,
   styles: `
     :host {
       display: flex;
@@ -46,4 +48,5 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 export class MmProgress {
   readonly value = input(0);
   readonly label = input('Progress');
+  readonly showLabel = input(true);
 }

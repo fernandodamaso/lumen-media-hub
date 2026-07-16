@@ -27,6 +27,7 @@
             type="button"
             class="feedback-btn"
             [attr.aria-label]="option.label"
+            [attr.title]="option.label"
             [attr.aria-pressed]="item().feedback === option.value"
             [disabled]="busy()"
             (click)="feedback.emit(option.value)"
@@ -55,7 +56,7 @@
           [label]="requestAction().label"
           [disabled]="requestAction().disabled || busy()"
           [busy]="busy()"
-          variant="quiet"
+          [variant]="requestAction().disabled ? 'quiet' : 'primary'"
           (click)="onRequest()"
         />
       </span>

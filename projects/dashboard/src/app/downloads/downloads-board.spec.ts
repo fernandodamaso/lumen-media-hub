@@ -53,8 +53,10 @@ describe('DownloadsBoard', () => {
 
     facade.pendingAction.set(null);
     facade.notice.set('All downloads paused.');
+    facade.torrents.set([{ id: 'a', name: 'A', state: 'paused', progress: .5, size: 100, downloaded: 50, downloadRate: 0, uploadRate: 0, eta: 0, category: 'Uncategorized' }]);
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('All downloads paused.');
+    expect(findButton('Pause all').disabled).toBe(true);
     findButton('Resume all').click();
     expect(facade.runAction).toHaveBeenCalledWith('resume');
   });
@@ -70,7 +72,7 @@ describe('DownloadsBoard', () => {
   it('declares container-query compact layout for narrow dashboard tracks', () => {
     fixture.detectChanges();
     const styles = componentStyles();
-    expect(styles).toContain('@container (max-width: 560px)');
+    expect(styles).toContain('@container (max-width: 420px)');
     expect(styles).toMatch(/\.torrent-head[\s\S]*display:\s*flex/);
   });
 

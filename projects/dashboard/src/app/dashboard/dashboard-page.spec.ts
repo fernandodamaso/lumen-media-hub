@@ -60,7 +60,7 @@ describe('DashboardPage composition', () => {
 
     expect(root.querySelector('#library-heading')?.textContent).toContain('Library');
     expect(root.querySelector('#downloads-heading')?.textContent).toContain('Downloads');
-    expect(root.querySelector('#automation-heading')?.textContent).toContain('Automation');
+    expect(root.querySelector('#automation-heading')?.textContent).toContain('Automation System');
     expect(root.querySelector('#calendar-heading')?.textContent).toContain('Upcoming');
     expect(root.textContent).toContain('Dune');
     expect(root.textContent).toContain('Signal Drift');
@@ -105,7 +105,7 @@ describe('DashboardPage composition', () => {
     const root = fixture.nativeElement as HTMLElement;
     expect(root.querySelector('[data-region="library"]')?.textContent).toContain('Library offline');
     expect(root.querySelector('[data-region="downloads"]')?.textContent).toContain('Signal Drift');
-    expect(root.querySelector('[data-region="automation"]')?.textContent).toContain('Automation');
+    expect(root.querySelector('[data-region="automation"]')?.textContent).toContain('Automation System');
     expect(root.querySelector('[data-region="calendar"]')?.textContent).toContain('Nothing upcoming');
     expect(root.querySelector('[data-testid="home-grid"]')).toBeTruthy();
   });

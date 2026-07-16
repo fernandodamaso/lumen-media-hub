@@ -32,7 +32,7 @@ describe('AutomationBoard', () => {
 
   it('renders loading, empty, and error states with retry recovery', async () => {
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelectorAll('.tile-grid--skeleton').length).toBeGreaterThan(0);
+    expect(fixture.nativeElement.querySelectorAll('.compact-row--skeleton').length).toBeGreaterThan(0);
 
     facade.status.set('empty');
     fixture.detectChanges();
@@ -48,7 +48,23 @@ describe('AutomationBoard', () => {
     expect(facade.status()).toBe('ready');
   });
 
-  it('renders ready tiles with unhealthy services sorted first and semantic labels', () => {
+  it('renders the compact Automation System header', () => {
+    facade.status.set('ready');
+    facade.summary.set({
+      generatedAt: '',
+      services: [],
+      preview: [],
+      problems: [],
+      availability: { services: 'empty', preview: 'empty', problems: 'empty' },
+    });
+    fixture.detectChanges();
+
+    const heading = fixture.nativeElement.querySelector('h2');
+    expect(heading?.textContent).toContain('Automation System');
+    expect(heading?.querySelector('svg')).toBeTruthy();
+  });
+
+  it('renders connected services sorted with unhealthy first', () => {
     facade.status.set('ready');
     facade.summary.set({
       generatedAt: '2026-07-12T18:00:00Z',
@@ -62,37 +78,18 @@ describe('AutomationBoard', () => {
     });
     fixture.detectChanges();
 
-    const flatRows = fixture.nativeElement.querySelectorAll('.flat-row');
-    expect(flatRows[0].textContent).toContain('SABnzbd');
-    expect(flatRows[0].textContent).toContain('Down');
-    expect(flatRows[1].textContent).toContain('Radarr');
-    expect(flatRows[1].textContent).toContain('Healthy');
-    expect(fixture.nativeElement.querySelector('.mm-status--danger')?.textContent).toContain('Down');
+    const rows = fixture.nativeElement.querySelectorAll('.card-section:nth-of-type(1) .compact-row');
+    expect(rows[0].textContent).toContain('SABnzbd');
+    expect(rows[0].textContent).toContain('Down');
+    expect(rows[1].textContent).toContain('Radarr');
+    expect(rows[1].textContent).toContain('Healthy');
+    expect(rows[0].querySelector('.service-status__dot')).toBeTruthy();
   });
 
-  it('uses a two-column card layout that stacks only from its container width', () => {
-    facade.status.set('ready');
-    facade.summary.set({
-      generatedAt: '',
-      services: [],
-      preview: [],
-      problems: [],
-      availability: { services: 'empty', preview: 'empty', problems: 'empty' },
-    });
-    fixture.detectChanges();
-    const styles = componentStyles();
-    expect(fixture.nativeElement.querySelector('h2')?.textContent).toContain('Automation');
-    expect(fixture.nativeElement.querySelector('h3')?.textContent).toContain('Services');
-    expect(fixture.nativeElement.querySelectorAll('h3')[1]?.textContent).toContain('Up Next Scheduled Tasks');
-    expect(styles).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
-    expect(styles).toContain('grid-column: 1/-1');
-    expect(styles).toContain('@container (max-width: 520px)');
-    expect(styles).toMatch(/@container \(max-width: 520px\)[\s\S]*\.tile-grid[\s\S]*grid-template-columns:\s*1fr/);
-    expect(styles).not.toContain('@media (max-width: 950px)');
-    expect(styles).toContain('background: var(--mm-component-raised-bg)');
-  });
+  it('renders scheduled tasks with relative timestamps', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-15T12:00:00Z'));
 
-  it('keeps scheduled task metadata intact and allows titles to wrap without clipping', () => {
     facade.status.set('ready');
     facade.summary.set({
       generatedAt: '',
@@ -107,7 +104,7 @@ describe('AutomationBoard', () => {
         jobId: 'refresh-library',
         jobTitle: 'Refresh the complete media library index',
         schedule: '0 */6 * * *',
-        timestamp: '2026-07-14T18:30:00Z',
+        timestamp: '2026-07-15T11:00:00Z',
         status: 'Success',
         triage: 'quiet',
         detail: '',
@@ -118,17 +115,11 @@ describe('AutomationBoard', () => {
     ]);
     fixture.detectChanges();
 
-    const task = fixture.nativeElement.querySelector('.preview-row');
-    expect(task.textContent).toContain('Refresh the complete media library index');
-    expect(task.querySelector('.task-schedule')?.textContent).toContain('0 */6 * * *');
-    expect(task.querySelector('.task-timestamp')?.textContent).toContain('Jul 14');
-    expect(task.textContent).toContain('Success');
+    const rows = fixture.nativeElement.querySelectorAll('.card-section:nth-of-type(2) .compact-row');
+    expect(rows[0].textContent).toContain('Refresh the complete media library index');
+    expect(rows[0].querySelector('.compact-time')?.textContent).toContain('1h ago');
 
-    const styles = componentStyles();
-    expect(styles).not.toContain('text-overflow: ellipsis');
-    expect(styles).toContain('.task-schedule');
-    expect(styles).toContain('.task-timestamp');
-    expect(styles).toContain('white-space: nowrap');
+    vi.useRealTimers();
   });
 
   it('renders a partial banner when scheduled tasks are unavailable', () => {
@@ -144,28 +135,27 @@ describe('AutomationBoard', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.textContent).toContain('Scheduled tasks unavailable');
-    expect(fixture.nativeElement.textContent).toContain('Problem list unavailable');
   });
 
-  it('renders problems sorted by severity with text labels', () => {
+  it('shows the last summary timestamp in the footer', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-15T12:00:00Z'));
+
     facade.status.set('ready');
     facade.summary.set({
-      generatedAt: '',
+      generatedAt: '2026-07-15T11:55:00Z',
       services: [],
       preview: [],
-      problems: [
-        { id: 'w1', summary: 'Slow indexer', serviceId: 'prowlarr', severity: 'warning' },
-        { id: 'a1', summary: 'Service down', serviceId: 'sabnzbd', severity: 'actionable' },
-      ],
-      availability: { services: 'empty', preview: 'empty', problems: 'present' },
+      problems: [],
+      availability: { services: 'empty', preview: 'empty', problems: 'empty' },
     });
     fixture.detectChanges();
 
-    const flatRows = fixture.nativeElement.querySelectorAll('.flat-row');
-    expect(flatRows[0].textContent).toContain('Service down');
-    expect(flatRows[0].textContent).toContain('Needs attention');
-    expect(flatRows[1].textContent).toContain('Slow indexer');
-    expect(flatRows[1].textContent).toContain('Warning');
+    const footer = fixture.nativeElement.querySelector('.mm-card__footer');
+    expect(footer?.textContent).toContain('Last summary');
+    expect(footer?.textContent).toContain('5m ago');
+
+    vi.useRealTimers();
   });
 
   it('renders items with missing IDs without duplicate tracking errors', () => {
@@ -176,18 +166,36 @@ describe('AutomationBoard', () => {
         { id: '', name: 'Service A', status: 'healthy', detail: '' },
         { id: '', name: 'Service B', status: 'healthy', detail: '' },
       ],
-      preview: [
-        { id: '', title: 'Preview A', when: '', kind: '' },
-        { id: '', title: 'Preview B', when: '', kind: '' },
-      ],
-      problems: [
-        { id: '', summary: 'Problem A', serviceId: null, severity: 'info' },
-        { id: '', summary: 'Problem B', serviceId: null, severity: 'info' },
-      ],
-      availability: { services: 'present', preview: 'present', problems: 'present' },
+      preview: [],
+      problems: [],
+      availability: { services: 'present', preview: 'empty', problems: 'empty' },
     });
+    facade.tasks.set([
+      { id: '', jobId: '', jobTitle: 'Task A', schedule: '', timestamp: '', status: '', triage: 'quiet', detail: '', fatal: null, applied: null, exitCode: 0 },
+      { id: '', jobId: '', jobTitle: 'Task B', schedule: '', timestamp: '', status: '', triage: 'quiet', detail: '', fatal: null, applied: null, exitCode: 0 },
+    ]);
     expect(() => fixture.detectChanges()).not.toThrow();
-    expect(fixture.nativeElement.querySelectorAll('.flat-row').length).toBe(4);
+    expect(fixture.nativeElement.querySelectorAll('.compact-row').length).toBe(4);
+  });
+
+  it('uses compact list styles and container query for narrow cards', () => {
+    facade.status.set('ready');
+    facade.summary.set({
+      generatedAt: '',
+      services: [],
+      preview: [],
+      problems: [],
+      availability: { services: 'empty', preview: 'empty', problems: 'empty' },
+    });
+    fixture.detectChanges();
+
+    const styles = componentStyles();
+    expect(styles).toContain('.compact-list');
+    expect(styles).toContain('.compact-row');
+    expect(styles).toContain('.automation-body');
+    expect(styles).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(styles).toContain('@container (max-width: 720px)');
+    expect(styles).not.toContain('.tile-grid');
   });
 
   function findButton(label: string): HTMLButtonElement {

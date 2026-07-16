@@ -119,11 +119,8 @@ describe('LibraryFacade', () => {
   });
 
   it('keeps loading status when kind changes mid-refresh', async () => {
-    let resolveLoad!: (value: LibraryItem[]) => void;
-    api.listLibraryItems = () =>
-      new Promise((resolve) => {
-        resolveLoad = resolve;
-      });
+    const { promise: loadPromise, resolve: resolveLoad } = Promise.withResolvers<LibraryItem[]>();
+    api.listLibraryItems = () => loadPromise;
 
     const pending = facade.refresh();
     expect(facade.status()).toBe('loading');

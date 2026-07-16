@@ -1,19 +1,9 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { LucideSettings } from '@lucide/angular';
 import { MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
-import { AutomationProblem, AutomationProblemSeverity, AutomationService, AutomationServiceStatus } from './automation.models';
+import { AutomationService, AutomationServiceStatus } from './automation.models';
 import { AutomationFacade } from './automation.facade';
-import {
-  AUTOMATION_PROBLEM_SEVERITY_VIEW,
-  AUTOMATION_SERVICE_STATUS_VIEW,
-  AutomationStatusView,
-  formatGeneratedAt,
-} from './automation-format';
-
-const SEVERITY_RANK: Record<AutomationProblemSeverity, number> = {
-  actionable: 0,
-  warning: 1,
-  info: 2,
-};
+import { AUTOMATION_SERVICE_STATUS_VIEW, AutomationStatusView, formatRelativeTime } from './automation-format';
 
 const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
   down: 0,
@@ -24,7 +14,7 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
 
 @Component({
   selector: 'mm-automation-board',
-  imports: [MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus],
+  imports: [MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus, LucideSettings],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './automation-board.html',
   styleUrl: './automation-board.scss',
@@ -32,15 +22,13 @@ const SERVICE_STATUS_RANK: Record<AutomationServiceStatus, number> = {
 export class AutomationBoard {
   readonly facade = inject(AutomationFacade);
   readonly rowSkeletons = [0, 1, 2];
-  readonly formatGeneratedAt = formatGeneratedAt;
+  readonly formatRelativeTime = formatRelativeTime;
   readonly sortedServices = computed(() => this.sortServices(this.facade.summary()?.services ?? []));
-  readonly sortedProblems = computed(() => this.sortProblems(this.facade.summary()?.problems ?? []));
   readonly partialMessage = computed(() => {
     const summary = this.facade.summary();
     const names: string[] = [];
     if (this.facade.summaryUnavailable()) names.push('automation summary');
     if (summary?.availability.services === 'unavailable') names.push('services');
-    if (summary?.availability.problems === 'unavailable') names.push('problem list');
     if (this.facade.tasksUnavailable()) names.push('scheduled tasks');
     if (names.length === 0) return 'Some automation data is unavailable.';
     return `${this.joinNames(names)} unavailable.`;
@@ -54,10 +42,6 @@ export class AutomationBoard {
     return AUTOMATION_SERVICE_STATUS_VIEW[status];
   }
 
-  problemSeverityView(severity: AutomationProblemSeverity): AutomationStatusView {
-    return AUTOMATION_PROBLEM_SEVERITY_VIEW[severity];
-  }
-
   retry(): void {
     void this.facade.refresh();
   }
@@ -67,12 +51,6 @@ export class AutomationBoard {
       (left, right) =>
         SERVICE_STATUS_RANK[left.status] - SERVICE_STATUS_RANK[right.status] ||
         left.name.localeCompare(right.name),
-    );
-  }
-
-  private sortProblems(problems: AutomationProblem[]): AutomationProblem[] {
-    return [...problems].sort(
-      (left, right) => SEVERITY_RANK[left.severity] - SEVERITY_RANK[right.severity] || left.summary.localeCompare(right.summary),
     );
   }
 

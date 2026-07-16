@@ -9,9 +9,7 @@
   gap: var(--mm-space-md);
   margin: 28px 0 16px;
 }
-.tabs,
 .filters,
-.filter-group,
 .toolbar-actions {
   display: flex;
   flex-wrap: wrap;
@@ -20,12 +18,22 @@
 .filters {
   margin-bottom: 16px;
 }
+.tabs,
+.filter-group,
+.filters:has(> .chip) {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--mm-component-border);
+  border-radius: var(--mm-radius-md);
+  background: var(--mm-component-card-bg);
+}
 .tab,
 .chip {
-  border: 1px solid var(--mm-component-border);
+  border: 1px solid transparent;
   border-radius: var(--mm-radius-sm);
-  background: var(--mm-component-control-bg);
-  color: var(--mm-component-text-primary);
+  background: transparent;
+  color: var(--mm-component-text-secondary);
   cursor: pointer;
   transition:
     background var(--mm-transition-fast),
@@ -33,16 +41,17 @@
     color var(--mm-transition-fast);
 }
 .tab {
-  padding: 10px 14px;
+  padding: 8px 12px;
   font: 700 14px/1 var(--mm-font-body);
 }
 .chip {
-  padding: 8px 12px;
+  padding: 6px 10px;
   font: 700 var(--mm-text-sm)/1 var(--mm-font-body);
 }
 .tab:hover,
 .chip:hover {
   background: var(--mm-component-muted-bg);
+  color: var(--mm-component-text-primary);
 }
 .tab:focus-visible,
 .chip:focus-visible {
@@ -52,7 +61,6 @@
 .tab[aria-checked='true'],
 .chip[aria-pressed='true'] {
   background: color-mix(in srgb, var(--mm-component-accent) 12%, transparent);
-  border-color: var(--mm-component-accent);
   color: var(--mm-component-accent);
 }
 .notice {
@@ -60,6 +68,9 @@
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 18px;
+}
+.grid > * {
+  max-width: 320px;
 }

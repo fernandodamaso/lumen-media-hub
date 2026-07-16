@@ -22,7 +22,7 @@ describe('App shell', () => {
 
     expect(fixture.nativeElement.querySelector('.brand')?.textContent).toContain('Media Manager');
     expect(fixture.nativeElement.querySelector('.demo-badge')?.textContent).toContain('Demo');
-    expect(fixture.nativeElement.querySelectorAll('nav a')).toHaveLength(3);
+    expect(fixture.nativeElement.querySelectorAll('.sidebar__nav a')).toHaveLength(3);
     expect(fixture.nativeElement.querySelector('router-outlet')).toBeTruthy();
   });
 
@@ -62,7 +62,9 @@ describe('App shell', () => {
     expect(location.path()).toBe('/discover');
 
     location.back();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const { promise: backSettled, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 0);
+    await backSettled;
     expect(location.path()).toBe('/reports');
     expect(router.url).toBe('/reports');
     expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toContain('Reports');

@@ -1,9 +1,9 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import { LucideLoaderCircle } from '@lucide/angular';
+import { LucideLoaderCircle, LucidePause, LucidePlay } from '@lucide/angular';
 
 @Component({
   selector: 'mm-button',
-  imports: [LucideLoaderCircle],
+  imports: [LucideLoaderCircle, LucidePause, LucidePlay],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<button
     [type]="type()"
@@ -13,6 +13,10 @@ import { LucideLoaderCircle } from '@lucide/angular';
   >
     @if (busy()) {
       <svg lucideLoaderCircle [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+    } @else if (icon() === 'pause') {
+      <svg lucidePause [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
+    } @else if (icon() === 'play') {
+      <svg lucidePlay [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
     }
     {{ label() }}
   </button>`,
@@ -76,6 +80,7 @@ import { LucideLoaderCircle } from '@lucide/angular';
 export class MmButton {
   readonly label = input('Continue');
   readonly variant = input<'primary' | 'quiet' | 'success' | 'warning'>('primary');
+  readonly icon = input<'pause' | 'play' | ''>('');
   readonly disabled = input(false);
   readonly busy = input(false);
   readonly type = input<'button' | 'submit'>('button');

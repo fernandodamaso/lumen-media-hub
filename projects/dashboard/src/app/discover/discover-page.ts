@@ -44,7 +44,7 @@ export class DiscoverPage {
   ];
 
   constructor() {
-    this.facade.startPolling();
+    void this.facade.setTab('hermes');
   }
 
   setTab(tab: DiscoverSourceTab): void {
@@ -68,7 +68,7 @@ export class DiscoverPage {
   }
 
   refresh(): void {
-    void this.facade.refresh();
+    void this.facade.setTab(this.facade.tab());
   }
 
   requestMore(): void {

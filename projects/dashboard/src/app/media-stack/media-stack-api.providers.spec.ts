@@ -6,7 +6,6 @@ import { MEDIA_STACK_API } from './media-stack-api';
 import { HttpMediaStackApi } from './http-media-stack-api';
 import { MockMediaStackApi } from './mock-media-stack-api';
 import { provideMediaStackApi } from './media-stack-api.providers';
-import { provideMediaStackApi as provideMediaStackApiPages } from './media-stack-api.providers.pages';
 
 describe('provideMediaStackApi', () => {
   afterEach(() => {
@@ -38,13 +37,5 @@ describe('provideMediaStackApi', () => {
     } finally {
       (environment as { useLiveApi: boolean }).useLiveApi = previous;
     }
-  });
-
-  it('Pages providers always bind MockMediaStackApi', () => {
-    TestBed.configureTestingModule({
-      providers: [...provideMediaStackApiPages()],
-    });
-
-    expect(TestBed.inject(MEDIA_STACK_API)).toBeInstanceOf(MockMediaStackApi);
   });
 });

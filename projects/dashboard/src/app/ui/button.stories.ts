@@ -1,35 +1,68 @@
-import type { Meta, StoryObj } from '@storybook/angular';
+import { argsToTemplate, type Meta, type StoryObj } from '@storybook/angular';
 import { MmButton } from './index';
 
-const meta = {
+type ButtonArgs = {
+  label: string;
+  variant: 'primary' | 'quiet' | 'success' | 'warning';
+  disabled: boolean;
+  busy: boolean;
+  type: 'button' | 'submit';
+};
+
+const meta: Meta<ButtonArgs> = {
   title: 'UI/Button',
   component: MmButton,
   tags: ['autodocs'],
-  parameters: { a11y: { test: 'error' } },
-} satisfies Meta<typeof MmButton>;
-
-export default meta;
-type Story = StoryObj<typeof meta>;
-
-export const Primary: Story = {
-  render: () => ({ imports: [MmButton], template: '<mm-button label="Continue" />' }),
-};
-
-export const Variants: Story = {
-  render: () => ({
-    imports: [MmButton],
-    template: `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <mm-button label="Continue" />
-      <mm-button label="Cancel" variant="quiet" />
-      <mm-button label="Success" variant="success" />
-      <mm-button label="Warning" variant="warning" />
-      <mm-button label="Loading" [busy]="true" />
-    </div>`,
+  argTypes: {
+    label: { control: 'text' },
+    variant: {
+      control: 'select',
+      options: ['primary', 'quiet', 'success', 'warning'],
+    },
+    disabled: { control: 'boolean' },
+    busy: { control: 'boolean' },
+    type: { control: 'select', options: ['button', 'submit'] },
+  },
+  args: {
+    label: 'Continue',
+    variant: 'primary',
+    disabled: false,
+    busy: false,
+    type: 'button',
+  },
+  render: (args) => ({
+    props: args,
+    template: `<mm-button ${argsToTemplate(args)} />`,
   }),
 };
 
+export default meta;
+type Story = StoryObj<ButtonArgs>;
+
+export const Primary: Story = {};
+
+export const Quiet: Story = {
+  args: { label: 'Cancel', variant: 'quiet' },
+};
+
+export const Success: Story = {
+  args: { label: 'Saved', variant: 'success' },
+};
+
+export const Warning: Story = {
+  args: { label: 'Retry', variant: 'warning' },
+};
+
+export const Disabled: Story = {
+  args: { label: 'Unavailable', disabled: true },
+};
+
+export const Loading: Story = {
+  args: { label: 'Saving', busy: true },
+};
+
 export const KeyboardFocus: Story = {
-  render: () => ({ imports: [MmButton], template: '<mm-button label="Focus me" />' }),
+  args: { label: 'Focus me' },
   play: async ({ canvasElement }) => {
     const button = canvasElement.querySelector<HTMLButtonElement>('button');
     if (!button) throw new Error('Button was not rendered');

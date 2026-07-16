@@ -1,15 +1,57 @@
-import type { Meta, StoryObj } from '@storybook/angular';
+import { argsToTemplate, type Meta, type StoryObj } from '@storybook/angular';
 import { MmPoster } from './index';
 
-const meta = {
+type PosterArgs = {
+  title: string;
+  meta: string;
+  rating: number | null;
+  art: string;
+};
+
+const meta: Meta<PosterArgs> = {
   title: 'UI/Poster',
   component: MmPoster,
   tags: ['autodocs'],
-  parameters: { a11y: { test: 'error' } },
-} satisfies Meta<typeof MmPoster>;
+  argTypes: {
+    title: { control: 'text' },
+    meta: { control: 'text' },
+    rating: { control: { type: 'number', min: 0, max: 10, step: 0.1 } },
+    art: { control: 'text' },
+  },
+  args: {
+    title: 'The Long Night',
+    meta: '2026 · 2h 08m',
+    rating: 8.4,
+    art: 'linear-gradient(145deg, color-mix(in srgb, var(--mm-component-accent) 28%, var(--mm-component-card-bg)), var(--mm-component-card-bg) 72%)',
+  },
+  render: (args) => ({
+    props: args,
+    template: `<div style="max-width:220px"><mm-poster ${argsToTemplate(args)} /></div>`,
+  }),
+};
 
 export default meta;
-type Story = StoryObj<typeof meta>;
+type Story = StoryObj<PosterArgs>;
+
+export const Default: Story = {};
+
+export const WithoutRating: Story = {
+  args: {
+    title: 'Empty shelf',
+    meta: 'No titles yet',
+    rating: null,
+    art: 'linear-gradient(145deg, var(--mm-component-muted-bg), var(--mm-component-card-bg) 65%)',
+  },
+};
+
+export const Queued: Story = {
+  args: {
+    title: 'Queued',
+    meta: 'Queued · 24%',
+    rating: null,
+    art: 'linear-gradient(145deg, var(--mm-component-warning), var(--mm-component-card-bg) 65%)',
+  },
+};
 
 export const Gallery: Story = {
   render: () => ({

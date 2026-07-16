@@ -1,15 +1,48 @@
-import type { Meta, StoryObj } from '@storybook/angular';
+import { type Meta, type StoryObj } from '@storybook/angular';
 import { MmStatus } from './index';
 
-const meta = {
+type StatusArgs = {
+  tone: 'success' | 'warning' | 'danger' | 'info';
+  label: string;
+};
+
+const meta: Meta<StatusArgs> = {
   title: 'UI/Status',
   component: MmStatus,
   tags: ['autodocs'],
-  parameters: { a11y: { test: 'error' } },
-} satisfies Meta<typeof MmStatus>;
+  argTypes: {
+    tone: {
+      control: 'select',
+      options: ['success', 'warning', 'danger', 'info'],
+    },
+    label: { control: 'text' },
+  },
+  args: {
+    tone: 'info',
+    label: 'Processing',
+  },
+  render: (args) => ({
+    props: args,
+    template: `<mm-status [tone]="tone">{{ label }}</mm-status>`,
+  }),
+};
 
 export default meta;
-type Story = StoryObj<typeof meta>;
+type Story = StoryObj<StatusArgs>;
+
+export const Default: Story = {};
+
+export const Success: Story = {
+  args: { tone: 'success', label: 'Ready' },
+};
+
+export const Warning: Story = {
+  args: { tone: 'warning', label: 'Needs review' },
+};
+
+export const Danger: Story = {
+  args: { tone: 'danger', label: 'Failed' },
+};
 
 export const Tones: Story = {
   render: () => ({

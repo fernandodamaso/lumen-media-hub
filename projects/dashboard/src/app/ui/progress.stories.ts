@@ -1,17 +1,43 @@
-import type { Meta, StoryObj } from '@storybook/angular';
+import { argsToTemplate, type Meta, type StoryObj } from '@storybook/angular';
 import { MmProgress } from './index';
 
-const meta = {
+type ProgressArgs = {
+  value: number;
+  label: string;
+};
+
+const meta: Meta<ProgressArgs> = {
   title: 'UI/Progress',
   component: MmProgress,
   tags: ['autodocs'],
-  parameters: { a11y: { test: 'error' } },
-} satisfies Meta<typeof MmProgress>;
+  argTypes: {
+    value: { control: { type: 'range', min: 0, max: 100, step: 1 } },
+    label: { control: 'text' },
+  },
+  args: {
+    value: 68,
+    label: 'Transcoding',
+  },
+  render: (args) => ({
+    props: args,
+    template: `<div style="max-width:420px"><mm-progress ${argsToTemplate(args)} /></div>`,
+  }),
+};
 
 export default meta;
-type Story = StoryObj<typeof meta>;
+type Story = StoryObj<ProgressArgs>;
 
-export const Default: Story = {
+export const Default: Story = {};
+
+export const Queued: Story = {
+  args: { value: 0, label: 'Queued' },
+};
+
+export const Finished: Story = {
+  args: { value: 100, label: 'Finished' },
+};
+
+export const Values: Story = {
   render: () => ({
     imports: [MmProgress],
     template: `<div style="display:grid;gap:16px;max-width:420px">

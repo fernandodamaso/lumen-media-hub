@@ -1,21 +1,25 @@
-import type { Meta, StoryObj } from '@storybook/angular';
+import { argsToTemplate, type Meta, type StoryObj } from '@storybook/angular';
 import { MmButton, MmCard } from './index';
 
-const meta = {
+type CardArgs = {
+  labelledBy: string;
+};
+
+const meta: Meta<CardArgs> = {
   title: 'UI/Card',
   component: MmCard,
   tags: ['autodocs'],
-  parameters: { a11y: { test: 'error' } },
-} satisfies Meta<typeof MmCard>;
-
-export default meta;
-type Story = StoryObj<typeof meta>;
-
-export const Default: Story = {
-  render: () => ({
-    imports: [MmCard, MmButton],
+  argTypes: {
+    labelledBy: { control: 'text' },
+  },
+  args: {
+    labelledBy: 'card-heading',
+  },
+  render: (args) => ({
+    props: args,
+    moduleMetadata: { imports: [MmCard, MmButton] },
     template: `<div style="max-width:420px;height:280px">
-      <mm-card labelledBy="card-heading">
+      <mm-card ${argsToTemplate(args)}>
         <h2 mm-card-header id="card-heading">Downloads</h2>
         <mm-button mm-card-header-actions label="Refresh" variant="quiet" />
         <p>Active transfers and queue health for the current Demo session.</p>
@@ -24,6 +28,12 @@ export const Default: Story = {
       </mm-card>
     </div>`,
   }),
+};
+
+export default meta;
+type Story = StoryObj<CardArgs>;
+
+export const Default: Story = {
   play: async ({ canvasElement }) => {
     const card = canvasElement.querySelector('.mm-card');
     if (!card) throw new Error('Card was not rendered');
@@ -44,8 +54,9 @@ export const Default: Story = {
 };
 
 export const BodyOnly: Story = {
+  args: { labelledBy: '' },
   render: () => ({
-    imports: [MmCard],
+    moduleMetadata: { imports: [MmCard] },
     template: `<div style="max-width:420px">
       <mm-card>
         <p>A minimal card with content only — header and footer stay hidden when empty.</p>

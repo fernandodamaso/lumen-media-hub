@@ -1,15 +1,49 @@
-import type { Meta, StoryObj } from '@storybook/angular';
-import { MmSkeleton } from './index';
+import { argsToTemplate, type Meta, type StoryObj } from '@storybook/angular';
+import { MmSkeleton, type MmSkeletonVariant } from './index';
 
-const meta = {
+type SkeletonArgs = {
+  variant: MmSkeletonVariant;
+  width?: string;
+  height?: string;
+};
+
+const meta: Meta<SkeletonArgs> = {
   title: 'UI/Skeleton',
   component: MmSkeleton,
   tags: ['autodocs'],
-  parameters: { a11y: { test: 'error' } },
-} satisfies Meta<typeof MmSkeleton>;
+  argTypes: {
+    variant: {
+      control: 'select',
+      options: ['text', 'rect', 'circle'],
+    },
+    width: { control: 'text' },
+    height: { control: 'text' },
+  },
+  args: {
+    variant: 'text',
+  },
+  render: (args) => ({
+    props: args,
+    template: `<div style="max-width:320px"><mm-skeleton ${argsToTemplate(args)} /></div>`,
+  }),
+};
 
 export default meta;
-type Story = StoryObj<typeof meta>;
+type Story = StoryObj<SkeletonArgs>;
+
+export const Text: Story = {};
+
+export const NarrowText: Story = {
+  args: { variant: 'text', width: '70%' },
+};
+
+export const Rect: Story = {
+  args: { variant: 'rect', width: '180px', height: '120px' },
+};
+
+export const Circle: Story = {
+  args: { variant: 'circle', width: '48px', height: '48px' },
+};
 
 export const Variants: Story = {
   render: () => ({

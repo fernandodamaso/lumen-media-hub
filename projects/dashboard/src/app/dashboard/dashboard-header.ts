@@ -14,7 +14,7 @@ export class DashboardHeader {
   readonly requestMedia = output<void>();
   readonly openJellyfin = output<void>();
   readonly refresh = output<void>();
-  readonly search = output<string>();
+  readonly searchQuery = output<string>();
 
   private readonly searchInput = viewChild.required<ElementRef<HTMLInputElement>>('searchInput');
 
@@ -25,13 +25,13 @@ export class DashboardHeader {
       return;
     }
     if (event.key === 'Enter') {
-      this.search.emit((event.target as HTMLInputElement).value.trim());
+      this.searchQuery.emit((event.target as HTMLInputElement).value.trim());
     }
   }
 
   submitSearch(event: Event): void {
     const value = (event.target as HTMLInputElement).value.trim();
-    if (value) this.search.emit(value);
+    if (value) this.searchQuery.emit(value);
   }
 
   focusSearch(): void {

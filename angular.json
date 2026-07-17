@@ -16,7 +16,7 @@
       },
       "root": "projects/dashboard",
       "sourceRoot": "projects/dashboard/src",
-      "prefix": "app",
+      "prefix": "mm",
       "architect": {
         "build": {
           "builder": "@angular/build:application",
@@ -91,7 +91,11 @@
         "test": {
           "builder": "@angular/build:unit-test",
           "options": {
-            "tsConfig": "projects/dashboard/tsconfig.spec.json"
+            "tsConfig": "projects/dashboard/tsconfig.spec.json",
+            "exclude": [
+              "**/.worktrees/**",
+              "../../.worktrees/**"
+            ]
           }
         },
         "storybook": {

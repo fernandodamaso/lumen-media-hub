@@ -85,6 +85,16 @@ describe('DownloadsBoard', () => {
     expect(fixture.nativeElement.textContent).toContain('Complete');
   });
 
+  it('keeps rows visible with a refresh notice after a background failure', () => {
+    facade.status.set('ready');
+    facade.torrents.set([downloadingTorrent()]);
+    facade.error.set('Could not refresh downloads. Showing last loaded queue.');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Showing last loaded queue');
+    expect(fixture.nativeElement.textContent).toContain('A');
+    expect(fixture.nativeElement.querySelector('mm-state-card')).toBeNull();
+  });
+
   it('declares container-query compact layout for narrow dashboard tracks', () => {
     fixture.detectChanges();
     const styles = componentStyles();
@@ -107,6 +117,7 @@ function createFacade() {
     notice: signal(''),
     pendingAction: signal<DownloadsAction | null>(null),
     pendingTorrentId: signal<string | null>(null),
+    refreshing: signal(false),
     summary: signal({ active: 1, total: 1, downloaded: 50, size: 100, downloadRate: 10, uploadRate: 2 }),
     nextAction: signal<DownloadsAction | null>(null),
     canPauseAll: signal(false),

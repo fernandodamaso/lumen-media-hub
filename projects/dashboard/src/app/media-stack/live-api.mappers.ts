@@ -1,4 +1,5 @@
 import { LibraryItemKind } from '../library/library.models';
+import { isRecord } from './http-response';
 import {
   MediaStackAutomationPreviewItemDto,
   MediaStackAutomationProblemDto,
@@ -21,6 +22,20 @@ export interface LiveQbtTorrent {
   dlspeed?: number;
   upspeed?: number;
   eta?: number;
+  category?: string;
+}
+
+/** Validated live torrent member — required identity/state/progress fields are present. */
+export interface ValidatedLiveQbtTorrent {
+  hash: string;
+  name: string;
+  state: string;
+  progress: number;
+  size: number;
+  amount_left?: number;
+  dlspeed: number;
+  upspeed: number;
+  eta: number;
   category?: string;
 }
 
@@ -84,27 +99,96 @@ export interface LiveAutomationSummary {
   error?: string;
 }
 
-export function mapLiveTorrent(raw: LiveQbtTorrent, index = 0): MediaStackTorrentDto {
-  const size = Number(raw.size ?? raw.total_size);
-  const progress = Number(raw.progress);
-  const amountLeft = Number(raw.amount_left);
-  const safeSize = Number.isFinite(size) ? size : 0;
-  const safeProgress = Number.isFinite(progress) ? progress : 0;
-  const downloaded = Number.isFinite(amountLeft)
-    ? Math.max(0, safeSize - amountLeft)
-    : Math.max(0, safeSize * safeProgress);
+/**
+ * Reject torrent array members that lack required identity/state/progress fields.
+ * Call before mapLiveTorrent so missing values are never synthesized into plausible rows.
+ */
+export function requireLiveTorrent(raw: unknown, index = 0): ValidatedLiveQbtTorrent {
+  if (!isRecord(raw)) {
+    throw new Error(`Malformed torrents response: member ${index} is not an object`);
+  }
+
+  const hash = raw['hash'];
+  const name = raw['name'];
+  const state = raw['state'];
+  if (typeof hash !== 'string' || !hash.trim()) {
+    throw new Error(`Malformed torrents response: member ${index} is missing hash`);
+  }
+  if (typeof name !== 'string' || !name.trim()) {
+    throw new Error(`Malformed torrents response: member ${index} is missing name`);
+  }
+  if (typeof state !== 'string' || !state.trim()) {
+    throw new Error(`Malformed torrents response: member ${index} is missing state`);
+  }
+
+  const progress = Number(raw['progress']);
+  const size = Number(raw['size'] ?? raw['total_size']);
+  const dlspeed = Number(raw['dlspeed']);
+  const upspeed = Number(raw['upspeed']);
+  const eta = Number(raw['eta']);
+  if (!Number.isFinite(progress)) {
+    throw new Error(`Malformed torrents response: member ${index} is missing progress`);
+  }
+  if (!Number.isFinite(size)) {
+    throw new Error(`Malformed torrents response: member ${index} is missing size`);
+  }
+  if (!Number.isFinite(dlspeed)) {
+    throw new Error(`Malformed torrents response: member ${index} is missing dlspeed`);
+  }
+  if (!Number.isFinite(upspeed)) {
+    throw new Error(`Malformed torrents response: member ${index} is missing upspeed`);
+  }
+  if (!Number.isFinite(eta)) {
+    throw new Error(`Malformed torrents response: member ${index} is missing eta`);
+  }
+
+  const amountLeftRaw = raw['amount_left'];
+  const amount_left =
+    amountLeftRaw === undefined || amountLeftRaw === null ? undefined : Number(amountLeftRaw);
+  if (amount_left !== undefined && !Number.isFinite(amount_left)) {
+    throw new Error(`Malformed torrents response: member ${index} has invalid amount_left`);
+  }
+
+  const categoryRaw = raw['category'];
+  const category =
+    categoryRaw === undefined || categoryRaw === null
+      ? undefined
+      : typeof categoryRaw === 'string'
+        ? categoryRaw
+        : undefined;
 
   return {
-    hash: raw.hash ? String(raw.hash) : `missing-hash-${index}`,
-    name: raw.name ? String(raw.name) : 'Unknown torrent',
-    state: typeof raw.state === 'string' ? raw.state : 'unknown',
-    progress: safeProgress,
-    size: safeSize,
+    hash,
+    name,
+    state,
+    progress,
+    size,
+    amount_left,
+    dlspeed,
+    upspeed,
+    eta,
+    category,
+  };
+}
+
+export function mapLiveTorrent(raw: unknown, index = 0): MediaStackTorrentDto {
+  const torrent = requireLiveTorrent(raw, index);
+  const downloaded =
+    torrent.amount_left !== undefined
+      ? Math.max(0, torrent.size - torrent.amount_left)
+      : Math.max(0, torrent.size * torrent.progress);
+
+  return {
+    hash: torrent.hash,
+    name: torrent.name,
+    state: torrent.state,
+    progress: torrent.progress,
+    size: torrent.size,
     downloaded,
-    dlspeed: Number(raw.dlspeed) || 0,
-    upspeed: Number(raw.upspeed) || 0,
-    eta: Number(raw.eta) || 0,
-    category: raw.category ? String(raw.category) : undefined,
+    dlspeed: torrent.dlspeed,
+    upspeed: torrent.upspeed,
+    eta: torrent.eta,
+    category: torrent.category,
   };
 }
 

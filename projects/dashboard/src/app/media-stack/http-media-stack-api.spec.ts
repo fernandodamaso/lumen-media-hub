@@ -39,6 +39,20 @@ describe('live-api.mappers', () => {
     });
   });
 
+  it('rejects qbt torrents that lack required identity fields', () => {
+    expect(() =>
+      mapLiveTorrent({
+        name: 'Film',
+        state: 'downloading',
+        progress: 0.5,
+        size: 100,
+        dlspeed: 10,
+        upspeed: 2,
+        eta: 30,
+      }),
+    ).toThrow(/missing hash/);
+  });
+
   it('maps jellyfin items with artwork state', () => {
     expect(mapLiveJellyfinItem({ id: '1', name: 'Dune', year: 2021, image: '/img' }, 'movie')).toEqual({
       id: '1',
@@ -164,10 +178,126 @@ describe('HttpMediaStackApi', () => {
     ]);
   });
 
+  it('accepts a valid empty torrent list', async () => {
+    const pending = api.listTorrents();
+    http.expectOne('/api/qbt/torrents').flush([]);
+    await expect(pending).resolves.toEqual([]);
+  });
+
+  it('accepts a successful envelope with a torrents array', async () => {
+    const pending = api.listTorrents();
+    http.expectOne('/api/qbt/torrents').flush({
+      ok: true,
+      torrents: [
+        {
+          hash: 'h2',
+          name: 'B',
+          state: 'paused',
+          progress: 1,
+          size: 100,
+          amount_left: 0,
+          dlspeed: 0,
+          upspeed: 0,
+          eta: 0,
+        },
+      ],
+    });
+    await expect(pending).resolves.toEqual([
+      expect.objectContaining({ id: 'h2', name: 'B', progress: 100 }),
+    ]);
+  });
+
   it('rejects torrents when envelope ok is false', async () => {
     const pending = api.listTorrents();
     http.expectOne('/api/qbt/torrents').flush({ ok: false, error: 'qbt down' });
     await expect(pending).rejects.toThrow('qbt down');
+  });
+
+  it('rejects null torrent payloads', async () => {
+    const pending = api.listTorrents();
+    http.expectOne('/api/qbt/torrents').flush(null);
+    await expect(pending).rejects.toThrow(/Malformed/);
+  });
+
+  it('rejects torrent members missing required fields before mapping', async () => {
+    const cases: Array<{ label: string; body: object[] }> = [
+      {
+        label: 'missing hash',
+        body: [
+          {
+            name: 'A',
+            state: 'downloading',
+            progress: 0.5,
+            size: 100,
+            dlspeed: 1,
+            upspeed: 0,
+            eta: 10,
+          },
+        ],
+      },
+      {
+        label: 'missing name',
+        body: [
+          {
+            hash: 'h1',
+            state: 'downloading',
+            progress: 0.5,
+            size: 100,
+            dlspeed: 1,
+            upspeed: 0,
+            eta: 10,
+          },
+        ],
+      },
+      {
+        label: 'missing progress',
+        body: [
+          {
+            hash: 'h1',
+            name: 'A',
+            state: 'downloading',
+            size: 100,
+            dlspeed: 1,
+            upspeed: 0,
+            eta: 10,
+          },
+        ],
+      },
+    ];
+
+    for (const testCase of cases) {
+      const pending = api.listTorrents();
+      http.expectOne('/api/qbt/torrents').flush(testCase.body);
+      await expect(pending, testCase.label).rejects.toThrow(/Malformed torrents response/);
+    }
+  });
+
+  it('rejects the whole list when one torrent member is malformed', async () => {
+    const pending = api.listTorrents();
+    http.expectOne('/api/qbt/torrents').flush([
+      {
+        hash: 'good',
+        name: 'Good',
+        state: 'downloading',
+        progress: 0.5,
+        size: 100,
+        amount_left: 50,
+        dlspeed: 1,
+        upspeed: 0,
+        eta: 10,
+      },
+      {
+        hash: '',
+        name: 'Bad',
+        state: 'downloading',
+        progress: 0.1,
+        size: 50,
+        dlspeed: 0,
+        upspeed: 0,
+        eta: 0,
+      },
+    ]);
+    await expect(pending).rejects.toThrow(/member 1 is missing hash/);
   });
 
   it('POSTs pause and resume actions', async () => {

@@ -28,15 +28,74 @@ describe('DownloadsFacade', () => {
   });
 
   it('polls and exposes populated, empty, and error states', async () => {
-    await facade.refresh();
+    await facade.refresh({ initial: true });
     expect(facade.status()).toBe('ready');
+    expect(facade.refreshing()).toBe(false);
     api.items = [];
     await facade.refresh();
     expect(facade.status()).toBe('empty');
     api.failure = true;
-    await facade.refresh();
+    await facade.refresh({ initial: true });
     expect(facade.status()).toBe('error');
     expect(facade.error()).toContain('temporarily unavailable');
+  });
+
+  it('retains last-good rows when a background refresh fails', async () => {
+    await facade.refresh({ initial: true });
+    expect(facade.status()).toBe('ready');
+    expect(facade.torrents()).toHaveLength(1);
+
+    api.failure = true;
+    await facade.refresh();
+    expect(facade.status()).toBe('ready');
+    expect(facade.torrents()).toHaveLength(1);
+    expect(facade.error()).toContain('Showing last loaded queue');
+  });
+
+  it('ignores stale responses when a newer refresh wins the race', async () => {
+    const { promise: initialPromise, resolve: resolveInitial } =
+      Promise.withResolvers<DownloadTorrent[]>();
+    api.nextResponse = initialPromise;
+
+    const first = facade.refresh({ initial: true });
+    expect(facade.refreshing()).toBe(true);
+
+    api.nextResponse = undefined;
+    api.items = [{ ...torrent, id: 'newer', name: 'Newer' }];
+    await facade.refresh();
+    expect(facade.torrents()[0]?.id).toBe('newer');
+
+    resolveInitial([{ ...torrent, id: 'stale', name: 'Stale' }]);
+    await first;
+
+    expect(facade.torrents()[0]?.id).toBe('newer');
+    expect(facade.refreshing()).toBe(false);
+  });
+
+  it('does not overlap scheduled polls while one is in flight', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred, resolve } = Promise.withResolvers<DownloadTorrent[]>();
+    api.nextResponse = deferred;
+
+    facade.startPolling(100);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.listCalls).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.listCalls).toBe(1);
+
+    api.nextResponse = undefined;
+    resolve([{ ...torrent }]);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(api.listCalls).toBe(2);
+
+    TestBed.resetTestingModule();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(api.listCalls).toBe(2);
+    vi.useRealTimers();
   });
 
   it('prevents conflicting actions and refreshes after success', async () => {
@@ -54,16 +113,53 @@ describe('DownloadsFacade', () => {
     expect(facade.notice()).toBe('All downloads paused.');
   });
 
-  it('keeps a failed action recoverable', async () => {
+  it('keeps mutation failures from wiping monitored rows', async () => {
+    await facade.refresh({ initial: true });
+    expect(facade.status()).toBe('ready');
+
     api.actionFailure = true;
     await facade.runAction('pause');
     expect(facade.pendingAction()).toBeNull();
-    expect(facade.status()).toBe('error');
-    expect(facade.notice()).toBe('');
+    expect(facade.status()).toBe('ready');
+    expect(facade.torrents()).toHaveLength(1);
+    expect(facade.notice()).toContain('Could not pause downloads');
+
     api.actionFailure = false;
     await facade.runAction('resume');
     expect(facade.pendingAction()).toBeNull();
     expect(facade.notice()).toBe('All downloads resumed.');
+  });
+
+  it('guards repeated per-torrent activation', async () => {
+    const { promise: actionPromise, resolve } = Promise.withResolvers<void>();
+    api.torrentAction = actionPromise;
+    const first = facade.runTorrentAction('a', 'pause');
+    expect(facade.pendingTorrentId()).toBe('a');
+    await facade.runTorrentAction('a', 'resume');
+    expect(api.torrentActions).toEqual(['pause:a']);
+    resolve();
+    await first;
+    expect(facade.pendingTorrentId()).toBeNull();
+  });
+
+  it('does not let a late mutation refresh overwrite a newer poll', async () => {
+    await facade.refresh({ initial: true });
+
+    const { promise: mutationList, resolve: resolveMutationList } =
+      Promise.withResolvers<DownloadTorrent[]>();
+    api.nextResponse = mutationList;
+    const mutation = facade.runTorrentAction('a', 'pause');
+
+    api.nextResponse = undefined;
+    api.items = [{ ...torrent, id: 'from-poll', name: 'From poll' }];
+    await facade.refresh();
+    expect(facade.torrents()[0]?.id).toBe('from-poll');
+
+    resolveMutationList([{ ...torrent, id: 'from-mutation', name: 'From mutation' }]);
+    await mutation;
+
+    expect(facade.torrents()[0]?.id).toBe('from-poll');
+    expect(facade.pendingTorrentId()).toBeNull();
   });
 
   it('refreshes on one interval and stops polling when destroyed', async () => {
@@ -84,12 +180,17 @@ describe('DownloadsFacade', () => {
 class MockApi implements MediaStackApi {
   items: DownloadTorrent[] = [{ ...torrent }];
   actions: string[] = [];
+  torrentActions: string[] = [];
   listCalls = 0;
   failure = false;
   actionFailure = false;
   action: Promise<void> = Promise.resolve();
+  torrentAction: Promise<void> = Promise.resolve();
+  nextResponse?: Promise<DownloadTorrent[]>;
+
   listTorrents(): Promise<DownloadTorrent[]> {
     this.listCalls++;
+    if (this.nextResponse) return this.nextResponse;
     return this.failure ? Promise.reject(new Error('offline')) : Promise.resolve(this.items);
   }
   pauseAll(): Promise<void> {
@@ -100,11 +201,13 @@ class MockApi implements MediaStackApi {
     this.actions.push('resume');
     return this.actionFailure ? Promise.reject(new Error('failed')) : this.action;
   }
-  pauseTorrent(): Promise<void> {
-    return Promise.resolve();
+  pauseTorrent(id: string): Promise<void> {
+    this.torrentActions.push(`pause:${id}`);
+    return this.actionFailure ? Promise.reject(new Error('failed')) : this.torrentAction;
   }
-  resumeTorrent(): Promise<void> {
-    return Promise.resolve();
+  resumeTorrent(id: string): Promise<void> {
+    this.torrentActions.push(`resume:${id}`);
+    return this.actionFailure ? Promise.reject(new Error('failed')) : this.torrentAction;
   }
   getLibraryStats() {
     return Promise.resolve({ movies: 0, series: 0 });

@@ -24,6 +24,10 @@
     <p class="notice" role="status" aria-live="polite"><mm-status tone="warning">{{ facade.notice() }}</mm-status></p>
   }
 
+  @if (facade.error() && facade.status() !== 'error') {
+    <p class="notice" role="status" aria-live="polite"><mm-status tone="warning">{{ facade.error() }}</mm-status></p>
+  }
+
   @if (facade.status() === 'loading') {
     <div class="torrent-list download-skeleton" aria-hidden="true">
       @for (i of torrentSkeletons; track i) {

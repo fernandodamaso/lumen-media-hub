@@ -68,11 +68,11 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareAr
     }
     .mm-button--success {
       background: var(--mm-component-success);
-      color: var(--mm-component-on-accent);
+      color: var(--mm-component-on-success);
     }
     .mm-button--warning {
       background: var(--mm-component-warning);
-      color: var(--mm-semantic-text-inverse);
+      color: var(--mm-component-on-warning);
     }
     .mm-button:disabled {
       cursor: not-allowed;

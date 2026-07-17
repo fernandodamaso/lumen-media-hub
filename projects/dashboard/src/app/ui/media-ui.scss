@@ -15,6 +15,8 @@
   --mm-color-danger: #ff5964;
   --mm-color-info: #5ea0ff;
   --mm-color-premiere: #9b78ff;
+  --mm-color-on-success: #080d17;
+  --mm-color-on-warning: #080d17;
   --mm-focus-ring: #b5c4ff;
 }
 
@@ -35,6 +37,8 @@
   --mm-color-danger: #f7768e;
   --mm-color-info: #7aa2f7;
   --mm-color-premiere: #bb9af7;
+  --mm-color-on-success: #111321;
+  --mm-color-on-warning: #111321;
   --mm-focus-ring: #c0caf5;
 }
 
@@ -55,6 +59,8 @@
   --mm-color-danger: #f85149;
   --mm-color-info: #58a6ff;
   --mm-color-premiere: #d2a8ff;
+  --mm-color-on-success: #0d1117;
+  --mm-color-on-warning: #0d1117;
   --mm-focus-ring: #79c0ff;
 }
 
@@ -94,6 +100,8 @@
   --mm-semantic-danger: var(--mm-color-danger);
   --mm-semantic-info: var(--mm-color-info);
   --mm-semantic-premiere: var(--mm-color-premiere);
+  --mm-semantic-on-success: var(--mm-color-on-success);
+  --mm-semantic-on-warning: var(--mm-color-on-warning);
   --mm-semantic-focus: var(--mm-focus-ring);
   --mm-component-text-primary: var(--mm-semantic-text-primary);
   --mm-component-text-secondary: var(--mm-semantic-text-secondary);
@@ -112,6 +120,8 @@
   --mm-component-info: var(--mm-semantic-info);
   --mm-component-premiere: var(--mm-semantic-premiere);
   --mm-component-on-accent: var(--mm-semantic-on-accent);
+  --mm-component-on-success: var(--mm-semantic-on-success);
+  --mm-component-on-warning: var(--mm-semantic-on-warning);
   --mm-component-focus-ring: var(--mm-semantic-focus);
 }
 

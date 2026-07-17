@@ -1,4 +1,4 @@
-﻿# Media Manager Angular
+# Media Manager Angular
 
 Angular 22 workspace for the Media Manager shell: a single `dashboard` app with local design system (`app/ui`) and API boundary (`app/media-stack`).
 

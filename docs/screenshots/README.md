@@ -1,4 +1,4 @@
-﻿# Screenshots
+# Screenshots
 
 Captured from local Demo (`npm start`) and Storybook (`npm run storybook`) at 1920├ù1080 and 1440├ù900.
 

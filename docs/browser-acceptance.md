@@ -1,4 +1,4 @@
-﻿# Browser acceptance (Demo, desktop)
+# Browser acceptance (Demo, desktop)
 
 Run against `npm start` at 1920├ù1080 and 1440├ù900. Check only behaviors reachable in the default Demo UI.
 

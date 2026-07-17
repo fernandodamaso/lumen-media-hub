@@ -16,7 +16,7 @@
       },
       "root": "projects/dashboard",
       "sourceRoot": "projects/dashboard/src",
-      "prefix": "app",
+      "prefix": "mm",
       "architect": {
         "build": {
           "builder": "@angular/build:application",
@@ -98,7 +98,6 @@
             ]
           }
         },
-
         "storybook": {
           "builder": "@storybook/angular:start-storybook",
           "options": {

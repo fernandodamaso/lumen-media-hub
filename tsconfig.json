@@ -26,8 +26,6 @@
     "strictTemplates": true,
     "strictStandalone": true
   },
-  "exclude": [".worktrees/**", "**/.worktrees/**"],
-
   "files": [],
   "references": [
     {

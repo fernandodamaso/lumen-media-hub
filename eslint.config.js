@@ -48,11 +48,6 @@ module.exports = tseslint.config(
       ...angular.configs.templateRecommended,
       ...angular.configs.templateAccessibility,
     ],
-    rules: {
-      // Keep a11y signal high-value; avoid click-events-have-key-events noise on presentational hosts.
-      '@angular-eslint/template/click-events-have-key-events': 'off',
-      '@angular-eslint/template/interactive-supports-focus': 'off',
-    },
   },
   {
     files: ['eslint.config.js'],

@@ -68,6 +68,7 @@ Tokens live in [`app/ui/media-ui.scss`](../projects/dashboard/src/app/ui/media-u
 - Feature components use the `mm-` element prefix; `app-root` is the intentional bootstrap exception.
 - Components use `ChangeDetectionStrategy.OnPush` (explicit on the root shell).
 - Unit-test discovery excludes `.worktrees` so nested checkouts are never scanned or modified.
+- Storybook stories live under `app/**` and are discovered by that glob for both Storybook and the test-runner.
 
 ## Testing strategy
 

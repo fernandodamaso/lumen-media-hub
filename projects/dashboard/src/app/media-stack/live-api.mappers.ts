@@ -121,32 +121,26 @@ export function requireLiveTorrent(raw: unknown, index = 0): ValidatedLiveQbtTor
     throw new Error(`Malformed torrents response: member ${index} is missing state`);
   }
 
-  const progress = Number(raw['progress']);
-  const size = Number(raw['size'] ?? raw['total_size']);
-  const dlspeed = Number(raw['dlspeed']);
-  const upspeed = Number(raw['upspeed']);
-  const eta = Number(raw['eta']);
-  if (!Number.isFinite(progress)) {
-    throw new Error(`Malformed torrents response: member ${index} is missing progress`);
-  }
-  if (!Number.isFinite(size)) {
-    throw new Error(`Malformed torrents response: member ${index} is missing size`);
-  }
-  if (!Number.isFinite(dlspeed)) {
-    throw new Error(`Malformed torrents response: member ${index} is missing dlspeed`);
-  }
-  if (!Number.isFinite(upspeed)) {
-    throw new Error(`Malformed torrents response: member ${index} is missing upspeed`);
-  }
-  if (!Number.isFinite(eta)) {
-    throw new Error(`Malformed torrents response: member ${index} is missing eta`);
-  }
+  const progress = requireFiniteNumberField(raw, 'progress', index);
+  const size =
+    typeof raw['size'] === 'number' && Number.isFinite(raw['size'])
+      ? raw['size']
+      : typeof raw['total_size'] === 'number' && Number.isFinite(raw['total_size'])
+        ? raw['total_size']
+        : (() => {
+            throw new Error(`Malformed torrents response: member ${index} is missing size`);
+          })();
+  const dlspeed = requireFiniteNumberField(raw, 'dlspeed', index);
+  const upspeed = requireFiniteNumberField(raw, 'upspeed', index);
+  const eta = requireFiniteNumberField(raw, 'eta', index);
 
   const amountLeftRaw = raw['amount_left'];
-  const amount_left =
-    amountLeftRaw === undefined || amountLeftRaw === null ? undefined : Number(amountLeftRaw);
-  if (amount_left !== undefined && !Number.isFinite(amount_left)) {
-    throw new Error(`Malformed torrents response: member ${index} has invalid amount_left`);
+  let amount_left: number | undefined;
+  if (amountLeftRaw !== undefined && amountLeftRaw !== null) {
+    if (typeof amountLeftRaw !== 'number' || !Number.isFinite(amountLeftRaw)) {
+      throw new Error(`Malformed torrents response: member ${index} has invalid amount_left`);
+    }
+    amount_left = amountLeftRaw;
   }
 
   const categoryRaw = raw['category'];
@@ -169,6 +163,18 @@ export function requireLiveTorrent(raw: unknown, index = 0): ValidatedLiveQbtTor
     eta,
     category,
   };
+}
+
+function requireFiniteNumberField(
+  raw: Record<string, unknown>,
+  field: string,
+  index: number,
+): number {
+  const value = raw[field];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Malformed torrents response: member ${index} is missing ${field}`);
+  }
+  return value;
 }
 
 export function mapLiveTorrent(raw: unknown, index = 0): MediaStackTorrentDto {

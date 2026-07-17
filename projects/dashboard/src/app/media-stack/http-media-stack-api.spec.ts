@@ -53,6 +53,21 @@ describe('live-api.mappers', () => {
     ).toThrow(/missing hash/);
   });
 
+  it('rejects qbt torrents that coerce null numerics into zeros', () => {
+    expect(() =>
+      mapLiveTorrent({
+        hash: 'abc',
+        name: 'Film',
+        state: 'downloading',
+        progress: null,
+        size: 100,
+        dlspeed: 10,
+        upspeed: 2,
+        eta: 30,
+      }),
+    ).toThrow(/missing progress/);
+  });
+
   it('maps jellyfin items with artwork state', () => {
     expect(mapLiveJellyfinItem({ id: '1', name: 'Dune', year: 2021, image: '/img' }, 'movie')).toEqual({
       id: '1',
@@ -256,6 +271,21 @@ describe('HttpMediaStackApi', () => {
             hash: 'h1',
             name: 'A',
             state: 'downloading',
+            size: 100,
+            dlspeed: 1,
+            upspeed: 0,
+            eta: 10,
+          },
+        ],
+      },
+      {
+        label: 'null progress',
+        body: [
+          {
+            hash: 'h1',
+            name: 'A',
+            state: 'downloading',
+            progress: null,
             size: 100,
             dlspeed: 1,
             upspeed: 0,

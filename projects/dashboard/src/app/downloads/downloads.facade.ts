@@ -85,7 +85,9 @@ export class DownloadsFacade {
     try {
       await (action === 'pause' ? this.api.pauseAll() : this.api.resumeAll());
       await this.refresh();
-      this._notice.set(action === 'pause' ? 'All downloads paused.' : 'All downloads resumed.');
+      if (!this._error()) {
+        this._notice.set(action === 'pause' ? 'All downloads paused.' : 'All downloads resumed.');
+      }
     } catch {
       this._notice.set(`Could not ${action} downloads. Try again.`);
     } finally {

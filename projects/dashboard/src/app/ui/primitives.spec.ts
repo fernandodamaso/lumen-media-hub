@@ -77,11 +77,11 @@ describe('app/ui primitives', () => {
     expect(projectedFooter.textContent).toContain('View all');
   });
 
-  it('keeps shared buttons at least 34px high', () => {
+  it('keeps shared buttons at least 40px high', () => {
     const fixture = TestBed.createComponent(MmButton);
     fixture.detectChanges();
 
-    expect(getComputedStyle(fixture.nativeElement.querySelector('button')).minHeight).toBe('34px');
+    expect(getComputedStyle(fixture.nativeElement.querySelector('button')).minHeight).toBe('40px');
   });
 
   it('exposes progress semantics and the state-card danger tone', () => {

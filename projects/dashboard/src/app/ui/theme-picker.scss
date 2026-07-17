@@ -3,6 +3,8 @@
   gap: 6px;
   color: var(--mm-component-text-secondary);
   font: 700 12px/1 var(--mm-font-body);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 .picker__control {
   position: relative;
@@ -21,7 +23,7 @@ select {
   background: var(--mm-component-control-bg);
   color: var(--mm-component-text-primary);
   font: inherit;
-  text-transform: capitalize;
+  text-transform: none;
 }
 .picker__caret {
   position: absolute;

@@ -2,7 +2,7 @@ import { type Meta, type StoryObj } from '@storybook/angular';
 import { MmStatus } from './index';
 
 type StatusArgs = {
-  tone: 'success' | 'warning' | 'danger' | 'info';
+  tone: 'success' | 'warning' | 'danger' | 'info' | 'premiere';
   label: string;
 };
 
@@ -13,7 +13,7 @@ const meta: Meta<StatusArgs> = {
   argTypes: {
     tone: {
       control: 'select',
-      options: ['success', 'warning', 'danger', 'info'],
+      options: ['success', 'warning', 'danger', 'info', 'premiere'],
     },
     label: { control: 'text' },
   },
@@ -52,12 +52,13 @@ export const Tones: Story = {
       <mm-status tone="warning">Needs review</mm-status>
       <mm-status tone="danger">Failed</mm-status>
       <mm-status tone="info">Processing</mm-status>
+      <mm-status tone="premiere">Premiere</mm-status>
     </div>`,
   }),
   play: async ({ canvasElement }) => {
     const statuses = canvasElement.querySelectorAll('[role="status"]');
-    if (statuses.length !== 4) throw new Error(`Expected 4 status chips, found ${statuses.length}`);
-    for (const tone of ['success', 'warning', 'danger', 'info']) {
+    if (statuses.length !== 5) throw new Error(`Expected 5 status chips, found ${statuses.length}`);
+    for (const tone of ['success', 'warning', 'danger', 'info', 'premiere']) {
       if (!canvasElement.querySelector(`.mm-status--${tone}`)) {
         throw new Error(`Missing status tone: ${tone}`);
       }

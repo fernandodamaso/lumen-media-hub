@@ -1,9 +1,9 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import { LucideLoaderCircle, LucidePause, LucidePlay } from '@lucide/angular';
+import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareArrowOutUpRight } from '@lucide/angular';
 
 @Component({
   selector: 'mm-button',
-  imports: [LucideLoaderCircle, LucidePause, LucidePlay],
+  imports: [LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareArrowOutUpRight],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<button
     [type]="type()"
@@ -17,6 +17,10 @@ import { LucideLoaderCircle, LucidePause, LucidePlay } from '@lucide/angular';
       <svg lucidePause [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
     } @else if (icon() === 'play') {
       <svg lucidePlay [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
+    } @else if (icon() === 'plus') {
+      <svg lucidePlus [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
+    } @else if (icon() === 'external-link') {
+      <svg lucideSquareArrowOutUpRight [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
     }
     {{ label() }}
   </button>`,
@@ -27,15 +31,17 @@ import { LucideLoaderCircle, LucidePause, LucidePlay } from '@lucide/angular';
     .mm-button {
       display: inline-flex;
       align-items: center;
-      min-height: 34px;
+      justify-content: center;
+      min-height: 40px;
       gap: var(--mm-space-sm);
       border: 0;
       border-radius: var(--mm-radius-sm);
-      padding: 8px 12px;
-      background: var(--mm-component-accent);
+      padding: 8px 14px;
+      background: var(--mm-component-accent-strong);
       color: var(--mm-component-on-accent);
       cursor: pointer;
-      font: 700 var(--mm-text-sm)/1 var(--mm-font-body);
+      font: 700 var(--mm-text-md)/1 var(--mm-font-body);
+      white-space: nowrap;
       transition:
         background var(--mm-transition-fast),
         color var(--mm-transition-fast),
@@ -43,7 +49,7 @@ import { LucideLoaderCircle, LucidePause, LucidePlay } from '@lucide/angular';
         transform var(--mm-transition-fast);
     }
     .mm-button:hover:not(:disabled) {
-      background: var(--mm-semantic-accent-strong);
+      background: color-mix(in srgb, var(--mm-component-accent-strong) 86%, var(--mm-component-on-accent));
     }
     .mm-button:active:not(:disabled) {
       transform: scale(0.98);
@@ -55,6 +61,7 @@ import { LucideLoaderCircle, LucidePause, LucidePlay } from '@lucide/angular';
     .mm-button--quiet {
       background: var(--mm-component-control-bg);
       color: var(--mm-component-text-primary);
+      border: 1px solid var(--mm-component-border);
     }
     .mm-button--quiet:hover:not(:disabled) {
       background: var(--mm-component-muted-bg);
@@ -80,7 +87,7 @@ import { LucideLoaderCircle, LucidePause, LucidePlay } from '@lucide/angular';
 export class MmButton {
   readonly label = input('Continue');
   readonly variant = input<'primary' | 'quiet' | 'success' | 'warning'>('primary');
-  readonly icon = input<'pause' | 'play' | ''>('');
+  readonly icon = input<'pause' | 'play' | 'plus' | 'external-link' | ''>('');
   readonly disabled = input(false);
   readonly busy = input(false);
   readonly type = input<'button' | 'submit'>('button');

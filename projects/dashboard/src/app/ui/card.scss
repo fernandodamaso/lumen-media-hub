@@ -17,18 +17,7 @@
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 3%),
     var(--mm-shadow-card);
-  transition:
-    transform var(--mm-transition-fast),
-    box-shadow var(--mm-transition-fast);
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .mm-card:hover {
-    transform: translateY(-1px);
-    box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 3%),
-      var(--mm-shadow-card-hover);
-  }
+  transition: border-color var(--mm-transition-fast);
 }
 
 .mm-card__header,

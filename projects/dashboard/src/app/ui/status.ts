@@ -33,20 +33,13 @@ import {
       color: var(--mm-component-text-secondary);
       font: 700 var(--mm-text-xs)/1 var(--mm-font-body);
     }
-    .mm-status--success {
-      color: var(--mm-component-success);
-    }
-    .mm-status--warning {
-      color: var(--mm-component-warning);
-    }
-    .mm-status--danger {
-      color: var(--mm-component-danger);
-    }
-    .mm-status--info {
-      color: var(--mm-component-accent);
-    }
+    .mm-status--success { color: var(--mm-component-success); }
+    .mm-status--warning { color: var(--mm-component-warning); }
+    .mm-status--danger { color: var(--mm-component-danger); }
+    .mm-status--info { color: var(--mm-component-info); }
+    .mm-status--premiere { color: var(--mm-component-premiere); }
   `,
 })
 export class MmStatus {
-  readonly tone = input<'success' | 'warning' | 'danger' | 'info'>('info');
+  readonly tone = input<'success' | 'warning' | 'danger' | 'info' | 'premiere'>('info');
 }

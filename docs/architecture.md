@@ -61,9 +61,17 @@ Design-system showcase is Storybook (`npm run storybook`), not an in-app `/ui` r
 
 Tokens live in [`app/ui/media-ui.scss`](../projects/dashboard/src/app/ui/media-ui.scss). Three dark themes: Nocturne, Tokyo Night, GitHub Dark Pro.
 
+## Contribution baseline
+
+- TypeScript `strict` and Angular `strictTemplates` / `strictStandalone` are on for app, unit tests, and Storybook.
+- ESLint covers `.ts` and `.html` (including inline templates) via `angular-eslint`.
+- Feature components use the `mm-` element prefix; `app-root` is the intentional bootstrap exception.
+- Components use `ChangeDetectionStrategy.OnPush` (explicit on the root shell).
+- Unit-test discovery excludes `.worktrees` so nested checkouts are never scanned or modified.
+
 ## Testing strategy
 
 - Contract and facade specs beside each feature
 - Shell navigation and home composition specs
-- Provider specs proving DemoΓåÆmock and LiveΓåÆHTTP
+- Provider specs proving Demo→mock and Live→HTTP
 - Storybook interaction + accessibility via `npm run test:storybook` (after `build:storybook`)

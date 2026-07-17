@@ -91,9 +91,14 @@
         "test": {
           "builder": "@angular/build:unit-test",
           "options": {
-            "tsConfig": "projects/dashboard/tsconfig.spec.json"
+            "tsConfig": "projects/dashboard/tsconfig.spec.json",
+            "exclude": [
+              "**/.worktrees/**",
+              "../../.worktrees/**"
+            ]
           }
         },
+
         "storybook": {
           "builder": "@storybook/angular:start-storybook",
           "options": {

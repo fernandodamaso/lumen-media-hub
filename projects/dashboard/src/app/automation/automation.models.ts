@@ -6,6 +6,7 @@ export interface AutomationService {
   name: string;
   status: AutomationServiceStatus;
   detail: string;
+  latencyMs?: number | null;
 }
 
 export interface AutomationPreviewItem {

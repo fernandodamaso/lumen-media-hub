@@ -3,7 +3,12 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { HttpMediaStackApi } from './http-media-stack-api';
-import { mapLiveAutomationSummary, mapLiveJellyfinItem, mapLiveTorrent } from './live-api.mappers';
+import {
+  mapLiveAutomationSummary,
+  mapLiveJellyfinItem,
+  mapLiveStorageVolume,
+  mapLiveTorrent,
+} from './live-api.mappers';
 
 describe('live-api.mappers', () => {
   it('maps qbt torrents with downloaded from amount_left', () => {
@@ -85,6 +90,29 @@ describe('live-api.mappers', () => {
     expect(() => mapLiveAutomationSummary({ ok: false, error: 'backend down' })).toThrow('backend down');
   });
 
+  it('passes through service latencyMs when present', () => {
+    const dto = mapLiveAutomationSummary({
+      ok: true,
+      sonarr: { ok: true, missing: 0, monitored: 1, queued: 0, latencyMs: 21 },
+      radarr: { ok: true, movies: 1, missing: 0, queued: 0 },
+    });
+    expect(dto.services?.find((s) => s.id === 'sonarr')?.latencyMs).toBe(21);
+    expect(dto.services?.find((s) => s.id === 'radarr')?.latencyMs).toBeNull();
+  });
+
+  it('maps live storage volumes with field fallbacks', () => {
+    expect(
+      mapLiveStorageVolume({ id: 'vol-1', label: 'Media', kind: 'library', usedBytes: 10, totalBytes: 20 }),
+    ).toEqual({ id: 'vol-1', label: 'Media', kind: 'library', usedBytes: 10, totalBytes: 20 });
+    expect(mapLiveStorageVolume({ name: 'Scratch', used: 5, total: 50 }, 2)).toEqual({
+      id: 'volume-2',
+      label: 'Scratch',
+      kind: undefined,
+      usedBytes: 5,
+      totalBytes: 50,
+    });
+  });
+
   it('maps automation ok:false when nested service blocks remain', () => {
     const dto = mapLiveAutomationSummary({
       ok: false,
@@ -154,6 +182,61 @@ describe('HttpMediaStackApi', () => {
     expect(resumeReq.request.method).toBe('POST');
     resumeReq.flush({ ok: true });
     await expect(resume).resolves.toBeUndefined();
+  });
+
+  it('POSTs per-torrent stop and start with the torrent id', async () => {
+    const pause = api.pauseTorrent('abc123');
+    const pauseReq = http.expectOne('/api/qbt/torrents/stop');
+    expect(pauseReq.request.method).toBe('POST');
+    expect(pauseReq.request.body).toEqual({ id: 'abc123' });
+    pauseReq.flush({ ok: true });
+    await expect(pause).resolves.toBeUndefined();
+
+    const resume = api.resumeTorrent('abc123');
+    const resumeReq = http.expectOne('/api/qbt/torrents/start');
+    expect(resumeReq.request.method).toBe('POST');
+    expect(resumeReq.request.body).toEqual({ id: 'abc123' });
+    resumeReq.flush({ ok: true });
+    await expect(resume).resolves.toBeUndefined();
+
+    const failed = api.pauseTorrent('abc123');
+    http.expectOne('/api/qbt/torrents/stop').flush({ ok: false, error: 'qbt locked' });
+    await expect(failed).rejects.toThrow('qbt locked');
+  });
+
+  it('GETs storage overview and maps volumes', async () => {
+    const pending = api.getStorageOverview();
+    http.expectOne('/api/storage/overview').flush({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      volumes: [
+        { id: 'media', label: 'Media library', kind: 'library', usedBytes: 10, totalBytes: 20 },
+        { name: 'Scratch', used: 5, total: 50 },
+      ],
+    });
+    await expect(pending).resolves.toEqual({
+      generatedAt: '2026-07-13T12:00:00Z',
+      volumes: [
+        { id: 'media', label: 'Media library', kind: 'library', usedBytes: 10, totalBytes: 20 },
+        { id: 'volume-1', label: 'Scratch', kind: 'cache', usedBytes: 5, totalBytes: 50 },
+      ],
+    });
+  });
+
+  it('rejects malformed storage overview payloads', async () => {
+    const pending = api.getStorageOverview();
+    http.expectOne('/api/storage/overview').flush({ ok: true, volumes: 'nope' });
+    await expect(pending).rejects.toThrow(/Malformed storage overview/);
+  });
+
+  it('GETs jellyfin stats with defensive counts', async () => {
+    const pending = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/stats').flush({ ok: true, movies: 428, series: 76 });
+    await expect(pending).resolves.toEqual({ movies: 428, series: 76 });
+
+    const partial = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/stats').flush({ ok: true, movies: 12 });
+    await expect(partial).resolves.toEqual({ movies: 12, series: 0 });
   });
 
   it('unwraps calendar envelope and rejects ok:false', async () => {

@@ -11,17 +11,22 @@ import {
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
-import { LibraryItem, LibraryItemKind } from '../library/library.models';
+import { LibraryItem, LibraryItemKind, LibraryStats } from '../library/library.models';
 import { AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
+import { StorageOverview } from '../storage/storage.models';
 
 export interface MediaStackApi {
   listTorrents(): Promise<DownloadTorrent[]>;
   pauseAll(): Promise<void>;
   resumeAll(): Promise<void>;
+  pauseTorrent(id: string): Promise<void>;
+  resumeTorrent(id: string): Promise<void>;
   listCalendarEvents(): Promise<CalendarEvent[]>;
   getArrLibrary(): Promise<ArrLibrary>;
   listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<LibraryItem[]>;
+  getLibraryStats(): Promise<LibraryStats>;
+  getStorageOverview(): Promise<StorageOverview>;
   getAutomationSummary(): Promise<AutomationSummary>;
   listCronLogs(): Promise<CronLogs>;
   listHermesRecommendations(): Promise<HermesDiscover>;

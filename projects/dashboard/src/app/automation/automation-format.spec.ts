@@ -68,9 +68,21 @@ describe('automation format / automation mapping', () => {
       problems: [{ id: undefined as unknown as string, summary: undefined as unknown as string }],
     });
     expect(summary.generatedAt).toBe('');
-    expect(summary.services[0]).toEqual({ id: '', name: '', status: 'down', detail: '' });
+    expect(summary.services[0]).toEqual({ id: '', name: '', status: 'down', detail: '', latencyMs: null });
     expect(summary.preview[0]).toEqual({ id: '', title: '', when: '', kind: '' });
     expect(summary.problems[0]).toEqual({ id: '', summary: '', serviceId: null, severity: 'info' });
+  });
+
+  it('passes through service latencyMs and normalizes invalid values to null', () => {
+    const summary = mapAutomationSummary({
+      generatedAt: '',
+      services: [
+        { id: 'a', name: 'A', status: 'healthy', latencyMs: 18 },
+        { id: 'b', name: 'B', status: 'down' },
+        { id: 'c', name: 'C', status: 'healthy', latencyMs: Number.NaN },
+      ],
+    });
+    expect(summary.services.map((service) => service.latencyMs)).toEqual([18, null, null]);
   });
 
   it.each([

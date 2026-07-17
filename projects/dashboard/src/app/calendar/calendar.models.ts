@@ -1,7 +1,7 @@
 import { InjectionToken } from '@angular/core';
 
 export type CalendarMediaKind = 'episode' | 'movie';
-export type CalendarEventStatus = 'available' | 'pending';
+export type CalendarEventStatus = 'available' | 'monitored' | 'premiere' | 'pending';
 
 export interface CalendarEvent {
   id: string;
@@ -11,6 +11,8 @@ export interface CalendarEvent {
   subtitle: string;
   status: CalendarEventStatus;
   airDate: string;
+  /** Optional gradient thumbnail, same style as library item art. */
+  art?: string;
 }
 
 export interface ArrLibrary {

@@ -32,6 +32,7 @@ export const mapAutomationSummary = (dto: MediaStackAutomationSummaryDto): Autom
     name: service.name ?? '',
     status: normalizeAutomationStatus(service.status),
     detail: service.detail ?? '',
+    latencyMs: normalizeLatencyMs(service.latencyMs),
   })),
   preview: (dto.preview ?? []).map((item) => ({
     id: item.id ?? '',
@@ -57,6 +58,12 @@ function normalizeAutomationStatus(status: string): AutomationServiceStatus {
   return AUTOMATION_SERVICE_STATUSES.includes(normalized as AutomationServiceStatus)
     ? (normalized as AutomationServiceStatus)
     : 'unknown';
+}
+
+function normalizeLatencyMs(latencyMs: number | null | undefined): number | null {
+  return typeof latencyMs === 'number' && Number.isFinite(latencyMs) && latencyMs >= 0
+    ? Math.round(latencyMs)
+    : null;
 }
 
 function normalizeAutomationSeverity(severity: string): AutomationProblemSeverity {

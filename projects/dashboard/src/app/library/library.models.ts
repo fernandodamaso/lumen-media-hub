@@ -16,6 +16,11 @@ export interface LibraryItem {
   rating?: number | null;
 }
 
+export interface LibraryStats {
+  movies: number;
+  series: number;
+}
+
 export interface JellyfinLinkBases {
   jellyfinBase?: string;
 }

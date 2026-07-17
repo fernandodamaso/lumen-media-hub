@@ -11,9 +11,10 @@ import {
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
-import { LibraryItem, LibraryItemKind } from '../library/library.models';
+import { LibraryItem, LibraryItemKind, LibraryStats } from '../library/library.models';
 import { AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
+import { StorageOverview } from '../storage/storage.models';
 import { MediaStackApi } from './media-stack-api';
 import { mapArrLibrary, mapCalendarEvent } from '../calendar/calendar-format';
 import { mapAutomationSummary } from '../automation/automation-format';
@@ -23,8 +24,9 @@ import {
   mapExternalDiscover,
   mapHermesDiscover,
 } from '../discover/discover-format';
-import { mapLibraryItem } from '../library/library-format';
+import { mapLibraryItem, mapLibraryStats } from '../library/library-format';
 import { mapTorrent } from '../downloads/downloads-format';
+import { mapStorageOverview } from '../storage/storage-format';
 import { MediaStackArrLibraryDto, MediaStackCalendarEventDto } from './wire/calendar';
 import { MediaStackAutomationSummaryDto } from './wire/automation';
 import { MediaStackCronLogEntryDto, MediaStackCronLogsDto } from './wire/cron';
@@ -32,62 +34,91 @@ import {
   MediaStackDiscoverItemDto,
   MediaStackExternalDiscoverItemDto,
 } from './wire/discover';
-import { MediaStackLibraryItemDto } from './wire/library';
+import { MediaStackLibraryItemDto, MediaStackLibraryStatsDto } from './wire/library';
+import { MediaStackStorageOverviewDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
 
+const KIB = 1024;
+const MIB = 1024 * KIB;
+const GIB = 1024 * MIB;
+const TIB = 1024 * GIB;
+
 const DEMO_TORRENTS: MediaStackTorrentDto[] = [
-  { hash: 'demo-afterlight', name: 'Afterlight', state: 'downloading', progress: 0.68, size: 7_400_000_000, downloaded: 5_032_000_000, dlspeed: 4_200_000, upspeed: 320_000, eta: 540, category: 'Movies' },
-  { hash: 'demo-blue-hour', name: 'The Blue Hour', state: 'downloading', progress: 0.31, size: 2_100_000_000, downloaded: 651_000_000, dlspeed: 1_800_000, upspeed: 80_000, eta: 800, category: 'TV' },
-  { hash: 'demo-orbit', name: 'Orbit Station', state: 'stoppedUP', progress: 1, size: 5_800_000_000, downloaded: 5_800_000_000, dlspeed: 0, upspeed: 120_000, eta: 0, category: 'Movies' },
+  { hash: 'demo-afterlight', name: 'Afterlight', state: 'downloading', progress: 0.68, size: Math.round(6.9 * GIB), downloaded: Math.round(4.7 * GIB), dlspeed: Math.round(4.0 * MIB), upspeed: 312 * KIB, eta: 9 * 60, category: 'Movies' },
+  { hash: 'demo-blue-hour', name: 'The Blue Hour', state: 'downloading', progress: 0.31, size: 2 * GIB, downloaded: 620 * MIB, dlspeed: Math.round(1.7 * MIB), upspeed: 78 * KIB, eta: 13 * 60, category: 'TV · S2E3' },
+  { hash: 'demo-orbit', name: 'Orbit Station', state: 'stoppedUP', progress: 1, size: Math.round(5.4 * GIB), downloaded: Math.round(5.4 * GIB), dlspeed: 0, upspeed: 117 * KIB, eta: 0, category: 'Movies' },
 ];
 
-const DEMO_CALENDAR: MediaStackCalendarEventDto[] = [
-  {
-    title: 'Cowboy Bebop',
-    additional: 'S1 E5',
-    date: 'Jul 12',
-    airDate: '2026-07-12T18:00:00Z',
-    hasFile: false,
-    kind: 'episode',
-  },
-  {
-    title: 'The Blue Hour',
-    additional: 'S2 E3',
-    date: 'Jul 12',
-    airDate: '2026-07-12T21:30:00Z',
-    hasFile: false,
-    kind: 'episode',
-  },
-  {
-    title: 'Dune',
-    additional: 'Theatrical',
-    date: 'Jul 13',
-    airDate: '2026-07-13T00:00:00Z',
-    hasFile: true,
-    kind: 'movie',
-  },
-  {
-    title: 'The Expanse',
-    additional: 'S4 E2',
-    date: 'Jul 14',
-    airDate: '2026-07-14T21:00:00Z',
-    hasFile: false,
-    kind: 'episode',
-  },
-  {
-    title: 'Night Transit',
-    additional: 'Premiere',
-    date: 'Jul 15',
-    airDate: '2026-07-15T12:00:00Z',
-    hasFile: false,
-    kind: 'movie',
-  },
-];
+const DEMO_LIBRARY_STATS: MediaStackLibraryStatsDto = { ok: true, movies: 428, series: 76 };
+
+function demoStorageOverview(): MediaStackStorageOverviewDto {
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    volumes: [
+      { id: 'media-library', label: 'Media library', kind: 'library', usedBytes: Math.round(4.8 * TIB), totalBytes: Math.round(7.2 * TIB) },
+      { id: 'downloads', label: 'Downloads', kind: 'downloads', usedBytes: 324 * GIB, totalBytes: TIB },
+      { id: 'cache', label: 'Cache & temp', kind: 'cache', usedBytes: 68 * GIB, totalBytes: 500 * GIB },
+    ],
+  };
+}
+
+/** Demo calendar is relative to now so TODAY/TOMORROW groups stay meaningful. */
+function demoCalendar(now = new Date()): MediaStackCalendarEventDto[] {
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  const stamp = (dayOffset: number, hours: number, minutes: number) => {
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset, hours, minutes);
+    return { airDate: date.toISOString(), date: `${pad(hours)}:${pad(minutes)}` };
+  };
+  const bebop = stamp(0, 18, 0);
+  const blueHour = stamp(0, 21, 30);
+  const dune = stamp(1, 0, 0);
+  const expanse = stamp(3, 21, 0);
+  return [
+    {
+      title: 'Cowboy Bebop',
+      additional: 'S1 E5',
+      date: bebop.date,
+      airDate: bebop.airDate,
+      hasFile: true,
+      kind: 'episode',
+      art: 'linear-gradient(145deg, #b45309, #1c1917 70%)',
+    },
+    {
+      title: 'The Blue Hour',
+      additional: 'S2 E3',
+      date: blueHour.date,
+      airDate: blueHour.airDate,
+      monitored: true,
+      kind: 'episode',
+      art: 'linear-gradient(145deg, #312e81, #0f172a 70%)',
+    },
+    {
+      title: 'Dune',
+      additional: 'Movie · Premiere',
+      date: dune.date,
+      airDate: dune.airDate,
+      premiere: true,
+      kind: 'movie',
+      art: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
+    },
+    {
+      title: 'The Expanse',
+      additional: 'S4 E2',
+      date: expanse.date,
+      airDate: expanse.airDate,
+      monitored: true,
+      kind: 'episode',
+      art: 'linear-gradient(145deg, #1e3a5f, #0b1220 70%)',
+    },
+  ];
+}
 
 const DEMO_LIBRARY: MediaStackArrLibraryDto = {
   ok: true,
   series: {
     'cowboy bebop': 'cowboy-bebop',
+    'the blue hour': 'the-blue-hour',
     'the expanse': 'the-expanse',
   },
   movies: {
@@ -171,24 +202,31 @@ const DEMO_LIBRARY_ITEMS: MediaStackLibraryItemDto[] = [
   },
 ];
 
-const DEMO_AUTOMATION_SUMMARY: MediaStackAutomationSummaryDto = {
-  generatedAt: '2026-07-12T18:00:00Z',
-  services: [
-    { id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'Indexers reachable' },
-    { id: 'radarr', name: 'Radarr', status: 'healthy', detail: 'Indexers reachable' },
-    { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: 'One indexer slow to respond' },
-    { id: 'sabnzbd', name: 'SABnzbd', status: 'down', detail: 'Connection refused' },
-  ],
-  preview: [
-    { id: 'preview-1', title: 'Dune: Part Two', when: 'Tonight', kind: 'movie' },
-    { id: 'preview-2', title: 'The Expanse S4 E2', when: 'Tomorrow', kind: 'episode' },
-    { id: 'preview-3', title: 'Night Transit', when: 'Jul 15', kind: 'movie' },
-  ],
-  problems: [
-    { id: 'problem-1', summary: 'SABnzbd unreachable', serviceId: 'sabnzbd', severity: 'actionable' },
-    { id: 'problem-2', summary: 'Prowlarr indexer response slow', serviceId: 'prowlarr', severity: 'warning' },
-  ],
-};
+function demoAutomationSummary(): MediaStackAutomationSummaryDto {
+  return {
+    generatedAt: new Date().toISOString(),
+    services: [
+      { id: 'jellyfin', name: 'Jellyfin', status: 'healthy', detail: 'Streaming ready', latencyMs: 18 },
+      { id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'Indexers reachable', latencyMs: 20 },
+      { id: 'radarr', name: 'Radarr', status: 'healthy', detail: 'Indexers reachable', latencyMs: 22 },
+      { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: 'One indexer slow to respond', latencyMs: 350 },
+      { id: 'sabnzbd', name: 'SABnzbd', status: 'down', detail: 'Last seen 18m ago' },
+      { id: 'qbittorrent', name: 'qBittorrent', status: 'healthy', detail: 'Connected', latencyMs: 15 },
+      { id: 'bazarr', name: 'Bazarr', status: 'healthy', detail: 'Subtitles up to date', latencyMs: 16 },
+      { id: 'unpackerr', name: 'Unpackerr', status: 'healthy', detail: 'Queue empty', latencyMs: 24 },
+    ],
+    preview: [
+      { id: 'preview-1', title: 'Cowboy Bebop S1 E5', when: 'Tonight', kind: 'episode' },
+      { id: 'preview-2', title: 'Dune', when: 'Tomorrow', kind: 'movie' },
+      { id: 'preview-3', title: 'The Expanse S4 E2', when: 'This week', kind: 'episode' },
+    ],
+    problems: [
+      { id: 'problem-1', summary: 'SABnzbd unreachable', serviceId: 'sabnzbd', severity: 'actionable' },
+      { id: 'problem-2', summary: 'Prowlarr indexer response slow', serviceId: 'prowlarr', severity: 'warning' },
+      { id: 'problem-3', summary: 'Prowlarr indexer in cooldown', serviceId: 'prowlarr', severity: 'warning' },
+    ],
+  };
+}
 
 const PARTIAL_AUTOMATION_SUMMARY: MediaStackAutomationSummaryDto = {
   generatedAt: '2026-07-12T18:00:00Z',
@@ -199,108 +237,80 @@ const PARTIAL_AUTOMATION_SUMMARY: MediaStackAutomationSummaryDto = {
   unavailable: { preview: true, problems: true },
 };
 
-const DEMO_CRON_LOGS: MediaStackCronLogsDto = {
-  ok: true,
-  generatedAt: '2026-07-12T12:00:00Z',
-  logs: [
-    {
-      id: 'watchdog',
-      title: 'Watchdog',
-      file: 'watchdog.ndjson',
-      format: 'ndjson',
-      schedule: '*/15 * * * *',
-      description: 'Stack health and disk checks',
-      exists: true,
-      size: 4200,
-      mtime: '2026-07-12T11:45:00Z',
-      lastStatus: 'fatal',
-      runs: [
-        {
-          timestamp: '2026-07-12T11:45:00Z',
-          status: 'fatal',
-          detail: 'Disk usage critical on /data',
-          fatal: 'Disk usage critical on /data',
-          exitCode: 1,
-        },
-        {
-          timestamp: '2026-07-12T11:30:00Z',
-          status: 'ok',
-          detail: 'Checked 4, no repairs needed',
-          exitCode: 0,
-        },
-      ],
-    },
-    {
-      id: 'stale-metadata',
-      title: 'Stale metadata',
-      file: 'stale-metadata.ndjson',
-      format: 'ndjson',
-      schedule: '0 */6 * * *',
-      description: 'Repair stale Sonarr/Radarr metadata',
-      exists: true,
-      size: 3100,
-      mtime: '2026-07-12T10:00:00Z',
-      lastStatus: 'warn',
-      runs: [
-        {
-          timestamp: '2026-07-12T10:00:00Z',
-          status: 'warn',
-          detail: '3 stale entries need review',
-          exitCode: 0,
-        },
-        {
-          timestamp: '2026-07-12T04:00:00Z',
-          status: 'ok',
-          detail: 'Nothing to check',
-          exitCode: 0,
-        },
-      ],
-    },
-    {
-      id: 'hardlink-cleanup',
-      title: 'Hardlink cleanup',
-      file: 'hardlink-cleanup.ndjson',
-      format: 'ndjson',
-      schedule: '30 3 * * *',
-      description: 'Reclaim space from orphaned hardlinks',
-      exists: true,
-      size: 2800,
-      mtime: '2026-07-12T03:30:00Z',
-      lastStatus: 'applied',
-      runs: [
-        {
-          timestamp: '2026-07-12T03:30:00Z',
-          status: 'applied',
-          detail: 'Applied 2 repairs',
-          applied: 2,
-          evaluated: 18,
-          skipped: 0,
-          exitCode: 0,
-        },
-      ],
-    },
-    {
-      id: 'weekly-validate',
-      title: 'Weekly validate',
-      file: 'weekly-validate.log',
-      format: 'text',
-      schedule: '0 4 * * 0',
-      description: 'Weekly library integrity pass',
-      exists: true,
-      size: 1200,
-      mtime: '2026-07-06T04:00:00Z',
-      lastStatus: 'ok',
-      runs: [
-        {
-          timestamp: '2026-07-06T04:00:00Z',
-          status: 'ok',
-          detail: 'Completed',
-          exitCode: 0,
-        },
-      ],
-    },
-  ],
-};
+/** Demo cron runs are relative to now so the dashboard "xm ago" column stays fresh. */
+function demoCronLogs(now = Date.now()): MediaStackCronLogsDto {
+  const ago = (minutes: number): string => new Date(now - minutes * 60_000).toISOString();
+  return {
+    ok: true,
+    generatedAt: new Date(now).toISOString(),
+    logs: [
+      {
+        id: 'hardlink-cleanup',
+        title: 'Hardlink cleanup',
+        file: 'hardlink-cleanup.ndjson',
+        format: 'ndjson',
+        schedule: '30 3 * * *',
+        description: 'Reclaim space from orphaned hardlinks',
+        exists: true,
+        size: 2800,
+        mtime: ago(3),
+        lastStatus: 'applied',
+        runs: [
+          {
+            timestamp: ago(3),
+            status: 'applied',
+            detail: '42 files hardlinked, 18.7 GB saved',
+            applied: 42,
+            evaluated: 214,
+            skipped: 0,
+            exitCode: 0,
+          },
+        ],
+      },
+      {
+        id: 'stale-metadata',
+        title: 'Stale metadata',
+        file: 'stale-metadata.ndjson',
+        format: 'ndjson',
+        schedule: '0 */6 * * *',
+        description: 'Repair stale Sonarr/Radarr metadata',
+        exists: true,
+        size: 3100,
+        mtime: ago(18),
+        lastStatus: 'fatal',
+        runs: [
+          {
+            timestamp: ago(18),
+            status: 'fatal',
+            detail: '3 items failed to refresh',
+            fatal: '3 items failed to refresh',
+            exitCode: 1,
+          },
+        ],
+      },
+      {
+        id: 'watchdog',
+        title: 'Watchdog',
+        file: 'watchdog.ndjson',
+        format: 'ndjson',
+        schedule: '*/15 * * * *',
+        description: 'Stack health and disk checks',
+        exists: true,
+        size: 4200,
+        mtime: ago(35),
+        lastStatus: 'ok',
+        runs: [
+          {
+            timestamp: ago(35),
+            status: 'ok',
+            detail: 'All services are healthy',
+            exitCode: 0,
+          },
+        ],
+      },
+    ],
+  };
+}
 
 function copyCronLogs(source: MediaStackCronLogsDto): MediaStackCronLogsDto {
   return {
@@ -514,7 +524,6 @@ export const MOCK_SYNC_FAILED_HERMES_ID = 'hermes-sync-failed';
 @Injectable()
 export class MockMediaStackApi implements MediaStackApi {
   private torrents = DEMO_TORRENTS.map((torrent) => ({ ...torrent }));
-  private calendar = DEMO_CALENDAR.map((event) => ({ ...event }));
   private library: MediaStackArrLibraryDto = {
     ok: DEMO_LIBRARY.ok,
     series: { ...DEMO_LIBRARY.series },
@@ -526,7 +535,6 @@ export class MockMediaStackApi implements MediaStackApi {
   private nextJellyseerrRequestId = 9100;
   private requestedKeys = new Set<string>();
   private libraryItems = DEMO_LIBRARY_ITEMS.map((item) => ({ ...item }));
-  private cronLogs = copyCronLogs(DEMO_CRON_LOGS);
   private automationScenario: AutomationScenario = 'default';
 
   setAutomationScenario(scenario: AutomationScenario): void {
@@ -543,21 +551,36 @@ export class MockMediaStackApi implements MediaStackApi {
   }
 
   resumeAll(): Promise<void> {
-    this.torrents = this.torrents.map((torrent) => {
-      const demo = DEMO_TORRENTS.find((demoTorrent) => demoTorrent.hash === torrent.hash);
-      return {
-        ...torrent,
-        state: torrent.progress >= 1 ? 'stoppedUP' : 'downloading',
-        dlspeed: demo?.dlspeed ?? 0,
-        upspeed: demo?.upspeed ?? 0,
-      };
-    });
+    this.torrents = this.torrents.map((torrent) => this.resumeTorrentDto(torrent));
     return Promise.resolve();
   }
 
+  pauseTorrent(id: string): Promise<void> {
+    this.torrents = this.torrents.map((torrent) =>
+      torrent.hash === id ? { ...torrent, state: 'paused', dlspeed: 0, upspeed: 0 } : torrent,
+    );
+    return Promise.resolve();
+  }
+
+  resumeTorrent(id: string): Promise<void> {
+    this.torrents = this.torrents.map((torrent) =>
+      torrent.hash === id ? this.resumeTorrentDto(torrent) : torrent,
+    );
+    return Promise.resolve();
+  }
+
+  private resumeTorrentDto(torrent: MediaStackTorrentDto): MediaStackTorrentDto {
+    const demo = DEMO_TORRENTS.find((demoTorrent) => demoTorrent.hash === torrent.hash);
+    return {
+      ...torrent,
+      state: torrent.progress >= 1 ? 'stoppedUP' : 'downloading',
+      dlspeed: demo?.dlspeed ?? 0,
+      upspeed: demo?.upspeed ?? 0,
+    };
+  }
+
   listCalendarEvents(): Promise<CalendarEvent[]> {
-    const events = this.calendar
-      .map((event) => ({ ...event }))
+    const events = demoCalendar()
       .sort((left, right) => (left.airDate ?? '').localeCompare(right.airDate ?? ''))
       .map(mapCalendarEvent);
     return Promise.resolve(events);
@@ -581,18 +604,26 @@ export class MockMediaStackApi implements MediaStackApi {
     return Promise.resolve(items);
   }
 
+  getLibraryStats(): Promise<LibraryStats> {
+    return Promise.resolve(mapLibraryStats({ ...DEMO_LIBRARY_STATS }));
+  }
+
+  getStorageOverview(): Promise<StorageOverview> {
+    return Promise.resolve(mapStorageOverview(demoStorageOverview()));
+  }
+
   getAutomationSummary(): Promise<AutomationSummary> {
     const summary =
       this.automationScenario === 'partial'
         ? PARTIAL_AUTOMATION_SUMMARY
         : this.automationScenario === 'empty'
-          ? { generatedAt: '2026-07-12T18:00:00Z', services: [], preview: [], problems: [] }
-          : DEMO_AUTOMATION_SUMMARY;
+          ? { generatedAt: new Date().toISOString(), services: [], preview: [], problems: [] }
+          : demoAutomationSummary();
     return Promise.resolve(mapAutomationSummary(structuredClone(summary)));
   }
 
   listCronLogs(): Promise<CronLogs> {
-    return Promise.resolve(mapCronLogs(copyCronLogs(this.cronLogs)));
+    return Promise.resolve(mapCronLogs(copyCronLogs(demoCronLogs())));
   }
 
   listHermesRecommendations(): Promise<HermesDiscover> {

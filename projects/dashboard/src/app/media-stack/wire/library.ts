@@ -10,3 +10,11 @@ export interface MediaStackLibraryItemDto {
   playable?: boolean;
   rating?: number | null;
 }
+
+/** Raw library stats payload from GET /jellyfin/stats. */
+export interface MediaStackLibraryStatsDto {
+  ok?: boolean;
+  movies?: number;
+  series?: number;
+  error?: string;
+}

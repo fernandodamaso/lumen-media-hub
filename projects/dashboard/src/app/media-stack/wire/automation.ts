@@ -9,6 +9,7 @@ export interface MediaStackAutomationServiceDto {
   name: string;
   status: string;
   detail?: string;
+  latencyMs?: number | null;
 }
 
 export interface MediaStackAutomationPreviewItemDto {

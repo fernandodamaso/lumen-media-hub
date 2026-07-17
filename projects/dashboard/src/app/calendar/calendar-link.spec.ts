@@ -11,7 +11,7 @@ describe('calendar API boundary', () => {
       hasFile: false,
       kind: 'episode',
     });
-    expect(episode).toEqual({
+    expect(episode).toMatchObject({
       id: 'Cowboy Bebop-S1 E5-2026-07-12T18:00:00Z',
       time: 'Jul 12',
       kind: 'episode',
@@ -20,6 +20,7 @@ describe('calendar API boundary', () => {
       status: 'pending',
       airDate: '2026-07-12T18:00:00Z',
     });
+    expect(episode.art).toContain('linear-gradient');
 
     const movie = mapCalendarEvent({
       title: 'Dune',

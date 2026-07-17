@@ -14,9 +14,10 @@ import {
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
-import { LibraryItem, LibraryItemKind } from '../library/library.models';
+import { LibraryItem, LibraryItemKind, LibraryStats } from '../library/library.models';
 import { AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
+import { StorageOverview } from '../storage/storage.models';
 import { MediaStackApi } from './media-stack-api';
 import { mapArrLibrary, mapCalendarEvent } from '../calendar/calendar-format';
 import { mapAutomationSummary } from '../automation/automation-format';
@@ -27,16 +28,20 @@ import {
   mapHermesDiscover,
   toDiscoverRequestPayloadDto,
 } from '../discover/discover-format';
-import { mapLibraryItem } from '../library/library-format';
+import { mapLibraryItem, mapLibraryStats } from '../library/library-format';
 import { mapTorrent } from '../downloads/downloads-format';
+import { mapStorageOverview } from '../storage/storage-format';
 import { MediaStackArrLibraryDto, MediaStackCalendarEventDto } from './wire/calendar';
 import { MediaStackCronLogsDto } from './wire/cron';
 import { MediaStackDiscoverActionDto, MediaStackExternalDiscoverDto, MediaStackHermesDiscoverDto } from './wire/discover';
+import { MediaStackLibraryStatsDto } from './wire/library';
 import {
   LiveAutomationSummary,
   LiveJellyfinListResponse,
+  LiveStorageVolume,
   mapLiveAutomationSummary,
   mapLiveJellyfinItem,
+  mapLiveStorageVolume,
   mapLiveTorrent,
 } from './live-api.mappers';
 import {
@@ -72,6 +77,14 @@ export class HttpMediaStackApi implements MediaStackApi {
 
   resumeAll(): Promise<void> {
     return this.postVoid('/start-all');
+  }
+
+  pauseTorrent(id: string): Promise<void> {
+    return this.postVoid('/qbt/torrents/stop', { id });
+  }
+
+  resumeTorrent(id: string): Promise<void> {
+    return this.postVoid('/qbt/torrents/start', { id });
   }
 
   listCalendarEvents(): Promise<CalendarEvent[]> {
@@ -135,6 +148,24 @@ export class HttpMediaStackApi implements MediaStackApi {
       );
       return mapAutomationSummary(mapLiveAutomationSummary(envelope as LiveAutomationSummary));
     });
+  }
+
+  getStorageOverview(): Promise<StorageOverview> {
+    return this.getSoftEnvelope<OkEnvelope & { generatedAt?: string; volumes?: LiveStorageVolume[] }>(
+      '/storage/overview',
+      (data) => {
+        requireArrayField(data as unknown as Record<string, unknown>, 'volumes', 'Malformed storage overview response');
+      },
+    ).then((data) =>
+      mapStorageOverview({
+        generatedAt: data.generatedAt,
+        volumes: (data.volumes ?? []).map((volume, index) => mapLiveStorageVolume(volume, index)),
+      }),
+    );
+  }
+
+  getLibraryStats(): Promise<LibraryStats> {
+    return this.getSoftEnvelope<OkEnvelope & MediaStackLibraryStatsDto>('/jellyfin/stats').then(mapLibraryStats);
   }
 
   listCronLogs(): Promise<CronLogs> {
@@ -234,9 +265,9 @@ export class HttpMediaStackApi implements MediaStackApi {
   }
 
   /** Void mutations: malformed, ok:false, and transport errors reject. */
-  private async postVoid(path: string): Promise<void> {
+  private async postVoid(path: string, body?: unknown): Promise<void> {
     try {
-      const data = await firstValueFrom(this.http.post<unknown>(`${this.base}${path}`, null));
+      const data = await firstValueFrom(this.http.post<unknown>(`${this.base}${path}`, body ?? null));
       const envelope = requireOkEnvelope(data, `Malformed response for POST ${path}`);
       if (envelope.ok === false) {
         throw new Error(envelope.error || `POST ${path} failed`);

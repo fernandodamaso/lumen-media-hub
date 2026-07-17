@@ -41,7 +41,7 @@ export type CronTriageInput = {
 };
 
 const QUIET_CORE =
-  /^(?:dry-run\s*[-–—:]\s*)?(nothing to check|checked \d+, no repairs needed|no stale\b.*|completed|no log file yet|log is empty|no recent runs)\.?$/i;
+  /^(?:dry-run\s*[-–—:]\s*)?(nothing to check|checked \d+, no repairs needed|no stale\b.*|completed|all services are healthy|no log file yet|log is empty|no recent runs)\.?$/i;
 
 const ACTIONABLE_DETAIL = /can be freed|\[delete\]|\[keep\]|blocker|fail|error/i;
 

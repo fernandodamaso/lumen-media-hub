@@ -3,9 +3,10 @@ import {
   LibraryArtworkState,
   LibraryItem,
   LibraryItemKind,
+  LibraryStats,
   formatLibraryMeta,
 } from './library.models';
-import { MediaStackLibraryItemDto } from '../media-stack/wire/library';
+import { MediaStackLibraryItemDto, MediaStackLibraryStatsDto } from '../media-stack/wire/library';
 
 export { formatLibraryMeta };
 
@@ -63,3 +64,12 @@ function resolveLibraryArt(posterUrl: string | undefined, artworkState: LibraryA
 
 export const libraryEmptyMessage = (kind: LibraryItemKind): string =>
   kind === 'movie' ? 'No movies in the demo library.' : 'No series in the demo library.';
+
+export const mapLibraryStats = (dto: MediaStackLibraryStatsDto): LibraryStats => ({
+  movies: normalizeCount(dto.movies),
+  series: normalizeCount(dto.series),
+});
+
+function normalizeCount(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}

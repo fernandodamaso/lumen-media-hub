@@ -185,6 +185,18 @@ class MockApi implements MediaStackApi {
   resumeAll() {
     return Promise.resolve();
   }
+  pauseTorrent() {
+    return Promise.resolve();
+  }
+  resumeTorrent() {
+    return Promise.resolve();
+  }
+  getLibraryStats() {
+    return Promise.resolve({ movies: 0, series: 0 });
+  }
+  getStorageOverview() {
+    return Promise.resolve({ generatedAt: '', volumes: [] });
+  }
   listCalendarEvents() {
     return Promise.resolve([]);
   }

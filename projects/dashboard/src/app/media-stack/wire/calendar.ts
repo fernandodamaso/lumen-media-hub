@@ -7,6 +7,10 @@ export interface MediaStackCalendarEventDto {
   hasFile?: boolean;
   kind?: 'episode' | 'movie';
   seriesId?: number;
+  monitored?: boolean;
+  premiere?: boolean;
+  status?: string;
+  art?: string;
 }
 
 export interface MediaStackArrLibraryDto {

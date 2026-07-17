@@ -12,6 +12,8 @@ describe('reports.models cron triage helpers', () => {
     expect(isQuietRun({ status: 'ok', detail: 'No stale entries; blocker: Radarr offline' })).toBe(false);
     expect(isQuietRun({ status: 'ok', detail: 'No stale cleanup: 2 GB can be freed' })).toBe(false);
     expect(isQuietRun({ status: 'ok', detail: 'No stale metadata found' })).toBe(true);
+    expect(isQuietRun({ status: 'ok', detail: 'All services are healthy' })).toBe(true);
+    expect(isQuietRun({ status: 'ok', detail: 'All services are healthy; fail reported' })).toBe(false);
     expect(isQuietRun({ exitCode: 1, detail: '' })).toBe(false);
     expect(isQuietRun({ exitCode: 0, detail: '' })).toBe(true);
   });

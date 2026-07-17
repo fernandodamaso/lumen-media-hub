@@ -6,6 +6,7 @@ import {
   MediaStackAutomationSummaryDto,
 } from './wire/automation';
 import { MediaStackLibraryItemDto } from './wire/library';
+import { MediaStackStorageVolumeDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
 
 /** Raw qBittorrent payload from GET /qbt/torrents. */
@@ -68,6 +69,7 @@ export interface LiveAutomationServiceBlock {
   wantedEpisodes?: number;
   wantedMovies?: number;
   wantedItems?: LiveAutomationPreviewItem[];
+  latencyMs?: number | null;
   error?: string;
 }
 
@@ -139,6 +141,11 @@ function serviceStatus(
   return { status: 'healthy', detail: 'Reachable' };
 }
 
+function liveLatency(block: LiveAutomationServiceBlock | undefined): number | null {
+  const value = block?.latencyMs;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
 function sonarrDetail(block: LiveAutomationServiceBlock | undefined): string {
   if (!block) return 'No data';
   if (block.error) return block.error;
@@ -205,24 +212,28 @@ export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStac
       name: 'Sonarr',
       status: serviceStatus(sonarr, sonarrDegraded).status,
       detail: sonarrDetail(sonarr),
+      latencyMs: liveLatency(sonarr),
     },
     {
       id: 'radarr',
       name: 'Radarr',
       status: serviceStatus(radarr, radarrDegraded).status,
       detail: radarrDetail(radarr),
+      latencyMs: liveLatency(radarr),
     },
     {
       id: 'prowlarr',
       name: 'Prowlarr',
       status: serviceStatus(prowlarr, prowlarrDegraded).status,
       detail: prowlarrDetail(prowlarr),
+      latencyMs: liveLatency(prowlarr),
     },
     {
       id: 'bazarr',
       name: 'Bazarr',
       status: serviceStatus(bazarr, bazarrDegraded).status,
       detail: bazarrDetail(bazarr),
+      latencyMs: liveLatency(bazarr),
     },
   ];
 
@@ -311,5 +322,29 @@ export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStac
     services,
     preview,
     problems,
+  };
+}
+
+/** Raw storage volume from GET /storage/overview. */
+export interface LiveStorageVolume {
+  id?: string;
+  label?: string;
+  name?: string;
+  kind?: string;
+  usedBytes?: number;
+  used?: number;
+  totalBytes?: number;
+  total?: number;
+}
+
+export function mapLiveStorageVolume(raw: LiveStorageVolume, index = 0): MediaStackStorageVolumeDto {
+  const used = Number(raw.usedBytes ?? raw.used);
+  const total = Number(raw.totalBytes ?? raw.total);
+  return {
+    id: raw.id ? String(raw.id) : `volume-${index}`,
+    label: raw.label ? String(raw.label) : raw.name ? String(raw.name) : 'Unnamed volume',
+    kind: typeof raw.kind === 'string' ? raw.kind : undefined,
+    usedBytes: Number.isFinite(used) ? used : 0,
+    totalBytes: Number.isFinite(total) ? total : 0,
   };
 }

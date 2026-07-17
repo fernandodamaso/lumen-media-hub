@@ -1,0 +1,106 @@
+:host { display: block; }
+
+.service-health h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--mm-component-text-primary);
+  font-size: var(--mm-text-heading);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.service-health h2 svg { color: var(--mm-component-accent); }
+
+.service-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.service-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--mm-component-border);
+  color: inherit;
+  text-decoration: none;
+  transition: color var(--mm-transition-fast);
+}
+.service-row:last-child { border-bottom: none; }
+.service-row:not([href]) { cursor: default; }
+.service-row[href]:hover { color: var(--mm-component-text-primary); }
+.service-row:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
+}
+
+.service-row__mark {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--mm-component-control-bg);
+  color: var(--mm-component-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.service-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mm-component-text-primary);
+  font-size: var(--mm-text-md);
+  font-weight: 500;
+}
+
+.service-row__status {
+  font-size: var(--mm-text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.service-row__status--healthy { color: var(--mm-component-success); }
+.service-row__status--degraded { color: var(--mm-component-warning); }
+.service-row__status--down,
+.service-row__status--unknown { color: var(--mm-component-danger); }
+
+.service-row__detail {
+  color: var(--mm-component-text-muted);
+  font-size: var(--mm-text-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.service-row > svg:last-child {
+  color: var(--mm-component-text-muted);
+}
+
+.service-row--skeleton {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.footer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mm-component-accent);
+  font-size: var(--mm-text-md);
+  font-weight: 700;
+  text-decoration: none;
+}
+.footer-link:hover { text-decoration: underline; }
+.footer-link:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
+}

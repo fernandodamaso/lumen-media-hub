@@ -96,7 +96,7 @@ describe('CalendarBoard', () => {
     fixture.detectChanges();
     const styles = componentStyles();
     expect(styles).toContain('@container (max-width: 420px)');
-    expect(styles).toMatch(/@container \(max-width: 420px\)[\s\S]*\.cal-row[\s\S]*gap:\s*12px/);
+    expect(styles).toMatch(/@container \(max-width: 420px\)[\s\S]*\.cal-row[\s\S]*gap:\s*10px/);
   });
 
   function findButton(label: string): HTMLButtonElement {

@@ -5,6 +5,12 @@
       <span>Upcoming</span>
     </h2>
   </div>
+  <div mm-card-header-actions>
+    <a class="header-link" [href]="calendarHref()" target="_blank" rel="noreferrer">
+      <span>View calendar</span>
+      <svg lucideExternalLink [size]="14" aria-hidden="true"></svg>
+    </a>
+  </div>
 
   @if (facade.status() === 'loading') {
     <div class="cal-skeleton" aria-hidden="true">
@@ -27,6 +33,8 @@
         <h3 class="date-heading">{{ group.label }}</h3>
         @for (event of group.events; track event.id) {
           <article class="cal-row">
+            <span class="cal-time">{{ formatTime(event.airDate, group.label) }}</span>
+            <span class="cal-thumb" aria-hidden="true" [style.background]="event.art"></span>
             <div class="cal-copy">
               <div class="cal-title-row">
                 @if (event.href) {
@@ -43,17 +51,19 @@
                   <span class="cal-title" [attr.title]="event.title">{{ event.title }}</span>
                 }
               </div>
-              <span class="cal-subtitle">{{ kindLabel(event.kind) }} · {{ formatTime(event.airDate) }} · {{ event.subtitle }}</span>
+              <span class="cal-subtitle">{{ kindLabel(event.kind) }} · {{ event.subtitle }}</span>
             </div>
-            @if (event.status === 'available') {
-              <span class="cal-status cal-status--available">
-                <span class="cal-status__dot" aria-hidden="true"></span>
-                {{ statusLabel(event.status) }}
-              </span>
-            }
+            <mm-status [tone]="statusView(event.status).tone">{{ statusView(event.status).label }}</mm-status>
           </article>
         }
       }
     </div>
   }
+
+  <ng-container mm-card-footer>
+    <a class="footer-link" [href]="calendarHref()" target="_blank" rel="noreferrer">
+      <span>View all upcoming</span>
+      <svg lucideChevronRight [size]="14" aria-hidden="true"></svg>
+    </a>
+  </ng-container>
 </mm-card>

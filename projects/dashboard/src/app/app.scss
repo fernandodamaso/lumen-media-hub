@@ -26,18 +26,21 @@
   top: 0;
   display: flex;
   flex-direction: column;
-  width: 236px;
-  flex: 0 0 236px;
+  width: 285px;
+  flex: 0 0 285px;
   height: 100dvh;
-  padding: 20px 16px 24px;
+  padding: 20px 20px 24px;
   overflow-y: auto;
   background: transparent;
   border-right: 1px solid var(--mm-component-border);
 }
 .sidebar__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 4px 18px; }
 .sidebar__nav { display: flex; flex-direction: column; padding-top: 4px; }
-.sidebar__footer { width: 100%; margin-top: auto; padding-top: 16px; border-top: 1px solid var(--mm-component-border); }
-.sidebar__nav a {
+.sidebar__services { display: flex; flex-direction: column; }
+.sidebar__footer { display: grid; gap: 14px; width: 100%; margin-top: auto; padding-top: 16px; border-top: 1px solid var(--mm-component-border); }
+.sidebar__nav a,
+.sidebar__services a {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -51,8 +54,63 @@
   text-decoration: none;
   transition: background var(--mm-transition-fast), color var(--mm-transition-fast);
 }
-.sidebar__nav a:hover { background: var(--mm-component-muted-bg); color: var(--mm-component-text-primary); }
-.sidebar__nav a.active { background: color-mix(in srgb, var(--mm-component-accent) 10%, transparent); color: var(--mm-component-accent); font-weight: 700; }
+.sidebar__nav a:hover,
+.sidebar__services a:hover {
+  background: var(--mm-component-muted-bg);
+  color: var(--mm-component-text-primary);
+}
+.sidebar__nav a.active {
+  background: color-mix(in srgb, var(--mm-component-accent-strong) 16%, transparent);
+  color: var(--mm-component-text-primary);
+  font-weight: 700;
+}
+.sidebar__nav a.active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+  background: var(--mm-component-accent-strong);
+}
+.sidebar__services a:not([href]) { cursor: default; }
+.sidebar__services .service-link { padding-block: 5px; margin: 0; }
+.service-mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--mm-component-control-bg);
+  color: var(--mm-component-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.service-dot {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--mm-component-text-muted);
+  opacity: 0.45;
+}
+.service-dot--healthy {
+  background: var(--mm-component-success);
+  opacity: 0.55;
+}
+.service-dot--degraded {
+  width: 7px;
+  height: 7px;
+  background: var(--mm-component-warning);
+  opacity: 1;
+}
+.service-dot--offline {
+  width: 7px;
+  height: 7px;
+  background: var(--mm-component-danger);
+  opacity: 1;
+}
 .brand { display: inline-flex; align-items: center; min-height: 40px; gap: 10px; color: inherit; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; text-decoration: none; }
 .brand-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--mm-semantic-accent-strong); color: var(--mm-semantic-on-accent); }
 .demo-badge { border: 1px solid var(--mm-component-border); border-radius: 999px; padding: 5px 10px; background: var(--mm-component-muted-bg); color: var(--mm-component-text-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
@@ -82,7 +140,11 @@
   .sidebar__nav { flex-direction: row; align-items: center; padding-top: 0; }
   .sidebar__footer { width: auto; margin-top: 0; margin-left: auto; padding-top: 0; border-top: 0; }
   .sidebar__nav a { flex: none; display: inline-flex; align-items: center; min-height: 44px; margin: 0; }
-  .nav-label { display: none; }
+  .service-link,
+  .nav-label,
+
+  .picker > span:first-child { display: none; }
+  .sidebar__services { display: none; }
   .nav-label-spaced { margin-top: 0; margin-left: 12px; }
   .content { padding: 24px; }
 }
@@ -95,5 +157,5 @@
 }
 
 @media (pointer: coarse) {
-  .brand, .sidebar__nav a { min-height: 44px; }
+  .brand, .sidebar__nav a, .sidebar__services a { min-height: 44px; }
 }

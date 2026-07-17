@@ -1,0 +1,40 @@
+<header class="dashboard-header">
+  <div class="page-intro">
+    <h1>Dashboard</h1>
+    <div class="page-meta">
+      <p class="subtitle">Your media stack at a glance</p>
+      <span class="sync-status" aria-live="polite">
+        <span class="sync-status__dot" aria-hidden="true"></span>
+        <span>Synced {{ syncedAt() }}</span>
+        <button
+          type="button"
+          class="refresh-btn"
+          aria-label="Refresh dashboard data"
+          title="Refresh"
+          (click)="refresh.emit()"
+        >
+          <svg lucideRefreshCw [size]="14" aria-hidden="true"></svg>
+        </button>
+      </span>
+    </div>
+  </div>
+
+  <div class="header-actions">
+    <label class="search-field" for="dashboard-search">
+      <svg lucideSearch [size]="18" aria-hidden="true"></svg>
+      <input
+        id="dashboard-search"
+        type="search"
+        placeholder="Search movies, shows, people…"
+        autocomplete="off"
+        (keydown)="onSearchKeydown($event)"
+        (change)="submitSearch($event)"
+        #searchInput
+      />
+    </label>
+
+    <mm-button label="Request media" icon="plus" (click)="requestMedia.emit()" />
+    <mm-button label="Open Jellyfin" variant="quiet" icon="external-link" (click)="openJellyfin.emit()" />
+
+  </div>
+</header>

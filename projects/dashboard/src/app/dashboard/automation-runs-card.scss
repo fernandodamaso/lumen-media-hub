@@ -1,0 +1,111 @@
+:host { display: block; }
+
+.runs h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--mm-component-text-primary);
+  font-size: var(--mm-text-heading);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.runs h2 svg { color: var(--mm-component-accent); }
+
+.runs-table {
+  display: grid;
+  gap: 0;
+}
+
+.runs-table__head {
+  border-bottom: 1px solid var(--mm-component-border);
+}
+
+.run-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 2fr) auto;
+  align-items: center;
+  gap: var(--mm-space-md);
+  padding: 12px 0;
+  border-bottom: 1px solid var(--mm-component-border);
+}
+.run-row:last-child { border-bottom: none; }
+
+.run-row--head {
+  padding: 8px 0;
+}
+.run-row--head span {
+  color: var(--mm-component-text-muted);
+  font-size: var(--mm-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.run-cell {
+  min-width: 0;
+  color: var(--mm-component-text-secondary);
+  font-size: var(--mm-text-md);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-cell--job {
+  display: grid;
+  gap: 1px;
+}
+.run-job {
+  color: var(--mm-component-text-primary);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-job-meta {
+  color: var(--mm-component-text-muted);
+  font-size: var(--mm-text-xs);
+  font-weight: 500;
+}
+
+.run-cell--details {
+  color: var(--mm-component-text-secondary);
+}
+
+.run-cell--time {
+  color: var(--mm-component-text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.run-row--skeleton {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.footer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mm-component-accent);
+  font-size: var(--mm-text-md);
+  font-weight: 700;
+  text-decoration: none;
+}
+.footer-link:hover { text-decoration: underline; }
+.footer-link:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .run-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--mm-space-sm);
+  }
+  .run-row--head { display: none; }
+  .run-cell--details,
+  .run-cell--time { display: none; }
+}

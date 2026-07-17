@@ -10,6 +10,7 @@
         <span class="demo-badge" [attr.aria-label]="modeLabel + ' mode'">{{ modeLabel }}</span>
       </div>
       <div class="sidebar__nav">
+        <span class="nav-label">Workspace</span>
         <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
           <svg lucideLayoutDashboard [size]="18" aria-hidden="true"></svg>
           <span>Dashboard</span>
@@ -22,6 +23,29 @@
           <svg lucideCompass [size]="18" aria-hidden="true"></svg>
           <span>Discover</span>
         </a>
+      </div>
+
+      <div class="sidebar__services">
+        <span class="nav-label nav-label-spaced">Services</span>
+        @for (service of services; track service.id) {
+          <a
+            class="service-link"
+            [href]="service.href"
+            target="_blank"
+            rel="noreferrer"
+            [attr.aria-label]="service.name + ', ' + service.statusLabel"
+          >
+            <span class="service-mark" aria-hidden="true">{{ service.initial }}</span>
+            <span>{{ service.name }}</span>
+            <span
+              class="service-dot"
+              [class.service-dot--healthy]="service.status === 'healthy'"
+              [class.service-dot--degraded]="service.status === 'degraded'"
+              [class.service-dot--offline]="service.status === 'offline'"
+              aria-hidden="true"
+            ></span>
+          </a>
+        }
       </div>
       <div class="sidebar__footer">
         <mm-theme-picker />

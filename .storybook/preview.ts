@@ -1,4 +1,5 @@
-import type { Preview } from '@storybook/angular';
+import { provideRouter } from '@angular/router';
+import { applicationConfig, type Preview } from '@storybook/angular';
 
 function applyTheme(theme: string): void {
   document.documentElement.dataset['theme'] = theme;
@@ -15,7 +16,7 @@ const preview: Preview = {
   globalTypes: {
     theme: {
       description: 'Global dashboard UI theme',
-      defaultValue: 'github-dark-pro',
+      defaultValue: 'nocturne',
       toolbar: {
         icon: 'paintbrush',
         items: [
@@ -27,8 +28,11 @@ const preview: Preview = {
     },
   },
   decorators: [
+    applicationConfig({
+      providers: [provideRouter([])],
+    }),
     (story, context) => {
-      applyTheme(String(context.globals['theme'] ?? 'github-dark-pro'));
+      applyTheme(String(context.globals['theme'] ?? 'nocturne'));
       return story();
     },
   ],

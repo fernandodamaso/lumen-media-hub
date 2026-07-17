@@ -1,42 +1,42 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { LucideArrowDown, LucideArrowUp, LucideDownload } from '@lucide/angular';
+import { LucideArrowDown, LucideArrowUp, LucideDownload, LucideExternalLink, LucideLoaderCircle, LucidePause, LucidePlay } from '@lucide/angular';
 import { MmButton, MmCard, MmProgress, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
-import { formatBytes, formatEta, formatRate, groupTorrents, TORRENT_STATE_VIEW } from './downloads-format';
-import { DownloadsFacade } from './downloads.facade';
-import { TorrentState } from './downloads.models';
+import { SERVICE_LINK_BASES, ServiceLinkBases } from '../media-stack/media-stack-api.providers';
+import { formatBytes, formatEta, formatRate, groupTorrents, torrentArt } from './downloads-format';
+import { DownloadsAction, DownloadsFacade } from './downloads.facade';
 
 @Component({
   selector: 'mm-downloads-board',
-  imports: [MmButton, MmCard, MmProgress, MmSkeleton, MmStateCard, MmStatus, LucideArrowDown, LucideArrowUp, LucideDownload],
+  imports: [MmButton, MmCard, MmProgress, MmSkeleton, MmStateCard, MmStatus, LucideArrowDown, LucideArrowUp, LucideDownload, LucideExternalLink, LucideLoaderCircle, LucidePause, LucidePlay],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './downloads-board.html',
   styleUrl: './downloads-board.scss',
 })
 export class DownloadsBoard {
   readonly facade = inject(DownloadsFacade);
+  private readonly linkBases = inject(SERVICE_LINK_BASES);
   readonly torrentSkeletons = [0, 1];
   readonly groups = computed(() => groupTorrents(this.facade.torrents()));
-  readonly showGroupHeadings = computed(() => this.groups().length > 1);
-  readonly hasActive = computed(() => this.facade.torrents().some((torrent) => torrent.state === 'downloading'));
-  readonly hasPaused = computed(() => this.facade.torrents().some((torrent) => torrent.state === 'paused'));
   readonly formatBytes = formatBytes;
   readonly formatRate = formatRate;
   readonly formatEta = formatEta;
+  readonly torrentArt = torrentArt;
 
   constructor() {
     this.facade.startPolling();
   }
 
-  stateView(state: TorrentState) {
-    return TORRENT_STATE_VIEW[state];
+  qbittorrentHref(): string | null {
+    const base = (this.linkBases as ServiceLinkBases).qbittorrent?.replace(/\/$/, '');
+    return base ? `${base}/` : null;
   }
 
-  pauseAll(): void {
-    void this.facade.runAction('pause');
+  runAction(action: DownloadsAction): void {
+    void this.facade.runAction(action);
   }
 
-  resumeAll(): void {
-    void this.facade.runAction('resume');
+  runTorrentAction(id: string, action: DownloadsAction): void {
+    void this.facade.runTorrentAction(id, action);
   }
 
   retry(): void {

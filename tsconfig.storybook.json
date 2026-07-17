@@ -5,6 +5,7 @@
   },
   "include": [
     ".storybook/**/*.ts",
-    "projects/dashboard/src/app/ui/**/*.stories.ts"
+    "projects/dashboard/src/app/ui/**/*.stories.ts",
+    "projects/dashboard/src/app/dashboard/**/*.stories.ts"
   ]
 }

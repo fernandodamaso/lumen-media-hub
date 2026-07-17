@@ -5,6 +5,17 @@ import { MmThemePicker, ThemeService } from '@app/ui';
 
 import { environment } from '../environments/environment';
 
+type ServiceStatus = 'healthy' | 'degraded' | 'offline';
+
+interface ServiceNavItem {
+  id: string;
+  name: string;
+  initial: string;
+  href: string | null;
+  status: ServiceStatus;
+  statusLabel: string;
+}
+
 @Component({
   selector: 'app-root',
   imports: [RouterLink, RouterLinkActive, RouterOutlet, MmThemePicker, LucideLayoutDashboard, LucideFileText, LucideCompass],
@@ -14,4 +25,14 @@ import { environment } from '../environments/environment';
 export class App {
   readonly themeService = inject(ThemeService);
   readonly modeLabel = environment.modeLabel;
+
+  readonly services: ServiceNavItem[] = [
+    { id: 'jellyfin', name: 'Jellyfin', initial: 'J', href: null, status: 'healthy', statusLabel: 'Healthy' },
+    { id: 'sonarr', name: 'Sonarr', initial: 'S', href: null, status: 'healthy', statusLabel: 'Healthy' },
+    { id: 'radarr', name: 'Radarr', initial: 'R', href: null, status: 'healthy', statusLabel: 'Healthy' },
+    { id: 'prowlarr', name: 'Prowlarr', initial: 'P', href: null, status: 'degraded', statusLabel: 'Degraded' },
+    { id: 'sabnzbd', name: 'SABnzbd', initial: 'S', href: null, status: 'offline', statusLabel: 'Offline' },
+    { id: 'qbittorrent', name: 'qBittorrent', initial: 'q', href: null, status: 'healthy', statusLabel: 'Healthy' },
+    { id: 'bazarr', name: 'Bazarr', initial: 'B', href: null, status: 'healthy', statusLabel: 'Healthy' },
+  ];
 }

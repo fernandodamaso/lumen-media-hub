@@ -1,8 +1,8 @@
 # Browser acceptance (Demo, desktop)
 
-Run against `npm start` at ~1440×900. Check only behaviors reachable in the default Demo UI.
+Run against `npm start` at 1920×1080 and 1440×900. Check only behaviors reachable in the default Demo UI.
 
-Verified 2026-07-15 during architecture correction round on feat/architecture-api-ready.
+Verified 2026-07-16 during the Nocturne ops-console redesign on the main dashboard branch.
 
 ## Navigation
 
@@ -13,9 +13,10 @@ Verified 2026-07-15 during architecture correction round on feat/architecture-ap
 
 ## Home hierarchy
 
-- [x] Library is the hero region; downloads + automation sit in operations; calendar is the supporting rail
+- [x] Header, metric cards, attention banner, and 3-column grid (downloads/runs, calendar, health/storage) render at 1920×1080
+- [x] Layout adapts cleanly at 1440×900 without header wrapping or clipped controls
 - [x] Grid remains readable with representative mock content
-- [x] Theme picker is usable from the top bar
+- [x] Theme picker is usable from the sidebar footer
 
 ## Themes
 

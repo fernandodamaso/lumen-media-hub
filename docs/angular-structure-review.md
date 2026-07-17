@@ -1,232 +1,197 @@
 # Angular structure review
 
-Review of how well this project follows modern Angular practice: overall structure, component usage, and gaps worth closing.
+Review of the structure, component boundaries, and missing modern Angular practices in `projects/dashboard`.
 
-**Scope:** `projects/dashboard` (Angular 22)  
-**Date:** 2026-07-16
-
----
+**Angular version:** 22.0.6
+**Reviewed:** 2026-07-16
 
 ## Overall verdict
 
-This is a **well-structured, genuinely modern Angular project** — above average for a codebase this size. The layering in [architecture.md](./architecture.md) is actually followed in code: feature folders own UI + facades + domain models, `media-stack` owns the API port/adapters, and `app/ui` is a real design system rather than a junk drawer.
+This is a well-structured, genuinely modern Angular application. Its architecture is stronger than its current hardening: feature ownership, standalone components, signal-based state, the facade boundary, the API port/adapters, and the local design system are all good choices. The remaining problems are not a reason to redesign the project or introduce a heavier state-management layer.
 
-You are already on the right side of current Angular practice: standalone bootstrap, signals/`computed`, `input()`/`output()`, OnPush, `@if`/`@for`, `inject()`, and component-scoped facades. Boards and pages mostly stay thin; data and mutations sit in facades behind `MEDIA_STACK_API`. That is the correct weight for this app — no NgRx, no NgModules, no fake `shared/` layer.
+The main weaknesses are compiler/tooling strictness, HTTP payload validation, polling concurrency, and a handful of component semantics and accessibility details. Those make the project closer to **7.5/10 overall** than “near-perfect,” even though its structural direction is very good.
 
-The main gaps are polish and hardening, not rearchitecture: lazy routes, `strictTemplates`, angular-eslint, safer async/polling, cleaner primitive APIs (`MmButton` events, `MmCard` lifecycle), and optional zoneless when you are ready.
+| Area | Assessment | Why |
+|---|---:|---|
+| Feature and dependency structure | 8.5/10 | Clear feature ownership and a real two-adapter API seam |
+| Component composition | 8.5/10 | Thin route hosts and reusable primitives; a few concrete semantic/lifecycle problems |
+| Async and API robustness | 6.5/10 | Good facade shape, but polling can overlap and runtime validation is incomplete |
+| Tooling and compiler safeguards | 7/10 | Good tests and Storybook; strict templates and Angular template linting are absent |
 
-**Structure is a strength; remaining work is incremental upgrades, not a redesign.**
-
-Rough scores:
-
-| Axis | Score | Notes |
-|------|-------|--------|
-| Structure / layering | ~8/10 | Feature-first, port/adapter, docs match code |
-| Component usage | ~7.5/10 | Strong container/presentation split; a few primitive smells |
-| Modern idioms | High | Applied as house style, not one-off experiments |
-
----
+The appropriate response is a staged hardening plan, not a broad rearchitecture.
 
 ## What is working well
 
-### 1. Feature-first layout (not folder-by-type)
+### Feature-first ownership
 
-The classic trap of `components/`, `services/`, `models/` is avoided. Each area owns its board/page, facade, models, formatters, and tests:
+Each feature owns its page or board, facade, domain models, format helpers, and tests. This avoids generic `components`, `services`, and `models` dumping grounds:
 
 ```text
 app/
-  shell (app.ts, routes, config)
-  ui/                 design system
-  media-stack/        API port + adapters
-  downloads|library|calendar|…   features
+  app.*                         application shell
+  ui/                           shared design-system primitives and tokens
+  media-stack/                  transport port, adapters, providers, wire DTOs
+  dashboard|downloads|library|calendar|automation|reports|discover/
+                                 feature UI, state, domain/display transforms
 ```
 
-That matches Angular’s current guidance for scalable apps and the project’s own architecture doc.
-
-### 2. Modern Angular idioms — applied consistently
-
-| Practice | Status |
-|----------|--------|
-| Standalone components (no NgModules) | Yes |
-| `bootstrapApplication` + `ApplicationConfig` | Yes |
-| Signal inputs (`input()` / `input.required()`) | Yes |
-| Signal outputs (`output()`) | Mostly (e.g. `DiscoverCard`) |
-| Signals + `computed` for UI state | Yes |
-| `@if` / `@for` / `@switch` control flow | Yes |
-| `inject()` DI | Yes |
-| `ChangeDetectionStrategy.OnPush` | Consistently on boards, pages, primitives |
-| Injection token API port | Yes (`MEDIA_STACK_API`) |
-| Component-scoped facades (`providers: […]` on pages) | Yes |
-
-Naming follows the post-v20 style (e.g. `discover-page.ts`, no mechanical `Component` suffix). Accessibility is taken seriously (skip link, labelled regions, `aria-live`, focus styles).
-
-### 3. Clear layering: UI → facade → port → adapter
+The existing boundaries are useful and understandable:
 
 ```text
-Boards/pages  →  Feature facades (signals)  →  MediaStackApi  →  Mock | HTTP
-                     ↑ domain models in feature folders
-                     wire DTOs stay in media-stack/wire
+page/board -> feature facade -> MediaStackApi port -> HTTP | mock adapter
+                                      |
+                                transport/wire DTOs
 ```
 
-- **Port:** `MediaStackApi` + `MEDIA_STACK_API` token  
-- **Adapters:** `MockMediaStackApi` / `HttpMediaStackApi` selected by environment providers  
-- **Wire DTOs:** quarantined under `media-stack/wire/`  
-- **Facades:** private writable signals, public `asReadonly()`, derivations via `computed`
+`MediaStackApi` is a justified seam because it has two real adapters. Components do not inject `HttpClient`, and demo/live selection happens at the provider boundary.
 
-Boards stay mostly presentational; facades own loading/error/empty and mutations. That is the right depth for this app size and is why demo/live modes and port-mocked tests work cleanly.
+### Modern Angular is the project default
 
-### 4. Design system is used properly
+The application consistently uses:
 
-`app/ui` is a real primitive layer (`MmCard`, `MmButton`, `MmPoster`, `MmStateCard`, `MmSkeleton`, theme tokens), exported via `@app/ui`, documented in Storybook with a11y. Boards consistently compose these instead of reinventing chrome.
+- standalone bootstrap and components, with no NgModules;
+- signals and `computed` for view state;
+- signal inputs and outputs;
+- built-in `@if`, `@for`, and `@switch` control flow;
+- `inject()` and component-scoped facade providers;
+- `ChangeDetectionStrategy.OnPush` throughout feature and UI components;
+- typed feature facades exposing readonly signals;
+- route pages as composition roots rather than data-access components.
 
-### 5. Engineering hygiene
+This is coherent house style rather than isolated modernization.
 
-- Facade and contract tests beside features  
-- Demo vs live via environment + providers  
-- Provider-parity specs (demo → mock, live → HTTP)  
-- Storybook + a11y addon + test-runner for UI primitives  
-- Explicit UI state machines (`loading | ready | empty | error`)
+### Components are generally used at the right level
 
-### Composition example
+- Pages provide route-scoped facades and wire feature interactions.
+- Boards render cohesive dashboard features.
+- `DiscoverCard` is a strong presentational component with typed inputs/outputs and no API knowledge.
+- `app/ui` is a real, reused primitive layer rather than a catch-all folder.
+- Storybook remains the canonical design-system showcase and includes interaction and accessibility coverage.
 
-The home page is a thin orchestrator — pure composition, which is what a container should look like:
+The current component count and facade size do not justify adding NgRx, a generic store framework, or more abstraction layers.
 
-```ts
-// dashboard-page.ts
-@Component({
-  selector: 'mm-dashboard-page',
-  imports: [CalendarBoard, DownloadsBoard, LibraryBoard, AutomationBoard],
-  providers: [CalendarFacade, DownloadsFacade, LibraryFacade, AutomationFacade],
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  templateUrl: './dashboard-page.html',
-  styleUrl: './dashboard-page.scss',
-})
-export class DashboardPage {}
-```
+### Testing and environment seams are unusually good
 
----
+The repository has colocated facade/contract tests, mock and HTTP adapters, provider-parity tests, production build budgets, Storybook, and Storybook accessibility/interaction checks. The current validation baseline passes lint, 31 Vitest files / 221 tests, the production build, the Storybook build, and 8 Storybook suites / 33 tests. The Storybook test run does emit a Jest haste collision warning because a second `package.json` exists under `.worktrees`.
 
-## Component architecture
+## Reconciliation with the other reviews
 
-```text
-App (shell nav + theme)
-└─ Router
-   ├─ DashboardPage          providers: 4 facades
-   │   ├─ LibraryBoard       → LibraryFacade → API
-   │   ├─ CalendarBoard      → CalendarFacade → API
-   │   ├─ DownloadsBoard     → DownloadsFacade → API
-   │   └─ AutomationBoard    → AutomationFacade → API
-   ├─ ReportsPage            → ReportsFacade
-   └─ DiscoverPage           → DiscoverFacade
-       └─ DiscoverCard*      pure presentational
+### Agree and add to the review
 
-@app/ui: MmCard, MmButton, MmPoster, MmStateCard, …
-media-stack: MEDIA_STACK_API → Mock | Http
-```
+| Feedback | Reconciled assessment |
+|---|---|
+| Enable TypeScript `strict` | Agree. The individual flags do not enable `strictNullChecks`; enable `strict: true` and remediate resulting errors deliberately. It is a small config edit, not necessarily a one-line implementation. |
+| Enable `strictTemplates` | Strongly agree. This is the highest-value missing Angular compiler safeguard. Angular recommends strict template checking, and it follows TypeScript nullability rules. |
+| Add OnPush to the root component | Agree, but low risk/effort. `App` is the only component missing the project convention. |
+| Lazy-load routes | Agree with qualification: keep the primary dashboard eager and lazy-load `/reports` and `/discover`. Angular recommends eager loading primary landing pages and lazy loading other pages. |
+| Move to zoneless | Agree as a staged migration. Angular 21+ is zoneless by default, while this app explicitly opts back into ZoneJS. Signals and OnPush make it a good candidate, but tests, router behavior, Storybook, timers, and third-party components still need verification. |
+| Add angular-eslint | Agree. Add TypeScript and template processors/rules, including selector consistency, accessibility, and OnPush enforcement. Rules only catch what is explicitly configured. |
+| Remove the non-null assertion in `AutomationFacade` | Agree. Read `_summary()` once and narrow it; the current double read plus `!` is unnecessary. |
+| Replace `MmCard` DOM probing | Strongly agree. `AfterViewChecked` plus `querySelector` runs on every check even though the stylesheet already has enough `:has()` structure to hide empty regions declaratively. Delete the hook and rely on CSS. |
+| Harden polling and stale responses | Strongly agree. Several `setInterval` callbacks can start a second request before the first finishes. Reuse the request-generation/in-flight pattern already present in `ReportsFacade`. |
+| Remove blocking initial navigation | Agree for this client-rendered app. There is no SSR/hydration requirement that justifies `withEnabledBlockingInitialNavigation()`. |
 
-### Smart vs presentational split
+References: [Angular template type checking](https://angular.dev/tools/cli/template-typecheck), [Angular compiler options](https://angular.dev/reference/configs/angular-compiler-options), [lazy-loaded routes](https://angular.dev/best-practices/performance/lazy-loaded-routes), and [zoneless Angular](https://angular.dev/guide/zoneless).
 
-| Layer | Role | Quality |
-|-------|------|---------|
-| **Pages** (`DashboardPage`, `DiscoverPage`, `ReportsPage`) | Route hosts, provide facades, wire events | Clean |
-| **Boards** (`*Board`) | Feature widgets on the home grid | Clean; slightly thick templates |
-| **Cards** (`DiscoverCard`) | Reusable feature presentational pieces | Strong (`input`/`output`/`computed`) |
-| **UI primitives** | Design-system atoms | Strong overall; see exceptions below |
+### Agree with important qualifications
 
-`DiscoverCard` is a model presentational component: required inputs, typed outputs, derived `computed`s, no API knowledge.
+| Feedback | Qualification |
+|---|---|
+| “No manual subscriptions, therefore no leaks” | Avoiding unmanaged subscriptions is good, but it does not prove leak- or race-free behavior. Timers are cleaned up, yet overlapping promises and late responses remain correctness risks. |
+| “The API layer is exemplary” | The port/adapter structure is excellent. Runtime decoding is not yet exemplary: several validators check only the envelope or that a field is an array, then mapping code accepts or fabricates missing values. Each array member and required field should be validated at the transport boundary. |
+| Use RxJS polling with `timer`/`exhaustMap` | RxJS is a valid option, not a required best practice. The smaller change is to serialize or version the existing promise-based polling. Adopt RxJS only if cancellation, retries, backoff, or composition make it materially simpler. |
+| Pause polling while the page is hidden | Potential optimization, not a current correctness requirement. Add it only after measuring unnecessary traffic or documenting a freshness policy. |
+| Move initialization out of constructors | Explicit lifecycle methods can improve clarity, but constructor location is not the main defect. First fix overlapping and stale work; then standardize start/stop ownership where it simplifies tests. |
+| Split `MediaStackApi` or `DiscoverFacade` | Do not split for line count. The port is still coherent and earns its abstraction through two adapters. Extract only when a domain has an independent lifecycle or the API surface changes at a different cadence. |
 
----
+### Do not adopt now
 
-## Component usage — exceptions
+| Feedback | Decision |
+|---|---|
+| Add `withFetch()` | Do not do this. In Angular 22, Fetch is already the default `HttpClient` backend and `withFetch()` is deprecated as unnecessary. See [`provideHttpClient`](https://angular.dev/api/common/http/provideHttpClient) and [`withFetch`](https://angular.dev/api/common/http/withFetch). |
+| Convert local formatting functions to pipes | Not justified. Pure local functions used by OnPush templates are clear; pipes would add files and indirection without solving a demonstrated problem. |
+| Replace `MmButton.label` with projected content now | Current call sites use plain text and the input supports a consistent busy state. Projection becomes worthwhile if rich labels or localization markup actually appear. The current API is not a material defect. |
+| Move all wire-to-domain mapping into `media-stack` | Preserve the intended ownership: `media-stack` validates transport/wire shapes; features own domain and display transformations. The HTTP adapter may compose those transformations without moving feature policy into transport code. |
+| Adopt `resource`/`httpResource` broadly | Optional, not an objective. Existing facades express mutation, polling, partial data, and cached state clearly. Migrate only where a concrete facade becomes simpler. |
+| Add interceptors, `@defer`, `NgOptimizedImage`, route-level providers, or a shared `UiStatus` | These are conditional tools, not missing practices. Add them only when authentication/headers, measured performance, real image URLs, provider lifetime, or actual shared behavior requires them. |
 
-Presentation/container split is respected; primitives are small, OnPush, signal-driven, and Storybook-covered. Three exceptions stand out:
+## Concrete gaps to fix
 
-### 1. `MmCard` — real anti-pattern
+### 1. Compiler and lint safeguards
 
-**Where:** `ui/card.ts` (`AfterViewChecked` + `querySelector`)
+`tsconfig.json` does not enable TypeScript `strict` or Angular `strictTemplates`. The ESLint configuration also lacks Angular TypeScript/template rules. This allows nullability and template mistakes that the framework can catch before runtime.
 
-It probes its own DOM on every change-detection pass just to hide empty header/footer regions. That hook fires constantly and reaches into the DOM imperatively.
+Add strictness as its own change, fix only errors it exposes, then add angular-eslint with a deliberately chosen rule set. Also align the `mm-` selector convention with the Angular schematic/lint configuration instead of leaving `angular.json` at the unrelated `app` prefix.
 
-**Idiomatic fixes:**
+### 2. HTTP boundary validation and partial availability
 
-- Signal-based content queries (`contentChildren` / `contentChild`), or  
-- Pure CSS (`:empty` / `:has()` on the wrappers the slots project into)
+`requireArrayField` proves that a field is an array, but not that its elements match the endpoint contract. Several mappers then default required values to empty strings, `unknown`, composite fallback IDs, or the current timestamp. This can turn backend contract drift into plausible-looking UI data.
 
-### 2. `MmButton` — label input instead of content projection
+The adapter should:
 
-**Where:** `ui/button.ts` (`label` input)
+- validate each successful endpoint payload and every array member;
+- distinguish optional display data from required identity/state fields;
+- reject malformed required data instead of manufacturing identity or freshness;
+- preserve explicit `{ ok: false }` semantics where the feature contract needs them;
+- represent partial library availability rather than silently returning the successful half as though both sources loaded.
 
-For a design-system primitive, `<ng-content>` is the more flexible, conventional choice. A text `input` blocks markup (icons + labels, wrapping, i18n spans). Host `(click)` also relies on DOM bubbling rather than a designed `output()`.
+Keep transport decoding in `media-stack`; keep feature/domain transformations in their feature folders. Do not introduce a repository-per-endpoint layer.
 
-**Preferred shape:**
+### 3. Polling concurrency and stale writes
 
-- Projected content for the label  
-- Explicit `output()` (or a clear host binding) for actions  
-- Inputs only for variants, busy/disabled, type
+`DownloadsFacade`, `CalendarFacade`, `AutomationFacade`, and `DiscoverFacade` can overlap interval-triggered requests. Tab/source guards in Discover prevent some cross-tab writes, but they do not prevent an older request for the same source from overwriting a newer result. `ReportsFacade` already demonstrates the right local pattern with a request generation counter and retained last-good data.
 
-### 3. Side effects in constructors + thick boards
+Use one consistent policy per facade:
 
-- Boards/facades start polling or `refresh()` from constructors — common but harder to test than an explicit `start()` / `afterNextRender` convention  
-- Some board templates (downloads, discover) are multi-state “mini pages”; fine today, extract list rows / tab chrome if they keep growing
+- never overlap scheduled polls for the same resource;
+- ignore responses from superseded requests;
+- retain last-good data on refresh failure;
+- keep initial-load errors distinct from refresh/mutation notices;
+- stop timers on destruction, as the project already does.
 
----
+### 4. Primitive semantics and accessibility
 
-## Practices not applied (or only partially)
+Concrete issues:
 
-Ordered by impact vs effort.
+- `MmCard` mutates the DOM during `AfterViewChecked`; delete this and use the existing CSS structure.
+- `MmStatus` always creates a live region via `role="status"`, including static decorative badges and nested live regions. Make live announcement behavior opt-in.
+- Discover source buttons use `role="radio"` without radio-group keyboard behavior. The simpler native solution is ordinary buttons with `aria-pressed`; otherwise implement roving focus and arrow-key navigation fully.
+- `MmPoster` owns an `<article>`, which can create inappropriate nested/duplicate article semantics when consumers already own the content container. Make the primitive's wrapper neutral.
+- `MmThemePicker` should clear its pending timeout on destruction.
 
-### High value
+These changes should be captured in component specs and Storybook accessibility checks.
 
-| Gap | Why it matters | Direction |
-|-----|----------------|-----------|
-| **No route lazy-loading** | All feature pages are static imports in `app.routes.ts` | `loadComponent: () => import('…')` for `/`, `/reports`, `/discover` |
-| **`strictTemplates` not enabled** | Root `angularCompilerOptions` has injection strictness but no `strictTemplates` | Enable `strictTemplates: true` (and ideally `strictStandalone`) |
-| **Still Zone.js** | `provideZoneChangeDetection` + zone polyfill | Move toward `provideZonelessChangeDetection()` once tests cover CD; OnPush + signals already prepare this |
-| **No Angular ESLint template rules** | Only `typescript-eslint` | Add `angular-eslint` for templates, selectors, a11y rules |
-| **Async race / cancellation** | Facades `await` without abort/version tokens; polling uses `setInterval` | `AbortController`, generation counters, or RxJS `switchMap`/`exhaustMap` so slow responses cannot overwrite newer state |
+### 5. Route loading and change detection
 
-### Medium value
+Keep `/` eager because it is the primary landing route. Convert `/reports` and `/discover` to `loadComponent`, and remove blocking initial navigation unless SSR/hydration is introduced later. Add OnPush to `App`.
 
-| Gap | Notes |
-|-----|--------|
-| **`resource` / `httpResource`** | Optional. Hand-rolled status signals are clear; migrate only where it reduces code. |
-| **God-port `MediaStackApi`** | Fine while small; split by domain if the surface grows. |
-| **Dependency direction: `media-stack` → features** | HTTP adapter imports mappers from feature `*-format` modules. Pragmatic for one app; cleaner to keep wire→domain mapping inside `media-stack`. |
-| **Fat `DiscoverFacade` (~400 lines)** | State + polling + multi-tab caches + request sync — candidate for smaller stores behind one facade. |
-| **Inconsistent init** | Library refreshes in facade ctor; downloads start polling from the board. Pick one convention. |
-| **Selector prefix** | `angular.json` prefix is `app`; components use `mm-`. Align schematics or document the dual convention. |
+Move zoneless in a separate, reversible commit after the strictness and async work. Because Angular 22 is zoneless by default, the migration is principally removal of the explicit ZoneJS opt-in, build/test polyfills, and dependency—not adding deprecated or redundant provider configuration.
 
-### Lower priority
+### 6. Documentation and end-to-end confidence
 
-- `NgOptimizedImage` when real poster URLs land  
-- Functional interceptors if shared headers/logging appear (auth intentionally stays on the proxy — correct)  
-- `@defer` for below-the-fold home boards if LCP becomes an issue  
-- Shared `UiStatus` type across facades to avoid per-feature string drift  
+`docs/architecture.md` still describes an optional browser-facing `ACTIONS_TOKEN`, while the current architecture deliberately keeps mutation credentials in the proxy/server boundary. Correct that drift. Add a small route smoke test covering direct navigation to `/`, `/reports`, and `/discover`; the existing unit and Storybook coverage does not exercise the application as a routed whole.
 
----
+## Practices that should remain unchanged
 
-## What not to add
+- Keep standalone components, signals, built-in control flow, and component-scoped facades.
+- Keep Storybook as the design-system showcase.
+- Keep one `MediaStackApi` port while the surface remains cohesive and both mock/HTTP adapters are valuable.
+- Keep feature-owned domain/display models and transformations.
+- Do not add NgRx, NgModules, a generic `shared`/`core` hierarchy, generated API clients without a backend contract, or browser token handling.
+- Do not split components or facades merely to reduce line counts.
 
-- No generic `shared/` / `core/` dumping grounds until something has a real cross-cutting job  
-- No NgModules  
-- No NgRx/Akita for this app size — feature facades + signals are the right weight  
-- No OpenAPI client until the backend has a contract  
-- No browser auth interceptor (proxy owns the token)
+## Recommended order
 
----
+1. Compiler strictness and Angular ESLint.
+2. HTTP contract validation and explicit partial availability.
+3. Polling/stale-response correctness.
+4. Component semantics and accessibility.
+5. Lazy routes, non-blocking navigation, then zoneless as a separate gate.
+6. Documentation cleanup and an application route smoke test.
 
-## Highest-ROI next steps
+The executable work packages, files, acceptance criteria, validation matrix, and rollback boundaries are in [angular-structure-improvements-implementation-plan.md](../plans/angular-structure-improvements-implementation-plan.md).
 
-1. Enable **`strictTemplates`**.  
-2. **Lazy-load** route components.  
-3. Add **angular-eslint** (templates + a11y).  
-4. Harden facade **async/polling cancellation**.  
-5. Fix primitive APIs: `MmCard` lifecycle DOM work; `MmButton` content projection + explicit outputs.  
-6. Optionally move toward **zoneless** once the suite is green under it.
+## Related documents
 
----
-
-## Related docs
-
-- [architecture.md](./architecture.md) — workspace layout, data flow, modes, routes  
-- [plans/angular-architecture-api-ready-refactor.md](../plans/angular-architecture-api-ready-refactor.md) — intended structure and constraints  
+- [architecture.md](./architecture.md)
+- [angular-architecture-api-ready-refactor.md](../plans/angular-architecture-api-ready-refactor.md)

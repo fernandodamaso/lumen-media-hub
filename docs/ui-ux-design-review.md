@@ -88,6 +88,22 @@ Loop: coder subagent reviewed screenshots of all pages at 1920/1440/390 → tria
 
 Skipped with reasons: Reports/Discover sparse-data emptiness (KPI strip deferred feature), "3 actionable runs" pill (deliberate ops summary), Library footer count (footer alignment), "Untitled Cut" year (deliberate demo case). Specs updated for repaired tone, 2-up grid, and Pause/Resume state disabling. 221/221 tests pass; eslint clean.
 
+## Nocturne ops-console redesign (fixes 44–50)
+
+Rebuilt the `/` dashboard and shell to a premium dark "Nocturne" spec: developer-tool aesthetic, restrained semantic color, high information density, no glassmorphism or heavy gradients.
+
+| # | Fix |
+|---|-----|
+| 44 | New Nocturne token palette in `media-ui.scss` and flattened card surfaces (`card.scss`) |
+| 45 | 285px fixed sidebar with `WORKSPACE`, `SERVICES`, and `SYSTEM` groups; left-indicator active nav; Demo-data toggle footer |
+| 46 | Dashboard header with search (⌘K shortcut), "Request media", "Open Jellyfin", and user avatar |
+| 47 | Four metric cards (Library / Downloads / Services / Storage) with icon containers, tabular numerals, and progress bar |
+| 48 | Service-attention banner with muted red tint; 3-column home grid (≈42% / 27% / 31%) |
+| 49 | New cards: Active downloads, Recent automation runs, Upcoming, Service health, Storage overview |
+| 50 | Storybook stories for all new dashboard components; docs updated |
+
+Data layer extended to support the new cards: `getStorageOverview`, `getLibraryStats`, per-torrent pause/resume, `AutomationService.latencyMs`, calendar status/art, and `SERVICE_LINK_BASES`.
+
 ## Out of scope (intentional)
 
 Light themes, responsive certification below 960px, and per-torrent download controls remain product non-goals. Deferred premium ideas: route view transitions, theme-picker swatches, poster art direction (hash-based duotone mesh gradients), URL-synced filter state, Reports KPI strip.

@@ -15,7 +15,7 @@ Open [http://localhost:4200/](http://localhost:4200/). Default startup uses in-p
 
 | Route | Surface |
 |-------|---------|
-| `/` | Asymmetric home dashboard (library, downloads, automation, calendar) |
+| `/` | Nocturne ops dashboard: metrics, attention banner, active downloads, recent runs, upcoming calendar, service health, storage |
 | `/reports` | Status-weighted automation / cron triage |
 | `/discover` | Hermes, Jellyseerr, and Trakt recommendations |
 | Storybook | Design-system showcase — `npm run storybook` → [http://localhost:6006/](http://localhost:6006/) |
@@ -81,7 +81,7 @@ Representative Demo captures (local showcase):
 
 ![Storybook gallery](docs/screenshots/storybook.png)
 
-See [docs/screenshots/README.md](docs/screenshots/README.md) to regenerate.
+The Home dashboard was rebuilt to the Nocturne ops-console spec (fixed 285px sidebar, 12-column grid, metric cards, service health, storage overview). Screenshots are regenerated after each major visual pass; see [docs/screenshots/README.md](docs/screenshots/README.md).
 
 ## Non-goals
 

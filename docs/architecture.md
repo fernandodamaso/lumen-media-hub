@@ -9,7 +9,7 @@ Single Angular app (`dashboard`) owning the shell, feature boards, design system
 | `app/` shell | Bootstrap, routes, layout, navigation, environment providers |
 | `app/ui` | Design tokens, primitives, theme picker, Storybook stories |
 | `app/media-stack` | `MediaStackApi` port, mock/HTTP adapters, providers, wire DTOs + mappers |
-| Feature folders | Domain/display models, facades, boards/pages for `dashboard`, `downloads`, `reports`, `discover`, `library`, `calendar`, `automation` |
+| Feature folders | Domain/display models, facades, boards/pages for `dashboard`, `downloads`, `reports`, `discover`, `calendar`, `automation`; shared service-health and storage facades feed the home dashboard |
 
 ## Data flow
 
@@ -43,7 +43,7 @@ Public static hosting (GitHub Pages) remains deferred and is not packaged from t
 
 | Path | Feature |
 |------|---------|
-| `/` | Asymmetric home: library hero, operations column, calendar rail |
+| `/` | Nocturne ops dashboard: metrics, attention banner, active downloads, recent automation runs, upcoming calendar, service health, storage overview |
 | `/reports` | Cron log triage |
 | `/discover` | Hermes / Jellyseerr / Trakt |
 | `/dashboard` | Redirects to `/` |

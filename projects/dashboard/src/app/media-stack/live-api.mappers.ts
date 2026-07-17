@@ -122,14 +122,7 @@ export function requireLiveTorrent(raw: unknown, index = 0): ValidatedLiveQbtTor
   }
 
   const progress = requireFiniteNumberField(raw, 'progress', index);
-  const size =
-    typeof raw['size'] === 'number' && Number.isFinite(raw['size'])
-      ? raw['size']
-      : typeof raw['total_size'] === 'number' && Number.isFinite(raw['total_size'])
-        ? raw['total_size']
-        : (() => {
-            throw new Error(`Malformed torrents response: member ${index} is missing size`);
-          })();
+  const size = requireSizeField(raw, index);
   const dlspeed = requireFiniteNumberField(raw, 'dlspeed', index);
   const upspeed = requireFiniteNumberField(raw, 'upspeed', index);
   const eta = requireFiniteNumberField(raw, 'eta', index);
@@ -143,13 +136,15 @@ export function requireLiveTorrent(raw: unknown, index = 0): ValidatedLiveQbtTor
     amount_left = amountLeftRaw;
   }
 
+  // Optional: absent/null is fine; a present non-string value is rejected (no silent drop).
   const categoryRaw = raw['category'];
-  const category =
-    categoryRaw === undefined || categoryRaw === null
-      ? undefined
-      : typeof categoryRaw === 'string'
-        ? categoryRaw
-        : undefined;
+  let category: string | undefined;
+  if (categoryRaw !== undefined && categoryRaw !== null) {
+    if (typeof categoryRaw !== 'string') {
+      throw new Error(`Malformed torrents response: member ${index} has invalid category`);
+    }
+    category = categoryRaw;
+  }
 
   return {
     hash,
@@ -175,6 +170,18 @@ function requireFiniteNumberField(
     throw new Error(`Malformed torrents response: member ${index} is missing ${field}`);
   }
   return value;
+}
+
+function requireSizeField(raw: Record<string, unknown>, index: number): number {
+  const size = raw['size'];
+  if (typeof size === 'number' && Number.isFinite(size)) {
+    return size;
+  }
+  const totalSize = raw['total_size'];
+  if (typeof totalSize === 'number' && Number.isFinite(totalSize)) {
+    return totalSize;
+  }
+  throw new Error(`Malformed torrents response: member ${index} is missing size`);
 }
 
 export function mapLiveTorrent(raw: unknown, index = 0): MediaStackTorrentDto {

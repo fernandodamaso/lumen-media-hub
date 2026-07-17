@@ -7,6 +7,8 @@ export type DownloadsAction = 'pause' | 'resume';
 
 const REFRESH_ERROR = 'Could not refresh downloads. Showing last loaded queue.';
 const LOAD_ERROR = 'Downloads are temporarily unavailable. Try again.';
+/** Bound scheduled polls so a hung `/qbt/torrents` request cannot lock out later ticks. */
+export const SCHEDULED_REFRESH_TIMEOUT_MS = 15_000;
 
 @Injectable()
 export class DownloadsFacade {
@@ -62,17 +64,7 @@ export class DownloadsFacade {
       this._error.set('');
     } catch {
       if (requestId !== this.requestId) return;
-      const hasPrior = this._status() === 'ready' || this._status() === 'empty';
-      if (!initial && hasPrior) {
-        this._error.set(REFRESH_ERROR);
-        return;
-      }
-      this._status.set('error');
-      this._error.set(LOAD_ERROR);
-      this._notice.set('');
-      if (initial) {
-        this._torrents.set([]);
-      }
+      this.applyRefreshFailure(initial);
     } finally {
       if (requestId === this.requestId) this._refreshing.set(false);
     }
@@ -112,10 +104,36 @@ export class DownloadsFacade {
   private async runScheduledRefresh(initial: boolean): Promise<void> {
     if (this.scheduledInFlight) return;
     this.scheduledInFlight = true;
+    const refreshPromise = this.refresh({ initial });
+    const startedRequestId = this.requestId;
     try {
-      await this.refresh({ initial });
+      await Promise.race([refreshPromise, rejectAfter(SCHEDULED_REFRESH_TIMEOUT_MS)]);
+    } catch {
+      // Only timeouts reject here — refresh() handles API failures without rethrowing.
+      // Invalidate the hung generation so a late settle cannot overwrite newer state,
+      // and clear the in-flight lock so the next interval can poll again.
+      if (this._refreshing() && this.requestId === startedRequestId) {
+        this.requestId++;
+        this._refreshing.set(false);
+        this.applyRefreshFailure(initial);
+      }
     } finally {
       this.scheduledInFlight = false;
+    }
+  }
+
+  private applyRefreshFailure(initial: boolean): void {
+    const hasPrior = this._status() === 'ready' || this._status() === 'empty';
+    if (!initial && hasPrior) {
+      this._error.set(REFRESH_ERROR);
+      this._notice.set('');
+      return;
+    }
+    this._status.set('error');
+    this._error.set(LOAD_ERROR);
+    this._notice.set('');
+    if (initial) {
+      this._torrents.set([]);
     }
   }
 
@@ -123,4 +141,10 @@ export class DownloadsFacade {
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = undefined;
   }
+}
+
+function rejectAfter(ms: number): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Scheduled download refresh timed out')), ms);
+  });
 }

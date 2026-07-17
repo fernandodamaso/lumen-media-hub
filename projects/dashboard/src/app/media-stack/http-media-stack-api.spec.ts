@@ -68,6 +68,22 @@ describe('live-api.mappers', () => {
     ).toThrow(/missing progress/);
   });
 
+  it('rejects qbt torrents with a non-string category', () => {
+    expect(() =>
+      mapLiveTorrent({
+        hash: 'abc',
+        name: 'Film',
+        state: 'downloading',
+        progress: 0.5,
+        size: 100,
+        dlspeed: 10,
+        upspeed: 2,
+        eta: 30,
+        category: 12,
+      }),
+    ).toThrow(/invalid category/);
+  });
+
   it('maps jellyfin items with artwork state', () => {
     expect(mapLiveJellyfinItem({ id: '1', name: 'Dune', year: 2021, image: '/img' }, 'movie')).toEqual({
       id: '1',

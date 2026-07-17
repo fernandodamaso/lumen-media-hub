@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { DownloadTorrent } from './downloads.models';
-import { DownloadsFacade } from './downloads.facade';
+import { DownloadsFacade, SCHEDULED_REFRESH_TIMEOUT_MS } from './downloads.facade';
 
 const torrent: DownloadTorrent = {
   id: 'a',
@@ -96,6 +96,45 @@ describe('DownloadsFacade', () => {
     await vi.advanceTimersByTimeAsync(200);
     expect(api.listCalls).toBe(2);
     vi.useRealTimers();
+  });
+
+  it('recovers scheduled polling after a hung refresh times out', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred } = Promise.withResolvers<DownloadTorrent[]>();
+    api.nextResponse = deferred;
+
+    // Keep the poll interval longer than the hang timeout so interval ticks do not
+    // restart refreshes while we assert timeout recovery.
+    facade.startPolling(SCHEDULED_REFRESH_TIMEOUT_MS + 1_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.listCalls).toBe(1);
+    expect(facade.refreshing()).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
+    expect(facade.refreshing()).toBe(false);
+    expect(facade.status()).toBe('error');
+    expect(facade.error()).toContain('temporarily unavailable');
+
+    api.nextResponse = undefined;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(api.listCalls).toBe(2);
+    expect(facade.status()).toBe('ready');
+    expect(facade.refreshing()).toBe(false);
+
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
+  });
+
+  it('clears a success notice when a later background refresh fails', async () => {
+    await facade.refresh({ initial: true });
+    await facade.runAction('pause');
+    expect(facade.notice()).toBe('All downloads paused.');
+
+    api.failure = true;
+    await facade.refresh();
+    expect(facade.status()).toBe('ready');
+    expect(facade.error()).toContain('Showing last loaded queue');
+    expect(facade.notice()).toBe('');
   });
 
   it('prevents conflicting actions and refreshes after success', async () => {

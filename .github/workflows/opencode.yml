@@ -31,3 +31,7 @@ jobs:
           KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
         with:
           model: kimi-for-coding/k3
+          prompt: |
+            Review the pull request or issue comment. Do NOT modify, create,
+            or commit any files. Only post your findings (code quality, potential
+            bugs, improvements) as a comment back to the PR/issue.

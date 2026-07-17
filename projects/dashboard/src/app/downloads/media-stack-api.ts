@@ -116,11 +116,6 @@ export const DEFAULT_JELLYFIN_LINK_BASES: Required<JellyfinLinkBases> = {
   jellyfinBase: '',
 };
 
-/** Explicit no-op bases for static/Pages builds and tests. */
-export const DISABLED_JELLYFIN_LINK_BASES: Required<JellyfinLinkBases> = {
-  jellyfinBase: '',
-};
-
 export const JELLYFIN_LINK_BASES = new InjectionToken<JellyfinLinkBases>('JELLYFIN_LINK_BASES', {
   providedIn: 'root',
   factory: () => ({ ...DEFAULT_JELLYFIN_LINK_BASES }),
@@ -241,12 +236,6 @@ export interface CalendarLinkBases {
 
 /** Disabled by default; local Demo/live inject bases from environment. */
 export const DEFAULT_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
-  sonarrBase: '',
-  radarrBase: '',
-};
-
-/** Explicit no-op bases for static/Pages builds and tests. */
-export const DISABLED_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
   sonarrBase: '',
   radarrBase: '',
 };
@@ -397,10 +386,6 @@ export const isQuietRun = (
   if (/^(?:dry-run\s*[-–—:]\s*)?no .+\.?$/i.test(detail) && !/error|fail|warn/i.test(detail)) return true;
   return false;
 };
-
-export const isActionableRun = (
-  run: Pick<MediaStackCronLogRunDto, 'status' | 'applied' | 'fatal' | 'detail' | 'exitCode'>,
-): boolean => !isQuietRun(run);
 
 export const normalizeCronRun = (
   job: Pick<MediaStackCronLogEntryDto, 'id' | 'title'> & Partial<Pick<MediaStackCronLogEntryDto, 'schedule'>>,

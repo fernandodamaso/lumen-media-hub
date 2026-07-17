@@ -4,15 +4,14 @@
 
 | Project | Role |
 |---------|------|
-| `dashboard` | Shell app: routes, feature facades, mock/HTTP adapters |
-| `media-ui` | Shared theme tokens, primitives, theme picker, Storybook stories |
+| `dashboard` | Shell app: routes, feature facades, mock/HTTP adapters, UI primitives |
 
 ## Data flow
 
 ```text
 MediaStackApi (port)
         │
-        ├── MockMediaStackApi     ← Demo default / Pages packaging
+        ├── MockMediaStackApi     ← Demo default
         └── HttpMediaStackApi     ← live serve only (`start:live`)
                 │
          Feature facades
@@ -20,7 +19,7 @@ MediaStackApi (port)
          Boards / pages
 ```
 
-Providers are selected in [media-stack-api.providers.ts](../projects/dashboard/src/app/downloads/media-stack-api.providers.ts) from [environment.ts](../projects/dashboard/src/environments/environment.ts). The Pages configuration file-replaces providers with a mock-only module so the HTTP client adapter is not bundled.
+Providers are registered in [app.config.ts](../projects/dashboard/src/app/app.config.ts) from [environment.ts](../projects/dashboard/src/environments/environment.ts) (Demo) or the live file replacement.
 
 ## Modes
 
@@ -28,7 +27,6 @@ Providers are selected in [media-stack-api.providers.ts](../projects/dashboard/s
 |------|-----|-----|------------------------|
 | Demo | `npm start` | Mock | Local Jellyfin / Sonarr / Radarr bases from environment |
 | Live | `npm run start:live` | HTTP → `:8085` via `/api` proxy | Same local bases |
-| Pages package | `npm run build:pages` | Mock only | **Disabled** (empty bases → `href: null`) |
 
 Empty calendar bases must not fall back to relative `/series/...` or `/movie/...` URLs. Resolvers treat a missing or blank base as “no link.”
 
@@ -51,11 +49,10 @@ Empty calendar bases must not fall back to relative `/series/...` or `/movie/...
 
 ## Themes
 
-Tokens live in `media-ui` SCSS. Three dark themes: Nocturne, Tokyo Night, GitHub Dark Pro.
+Tokens live in Dashboard-owned UI SCSS (`projects/dashboard/src/app/ui`). Three dark themes: Nocturne, Tokyo Night, GitHub Dark Pro.
 
 ## Testing strategy
 
 - Contract and facade specs beside each feature
 - Shell navigation and home composition specs
-- Storybook for primitive keyboard / theme interaction (manual)
-- `build:pages` hygiene scan for static packaging readiness
+- `/ui` catalog plus Vitest coverage for primitive keyboard / theme interaction

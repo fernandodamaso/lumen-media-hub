@@ -5,6 +5,7 @@ import {
   MediaStackApi,
   MediaStackLibraryItemDto,
   MediaStackTorrentDto,
+  DEFAULT_LIBRARY_ART,
 } from '../downloads/media-stack-api';
 import { LibraryFacade } from './library.facade';
 
@@ -79,7 +80,7 @@ describe('LibraryFacade', () => {
         title: 'Dune',
         kind: 'movie',
         year: 2021,
-        posterUrl: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
+        posterUrl: DEFAULT_LIBRARY_ART,
       },
       {
         id: 'jf-season',
@@ -142,7 +143,7 @@ class MockApi implements MediaStackApi {
       title: 'Dune',
       kind: 'movie',
       year: 2021,
-      posterUrl: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
+      posterUrl: DEFAULT_LIBRARY_ART,
     },
     {
       id: 'jf-night',

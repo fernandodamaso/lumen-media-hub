@@ -21,7 +21,6 @@ const FEEDBACK_OPTIONS: {
 ];
 
 @Component({
-  standalone: true,
   selector: 'mm-discover-card',
   imports: [MmButton, MmPoster, MmStatus, LucideThumbsUp, LucideThumbsDown, LucideEye, LucideSkipForward],
   changeDetection: ChangeDetectionStrategy.OnPush,

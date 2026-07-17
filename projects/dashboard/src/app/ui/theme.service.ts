@@ -1,5 +1,5 @@
 import { DOCUMENT } from '@angular/common';
-import { computed, effect, inject, Injectable, signal } from '@angular/core';
+import { effect, inject, Injectable, signal } from '@angular/core';
 
 export const MEDIA_UI_THEMES = ['nocturne', 'tokyo-night', 'github-dark-pro'] as const;
 export type MediaUiTheme = (typeof MEDIA_UI_THEMES)[number];
@@ -15,8 +15,6 @@ const THEME_SURFACE_COLOR: Record<MediaUiTheme, string> = {
 export class ThemeService {
   private readonly document = inject(DOCUMENT);
   readonly theme = signal<MediaUiTheme>(this.readInitialTheme());
-  readonly themes = MEDIA_UI_THEMES;
-  readonly themeLabel = computed(() => this.theme().replaceAll('-', ' '));
 
   constructor() {
     effect(() => this.applyTheme(this.theme()));

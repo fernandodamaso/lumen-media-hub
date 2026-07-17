@@ -7,8 +7,6 @@ module.exports = [
       'dist/**',
       '.angular/**',
       'node_modules/**',
-      '.storybook/**',
-      'storybook-static/**',
       '.worktrees/**',
       '**/.worktrees/**',
       'docs/mockups/**',

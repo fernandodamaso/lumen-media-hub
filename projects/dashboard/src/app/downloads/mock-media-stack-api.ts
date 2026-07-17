@@ -18,6 +18,7 @@ import {
   MediaStackLibraryItemDto,
   MediaStackTorrentDto,
   TraktDiscoverType,
+  DEFAULT_LIBRARY_ART,
 } from './media-stack-api';
 
 const DEMO_TORRENTS: MediaStackTorrentDto[] = [
@@ -87,7 +88,7 @@ const DEMO_LIBRARY_ITEMS: MediaStackLibraryItemDto[] = [
     kind: 'movie',
     year: 2021,
     overview: 'A mythic desert world and the fight for its spice.',
-    posterUrl: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
+    posterUrl: DEFAULT_LIBRARY_ART,
     playable: true,
   },
   {

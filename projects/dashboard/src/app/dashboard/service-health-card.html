@@ -1,0 +1,54 @@
+<mm-card class="service-health" labelledBy="service-health-heading">
+  <div mm-card-header>
+    <h2 id="service-health-heading">
+      <svg lucideActivity [size]="18" aria-hidden="true"></svg>
+      <span>Service health</span>
+    </h2>
+  </div>
+
+  @if (facade.status() === 'loading') {
+    <div class="service-list service-list--skeleton" aria-hidden="true">
+      @for (i of skeletonRows; track i) {
+        <div class="service-row service-row--skeleton">
+          <mm-skeleton variant="text" width="120px" height="14px" />
+          <mm-skeleton variant="text" width="64px" height="14px" />
+        </div>
+      }
+    </div>
+  } @else if (facade.status() === 'error') {
+    <mm-state-card kind="error" title="Service health unavailable" [message]="facade.error()" tone="danger">
+      <mm-button label="Try again" (click)="retry()" />
+    </mm-state-card>
+  } @else if (facade.services().length === 0) {
+    <mm-state-card kind="empty" title="No services reported" message="Service status will appear once the automation summary is available." />
+  } @else {
+    <ul class="service-list" aria-live="polite">
+      @for (service of facade.services(); track service.id) {
+        <li>
+          <a
+            class="service-row"
+            [href]="serviceHref(service.id)"
+            [attr.target]="serviceHref(service.id) ? '_blank' : null"
+            [attr.rel]="serviceHref(service.id) ? 'noreferrer' : null"
+            [attr.aria-label]="service.name + ', ' + statusLabel(service.status) + ', ' + statusDetail(service)"
+          >
+            <span class="service-row__mark" aria-hidden="true">{{ service.name.charAt(0) }}</span>
+            <span class="service-row__name">{{ service.name }}</span>
+            <span class="service-row__status" [class]="'service-row__status--' + service.status">
+              {{ statusLabel(service.status) }}
+            </span>
+            <span class="service-row__detail">{{ statusDetail(service) }}</span>
+            <svg lucideChevronRight [size]="16" aria-hidden="true"></svg>
+          </a>
+        </li>
+      }
+    </ul>
+  }
+
+  <ng-container mm-card-footer>
+    <a class="footer-link" routerLink="/reports">
+      <svg lucideSettings [size]="14" aria-hidden="true"></svg>
+      <span>Manage services</span>
+    </a>
+  </ng-container>
+</mm-card>

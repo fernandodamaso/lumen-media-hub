@@ -1,0 +1,23 @@
+<a class="metric-card" [href]="href()" [attr.target]="external() ? '_blank' : null" [attr.rel]="external() ? 'noreferrer' : null">
+  <span class="metric-card__icon" [style.background]="iconBg()" [style.color]="iconColor()">
+    @switch (iconName()) {
+      @case ('folder') { <svg lucideFolder [size]="22" aria-hidden="true"></svg> }
+      @case ('download') { <svg lucideDownload [size]="22" aria-hidden="true"></svg> }
+      @case ('activity') { <svg lucideActivity [size]="22" aria-hidden="true"></svg> }
+      @case ('hard-drive') { <svg lucideHardDrive [size]="22" aria-hidden="true"></svg> }
+    }
+  </span>
+  <span class="metric-card__body">
+    <span class="metric-card__label">{{ label() }}</span>
+    <span class="metric-card__value">{{ value() }}</span>
+    @if (meta()) {
+      <span class="metric-card__meta">{{ meta() }}</span>
+    }
+    @if (progress() !== null) {
+      <span class="metric-card__progress">
+        <span class="metric-card__progress-bar" [style.width.%]="progress()"></span>
+      </span>
+    }
+  </span>
+  <svg lucideChevronRight [size]="20" aria-hidden="true"></svg>
+</a>

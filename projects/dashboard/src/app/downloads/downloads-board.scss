@@ -1,0 +1,243 @@
+:host { display: block; }
+
+.downloads h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--mm-component-text-primary);
+  font-size: var(--mm-text-heading);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.downloads h2 svg { color: var(--mm-component-accent); }
+
+.header-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
+.notice { margin: 0 0 14px; }
+
+.torrent-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.torrent {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--mm-component-border);
+}
+.torrent:first-child { padding-top: 0; }
+.torrent:last-child { border-bottom: none; }
+
+.torrent--skeleton {
+  display: flex;
+  gap: 14px;
+}
+.torrent--skeleton .torrent-body {
+  display: grid;
+  gap: 10px;
+  flex: 1;
+}
+.torrent--skeleton .torrent-head,
+.torrent--skeleton .torrent-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.torrent-thumb {
+  flex: none;
+  width: 55px;
+  height: 78px;
+  border-radius: 6px;
+  background: var(--mm-component-muted-bg);
+}
+
+.torrent-body {
+  display: grid;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.torrent-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.torrent-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.torrent-title h3 {
+  margin: 0;
+  color: var(--mm-component-text-primary);
+  font-size: var(--mm-text-md);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category {
+  flex-shrink: 0;
+  color: var(--mm-component-text-muted);
+  font-size: var(--mm-text-xs);
+  font-weight: 600;
+}
+
+.torrent-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.torrent-status mm-button {
+  --mm-button-min-height: 28px;
+}
+
+.torrent-percent {
+  min-width: 42px;
+  color: var(--mm-component-text-primary);
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.torrent-line {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.torrent-line mm-progress {
+  flex: 1;
+  min-width: 0;
+}
+
+.torrent-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--mm-component-text-secondary);
+  font-size: var(--mm-text-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.torrent-meta svg {
+  vertical-align: -2px;
+}
+
+.meta-size,
+.meta-rates,
+.meta-eta {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta-size { color: var(--mm-component-text-secondary); }
+
+.meta-rates {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.meta-down { color: var(--mm-component-accent); }
+.meta-up { color: var(--mm-component-text-muted); }
+.meta-eta { color: var(--mm-component-text-muted); }
+
+.torrent-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--mm-component-border);
+  border-radius: 6px;
+  padding: 0;
+  background: var(--mm-component-control-bg);
+  color: var(--mm-component-text-secondary);
+  cursor: pointer;
+  transition: background var(--mm-transition-fast), color var(--mm-transition-fast);
+}
+.torrent-action:hover:not(:disabled) {
+  background: var(--mm-component-muted-bg);
+  color: var(--mm-component-text-primary);
+}
+.torrent-action:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.torrent-action:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
+}
+
+.seeding-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 6px;
+  color: var(--mm-component-success);
+  font-size: var(--mm-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.seeding-indicator {
+  width: 3px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--mm-component-success);
+}
+
+.footer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mm-component-accent);
+  font-size: var(--mm-text-md);
+  font-weight: 700;
+  text-decoration: none;
+}
+.footer-link:hover { text-decoration: underline; }
+.footer-link:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
+}
+
+@container (max-width: 420px) {
+  .torrent {
+    flex-direction: column;
+  }
+  .torrent-thumb {
+    width: 100%;
+    height: 120px;
+  }
+  .torrent-meta {
+    flex-wrap: wrap;
+  }
+}

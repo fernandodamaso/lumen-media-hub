@@ -1,4 +1,4 @@
-import { MediaStackDiscoverItemDto } from '../downloads/media-stack-api';
+import { DiscoverItem } from './discover.models';
 import {
   matchesHistoryFilter,
   resolveRequestAction,
@@ -6,7 +6,7 @@ import {
   toHermesCardItem,
 } from './discover-format';
 
-function hermesItem(overrides: Partial<MediaStackDiscoverItemDto> = {}): MediaStackDiscoverItemDto {
+function hermesItem(overrides: Partial<DiscoverItem> = {}): DiscoverItem {
   return {
     id: 'item-1',
     source: 'hermes',

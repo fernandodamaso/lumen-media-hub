@@ -1,8 +1,20 @@
 import {
+  DiscoverAction,
   DiscoverFeedback,
+  DiscoverItem,
+  DiscoverRequestPayload,
+  ExternalDiscover,
+  ExternalDiscoverItem,
+  HermesDiscover,
+} from './discover.models';
+import {
+  MediaStackDiscoverActionDto,
   MediaStackDiscoverItemDto,
+  MediaStackDiscoverRequestPayloadDto,
+  MediaStackExternalDiscoverDto,
   MediaStackExternalDiscoverItemDto,
-} from '../downloads/media-stack-api';
+  MediaStackHermesDiscoverDto,
+} from '../media-stack/wire/discover';
 
 export type DiscoverHistoryFilter = 'all' | DiscoverFeedback | 'requested';
 
@@ -29,7 +41,7 @@ export type DiscoverCardItem = {
   rating?: number | null;
 };
 
-export function toHermesCardItem(item: MediaStackDiscoverItemDto): DiscoverCardItem {
+export function toHermesCardItem(item: DiscoverItem): DiscoverCardItem {
   return {
     id: item.id,
     title: item.title,
@@ -51,7 +63,7 @@ export function mediaIdentityKey(type: DiscoverCardItem['type'], tmdbId: number)
 }
 
 export function toExternalCardItem(
-  item: MediaStackExternalDiscoverItemDto,
+  item: ExternalDiscoverItem,
   source: string,
   requestedKeys: ReadonlySet<string> = new Set(),
 ): DiscoverCardItem {
@@ -111,7 +123,7 @@ export function resolveRequestAction(
   };
 }
 
-export function matchesHistoryFilter(item: MediaStackDiscoverItemDto, filter: DiscoverHistoryFilter): boolean {
+export function matchesHistoryFilter(item: DiscoverItem, filter: DiscoverHistoryFilter): boolean {
   if (filter === 'all') return true;
   if (filter === 'requested') return item.request_state === 'requested';
   if (filter === 'watched') return item.feedback === 'watched' || item.feedback === 'liked';
@@ -125,6 +137,32 @@ export function posterArtFor(item: Pick<DiscoverCardItem, 'title' | 'posterUrl'>
   const hue = hashHue(item.title);
   return `linear-gradient(145deg, hsl(${hue} 42% 42%), var(--mm-component-card-bg) 70%)`;
 }
+
+export const mapDiscoverItem = (dto: MediaStackDiscoverItemDto): DiscoverItem => ({ ...dto });
+
+export const mapExternalDiscoverItem = (dto: MediaStackExternalDiscoverItemDto): ExternalDiscoverItem => ({
+  ...dto,
+});
+
+export const mapHermesDiscover = (dto: MediaStackHermesDiscoverDto): HermesDiscover => ({
+  ok: dto.ok,
+  items: (dto.items ?? []).map(mapDiscoverItem),
+  pending_request_sync: dto.pending_request_sync,
+  generation_request: dto.generation_request,
+  error: dto.error,
+});
+
+export const mapExternalDiscover = (dto: MediaStackExternalDiscoverDto): ExternalDiscover => ({
+  ok: dto.ok,
+  items: (dto.items ?? []).map(mapExternalDiscoverItem),
+  error: dto.error,
+});
+
+export const mapDiscoverAction = (dto: MediaStackDiscoverActionDto): DiscoverAction => ({ ...dto });
+
+export const toDiscoverRequestPayloadDto = (
+  payload: DiscoverRequestPayload,
+): MediaStackDiscoverRequestPayloadDto => ({ ...payload });
 
 export function formatDiscoverMeta(item: Pick<DiscoverCardItem, 'year' | 'type' | 'rating'>): string {
   const parts = [item.year ? String(item.year) : null, item.type === 'tv' ? 'TV' : 'Movie', item.rating != null ? `${item.rating.toFixed(1)}★` : null].filter(

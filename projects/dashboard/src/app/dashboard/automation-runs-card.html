@@ -1,0 +1,64 @@
+<mm-card class="runs" labelledBy="runs-heading">
+  <div mm-card-header>
+    <h2 id="runs-heading">
+      <svg lucideClock [size]="18" aria-hidden="true"></svg>
+      <span>Recent automation runs</span>
+    </h2>
+  </div>
+
+  @if (facade.status() === 'loading') {
+    <div class="runs-table runs-table--skeleton" aria-hidden="true">
+      @for (i of skeletonRows; track i) {
+        <div class="run-row run-row--skeleton">
+          <mm-skeleton variant="text" width="120px" height="14px" />
+          <mm-skeleton variant="text" width="70px" height="14px" />
+          <mm-skeleton variant="text" width="60%" height="14px" />
+          <mm-skeleton variant="text" width="50px" height="14px" />
+        </div>
+      }
+    </div>
+  } @else if (facade.status() === 'error') {
+    <mm-state-card kind="error" title="Runs unavailable" [message]="facade.error()" tone="danger">
+      <mm-button label="Try again" (click)="retry()" />
+    </mm-state-card>
+  } @else if (facade.latestRuns().length === 0) {
+    <mm-state-card kind="empty" title="No recent runs" message="Automation runs will appear here once logs are available." />
+  } @else {
+    <div class="runs-table" role="table" aria-label="Recent automation runs">
+      <div class="runs-table__head" role="rowgroup">
+        <div class="run-row run-row--head" role="row">
+          <span role="columnheader">Job</span>
+          <span role="columnheader">Status</span>
+          <span role="columnheader">Details</span>
+          <span role="columnheader">Time</span>
+        </div>
+      </div>
+      <div class="runs-table__body" role="rowgroup">
+        @for (run of facade.latestRuns(); track run.id) {
+          <div class="run-row" role="row">
+            <div class="run-cell run-cell--job" role="cell">
+              <span class="run-job">{{ run.jobTitle }}</span>
+              <span class="run-job-meta">{{ jobMeta(run) }}</span>
+            </div>
+            <div class="run-cell run-cell--status" role="cell">
+              <mm-status [tone]="statusView(run.status).tone">{{ statusView(run.status).label }}</mm-status>
+            </div>
+            <div class="run-cell run-cell--details" role="cell">
+              {{ run.detail || run.fatal || '—' }}
+            </div>
+            <div class="run-cell run-cell--time" role="cell">
+              {{ formatRelativeTime(run.timestamp) }}
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  }
+
+  <ng-container mm-card-footer>
+    <a class="footer-link" routerLink="/reports">
+      <span>View all automation runs</span>
+      <svg lucideChevronRight [size]="14" aria-hidden="true"></svg>
+    </a>
+  </ng-container>
+</mm-card>

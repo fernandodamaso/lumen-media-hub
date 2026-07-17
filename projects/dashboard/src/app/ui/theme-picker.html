@@ -1,0 +1,14 @@
+<label class="picker">
+  <span>Theme</span>
+  <div class="picker__control">
+    <select [value]="themeService.theme()" (change)="select($event)" aria-label="Choose theme">
+      @for (theme of themes; track theme) {
+        <option [value]="theme">{{ labels[theme] }}</option>
+      }
+    </select>
+    @if (justSaved()) {
+      <span class="picker__saved" aria-hidden="true"><svg lucideCheck [size]="13"></svg></span>
+    }
+    <svg class="picker__caret" lucideChevronDown [size]="16" aria-hidden="true"></svg>
+  </div>
+</label>

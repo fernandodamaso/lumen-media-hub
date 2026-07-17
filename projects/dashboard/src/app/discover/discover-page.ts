@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { MmButton, MmStateCard, MmStatus } from 'media-ui';
-import { DiscoverFeedback, DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from '../downloads/media-stack-api';
+import { MmButton, MmStateCard, MmStatus } from '@app/ui';
+import { DiscoverFeedback, DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { DiscoverCard } from './discover-card';
 import { DiscoverHistoryFilter } from './discover-format';
 import { DiscoverFacade, HermesView } from './discover.facade';
@@ -10,183 +10,8 @@ import { DiscoverFacade, HermesView } from './discover.facade';
   imports: [MmButton, MmStateCard, MmStatus, DiscoverCard],
   providers: [DiscoverFacade],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    <section class="page-intro">
-      <p class="eyebrow">Workspace</p>
-      <h1>Discover</h1>
-      <p class="lede">Browse Hermes, Jellyseerr, and Trakt recommendations. Request eligible titles.</p>
-    </section>
-
-    <div class="toolbar">
-      <div class="tabs" role="radiogroup" aria-label="Discover sources">
-        @for (tab of tabs; track tab.id) {
-          <button
-            type="button"
-            role="radio"
-            class="tab"
-            [attr.aria-checked]="facade.tab() === tab.id"
-            (click)="facade.setTab(tab.id)"
-          >
-            {{ tab.label }}
-          </button>
-        }
-      </div>
-      <div class="toolbar-actions">
-        @if (facade.tab() === 'hermes') {
-          <mm-button
-            label="Request more"
-            variant="quiet"
-            [disabled]="facade.requestingMore() || facade.generationPending()"
-            [busy]="facade.requestingMore()"
-            (click)="facade.requestMore()"
-          />
-        }
-        <mm-button label="Refresh" variant="quiet" (click)="facade.refresh()" />
-      </div>
-    </div>
-
-    @if (facade.tab() === 'hermes') {
-      <div class="filters" aria-label="Hermes filters">
-        <div class="filter-group" role="group" aria-label="Hermes view">
-          @for (view of hermesViews; track view.id) {
-            <button type="button" class="chip" [attr.aria-pressed]="facade.hermesView() === view.id" (click)="facade.setHermesView(view.id)">
-              {{ view.label }}
-            </button>
-          }
-        </div>
-        @if (facade.hermesView() === 'history') {
-          <div class="filter-group" role="group" aria-label="History filter">
-            @for (filter of historyFilters; track filter.id) {
-              <button
-                type="button"
-                class="chip"
-                [attr.aria-pressed]="facade.historyFilter() === filter.id"
-                (click)="facade.setHistoryFilter(filter.id)"
-              >
-                {{ filter.label }}
-              </button>
-            }
-          </div>
-        }
-      </div>
-    }
-
-    @if (facade.tab() === 'jellyseerr') {
-      <div class="filters" role="group" aria-label="Jellyseerr kind">
-        @for (kind of jellyseerrKinds; track kind.id) {
-          <button type="button" class="chip" [attr.aria-pressed]="facade.jellyseerrKind() === kind.id" (click)="facade.setJellyseerrKind(kind.id)">
-            {{ kind.label }}
-          </button>
-        }
-      </div>
-    }
-
-    @if (facade.tab() === 'trakt') {
-      <div class="filters" role="group" aria-label="Trakt type">
-        @for (type of traktTypes; track type.id) {
-          <button type="button" class="chip" [attr.aria-pressed]="facade.traktType() === type.id" (click)="facade.setTraktType(type.id)">
-            {{ type.label }}
-          </button>
-        }
-      </div>
-    }
-
-    @if (facade.notice()) {
-      <p class="notice" role="status" aria-live="polite">
-        <mm-status [tone]="facade.noticeTone()">{{ facade.notice() }}</mm-status>
-      </p>
-    }
-
-    @if (facade.status() === 'loading') {
-      <mm-state-card kind="loading" title="Loading discover" message="Fetching recommendations…" />
-    } @else if (facade.status() === 'error') {
-      <mm-state-card kind="error" title="Discover unavailable" [message]="facade.error()" tone="danger">
-        <mm-button label="Try again" (click)="facade.refresh()" />
-      </mm-state-card>
-    } @else if (facade.status() === 'empty') {
-      <mm-state-card kind="empty" title="Nothing to show" message="No titles match this source and filter yet." />
-    } @else {
-      <div class="grid" aria-live="polite">
-        @for (item of facade.visibleItems(); track item.id) {
-          <mm-discover-card
-            [item]="item"
-            [showFeedback]="facade.tab() === 'hermes'"
-            [syncFailed]="facade.isSyncFailed(item)"
-            [busy]="facade.busyItemId() === item.id"
-            (feedback)="onFeedback(item.id, $event)"
-            (request)="onRequest(item)"
-          />
-        }
-      </div>
-    }
-  `,
-  styles: `
-    :host {
-      display: block;
-    }
-    .toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--mm-space-md);
-      margin: 28px 0 16px;
-    }
-    .tabs,
-    .filters,
-    .filter-group,
-    .toolbar-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--mm-space-sm);
-    }
-    .filters {
-      margin-bottom: 16px;
-    }
-    .tab,
-    .chip {
-      border: 1px solid var(--mm-component-border);
-      border-radius: var(--mm-radius-sm);
-      background: var(--mm-component-control-bg);
-      color: var(--mm-component-text-primary);
-      cursor: pointer;
-      transition:
-        background var(--mm-transition-fast),
-        border-color var(--mm-transition-fast),
-        color var(--mm-transition-fast);
-    }
-    .tab {
-      padding: 10px 14px;
-      font: 700 14px/1 var(--mm-font-body);
-    }
-    .chip {
-      padding: 8px 12px;
-      font: 700 var(--mm-text-sm)/1 var(--mm-font-body);
-    }
-    .tab:hover,
-    .chip:hover {
-      background: var(--mm-component-muted-bg);
-    }
-    .tab:focus-visible,
-    .chip:focus-visible {
-      outline: 3px solid var(--mm-component-focus-ring);
-      outline-offset: 2px;
-    }
-    .tab[aria-checked='true'],
-    .chip[aria-pressed='true'] {
-      background: color-mix(in srgb, var(--mm-component-accent) 12%, transparent);
-      border-color: var(--mm-component-accent);
-      color: var(--mm-component-accent);
-    }
-    .notice {
-      margin: 0 0 14px;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 18px;
-    }
-  `,
+  templateUrl: './discover-page.html',
+  styleUrl: './discover-page.scss',
 })
 export class DiscoverPage {
   readonly facade = inject(DiscoverFacade);
@@ -219,7 +44,35 @@ export class DiscoverPage {
   ];
 
   constructor() {
-    this.facade.startPolling();
+    void this.facade.setTab('hermes');
+  }
+
+  setTab(tab: DiscoverSourceTab): void {
+    this.facade.setTab(tab);
+  }
+
+  setHermesView(view: HermesView): void {
+    this.facade.setHermesView(view);
+  }
+
+  setHistoryFilter(filter: DiscoverHistoryFilter): void {
+    this.facade.setHistoryFilter(filter);
+  }
+
+  setJellyseerrKind(kind: JellyseerrDiscoverKind): void {
+    this.facade.setJellyseerrKind(kind);
+  }
+
+  setTraktType(type: TraktDiscoverType): void {
+    this.facade.setTraktType(type);
+  }
+
+  refresh(): void {
+    void this.facade.setTab(this.facade.tab());
+  }
+
+  requestMore(): void {
+    void this.facade.requestMore();
   }
 
   onFeedback(id: string, feedback: DiscoverFeedback): void {

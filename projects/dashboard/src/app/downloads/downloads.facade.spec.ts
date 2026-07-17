@@ -1,9 +1,21 @@
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
-import { MEDIA_STACK_API, MediaStackApi, MediaStackTorrentDto } from './media-stack-api';
+import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
+import { DownloadTorrent } from './downloads.models';
 import { DownloadsFacade } from './downloads.facade';
 
-const torrent: MediaStackTorrentDto = { hash: 'a', name: 'A', state: 'downloading', progress: .5, size: 100, downloaded: 50, dlspeed: 10, upspeed: 2, eta: 30 };
+const torrent: DownloadTorrent = {
+  id: 'a',
+  name: 'A',
+  state: 'downloading',
+  progress: 50,
+  size: 100,
+  downloaded: 50,
+  downloadRate: 10,
+  uploadRate: 2,
+  eta: 30,
+  category: 'Uncategorized',
+};
 
 describe('DownloadsFacade', () => {
   let api: MockApi;
@@ -28,8 +40,9 @@ describe('DownloadsFacade', () => {
   });
 
   it('prevents conflicting actions and refreshes after success', async () => {
-    let release!: () => void;
-    api.action = new Promise<void>((resolve) => { release = resolve; });
+    const { promise: actionPromise, resolve } = Promise.withResolvers<void>();
+    const release = resolve;
+    api.action = actionPromise;
     const first = facade.runAction('pause');
     expect(facade.pendingAction()).toBe('pause');
     await facade.runAction('resume');
@@ -69,24 +82,73 @@ describe('DownloadsFacade', () => {
 });
 
 class MockApi implements MediaStackApi {
-  items: MediaStackTorrentDto[] = [{ ...torrent }];
+  items: DownloadTorrent[] = [{ ...torrent }];
   actions: string[] = [];
   listCalls = 0;
   failure = false;
   actionFailure = false;
   action: Promise<void> = Promise.resolve();
-  listTorrents(): Promise<MediaStackTorrentDto[]> { this.listCalls++; return this.failure ? Promise.reject(new Error('offline')) : Promise.resolve(this.items); }
-  pauseAll(): Promise<void> { this.actions.push('pause'); return this.actionFailure ? Promise.reject(new Error('failed')) : this.action; }
-  resumeAll(): Promise<void> { this.actions.push('resume'); return this.actionFailure ? Promise.reject(new Error('failed')) : this.action; }
-  listCalendarEvents() { return Promise.resolve([]); }
-  getArrLibrary() { return Promise.resolve({ ok: true, series: {}, movies: {} }); }
-  listLibraryItems() { return Promise.resolve([]); }
-  getAutomationSummary() { return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [] }); }
-  listHermesRecommendations() { return Promise.resolve({ ok: true, items: [] }); }
-  submitHermesFeedback() { return Promise.resolve({ ok: true }); }
-  requestHermesMore() { return Promise.resolve({ ok: true }); }
-  listJellyseerrDiscover() { return Promise.resolve({ ok: true, items: [] }); }
-  listTraktDiscover() { return Promise.resolve({ ok: true, items: [] }); }
-  requestMedia() { return Promise.resolve({ ok: true }); }
-  listCronLogs() { return Promise.resolve({ ok: true, logs: [] }); }
+  listTorrents(): Promise<DownloadTorrent[]> {
+    this.listCalls++;
+    return this.failure ? Promise.reject(new Error('offline')) : Promise.resolve(this.items);
+  }
+  pauseAll(): Promise<void> {
+    this.actions.push('pause');
+    return this.actionFailure ? Promise.reject(new Error('failed')) : this.action;
+  }
+  resumeAll(): Promise<void> {
+    this.actions.push('resume');
+    return this.actionFailure ? Promise.reject(new Error('failed')) : this.action;
+  }
+  pauseTorrent(): Promise<void> {
+    return Promise.resolve();
+  }
+  resumeTorrent(): Promise<void> {
+    return Promise.resolve();
+  }
+  getLibraryStats() {
+    return Promise.resolve({ movies: 0, series: 0 });
+  }
+  getStorageOverview() {
+    return Promise.resolve({ generatedAt: '', volumes: [] });
+  }
+  listCalendarEvents() {
+    return Promise.resolve([]);
+  }
+  getArrLibrary() {
+    return Promise.resolve({ ok: true, series: {}, movies: {} });
+  }
+  listLibraryItems() {
+    return Promise.resolve([]);
+  }
+  getAutomationSummary() {
+    return Promise.resolve({
+      generatedAt: '',
+      services: [],
+      preview: [],
+      problems: [],
+      availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const },
+    });
+  }
+  listHermesRecommendations() {
+    return Promise.resolve({ ok: true, items: [] });
+  }
+  submitHermesFeedback() {
+    return Promise.resolve({ ok: true });
+  }
+  requestHermesMore() {
+    return Promise.resolve({ ok: true });
+  }
+  listJellyseerrDiscover() {
+    return Promise.resolve({ ok: true, items: [] });
+  }
+  listTraktDiscover() {
+    return Promise.resolve({ ok: true, items: [] });
+  }
+  requestMedia() {
+    return Promise.resolve({ ok: true });
+  }
+  listCronLogs() {
+    return Promise.resolve({ ok: true, runs: [] });
+  }
 }

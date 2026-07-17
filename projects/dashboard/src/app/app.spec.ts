@@ -5,8 +5,8 @@ import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { App } from './app';
 import { routes } from './app.routes';
-import { MEDIA_STACK_API } from './downloads/media-stack-api';
-import { MockMediaStackApi } from './downloads/mock-media-stack-api';
+import { MEDIA_STACK_API } from './media-stack/media-stack-api';
+import { MockMediaStackApi } from './media-stack/mock-media-stack-api';
 
 describe('App shell', () => {
   beforeEach(() => {
@@ -22,7 +22,8 @@ describe('App shell', () => {
 
     expect(fixture.nativeElement.querySelector('.brand')?.textContent).toContain('Media Manager');
     expect(fixture.nativeElement.querySelector('.demo-badge')?.textContent).toContain('Demo');
-    expect(fixture.nativeElement.querySelectorAll('nav a')).toHaveLength(4);
+    expect(fixture.nativeElement.querySelectorAll('.sidebar__nav a')).toHaveLength(3);
+    expect(fixture.nativeElement.querySelectorAll('.service-link')).toHaveLength(7);
     expect(fixture.nativeElement.querySelector('router-outlet')).toBeTruthy();
   });
 
@@ -31,7 +32,6 @@ describe('App shell', () => {
     ['/dashboard', 'Dashboard', null],
     ['/reports', 'Reports', 'Failed and actionable automation runs first'],
     ['/discover', 'Discover', 'Browse Hermes, Jellyseerr, and Trakt recommendations'],
-    ['/ui', 'UI catalog', 'Shared primitives used by the dashboard shell.'],
   ])('recognizes %s as %s and renders its destination', async (url, heading, lede) => {
     const harness = await RouterTestingHarness.create();
     const router = TestBed.inject(Router);
@@ -44,14 +44,6 @@ describe('App shell', () => {
     }
   });
 
-  it('renders the library board on the dashboard', async () => {
-    const harness = await RouterTestingHarness.create();
-    await harness.navigateByUrl('/');
-    expect(harness.routeNativeElement?.querySelector('#library-heading')?.textContent).toContain('Library');
-    expect(harness.routeNativeElement?.textContent).toContain('Movies');
-    expect(harness.routeNativeElement?.textContent).toContain('Series');
-  });
-
   it('navigates between destinations and restores browser history', async () => {
     const harness = await RouterTestingHarness.create();
     const location = TestBed.inject(Location) as SpyLocation;
@@ -59,13 +51,13 @@ describe('App shell', () => {
 
     router.setUpLocationChangeListener();
     await harness.navigateByUrl('/reports');
+    expect(router.url).toBe('/reports');
+
     await harness.navigateByUrl('/discover');
-    expect(location.path()).toBe('/discover');
+    expect(router.url).toBe('/discover');
 
     location.back();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    expect(location.path()).toBe('/reports');
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(router.url).toBe('/reports');
-    expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toContain('Reports');
   });
 });

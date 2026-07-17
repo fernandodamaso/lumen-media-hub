@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { vi } from 'vitest';
-import { DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from '../downloads/media-stack-api';
+import { DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { DiscoverCardItem, DiscoverHistoryFilter } from './discover-format';
 import { DiscoverPage } from './discover-page';
 import { DiscoverFacade, DiscoverStatus, HermesView } from './discover.facade';
@@ -104,13 +104,11 @@ function createFacade() {
     requestingMore,
     generationPending,
     visibleItems,
-    startPolling: vi.fn(),
     setTab: vi.fn((value: DiscoverSourceTab) => tab.set(value)),
     setHermesView: vi.fn((value: HermesView) => hermesView.set(value)),
     setHistoryFilter: vi.fn((value: DiscoverHistoryFilter) => historyFilter.set(value)),
     setJellyseerrKind: vi.fn((value: JellyseerrDiscoverKind) => jellyseerrKind.set(value)),
     setTraktType: vi.fn((value: TraktDiscoverType) => traktType.set(value)),
-    refresh: vi.fn(async () => undefined),
     submitFeedback: vi.fn(async () => undefined),
     requestItem: vi.fn(async () => undefined),
     requestMore: vi.fn(async () => undefined),

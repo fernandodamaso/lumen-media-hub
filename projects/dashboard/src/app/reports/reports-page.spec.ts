@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { vi } from 'vitest';
-import { CronHealthSummary, CronRun } from '../downloads/media-stack-api';
+import { CronHealthSummary, CronRun } from './reports.models';
 import { ReportsFacade, ReportsStatus } from './reports.facade';
 import { ReportsPage } from './reports-page';
 

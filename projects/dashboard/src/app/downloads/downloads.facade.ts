@@ -1,5 +1,6 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
-import { MEDIA_STACK_API, DownloadTorrent, normalizeTorrent, summarizeDownloads } from './media-stack-api';
+import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
+import { DownloadTorrent, summarizeDownloads } from './downloads.models';
 
 export type DownloadsStatus = 'loading' | 'ready' | 'empty' | 'error';
 export type DownloadsAction = 'pause' | 'resume';
@@ -13,12 +14,21 @@ export class DownloadsFacade {
   private readonly _error = signal('');
   private readonly _notice = signal('');
   private readonly _pendingAction = signal<DownloadsAction | null>(null);
+  private readonly _pendingTorrentId = signal<string | null>(null);
   readonly status = this._status.asReadonly();
   readonly torrents = this._torrents.asReadonly();
   readonly error = this._error.asReadonly();
   readonly notice = this._notice.asReadonly();
   readonly pendingAction = this._pendingAction.asReadonly();
+  readonly pendingTorrentId = this._pendingTorrentId.asReadonly();
   readonly summary = computed(() => summarizeDownloads(this._torrents()));
+  readonly canPauseAll = computed(() => this._torrents().some((torrent) => torrent.state === 'downloading'));
+  readonly canResumeAll = computed(() => this._torrents().some((torrent) => torrent.state === 'paused'));
+  readonly nextAction = computed<DownloadsAction | null>(() => {
+    if (this.canPauseAll()) return 'pause';
+    if (this.canResumeAll()) return 'resume';
+    return null;
+  });
   private pollHandle?: ReturnType<typeof setInterval>;
 
   constructor() {
@@ -33,7 +43,7 @@ export class DownloadsFacade {
 
   async refresh(): Promise<void> {
     try {
-      const torrents = (await this.api.listTorrents()).map(normalizeTorrent);
+      const torrents = await this.api.listTorrents();
       this._torrents.set(torrents);
       this._status.set(torrents.length ? 'ready' : 'empty');
       this._error.set('');
@@ -58,6 +68,19 @@ export class DownloadsFacade {
       this._notice.set('');
     } finally {
       this._pendingAction.set(null);
+    }
+  }
+
+  async runTorrentAction(id: string, action: DownloadsAction): Promise<void> {
+    if (this._pendingTorrentId()) return;
+    this._pendingTorrentId.set(id);
+    try {
+      await (action === 'pause' ? this.api.pauseTorrent(id) : this.api.resumeTorrent(id));
+      await this.refresh();
+    } catch {
+      this._notice.set(`Could not ${action} torrent. Try again.`);
+    } finally {
+      this._pendingTorrentId.set(null);
     }
   }
 

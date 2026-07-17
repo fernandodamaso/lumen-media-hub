@@ -1,0 +1,112 @@
+<mm-card class="downloads" labelledBy="downloads-heading">
+  <div mm-card-header>
+    <h2 id="downloads-heading">
+      <svg lucideDownload [size]="18" aria-hidden="true"></svg>
+      <span>Active downloads</span>
+    </h2>
+  </div>
+  <div mm-card-header-actions class="header-tools">
+    @if (facade.nextAction(); as action) {
+      <mm-button
+        [label]="action === 'pause' ? 'Pause all' : 'Resume all'"
+        [variant]="action === 'pause' ? 'warning' : 'primary'"
+        [icon]="action === 'pause' ? 'pause' : 'play'"
+        [disabled]="facade.pendingAction() !== null"
+        [busy]="facade.pendingAction() === action"
+        (click)="runAction(action)"
+      />
+    } @else {
+      <mm-button label="Pause all" variant="warning" icon="pause" [disabled]="true" />
+    }
+  </div>
+
+  @if (facade.notice()) {
+    <p class="notice" role="status" aria-live="polite"><mm-status tone="warning">{{ facade.notice() }}</mm-status></p>
+  }
+
+  @if (facade.status() === 'loading') {
+    <div class="torrent-list download-skeleton" aria-hidden="true">
+      @for (i of torrentSkeletons; track i) {
+        <div class="torrent torrent--skeleton">
+          <mm-skeleton variant="rect" width="55px" height="78px" />
+          <div class="torrent-body">
+            <div class="torrent-head">
+              <mm-skeleton variant="text" width="160px" height="14px" />
+              <mm-skeleton variant="text" width="72px" height="14px" />
+            </div>
+            <div class="torrent-line"><mm-skeleton variant="text" height="6px" /></div>
+            <div class="torrent-meta">
+              <mm-skeleton variant="text" width="90px" />
+              <mm-skeleton variant="text" width="70px" />
+              <mm-skeleton variant="text" width="70px" />
+              <mm-skeleton variant="text" width="60px" />
+            </div>
+          </div>
+        </div>
+      }
+    </div>
+  } @else if (facade.status() === 'error') {
+    <mm-state-card kind="error" title="Downloads unavailable" [message]="facade.error()" tone="danger"><mm-button label="Try again" (click)="retry()" /></mm-state-card>
+  } @else if (facade.status() === 'empty') {
+    <mm-state-card kind="empty" title="No active downloads" message="Your queue is clear. New downloads will appear here." />
+  } @else {
+    <div class="torrent-list" aria-live="polite">
+      @for (group of groups(); track group.state) {
+        @if (group.state === 'seeding') {
+          <div class="seeding-divider" aria-hidden="true"><span class="seeding-indicator"></span><span>Seeding</span></div>
+        }
+        @for (torrent of group.torrents; track torrent.id) {
+          <article class="torrent" [class.torrent--seeding]="torrent.state === 'seeding'" [class.torrent--paused]="torrent.state === 'paused'">
+            <span class="torrent-thumb" aria-hidden="true" [style.background]="torrentArt(torrent.name)"></span>
+            <div class="torrent-body">
+              <div class="torrent-head">
+                <div class="torrent-title">
+                  <h3>{{ torrent.name }}</h3>
+                  <span class="category">{{ torrent.category }}</span>
+                </div>
+                <div class="torrent-status">
+                  @if (torrent.state !== 'seeding') {
+                    <button
+                      type="button"
+                      class="torrent-action"
+                      [attr.aria-label]="(torrent.state === 'paused' ? 'Resume' : 'Pause') + ' ' + torrent.name"
+                      [disabled]="facade.pendingTorrentId() === torrent.id"
+                      (click)="runTorrentAction(torrent.id, torrent.state === 'paused' ? 'resume' : 'pause')"
+                    >
+                      @if (facade.pendingTorrentId() === torrent.id) {
+                        <svg lucideLoaderCircle [size]="14" [strokeWidth]="2.2" aria-hidden="true"></svg>
+                      } @else if (torrent.state === 'paused') {
+                        <svg lucidePlay [size]="14" aria-hidden="true"></svg>
+                      } @else {
+                        <svg lucidePause [size]="14" aria-hidden="true"></svg>
+                      }
+                    </button>
+                  }
+                  <span class="torrent-percent">{{ torrent.progress }}%</span>
+                </div>
+              </div>
+              <div class="torrent-line">
+                <mm-progress [value]="torrent.progress" [showLabel]="false" [label]="torrent.name + ' progress'" />
+              </div>
+              <div class="torrent-meta">
+                <span class="meta-size">{{ formatBytes(torrent.downloaded) }} / {{ formatBytes(torrent.size) }}</span>
+                <span class="meta-rates">
+                  <span class="meta-down"><svg lucideArrowDown [size]="12" aria-hidden="true"></svg> {{ formatRate(torrent.downloadRate) }}</span>
+                  <span class="meta-up"><svg lucideArrowUp [size]="12" aria-hidden="true"></svg> {{ formatRate(torrent.uploadRate) }}</span>
+                </span>
+                <span class="meta-eta">{{ torrent.eta ? formatEta(torrent.eta) + ' left' : 'Complete' }}</span>
+              </div>
+            </div>
+          </article>
+        }
+      }
+    </div>
+  }
+
+  <ng-container mm-card-footer>
+    <a class="footer-link" [href]="qbittorrentHref()" target="_blank" rel="noreferrer">
+      <span>Open qBittorrent</span>
+      <svg lucideExternalLink [size]="14" aria-hidden="true"></svg>
+    </a>
+  </ng-container>
+</mm-card>

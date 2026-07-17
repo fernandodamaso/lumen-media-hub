@@ -1,17 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
-import {
-  DiscoverFeedback,
-  JellyseerrDiscoverKind,
-  MEDIA_STACK_API,
-  MediaStackApi,
-  MediaStackDiscoverActionDto,
-  MediaStackDiscoverItemDto,
-  MediaStackDiscoverRequestPayload,
-  MediaStackExternalDiscoverItemDto,
-  MediaStackHermesDiscoverDto,
-  TraktDiscoverType,
-} from '../downloads/media-stack-api';
+import { DiscoverAction, DiscoverFeedback, DiscoverItem, DiscoverRequestPayload, ExternalDiscoverItem, HermesDiscover, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
+import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { DiscoverFacade } from './discover.facade';
 
 describe('DiscoverFacade', () => {
@@ -27,7 +17,7 @@ describe('DiscoverFacade', () => {
   });
 
   it('loads Hermes by default and isolates visible content across tabs', async () => {
-    await facade.refresh();
+    await facade.setTab('hermes');
     expect(facade.tab()).toBe('hermes');
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
     expect(api.hermesCalls).toBe(1);
@@ -48,13 +38,13 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trakt Horizon']);
     expect(api.traktCalls).toEqual(['movies']);
 
-    facade.setTab('hermes');
+    await facade.setTab('hermes');
     await flush();
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
   });
 
   it('submitFeedback calls only submitHermesFeedback and refreshes Hermes', async () => {
-    await facade.refresh();
+    await facade.setTab('hermes');
     await facade.submitFeedback('hermes-eligible', 'liked');
     expect(api.feedbackCalls).toEqual([{ id: 'hermes-eligible', feedback: 'liked' }]);
     expect(api.requestCalls).toEqual([]);
@@ -62,7 +52,7 @@ describe('DiscoverFacade', () => {
   });
 
   it('requestItem calls only requestMedia and tracks sync-failed notices', async () => {
-    await facade.refresh();
+    await facade.setTab('hermes');
     api.requestResult = {
       ok: true,
       dashboard_state_persisted: false,
@@ -78,11 +68,10 @@ describe('DiscoverFacade', () => {
   });
 
   it('prevents duplicate busy mutations', async () => {
-    await facade.refresh();
-    let release!: () => void;
-    api.feedbackGate = new Promise((resolve) => {
-      release = () => resolve({ ok: true, message: 'Feedback saved.' });
-    });
+    await facade.setTab('hermes');
+    const { promise: feedbackGate, resolve: resolveFeedback } = Promise.withResolvers<DiscoverAction>();
+    const release = () => resolveFeedback({ ok: true, message: 'Feedback saved.' });
+    api.feedbackGate = feedbackGate;
     const first = facade.submitFeedback('hermes-eligible', 'liked');
     await facade.submitFeedback('hermes-eligible', 'disliked');
     expect(api.feedbackCalls).toHaveLength(1);
@@ -91,7 +80,7 @@ describe('DiscoverFacade', () => {
   });
 
   it('requestMore reports queued then blocks duplicates while pending', async () => {
-    await facade.refresh();
+    await facade.setTab('hermes');
     api.moreResult = { ok: true, queued: true, message: 'More recommendations queued.' };
     await facade.requestMore();
     expect(facade.generationPending()).toBe(true);
@@ -103,7 +92,7 @@ describe('DiscoverFacade', () => {
   });
 
   it('surfaces already_pending when the adapter reports it on first call', async () => {
-    await facade.refresh();
+    await facade.setTab('hermes');
     api.moreResult = { ok: true, already_pending: true, message: 'A recommendation refresh is already pending.' };
     await facade.requestMore();
     expect(facade.generationPending()).toBe(true);
@@ -112,7 +101,7 @@ describe('DiscoverFacade', () => {
   });
 
   it('clears sync-failed ids once Hermes shows requested state', async () => {
-    await facade.refresh();
+    await facade.setTab('hermes');
     api.requestResult = {
       ok: true,
       dashboard_state_persisted: false,
@@ -129,7 +118,7 @@ describe('DiscoverFacade', () => {
         jellyseerr_request_id: 1,
       },
     ];
-    await facade.refresh();
+    await facade.setTab('hermes');
     expect(facade.isSyncFailed('hermes-eligible')).toBe(false);
   });
 
@@ -168,7 +157,7 @@ describe('DiscoverFacade', () => {
         added_at: '2026-06-20T12:00:00Z',
       },
     ];
-    await facade.refresh();
+    await facade.setTab('hermes');
     expect(facade.status()).toBe('ready');
 
     api.hermes.items = api.hermes.items.map((item) =>
@@ -176,7 +165,7 @@ describe('DiscoverFacade', () => {
         ? { ...item, active: false, feedback: 'skipped' as const, feedback_at: '2026-07-12T00:00:00Z' }
         : item,
     );
-    await facade.refresh();
+    await facade.setTab('hermes');
     expect(facade.status()).toBe('empty');
     expect(facade.visibleItems()).toEqual([]);
 
@@ -186,7 +175,7 @@ describe('DiscoverFacade', () => {
   });
 
   it('marks external items requested and refuses duplicate requestMedia calls', async () => {
-    facade.setTab('jellyseerr');
+    await facade.setTab('jellyseerr');
     await flush();
     const item = facade.visibleItems()[0];
     expect(item.requestState).toBeNull();
@@ -209,8 +198,8 @@ describe('DiscoverFacade', () => {
       },
     ];
     api.jellyseerr.trending = [{ type: 'movie', title: 'Same Title', tmdb_id: 101001 }];
-    await facade.refresh();
-    facade.setTab('jellyseerr');
+    await facade.setTab('hermes');
+    await facade.setTab('jellyseerr');
     await flush();
     expect(facade.visibleItems()[0].requestState).toBe('requested');
     await facade.requestItem(facade.visibleItems()[0]);
@@ -241,11 +230,11 @@ describe('DiscoverFacade', () => {
       pending_request_sync: [{ id: 'hermes-sync', jellyseerr_request_id: 55 }],
     };
     api.jellyseerr.trending = [{ type: 'tv', title: 'Night Courier External', tmdb_id: 101005 }];
-    await facade.refresh();
+    await facade.setTab('hermes');
     expect(facade.isSyncFailed('hermes-sync')).toBe(true);
     expect(facade.isSyncFailed(facade.visibleItems()[0])).toBe(true);
 
-    facade.setTab('jellyseerr');
+    await facade.setTab('jellyseerr');
     await flush();
     expect(facade.isSyncFailed(facade.visibleItems()[0])).toBe(true);
     await facade.requestItem(facade.visibleItems()[0]);
@@ -253,15 +242,13 @@ describe('DiscoverFacade', () => {
   });
 
   it('ignores stale Hermes failures after switching tabs', async () => {
-    let release!: (value: MediaStackHermesDiscoverDto) => void;
-    api.hermesGate = new Promise((resolve) => {
-      release = resolve;
-    });
-    const pending = facade.refresh();
-    facade.setTab('jellyseerr');
+    const { promise: hermesGate, resolve: releaseHermes } = Promise.withResolvers<HermesDiscover>();
+    api.hermesGate = hermesGate;
+    const pending = facade.setTab('hermes');
+    await facade.setTab('jellyseerr');
     await flush();
     expect(facade.status()).toBe('ready');
-    release({ ok: false, items: [], error: 'Hermes offline' });
+    releaseHermes({ ok: false, items: [], error: 'Hermes offline' });
     await pending;
     expect(facade.tab()).toBe('jellyseerr');
     expect(facade.status()).toBe('ready');
@@ -269,7 +256,7 @@ describe('DiscoverFacade', () => {
   });
 
   it('keeps request-more pending when the follow-up list omits generation_request', async () => {
-    await facade.refresh();
+    await facade.setTab('hermes');
     api.moreResult = { ok: true, queued: true, message: 'More recommendations queued.' };
     api.skipGenerationOnMore = true;
     await facade.requestMore();
@@ -279,20 +266,22 @@ describe('DiscoverFacade', () => {
   });
 
   it('shows cached external feeds immediately when returning to a filter', async () => {
-    facade.setTab('jellyseerr');
+    await facade.setTab('jellyseerr');
     await flush();
     expect(facade.status()).toBe('ready');
 
-    facade.setTab('hermes');
+    await facade.setTab('hermes');
     await flush();
     api.hermes = { ok: true, items: [] };
-    await facade.refresh();
+    await facade.setTab('hermes');
     expect(facade.status()).toBe('empty');
 
-    let release!: () => void;
-    api.jellyseerrGate = new Promise((resolve) => {
-      release = () => resolve({ ok: true, items: api.jellyseerr.trending });
-    });
+    const { promise: jellyseerrGate, resolve: resolveJellyseerr } = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+    }>();
+    const release = () => resolveJellyseerr({ ok: true, items: api.jellyseerr.trending });
+    api.jellyseerrGate = jellyseerrGate;
     facade.setTab('jellyseerr');
     await Promise.resolve();
     expect(facade.status()).toBe('ready');
@@ -303,7 +292,7 @@ describe('DiscoverFacade', () => {
 
   it('polls only while started and stops on destroy', async () => {
     vi.useFakeTimers();
-    facade.startPolling();
+    await facade.setTab('hermes');
     await vi.advanceTimersByTimeAsync(0);
     expect(api.hermesCalls).toBe(1);
     await vi.advanceTimersByTimeAsync(30_000);
@@ -321,7 +310,7 @@ async function flush(): Promise<void> {
 }
 
 class MockApi implements MediaStackApi {
-  hermes: MediaStackHermesDiscoverDto = {
+  hermes: HermesDiscover = {
     ok: true,
     items: [
       {
@@ -339,15 +328,15 @@ class MockApi implements MediaStackApi {
         jellyseerr_request_id: null,
         in_library: false,
         added_at: '2026-07-10T12:00:00Z',
-      } satisfies MediaStackDiscoverItemDto,
+      } satisfies DiscoverItem,
     ],
   };
-  jellyseerr: Record<JellyseerrDiscoverKind, MediaStackExternalDiscoverItemDto[]> = {
+  jellyseerr: Record<JellyseerrDiscoverKind, ExternalDiscoverItem[]> = {
     trending: [{ type: 'movie', title: 'Trending Ember', tmdb_id: 1 }],
     movies: [{ type: 'movie', title: 'Neon Archive', tmdb_id: 2 }],
     tv: [{ type: 'tv', title: 'Late Broadcast', tmdb_id: 3 }],
   };
-  trakt: Record<TraktDiscoverType, MediaStackExternalDiscoverItemDto[]> = {
+  trakt: Record<TraktDiscoverType, ExternalDiscoverItem[]> = {
     movies: [{ type: 'movie', title: 'Trakt Horizon', tmdb_id: 4 }],
     shows: [{ type: 'tv', title: 'Trakt Relay', tmdb_id: 5 }],
   };
@@ -355,13 +344,13 @@ class MockApi implements MediaStackApi {
   jellyseerrCalls: JellyseerrDiscoverKind[] = [];
   traktCalls: TraktDiscoverType[] = [];
   feedbackCalls: { id: string; feedback: DiscoverFeedback }[] = [];
-  requestCalls: MediaStackDiscoverRequestPayload[] = [];
+  requestCalls: DiscoverRequestPayload[] = [];
   moreCalls = 0;
-  feedbackGate: Promise<MediaStackDiscoverActionDto> | null = null;
-  hermesGate: Promise<MediaStackHermesDiscoverDto> | null = null;
-  jellyseerrGate: Promise<{ ok: boolean; items: MediaStackExternalDiscoverItemDto[] }> | null = null;
-  requestResult: MediaStackDiscoverActionDto = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
-  moreResult: MediaStackDiscoverActionDto = { ok: true, queued: true };
+  feedbackGate: Promise<DiscoverAction> | null = null;
+  hermesGate: Promise<HermesDiscover> | null = null;
+  jellyseerrGate: Promise<{ ok: boolean; items: ExternalDiscoverItem[] }> | null = null;
+  requestResult: DiscoverAction = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
+  moreResult: DiscoverAction = { ok: true, queued: true };
   skipGenerationOnMore = false;
 
   listTorrents() {
@@ -373,6 +362,18 @@ class MockApi implements MediaStackApi {
   resumeAll() {
     return Promise.resolve();
   }
+  pauseTorrent() {
+    return Promise.resolve();
+  }
+  resumeTorrent() {
+    return Promise.resolve();
+  }
+  getLibraryStats() {
+    return Promise.resolve({ movies: 0, series: 0 });
+  }
+  getStorageOverview() {
+    return Promise.resolve({ generatedAt: '', volumes: [] });
+  }
   listCalendarEvents() {
     return Promise.resolve([]);
   }
@@ -383,7 +384,7 @@ class MockApi implements MediaStackApi {
     return Promise.resolve([]);
   }
   getAutomationSummary() {
-    return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [] });
+    return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [], availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const } });
   }
   listHermesRecommendations() {
     this.hermesCalls++;
@@ -422,11 +423,11 @@ class MockApi implements MediaStackApi {
     this.traktCalls.push(type);
     return Promise.resolve({ ok: true, items: this.trakt[type].map((item) => ({ ...item })) });
   }
-  requestMedia(payload: MediaStackDiscoverRequestPayload) {
+  requestMedia(payload: DiscoverRequestPayload) {
     this.requestCalls.push(payload);
     return Promise.resolve(this.requestResult);
   }
   listCronLogs() {
-    return Promise.resolve({ ok: true, logs: [] });
+    return Promise.resolve({ ok: true, runs: [] });
   }
 }

@@ -1,14 +1,5 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
-import {
-  DiscoverFeedback,
-  DiscoverSourceTab,
-  JellyseerrDiscoverKind,
-  MEDIA_STACK_API,
-  MediaStackDiscoverItemDto,
-  MediaStackExternalDiscoverItemDto,
-  MediaStackHermesDiscoverDto,
-  TraktDiscoverType,
-} from '../downloads/media-stack-api';
+import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 import {
   DiscoverCardItem,
   DiscoverHistoryFilter,
@@ -18,6 +9,15 @@ import {
   toExternalCardItem,
   toHermesCardItem,
 } from './discover-format';
+import {
+  DiscoverFeedback,
+  DiscoverItem,
+  DiscoverSourceTab,
+  ExternalDiscoverItem,
+  HermesDiscover,
+  JellyseerrDiscoverKind,
+  TraktDiscoverType,
+} from './discover.models';
 
 export type DiscoverStatus = 'loading' | 'ready' | 'empty' | 'error';
 export type HermesView = 'active' | 'history';
@@ -41,10 +41,10 @@ export class DiscoverFacade {
   private readonly _notice = signal('');
   private readonly _noticeTone = signal<'success' | 'warning' | 'danger' | 'info'>('info');
 
-  private readonly _hermesItems = signal<MediaStackDiscoverItemDto[]>([]);
+  private readonly _hermesItems = signal<DiscoverItem[]>([]);
   private readonly _generationPending = signal(false);
-  private readonly _jellyseerrCache = signal<Partial<Record<JellyseerrDiscoverKind, MediaStackExternalDiscoverItemDto[]>>>({});
-  private readonly _traktCache = signal<Partial<Record<TraktDiscoverType, MediaStackExternalDiscoverItemDto[]>>>({});
+  private readonly _jellyseerrCache = signal<Partial<Record<JellyseerrDiscoverKind, ExternalDiscoverItem[]>>>({});
+  private readonly _traktCache = signal<Partial<Record<TraktDiscoverType, ExternalDiscoverItem[]>>>({});
 
   private readonly _busyItemId = signal<string | null>(null);
   private readonly _requestingMore = signal(false);
@@ -101,14 +101,13 @@ export class DiscoverFacade {
     this.destroyRef.onDestroy(() => this.stopPolling());
   }
 
-  startPolling(): void {
-    this.restartPolling();
-  }
-
-  setTab(tab: DiscoverSourceTab): void {
-    if (this._tab() === tab) return;
-    this._tab.set(tab);
-    this._notice.set('');
+  async setTab(tab: DiscoverSourceTab): Promise<void> {
+    const changed = this._tab() !== tab;
+    if (changed) {
+      this._tab.set(tab);
+      this._notice.set('');
+    }
+    await this.refreshCurrentTab();
     this.restartPolling();
   }
 
@@ -125,17 +124,32 @@ export class DiscoverFacade {
   setJellyseerrKind(kind: JellyseerrDiscoverKind): void {
     if (this._jellyseerrKind() === kind) return;
     this._jellyseerrKind.set(kind);
-    void this.refreshActive();
+    void this.refreshCurrentTab();
   }
 
   setTraktType(type: TraktDiscoverType): void {
     if (this._traktType() === type) return;
     this._traktType.set(type);
-    void this.refreshActive();
+    void this.refreshCurrentTab();
   }
 
-  async refresh(): Promise<void> {
-    await this.refreshActive();
+  private async refreshCurrentTab(): Promise<void> {
+    const tab = this._tab();
+    if (tab === 'hermes') {
+      await this.loadHermes();
+      return;
+    }
+    if (tab === 'jellyseerr') {
+      await this.loadJellyseerr(this._jellyseerrKind());
+      return;
+    }
+    await this.loadTrakt(this._traktType());
+  }
+
+  private restartPolling(): void {
+    this.stopPolling();
+    const interval = this._tab() === 'hermes' ? HERMES_POLL_MS : EXTERNAL_POLL_MS;
+    this.pollHandle = setInterval(() => void this.refreshCurrentTab(), interval);
   }
 
   async submitFeedback(id: string, feedback: DiscoverFeedback): Promise<void> {
@@ -236,29 +250,9 @@ export class DiscoverFacade {
     );
   }
 
-  private restartPolling(): void {
-    this.stopPolling();
-    void this.refreshActive();
-    const interval = this._tab() === 'hermes' ? HERMES_POLL_MS : EXTERNAL_POLL_MS;
-    this.pollHandle = setInterval(() => void this.refreshActive(), interval);
-  }
-
   private stopPolling(): void {
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = undefined;
-  }
-
-  private async refreshActive(): Promise<void> {
-    const tab = this._tab();
-    if (tab === 'hermes') {
-      await this.loadHermes();
-      return;
-    }
-    if (tab === 'jellyseerr') {
-      await this.loadJellyseerr(this._jellyseerrKind());
-      return;
-    }
-    await this.loadTrakt(this._traktType());
   }
 
   private async loadHermes(): Promise<void> {
@@ -285,7 +279,7 @@ export class DiscoverFacade {
     }
   }
 
-  private applyHermesPayload(response: MediaStackHermesDiscoverDto): void {
+  private applyHermesPayload(response: HermesDiscover): void {
     this._hermesItems.set(response.items);
     this.seedRequestedFromHermes(response.items);
     this.applyPendingRequestSync(response.items, response.pending_request_sync);
@@ -372,7 +366,7 @@ export class DiscoverFacade {
     this._status.set(this.visibleItems().length ? 'ready' : 'empty');
   }
 
-  private seedRequestedFromHermes(items: MediaStackDiscoverItemDto[]): void {
+  private seedRequestedFromHermes(items: DiscoverItem[]): void {
     const keys = items
       .filter((item) => item.request_state === 'requested' && item.tmdb_id)
       .map((item) => mediaIdentityKey(item.type, item.tmdb_id));
@@ -385,7 +379,7 @@ export class DiscoverFacade {
   }
 
   private applyPendingRequestSync(
-    items: MediaStackDiscoverItemDto[],
+    items: DiscoverItem[],
     pending?: { id: string; jellyseerr_request_id: number }[],
   ): void {
     if (!pending?.length) return;
@@ -427,7 +421,7 @@ export class DiscoverFacade {
     }
   }
 
-  private reconcileSyncFailed(items: MediaStackDiscoverItemDto[]): void {
+  private reconcileSyncFailed(items: DiscoverItem[]): void {
     if (!this._requestSyncFailedIds().size && !this._requestSyncFailedKeys().size) return;
     this._requestSyncFailedIds.update((ids) => {
       const next = new Set(ids);

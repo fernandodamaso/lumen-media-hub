@@ -1,12 +1,11 @@
 import { Injectable, inject, signal } from '@angular/core';
+import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 import {
   CronHealthSummary,
   CronRun,
-  MEDIA_STACK_API,
-  flattenCronRuns,
   prioritizeCronRuns,
   summarizeCronHealth,
-} from '../downloads/media-stack-api';
+} from './reports.models';
 
 export type ReportsStatus = 'loading' | 'empty' | 'allClear' | 'mixed' | 'error';
 
@@ -48,16 +47,16 @@ export class ReportsFacade {
 
   private async fetch(initial: boolean, requestId: number): Promise<void> {
     try {
-      const dto = await this.api.listCronLogs();
+      const logs = await this.api.listCronLogs();
       if (requestId !== this.requestId) return;
-      if (!dto.ok) {
-        throw new Error(dto.error?.trim() || 'Cron logs unavailable');
+      if (!logs.ok) {
+        throw new Error(logs.error?.trim() || 'Cron logs unavailable');
       }
-      const runs = prioritizeCronRuns(flattenCronRuns(dto));
+      const runs = prioritizeCronRuns(logs.runs);
       const summary = summarizeCronHealth(runs);
       this._runs.set(runs);
       this._summary.set(summary);
-      this._generatedAt.set(dto.generatedAt ?? new Date().toISOString());
+      this._generatedAt.set(logs.generatedAt ?? new Date().toISOString());
       this._error.set('');
       this._status.set(this.statusFromSummary(summary));
     } catch {

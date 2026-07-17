@@ -1,8 +1,9 @@
-﻿import { normalizeCalendarEvent, resolveCalendarLink, compareCalendarEvents } from '../downloads/media-stack-api';
+import { mapCalendarEvent } from './calendar-format';
+import { resolveCalendarLink, compareCalendarEvents } from './calendar.models';
 
 describe('calendar API boundary', () => {
   it('normalizes episode and movie events with status and stable ids', () => {
-    const episode = normalizeCalendarEvent({
+    const episode = mapCalendarEvent({
       title: 'Cowboy Bebop',
       additional: 'S1 E5',
       date: 'Jul 12',
@@ -10,7 +11,7 @@ describe('calendar API boundary', () => {
       hasFile: false,
       kind: 'episode',
     });
-    expect(episode).toEqual({
+    expect(episode).toMatchObject({
       id: 'Cowboy Bebop-S1 E5-2026-07-12T18:00:00Z',
       time: 'Jul 12',
       kind: 'episode',
@@ -19,8 +20,9 @@ describe('calendar API boundary', () => {
       status: 'pending',
       airDate: '2026-07-12T18:00:00Z',
     });
+    expect(episode.art).toContain('linear-gradient');
 
-    const movie = normalizeCalendarEvent({
+    const movie = mapCalendarEvent({
       title: 'Dune',
       additional: 'Theatrical',
       date: 'Jul 13',
@@ -33,7 +35,7 @@ describe('calendar API boundary', () => {
   });
 
   it('infers episode kind from SxxExx subtitle when kind is omitted', () => {
-    const event = normalizeCalendarEvent({
+    const event = mapCalendarEvent({
       title: 'The Expanse',
       additional: 'S4 E2',
       date: 'Jul 14',
@@ -43,20 +45,20 @@ describe('calendar API boundary', () => {
   });
 
   it('sorts dated events first and keeps undated events after them', () => {
-    const undated = normalizeCalendarEvent({
+    const undated = mapCalendarEvent({
       title: 'Night Transit',
       additional: 'Premiere',
       date: 'Jul 15',
       kind: 'movie',
     });
-    const earlier = normalizeCalendarEvent({
+    const earlier = mapCalendarEvent({
       title: 'Cowboy Bebop',
       additional: 'S1 E5',
       date: 'Jul 12',
       airDate: '2026-07-12T18:00:00Z',
       kind: 'episode',
     });
-    const later = normalizeCalendarEvent({
+    const later = mapCalendarEvent({
       title: 'Dune',
       additional: 'Theatrical',
       date: 'Jul 13',

@@ -93,6 +93,40 @@
           "options": {
             "tsConfig": "projects/dashboard/tsconfig.spec.json"
           }
+        },
+        "storybook": {
+          "builder": "@storybook/angular:start-storybook",
+          "options": {
+            "configDir": ".storybook",
+            "browserTarget": "dashboard:build:development",
+            "tsConfig": "tsconfig.storybook.json",
+            "port": 6006,
+            "compodoc": true,
+            "compodocArgs": [
+              "-e",
+              "json"
+            ],
+            "styles": [
+              "projects/dashboard/src/app/ui/media-ui.scss"
+            ]
+          }
+        },
+        "build-storybook": {
+          "builder": "@storybook/angular:build-storybook",
+          "options": {
+            "configDir": ".storybook",
+            "browserTarget": "dashboard:build:production",
+            "tsConfig": "tsconfig.storybook.json",
+            "outputDir": "storybook-static",
+            "compodoc": true,
+            "compodocArgs": [
+              "-e",
+              "json"
+            ],
+            "styles": [
+              "projects/dashboard/src/app/ui/media-ui.scss"
+            ]
+          }
         }
       }
     }

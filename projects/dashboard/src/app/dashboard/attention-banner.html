@@ -1,0 +1,15 @@
+<section class="attention-banner" role="status" aria-live="polite">
+  <div class="attention-banner__body">
+    <span class="attention-banner__icon" aria-hidden="true">
+      <svg lucideAlertTriangle [size]="22" aria-hidden="true"></svg>
+    </span>
+    <div class="attention-banner__copy">
+      <h2>{{ headline() }}</h2>
+      <p>{{ message() }}</p>
+    </div>
+  </div>
+  <a class="attention-banner__action" [routerLink]="['/reports']">
+    View issues
+    <svg lucideChevronRight [size]="16" aria-hidden="true"></svg>
+  </a>
+</section>

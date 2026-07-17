@@ -1,6 +1,6 @@
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { MmButton, MmCard, MmProgress, MmStateCard, MmStatus } from './primitives';
+import { MmButton, MmCard, MmProgress, MmStateCard, MmStatus } from './index';
 
 @Component({
   standalone: true,
@@ -33,7 +33,7 @@ class BodyOnlyCardHost {}
 })
 class ContainerRegionsHost {}
 
-describe('media-ui primitives', () => {
+describe('app/ui primitives', () => {
   it('renders button content and preserves its base and variant classes', () => {
     const fixture = TestBed.createComponent(MmButton);
     fixture.componentRef.setInput('variant', 'quiet');
@@ -77,11 +77,11 @@ describe('media-ui primitives', () => {
     expect(projectedFooter.textContent).toContain('View all');
   });
 
-  it('keeps shared buttons at least 34px high', () => {
+  it('keeps shared buttons at least 40px high', () => {
     const fixture = TestBed.createComponent(MmButton);
     fixture.detectChanges();
 
-    expect(getComputedStyle(fixture.nativeElement.querySelector('button')).minHeight).toBe('34px');
+    expect(getComputedStyle(fixture.nativeElement.querySelector('button')).minHeight).toBe('40px');
   });
 
   it('exposes progress semantics and the state-card danger tone', () => {

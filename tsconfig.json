@@ -7,7 +7,7 @@
     "noPropertyAccessFromIndexSignature": true,
     "noImplicitReturns": true,
     "paths": {
-      "media-ui": ["./projects/dashboard/src/app/ui/public-api.ts"]
+      "@app/ui": ["./projects/dashboard/src/app/ui/index.ts"]
     },
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
@@ -15,6 +15,7 @@
     "experimentalDecorators": true,
     "importHelpers": true,
     "target": "ES2022",
+    "lib": ["ES2022", "ES2024.Promise", "DOM"],
     "module": "preserve"
   },
   "angularCompilerOptions": {

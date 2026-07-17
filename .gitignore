@@ -48,6 +48,9 @@ Thumbs.db
 # Git worktrees
 .worktrees/
 
+# OpenCode local tooling state
+.opencode/
+
 # Local design-exploration mockups (logs, screenshots, scratch HTML)
 /docs/mockups/
 

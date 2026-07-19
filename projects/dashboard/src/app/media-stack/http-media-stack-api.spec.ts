@@ -457,6 +457,13 @@ describe('HttpMediaStackApi', () => {
       volumes: [{ name: 'Scratch', used: 5, total: 50 }],
     });
     await expect(missingId).rejects.toThrow(/missing id/);
+
+    const negativeBytes = api.getStorageOverview();
+    http.expectOne('/api/storage/overview').flush({
+      ok: true,
+      volumes: [{ id: 'media', label: 'Media', usedBytes: -1, totalBytes: 20 }],
+    });
+    await expect(negativeBytes).rejects.toThrow(/invalid usedBytes/);
   });
 
   it('GETs jellyfin stats and rejects missing counts', async () => {
@@ -471,6 +478,14 @@ describe('HttpMediaStackApi', () => {
     const missingSeries = api.getLibraryStats();
     http.expectOne('/api/jellyfin/stats').flush({ ok: true, movies: 12 });
     await expect(missingSeries).rejects.toThrow(/missing series/);
+
+    const softFail = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/stats').flush({ ok: false, error: 'jellyfin down' });
+    await expect(softFail).rejects.toThrow('jellyfin down');
+
+    const negativeCounts = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/stats').flush({ ok: true, movies: -1, series: 2 });
+    await expect(negativeCounts).rejects.toThrow(/invalid movies/);
   });
 
   it('unwraps calendar envelope and rejects ok:false or malformed members', async () => {

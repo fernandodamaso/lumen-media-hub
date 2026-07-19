@@ -312,6 +312,13 @@ export function requireLiveLibraryStats(raw: unknown): MediaStackLibraryStatsDto
   if (typeof series !== 'number' || !Number.isFinite(series)) {
     throw new Error('Malformed library stats response: missing series');
   }
+  // Negative counts are malformed — do not clamp into trustworthy zeros at the format layer.
+  if (movies < 0) {
+    throw new Error('Malformed library stats response: invalid movies');
+  }
+  if (series < 0) {
+    throw new Error('Malformed library stats response: invalid series');
+  }
   return {
     ok: typeof raw['ok'] === 'boolean' ? raw['ok'] : undefined,
     movies,
@@ -691,6 +698,13 @@ export function requireLiveStorageVolume(raw: unknown, index = 0): ValidatedLive
   }
   if (total === null) {
     throw new Error(`Malformed storage overview response: member ${index} is missing totalBytes`);
+  }
+  // Negative capacities are malformed — zeros remain valid empty capacity.
+  if (used < 0) {
+    throw new Error(`Malformed storage overview response: member ${index} has invalid usedBytes`);
+  }
+  if (total < 0) {
+    throw new Error(`Malformed storage overview response: member ${index} has invalid totalBytes`);
   }
 
   const kindRaw = raw['kind'];

@@ -199,7 +199,8 @@ export class HttpMediaStackApi implements MediaStackApi {
   }
 
   getLibraryStats(signal?: AbortSignal): Promise<LibraryStats> {
-    return this.getSoftEnvelope<OkEnvelope>(
+    // Hard-fail soft { ok:false } with the backend message — do not map it as "missing movies".
+    return this.getHardEnvelope<OkEnvelope>(
       '/jellyfin/stats',
       (data) => {
         requireLiveLibraryStats(data);

@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { ArrLibrary, CALENDAR_LINK_BASES, CalendarEvent } from './calendar.models';
-import { CalendarFacade } from './calendar.facade';
+import { CalendarFacade, SCHEDULED_REFRESH_TIMEOUT_MS } from './calendar.facade';
 
 describe('CalendarFacade', () => {
   let api: MockApi;
@@ -193,6 +193,44 @@ describe('CalendarFacade', () => {
     TestBed.resetTestingModule();
     await vi.advanceTimersByTimeAsync(200);
     expect(api.calendarCalls).toBe(2);
+    vi.useRealTimers();
+  });
+
+  it('ignores a superseded hung poll timeout after a newer refresh wins', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred } = Promise.withResolvers<CalendarEvent[]>();
+    api.nextResponse = deferred;
+
+    facade.startPolling(SCHEDULED_REFRESH_TIMEOUT_MS + 1_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.calendarCalls).toBe(1);
+    expect(facade.refreshing()).toBe(true);
+
+    api.nextResponse = undefined;
+    api.events = [
+      {
+        id: 'From-manual-2026-07-12T18:00:00Z',
+        time: 'Jul 12',
+        kind: 'episode',
+        title: 'From manual',
+        subtitle: 'S1 E1',
+        status: 'pending',
+        airDate: '2026-07-12T18:00:00Z',
+      },
+    ];
+    await facade.refresh();
+    expect(facade.status()).toBe('ready');
+    expect(facade.events()[0]?.title).toBe('From manual');
+    expect(facade.error()).toBe('');
+    expect(facade.refreshing()).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
+    expect(facade.status()).toBe('ready');
+    expect(facade.events()[0]?.title).toBe('From manual');
+    expect(facade.error()).toBe('');
+    expect(facade.refreshing()).toBe(false);
+
+    TestBed.resetTestingModule();
     vi.useRealTimers();
   });
 

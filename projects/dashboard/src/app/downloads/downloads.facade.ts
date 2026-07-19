@@ -111,10 +111,17 @@ export class DownloadsFacade {
     const abort = new AbortController();
     this.refreshAbort = abort;
     this.refreshTimeoutId = setTimeout(() => abort.abort(), SCHEDULED_REFRESH_TIMEOUT_MS);
+    const priorRequestId = this.requestId;
     try {
       await this.refresh({ initial, signal: abort.signal });
       // Timeout abort while polling is still armed: surface retained/hard failure and free the slot.
-      if (abort.signal.aborted && this.pollHandle !== undefined) {
+      // Superseded attempts must not clobber a newer successful refresh.
+      const ownedRequestId = priorRequestId + 1;
+      if (
+        abort.signal.aborted &&
+        this.pollHandle !== undefined &&
+        this.requestId === ownedRequestId
+      ) {
         this.applyRefreshFailure(initial);
         this._refreshing.set(false);
       }

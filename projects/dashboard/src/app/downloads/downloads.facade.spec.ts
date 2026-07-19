@@ -125,6 +125,34 @@ describe('DownloadsFacade', () => {
     vi.useRealTimers();
   });
 
+  it('ignores a superseded hung poll timeout after a newer refresh wins', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred } = Promise.withResolvers<DownloadTorrent[]>();
+    api.nextResponse = deferred;
+
+    facade.startPolling(SCHEDULED_REFRESH_TIMEOUT_MS + 1_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.listCalls).toBe(1);
+    expect(facade.refreshing()).toBe(true);
+
+    api.nextResponse = undefined;
+    api.items = [{ ...torrent, id: 'from-manual', name: 'From manual' }];
+    await facade.refresh();
+    expect(facade.status()).toBe('ready');
+    expect(facade.torrents()[0]?.id).toBe('from-manual');
+    expect(facade.error()).toBe('');
+    expect(facade.refreshing()).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
+    expect(facade.status()).toBe('ready');
+    expect(facade.torrents()[0]?.id).toBe('from-manual');
+    expect(facade.error()).toBe('');
+    expect(facade.refreshing()).toBe(false);
+
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
+  });
+
   it('aborts the active listTorrents signal when a scheduled refresh times out', async () => {
     vi.useFakeTimers();
     const { promise: deferred } = Promise.withResolvers<DownloadTorrent[]>();

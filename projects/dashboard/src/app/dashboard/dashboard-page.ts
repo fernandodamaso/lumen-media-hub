@@ -65,8 +65,9 @@ export class DashboardPage {
   readonly libraryMeta = computed(() => {
     const stats = this.library.stats();
     if (!stats) return null;
-    const counts = `${stats.movies} movies · ${stats.series} series`;
-    return this.library.availability() === 'partial' ? `Partial · ${counts}` : counts;
+    // Home totals come from /jellyfin/stats (always complete). Partial availability is only for
+    // unfiltered listLibraryItems aggregation, not this metric.
+    return `${stats.movies} movies · ${stats.series} series`;
   });
 
   readonly libraryNotice = computed(() => {

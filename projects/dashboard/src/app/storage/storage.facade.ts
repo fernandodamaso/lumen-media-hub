@@ -65,9 +65,16 @@ export class StorageFacade {
     const abort = new AbortController();
     this.refreshAbort = abort;
     this.refreshTimeoutId = setTimeout(() => abort.abort(), SCHEDULED_REFRESH_TIMEOUT_MS);
+    const priorRequestId = this.requestId;
     try {
       await this.refresh({ initial, signal: abort.signal });
-      if (abort.signal.aborted && this.pollHandle !== undefined) {
+      // Only the owning attempt may surface timeout failure after a superseded newer refresh.
+      const ownedRequestId = priorRequestId + 1;
+      if (
+        abort.signal.aborted &&
+        this.pollHandle !== undefined &&
+        this.requestId === ownedRequestId
+      ) {
         this.applyRefreshFailure(initial);
         this._refreshing.set(false);
       }

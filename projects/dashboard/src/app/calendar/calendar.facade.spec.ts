@@ -234,6 +234,46 @@ describe('CalendarFacade', () => {
     vi.useRealTimers();
   });
 
+  it('does not commit a de-linked schedule when ARR enrichment aborts mid-refresh', async () => {
+    vi.useFakeTimers();
+    facade.startPolling(SCHEDULED_REFRESH_TIMEOUT_MS + 1_000);
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(facade.status()).toBe('ready');
+    const priorTitles = facade.events().map((event) => event.title);
+    expect(priorTitles[0]).toBe('Cowboy Bebop');
+
+    const { promise: hungLibrary } = Promise.withResolvers<ArrLibrary>();
+    api.nextLibrary = hungLibrary;
+    api.events = [
+      {
+        id: 'Aborted-S1 E1-2026-07-12T18:00:00Z',
+        time: 'Jul 12',
+        kind: 'episode',
+        title: 'Aborted Enrichment',
+        subtitle: 'S1 E1',
+        status: 'pending',
+        airDate: '2026-07-12T18:00:00Z',
+      },
+    ];
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS + 1_000);
+    expect(api.calendarCalls).toBe(2);
+    expect(facade.refreshing()).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
+    expect(facade.status()).toBe('ready');
+    expect(facade.events().map((event) => event.title)).toEqual(priorTitles);
+    expect(facade.error()).toBe(
+      'Could not refresh calendar. Showing last loaded schedule.',
+    );
+    expect(facade.events().some((event) => event.title === 'Aborted Enrichment')).toBe(false);
+
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
+  });
+
   it('refreshes on one interval and stops polling when destroyed', async () => {
     vi.useFakeTimers();
     facade.startPolling(100);
@@ -288,6 +328,7 @@ class MockApi implements MediaStackApi {
   failure = false;
   libraryFailure = false;
   nextResponse?: Promise<CalendarEvent[]>;
+  nextLibrary?: Promise<ArrLibrary>;
   lastSignal?: AbortSignal;
 
   listTorrents() {
@@ -347,7 +388,36 @@ class MockApi implements MediaStackApi {
       ? Promise.reject(new Error('offline'))
       : Promise.resolve(this.events.map((event) => ({ ...event })));
   }
-  getArrLibrary(): Promise<ArrLibrary> {
+  getArrLibrary(signal?: AbortSignal): Promise<ArrLibrary> {
+    if (signal?.aborted) {
+      return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+    }
+    if (this.nextLibrary) {
+      const pending = this.nextLibrary;
+      return new Promise<ArrLibrary>((resolve, reject) => {
+        let settled = false;
+        const onAbort = () => {
+          if (settled) return;
+          settled = true;
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        void pending.then(
+          (value) => {
+            if (settled) return;
+            settled = true;
+            signal?.removeEventListener('abort', onAbort);
+            resolve(value);
+          },
+          (error: unknown) => {
+            if (settled) return;
+            settled = true;
+            signal?.removeEventListener('abort', onAbort);
+            reject(error);
+          },
+        );
+      });
+    }
     return this.libraryFailure || this.failure
       ? Promise.reject(new Error('offline'))
       : Promise.resolve({

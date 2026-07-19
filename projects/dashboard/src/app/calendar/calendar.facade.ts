@@ -81,7 +81,11 @@ export class CalendarFacade {
   private async loadLibrary(signal?: AbortSignal) {
     try {
       return await this.api.getArrLibrary(signal);
-    } catch {
+    } catch (error: unknown) {
+      // Aborts must propagate so refresh does not commit a de-linked schedule, then look like a failed retention.
+      if (signal?.aborted || isAbortError(error)) {
+        throw error;
+      }
       return { ok: false, series: {}, movies: {} };
     }
   }
@@ -143,4 +147,13 @@ export class CalendarFacade {
     this.scheduledInFlight = false;
     this._refreshing.set(false);
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (typeof DOMException !== 'undefined' &&
+      error instanceof DOMException &&
+      error.name === 'AbortError') ||
+    (error instanceof Error && error.name === 'AbortError')
+  );
 }

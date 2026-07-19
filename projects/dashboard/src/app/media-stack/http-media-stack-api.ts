@@ -48,6 +48,7 @@ import {
   OkEnvelope,
   isRecord,
   requireArrayField,
+  requireCronLogsPayload,
   requireHardEnvelope,
   requireOkEnvelope,
   requireSoftEnvelope,
@@ -164,7 +165,7 @@ export class HttpMediaStackApi implements MediaStackApi {
 
   listCronLogs(): Promise<CronLogs> {
     return this.getSoftEnvelope<MediaStackCronLogsDto>('/cron/logs', (data) => {
-      requireArrayField(data as unknown as Record<string, unknown>, 'logs', 'Malformed cron logs response');
+      requireCronLogsPayload(data as unknown as Record<string, unknown>);
     }).then(mapCronLogs);
   }
 

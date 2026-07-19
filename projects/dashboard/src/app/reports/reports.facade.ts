@@ -56,7 +56,7 @@ export class ReportsFacade {
       const summary = summarizeCronHealth(runs);
       this._runs.set(runs);
       this._summary.set(summary);
-      this._generatedAt.set(logs.generatedAt ?? new Date().toISOString());
+      this._generatedAt.set(logs.generatedAt ?? '');
       this._error.set('');
       this._status.set(this.statusFromSummary(summary));
     } catch {

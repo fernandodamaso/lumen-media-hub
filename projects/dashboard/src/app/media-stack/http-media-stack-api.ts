@@ -48,6 +48,7 @@ import {
   OkEnvelope,
   isRecord,
   requireArrayField,
+  requireCronLogsPayload,
   requireHardEnvelope,
   requireOkEnvelope,
   requireSoftEnvelope,
@@ -125,8 +126,8 @@ export class HttpMediaStackApi implements MediaStackApi {
     return [...movies, ...series];
   }
 
-  getAutomationSummary(): Promise<AutomationSummary> {
-    return this.getRaw<unknown>('/automation/summary').then((data) => {
+  getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary> {
+    return this.getRaw<unknown>('/automation/summary', signal).then((data) => {
       const envelope = requireSoftEnvelope<OkEnvelope & Partial<LiveAutomationSummary>>(
         data,
         'Malformed automation summary response',
@@ -162,10 +163,14 @@ export class HttpMediaStackApi implements MediaStackApi {
     return this.getSoftEnvelope<OkEnvelope & MediaStackLibraryStatsDto>('/jellyfin/stats').then(mapLibraryStats);
   }
 
-  listCronLogs(): Promise<CronLogs> {
-    return this.getSoftEnvelope<MediaStackCronLogsDto>('/cron/logs', (data) => {
-      requireArrayField(data as unknown as Record<string, unknown>, 'logs', 'Malformed cron logs response');
-    }).then(mapCronLogs);
+  listCronLogs(signal?: AbortSignal): Promise<CronLogs> {
+    return this.getSoftEnvelope<MediaStackCronLogsDto>(
+      '/cron/logs',
+      (data) => {
+        requireCronLogsPayload(data as unknown as Record<string, unknown>);
+      },
+      signal,
+    ).then(mapCronLogs);
   }
 
   listHermesRecommendations(): Promise<HermesDiscover> {
@@ -271,8 +276,9 @@ export class HttpMediaStackApi implements MediaStackApi {
   private async getSoftEnvelope<T extends OkEnvelope>(
     path: string,
     validate?: (envelope: T) => void,
+    signal?: AbortSignal,
   ): Promise<T> {
-    const data = await this.getRaw<unknown>(path);
+    const data = await this.getRaw<unknown>(path, signal);
     return requireSoftEnvelope<T>(data, `Malformed response for GET ${path}`, validate);
   }
 

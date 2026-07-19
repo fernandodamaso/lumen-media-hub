@@ -27,8 +27,8 @@ export interface MediaStackApi {
   listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<LibraryItem[]>;
   getLibraryStats(): Promise<LibraryStats>;
   getStorageOverview(): Promise<StorageOverview>;
-  getAutomationSummary(): Promise<AutomationSummary>;
-  listCronLogs(): Promise<CronLogs>;
+  getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary>;
+  listCronLogs(signal?: AbortSignal): Promise<CronLogs>;
   listHermesRecommendations(): Promise<HermesDiscover>;
   submitHermesFeedback(id: string, feedback: DiscoverFeedback, notes?: string): Promise<DiscoverAction>;
   requestHermesMore(): Promise<DiscoverAction>;

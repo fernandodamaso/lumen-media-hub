@@ -91,3 +91,21 @@ export const Empty: Story = {
     template: `<div style="max-width:380px"><mm-service-health-card /></div>`,
   }),
 };
+
+export const RetainedRefreshNotice: Story = {
+  render: () => ({
+    moduleMetadata: {
+      providers: [
+        {
+          provide: ServiceHealthFacade,
+          useValue: createFacade(
+            'ready',
+            healthyServices,
+            'Could not refresh service health. Showing last loaded status.',
+          ),
+        },
+      ],
+    },
+    template: `<div style="max-width:380px"><mm-service-health-card /></div>`,
+  }),
+};

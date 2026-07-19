@@ -105,3 +105,21 @@ export const Empty: Story = {
     template: `<div style="max-width:640px"><mm-automation-runs-card /></div>`,
   }),
 };
+
+export const RetainedRefreshNotice: Story = {
+  render: () => ({
+    moduleMetadata: {
+      providers: [
+        {
+          provide: AutomationFacade,
+          useValue: createFacade(
+            'ready',
+            runs,
+            'Could not refresh automation runs. Showing last loaded history.',
+          ),
+        },
+      ],
+    },
+    template: `<div style="max-width:640px"><mm-automation-runs-card /></div>`,
+  }),
+};

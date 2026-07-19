@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { LucideActivity, LucideChevronRight, LucideSettings } from '@lucide/angular';
-import { MmButton, MmCard, MmSkeleton, MmStateCard } from '@app/ui';
+import { MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { AutomationService, AutomationServiceStatus } from '../automation/automation.models';
 import { ServiceHealthFacade } from '../automation/service-health.facade';
 import { SERVICE_LINK_BASES, ServiceLinkBases } from '../media-stack/media-stack-api.providers';
@@ -9,7 +9,7 @@ import { AUTOMATION_SERVICE_STATUS_VIEW } from '../automation/automation-format'
 
 @Component({
   selector: 'mm-service-health-card',
-  imports: [MmButton, MmCard, MmSkeleton, MmStateCard, RouterLink, LucideActivity, LucideChevronRight, LucideSettings],
+  imports: [MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus, RouterLink, LucideActivity, LucideChevronRight, LucideSettings],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './service-health-card.html',
   styleUrl: './service-health-card.scss',

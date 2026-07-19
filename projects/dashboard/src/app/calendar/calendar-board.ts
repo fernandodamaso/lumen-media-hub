@@ -47,6 +47,6 @@ export class CalendarBoard {
   }
 
   retry(): void {
-    void this.facade.refresh();
+    void this.facade.refresh({ initial: true });
   }
 }

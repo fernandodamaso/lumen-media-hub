@@ -27,7 +27,7 @@ describe('CalendarFacade', () => {
   });
 
   it('loads mixed events in airDate order and attaches destinations', async () => {
-    await facade.refresh();
+    await facade.refresh({ initial: true });
     expect(facade.status()).toBe('ready');
     expect(facade.events().map((event) => event.title)).toEqual([
       'Cowboy Bebop',
@@ -60,24 +60,76 @@ describe('CalendarFacade', () => {
         airDate: '2026-07-12T18:00:00Z',
       },
     ];
-    await facade.refresh();
+    await facade.refresh({ initial: true });
     expect(facade.events().map((event) => event.title)).toEqual(['Cowboy Bebop', 'Night Transit']);
   });
 
   it('exposes empty and error states', async () => {
     api.events = [];
-    await facade.refresh();
+    await facade.refresh({ initial: true });
     expect(facade.status()).toBe('empty');
 
     api.failure = true;
-    await facade.refresh();
+    await facade.refresh({ initial: true });
     expect(facade.status()).toBe('error');
     expect(facade.error()).toContain('temporarily unavailable');
   });
 
+  it('retains last-good events when a background refresh fails', async () => {
+    await facade.refresh({ initial: true });
+    expect(facade.status()).toBe('ready');
+    expect(facade.events()).toHaveLength(3);
+
+    api.failure = true;
+    await facade.refresh();
+    expect(facade.status()).toBe('ready');
+    expect(facade.events()).toHaveLength(3);
+    expect(facade.error()).toContain('Showing last loaded schedule');
+  });
+
+  it('ignores stale responses when a newer refresh wins the race', async () => {
+    const { promise: initialPromise, resolve: resolveInitial } =
+      Promise.withResolvers<CalendarEvent[]>();
+    api.nextResponse = initialPromise;
+
+    const first = facade.refresh({ initial: true });
+    expect(facade.refreshing()).toBe(true);
+
+    api.nextResponse = undefined;
+    api.events = [
+      {
+        id: 'Newer-S1 E1-2026-07-12T18:00:00Z',
+        time: 'Jul 12',
+        kind: 'episode',
+        title: 'Newer',
+        subtitle: 'S1 E1',
+        status: 'pending',
+        airDate: '2026-07-12T18:00:00Z',
+      },
+    ];
+    await facade.refresh();
+    expect(facade.events()[0]?.title).toBe('Newer');
+
+    resolveInitial([
+      {
+        id: 'Stale-S1 E1-2026-07-12T18:00:00Z',
+        time: 'Jul 12',
+        kind: 'episode',
+        title: 'Stale',
+        subtitle: 'S1 E1',
+        status: 'pending',
+        airDate: '2026-07-12T18:00:00Z',
+      },
+    ]);
+    await first;
+
+    expect(facade.events()[0]?.title).toBe('Newer');
+    expect(facade.refreshing()).toBe(false);
+  });
+
   it('keeps events usable when arr library lookup fails', async () => {
     api.libraryFailure = true;
-    await facade.refresh();
+    await facade.refresh({ initial: true });
     expect(facade.status()).toBe('ready');
     expect(facade.events().map((event) => event.title)).toEqual([
       'Cowboy Bebop',
@@ -113,9 +165,35 @@ describe('CalendarFacade', () => {
       series: { fargo: 'fargo' },
       movies: { fargo: 'fargo-1996' },
     };
-    await facade.refresh();
+    await facade.refresh({ initial: true });
     expect(facade.events()[0].href).toBe('https://sonarr.example/series/fargo');
     expect(facade.events()[1].href).toBe('https://radarr.example/movie/fargo-1996');
+  });
+
+  it('does not overlap scheduled polls while one is in flight', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred, resolve } = Promise.withResolvers<CalendarEvent[]>();
+    api.nextResponse = deferred;
+
+    facade.startPolling(100);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.calendarCalls).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.calendarCalls).toBe(1);
+
+    api.nextResponse = undefined;
+    resolve(api.events.map((event) => ({ ...event })));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(api.calendarCalls).toBe(2);
+
+    TestBed.resetTestingModule();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(api.calendarCalls).toBe(2);
+    vi.useRealTimers();
   });
 
   it('refreshes on one interval and stops polling when destroyed', async () => {
@@ -171,6 +249,8 @@ class MockApi implements MediaStackApi {
   calendarCalls = 0;
   failure = false;
   libraryFailure = false;
+  nextResponse?: Promise<CalendarEvent[]>;
+  lastSignal?: AbortSignal;
 
   listTorrents() {
     return Promise.resolve([]);
@@ -188,13 +268,43 @@ class MockApi implements MediaStackApi {
     return Promise.resolve();
   }
   getLibraryStats() {
-    return Promise.resolve({ movies: 0, series: 0 });
+    return Promise.resolve({ movies: 0, series: 0, availability: 'complete' as const });
   }
   getStorageOverview() {
     return Promise.resolve({ generatedAt: '', volumes: [] });
   }
-  listCalendarEvents(): Promise<CalendarEvent[]> {
+  listCalendarEvents(signal?: AbortSignal): Promise<CalendarEvent[]> {
     this.calendarCalls++;
+    this.lastSignal = signal;
+    if (signal?.aborted) {
+      return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+    }
+    if (this.nextResponse) {
+      const pending = this.nextResponse;
+      return new Promise<CalendarEvent[]>((resolve, reject) => {
+        let settled = false;
+        const onAbort = () => {
+          if (settled) return;
+          settled = true;
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        void pending.then(
+          (value) => {
+            if (settled) return;
+            settled = true;
+            signal?.removeEventListener('abort', onAbort);
+            resolve(value);
+          },
+          (error: unknown) => {
+            if (settled) return;
+            settled = true;
+            signal?.removeEventListener('abort', onAbort);
+            reject(error);
+          },
+        );
+      });
+    }
     return this.failure
       ? Promise.reject(new Error('offline'))
       : Promise.resolve(this.events.map((event) => ({ ...event })));
@@ -209,7 +319,7 @@ class MockApi implements MediaStackApi {
         });
   }
   listLibraryItems() {
-    return Promise.resolve([]);
+    return Promise.resolve({ items: [], availability: 'complete' as const });
   }
   getAutomationSummary() {
     return Promise.resolve({

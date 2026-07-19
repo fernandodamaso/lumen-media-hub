@@ -139,7 +139,7 @@ describe('DashboardPage composition', () => {
       availability: { services: 'present', preview: 'empty', problems: 'present' },
     });
     library.status.set('ready');
-    library.stats.set({ movies: 428, series: 76 });
+    library.stats.set({ movies: 428, series: 76, availability: 'complete' });
     downloads.status.set('ready');
     downloads.torrents.set([torrent()]);
     downloads.summary.set({ active: 1, total: 1, downloaded: 50, size: 100, downloadRate: 10, uploadRate: 2 });
@@ -233,6 +233,8 @@ function createLibraryStatsFacade() {
     status: signal<LibraryStatsStatus>('loading'),
     stats: signal<LibraryStats | null>(null),
     error: signal(''),
+    availability: signal<'complete' | 'partial'>('complete'),
+    refreshing: signal(false),
     refresh: vi.fn(),
   };
 }

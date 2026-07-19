@@ -16,9 +16,20 @@ export interface LibraryItem {
   rating?: number | null;
 }
 
+/** Unfiltered movies+series aggregation can be complete or one-source partial. */
+export type LibraryAvailability = 'complete' | 'partial';
+
 export interface LibraryStats {
   movies: number;
   series: number;
+  /** Always `complete` for the dedicated stats endpoint; partial applies to list aggregation. */
+  availability: LibraryAvailability;
+}
+
+/** Result of listing library items — exposes partial when one Jellyfin kind fails. */
+export interface LibraryListResult {
+  items: LibraryItem[];
+  availability: LibraryAvailability;
 }
 
 export interface JellyfinLinkBases {

@@ -14,7 +14,8 @@ export interface MediaStackLibraryItemDto {
 /** Raw library stats payload from GET /jellyfin/stats. */
 export interface MediaStackLibraryStatsDto {
   ok?: boolean;
-  movies?: number;
-  series?: number;
+  /** Required finite counts when ok:true — missing must not coerce to 0 as success. */
+  movies: number;
+  series: number;
   error?: string;
 }

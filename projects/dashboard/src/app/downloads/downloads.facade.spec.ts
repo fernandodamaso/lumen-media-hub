@@ -368,7 +368,7 @@ class MockApi implements MediaStackApi {
     return this.actionFailure ? Promise.reject(new Error('failed')) : this.torrentAction;
   }
   getLibraryStats() {
-    return Promise.resolve({ movies: 0, series: 0 });
+    return Promise.resolve({ movies: 0, series: 0, availability: 'complete' as const });
   }
   getStorageOverview() {
     return Promise.resolve({ generatedAt: '', volumes: [] });
@@ -380,7 +380,7 @@ class MockApi implements MediaStackApi {
     return Promise.resolve({ ok: true, series: {}, movies: {} });
   }
   listLibraryItems() {
-    return Promise.resolve([]);
+    return Promise.resolve({ items: [], availability: 'complete' as const });
   }
   getAutomationSummary() {
     return Promise.resolve({

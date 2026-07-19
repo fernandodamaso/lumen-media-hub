@@ -14,7 +14,12 @@ import {
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
-import { LibraryItem, LibraryItemKind, LibraryStats } from '../library/library.models';
+import {
+  LibraryItem,
+  LibraryItemKind,
+  LibraryListResult,
+  LibraryStats,
+} from '../library/library.models';
 import { AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
@@ -31,18 +36,18 @@ import {
 import { mapLibraryItem, mapLibraryStats } from '../library/library-format';
 import { mapTorrent } from '../downloads/downloads-format';
 import { mapStorageOverview } from '../storage/storage-format';
-import { MediaStackArrLibraryDto, MediaStackCalendarEventDto } from './wire/calendar';
+import { MediaStackArrLibraryDto } from './wire/calendar';
 import { MediaStackCronLogsDto } from './wire/cron';
 import { MediaStackDiscoverActionDto, MediaStackExternalDiscoverDto, MediaStackHermesDiscoverDto } from './wire/discover';
-import { MediaStackLibraryStatsDto } from './wire/library';
 import {
   LiveAutomationSummary,
   LiveJellyfinListResponse,
-  LiveStorageVolume,
   mapLiveAutomationSummary,
   mapLiveJellyfinItem,
   mapLiveStorageVolume,
   mapLiveTorrent,
+  requireLiveCalendarEvent,
+  requireLiveLibraryStats,
 } from './live-api.mappers';
 import {
   OkEnvelope,
@@ -81,37 +86,50 @@ export class HttpMediaStackApi implements MediaStackApi {
     return this.postVoid('/qbt/torrents/start', { id });
   }
 
-  listCalendarEvents(): Promise<CalendarEvent[]> {
-    return this.getHardEnvelope<OkEnvelope & { events?: MediaStackCalendarEventDto[] }>(
+  listCalendarEvents(signal?: AbortSignal): Promise<CalendarEvent[]> {
+    return this.getHardEnvelope<OkEnvelope & { events?: unknown[] }>(
       '/sonarr/calendar',
       (data) => {
         requireArrayField(data as unknown as Record<string, unknown>, 'events', 'Malformed calendar response');
       },
-    ).then((data) => (data.events ?? []).map(mapCalendarEvent));
+      signal,
+    ).then((data) => {
+      const events = data.events ?? [];
+      return events.map((event, index) => mapCalendarEvent(requireLiveCalendarEvent(event, index)));
+    });
   }
 
-  getArrLibrary(): Promise<ArrLibrary> {
-    return this.getSoftEnvelope<MediaStackArrLibraryDto>('/arr/library', (data) => {
-      if (!isRecord(data['series']) || !isRecord(data['movies'])) {
-        throw new Error('Malformed arr library response');
-      }
-    }).then(mapArrLibrary);
+  getArrLibrary(signal?: AbortSignal): Promise<ArrLibrary> {
+    return this.getSoftEnvelope<MediaStackArrLibraryDto>(
+      '/arr/library',
+      (data) => {
+        if (!isRecord(data['series']) || !isRecord(data['movies'])) {
+          throw new Error('Malformed arr library response');
+        }
+      },
+      signal,
+    ).then(mapArrLibrary);
   }
 
-  async listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<LibraryItem[]> {
+  async listLibraryItems(
+    filter?: { kind?: LibraryItemKind },
+    signal?: AbortSignal,
+  ): Promise<LibraryListResult> {
     const kind = filter?.kind;
 
     // Filtered loads: surface the requested kind's failure instead of masking as empty.
     if (kind === 'movie') {
-      return this.fetchJellyfinKind('movies');
+      const items = await this.fetchJellyfinKind('movies', signal);
+      return { items, availability: 'complete' };
     }
     if (kind === 'series') {
-      return this.fetchJellyfinKind('series');
+      const items = await this.fetchJellyfinKind('series', signal);
+      return { items, availability: 'complete' };
     }
 
     const [moviesResult, seriesResult] = await Promise.allSettled([
-      this.fetchJellyfinKind('movies'),
-      this.fetchJellyfinKind('series'),
+      this.fetchJellyfinKind('movies', signal),
+      this.fetchJellyfinKind('series', signal),
     ]);
     const movies = moviesResult.status === 'fulfilled' ? moviesResult.value : [];
     const series = seriesResult.status === 'fulfilled' ? seriesResult.value : [];
@@ -122,7 +140,11 @@ export class HttpMediaStackApi implements MediaStackApi {
         : new Error('Failed to list library items');
     }
 
-    return [...movies, ...series];
+    const availability =
+      moviesResult.status === 'fulfilled' && seriesResult.status === 'fulfilled'
+        ? 'complete'
+        : 'partial';
+    return { items: [...movies, ...series], availability };
   }
 
   getAutomationSummary(): Promise<AutomationSummary> {
@@ -144,12 +166,13 @@ export class HttpMediaStackApi implements MediaStackApi {
     });
   }
 
-  getStorageOverview(): Promise<StorageOverview> {
-    return this.getSoftEnvelope<OkEnvelope & { generatedAt?: string; volumes?: LiveStorageVolume[] }>(
+  getStorageOverview(signal?: AbortSignal): Promise<StorageOverview> {
+    return this.getSoftEnvelope<OkEnvelope & { generatedAt?: string; volumes?: unknown[] }>(
       '/storage/overview',
       (data) => {
         requireArrayField(data as unknown as Record<string, unknown>, 'volumes', 'Malformed storage overview response');
       },
+      signal,
     ).then((data) =>
       mapStorageOverview({
         generatedAt: data.generatedAt,
@@ -158,8 +181,14 @@ export class HttpMediaStackApi implements MediaStackApi {
     );
   }
 
-  getLibraryStats(): Promise<LibraryStats> {
-    return this.getSoftEnvelope<OkEnvelope & MediaStackLibraryStatsDto>('/jellyfin/stats').then(mapLibraryStats);
+  getLibraryStats(signal?: AbortSignal): Promise<LibraryStats> {
+    return this.getSoftEnvelope<OkEnvelope>(
+      '/jellyfin/stats',
+      (data) => {
+        requireLiveLibraryStats(data);
+      },
+      signal,
+    ).then((data) => mapLibraryStats(requireLiveLibraryStats(data)));
   }
 
   listCronLogs(): Promise<CronLogs> {
@@ -208,8 +237,11 @@ export class HttpMediaStackApi implements MediaStackApi {
     return this.mutateSoft('/discover/request', 'POST', toDiscoverRequestPayloadDto(payload));
   }
 
-  private async fetchJellyfinKind(kind: 'movies' | 'series'): Promise<LibraryItem[]> {
-    const data = await this.getRaw<LiveJellyfinListResponse>(`/jellyfin/${kind}`);
+  private async fetchJellyfinKind(
+    kind: 'movies' | 'series',
+    signal?: AbortSignal,
+  ): Promise<LibraryItem[]> {
+    const data = await this.getRaw<LiveJellyfinListResponse>(`/jellyfin/${kind}`, signal);
     const envelope = requireSoftEnvelope<OkEnvelope & { items?: unknown }>(
       data,
       `Failed to list jellyfin ${kind}`,
@@ -226,7 +258,7 @@ export class HttpMediaStackApi implements MediaStackApi {
     }
     const itemKind: LibraryItemKind = kind === 'movies' ? 'movie' : 'series';
     return ((data as LiveJellyfinListResponse).items ?? [])
-      .map((item) => mapLibraryItem(mapLiveJellyfinItem(item, itemKind)))
+      .map((item, index) => mapLibraryItem(mapLiveJellyfinItem(item, itemKind, index)))
       .filter((item): item is LibraryItem => item !== null);
   }
 
@@ -271,8 +303,9 @@ export class HttpMediaStackApi implements MediaStackApi {
   private async getSoftEnvelope<T extends OkEnvelope>(
     path: string,
     validate?: (envelope: T) => void,
+    signal?: AbortSignal,
   ): Promise<T> {
-    const data = await this.getRaw<unknown>(path);
+    const data = await this.getRaw<unknown>(path, signal);
     return requireSoftEnvelope<T>(data, `Malformed response for GET ${path}`, validate);
   }
 
@@ -280,8 +313,9 @@ export class HttpMediaStackApi implements MediaStackApi {
   private async getHardEnvelope<T extends OkEnvelope>(
     path: string,
     validate?: (envelope: T) => void,
+    signal?: AbortSignal,
   ): Promise<T> {
-    const data = await this.getRaw<unknown>(path);
+    const data = await this.getRaw<unknown>(path, signal);
     const envelope = requireHardEnvelope<T>(data, `GET ${path} failed`);
     validate?.(envelope);
     return envelope;

@@ -11,7 +11,7 @@ import {
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
-import { LibraryItem, LibraryItemKind, LibraryStats } from '../library/library.models';
+import { LibraryItem, LibraryItemKind, LibraryListResult, LibraryStats } from '../library/library.models';
 import { AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
@@ -579,14 +579,14 @@ export class MockMediaStackApi implements MediaStackApi {
     };
   }
 
-  listCalendarEvents(): Promise<CalendarEvent[]> {
+  listCalendarEvents(_signal?: AbortSignal): Promise<CalendarEvent[]> {
     const events = demoCalendar()
       .sort((left, right) => (left.airDate ?? '').localeCompare(right.airDate ?? ''))
       .map(mapCalendarEvent);
     return Promise.resolve(events);
   }
 
-  getArrLibrary(): Promise<ArrLibrary> {
+  getArrLibrary(_signal?: AbortSignal): Promise<ArrLibrary> {
     return Promise.resolve(
       mapArrLibrary({
         ok: this.library.ok,
@@ -596,19 +596,19 @@ export class MockMediaStackApi implements MediaStackApi {
     );
   }
 
-  listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<LibraryItem[]> {
+  listLibraryItems(filter?: { kind?: LibraryItemKind }, _signal?: AbortSignal): Promise<LibraryListResult> {
     const items = this.libraryItems
       .filter((item) => !filter?.kind || item.kind === filter.kind)
       .map((item) => mapLibraryItem({ ...item }))
       .filter((item): item is LibraryItem => item !== null);
-    return Promise.resolve(items);
+    return Promise.resolve({ items, availability: 'complete' });
   }
 
-  getLibraryStats(): Promise<LibraryStats> {
+  getLibraryStats(_signal?: AbortSignal): Promise<LibraryStats> {
     return Promise.resolve(mapLibraryStats({ ...DEMO_LIBRARY_STATS }));
   }
 
-  getStorageOverview(): Promise<StorageOverview> {
+  getStorageOverview(_signal?: AbortSignal): Promise<StorageOverview> {
     return Promise.resolve(mapStorageOverview(demoStorageOverview()));
   }
 

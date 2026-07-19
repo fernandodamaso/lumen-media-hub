@@ -215,18 +215,20 @@ describe('MockMediaStackApi', () => {
   it('lists library items with kind filter and defensive copies', async () => {
     const api: MediaStackApi = new MockMediaStackApi();
     const all = await api.listLibraryItems();
-    expect(all.filter((item) => item.kind === 'movie').length).toBeGreaterThanOrEqual(3);
-    expect(all.filter((item) => item.kind === 'series').length).toBeGreaterThanOrEqual(3);
-    expect(all.some((item) => item.artworkState === 'missing')).toBe(true);
-    expect(all.some((item) => item.artworkState === 'failed')).toBe(true);
+    expect(all.availability).toBe('complete');
+    expect(all.items.filter((item) => item.kind === 'movie').length).toBeGreaterThanOrEqual(3);
+    expect(all.items.filter((item) => item.kind === 'series').length).toBeGreaterThanOrEqual(3);
+    expect(all.items.some((item) => item.artworkState === 'missing')).toBe(true);
+    expect(all.items.some((item) => item.artworkState === 'failed')).toBe(true);
 
     const movies = await api.listLibraryItems({ kind: 'movie' });
-    expect(movies.every((item) => item.kind === 'movie')).toBe(true);
+    expect(movies.availability).toBe('complete');
+    expect(movies.items.every((item) => item.kind === 'movie')).toBe(true);
 
-    const first = movies[0];
+    const first = movies.items[0];
     first.title = 'Mutated';
     const again = await api.listLibraryItems({ kind: 'movie' });
-    expect(again[0].title).not.toBe('Mutated');
+    expect(again.items[0].title).not.toBe('Mutated');
   });
 
   it('provides mixed cron-log history covering failures, actionable, and quiet runs', async () => {
@@ -267,6 +269,6 @@ describe('MockMediaStackApi', () => {
     expect(library.usedBytes).toBeLessThan(library.totalBytes);
 
     const stats = await api.getLibraryStats();
-    expect(stats).toEqual({ movies: 428, series: 76 });
+    expect(stats).toEqual({ movies: 428, series: 76, availability: 'complete' });
   });
 });

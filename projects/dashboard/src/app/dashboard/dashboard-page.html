@@ -49,6 +49,10 @@
   />
 </div>
 
+@if (libraryNotice()) {
+  <p class="metrics-notice" role="status" aria-live="polite">{{ libraryNotice() }}</p>
+}
+
 @if (hasAttention()) {
   <mm-attention-banner
     [headline]="attentionHeadline()"

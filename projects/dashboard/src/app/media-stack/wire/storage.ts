@@ -3,8 +3,9 @@ export interface MediaStackStorageVolumeDto {
   id: string;
   label: string;
   kind?: string;
-  usedBytes?: number;
-  totalBytes?: number;
+  /** Required finite capacities — zero is valid empty, missing is not. */
+  usedBytes: number;
+  totalBytes: number;
 }
 
 export interface MediaStackStorageOverviewDto {

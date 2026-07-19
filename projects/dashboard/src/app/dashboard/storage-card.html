@@ -6,6 +6,10 @@
     </h2>
   </div>
 
+  @if (facade.error() && facade.status() !== 'error') {
+    <p class="notice" role="status" aria-live="polite"><mm-status tone="warning">{{ facade.error() }}</mm-status></p>
+  }
+
   @if (facade.status() === 'loading') {
     <div class="storage-list storage-list--skeleton" aria-hidden="true">
       @for (i of skeletonRows; track i) {

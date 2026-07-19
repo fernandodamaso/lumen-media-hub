@@ -65,7 +65,15 @@ export class DashboardPage {
   readonly libraryMeta = computed(() => {
     const stats = this.library.stats();
     if (!stats) return null;
-    return `${stats.movies} movies · ${stats.series} series`;
+    const counts = `${stats.movies} movies · ${stats.series} series`;
+    return this.library.availability() === 'partial' ? `Partial · ${counts}` : counts;
+  });
+
+  readonly libraryNotice = computed(() => {
+    if (this.library.error() && this.library.status() === 'ready') {
+      return this.library.error();
+    }
+    return '';
   });
 
   readonly downloadsMeta = computed(() => {

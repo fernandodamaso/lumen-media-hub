@@ -24,6 +24,8 @@ export class DownloadsFacade {
   private requestId = 0;
   private scheduledInFlight = false;
   private pollHandle?: ReturnType<typeof setInterval>;
+  private refreshAbort?: AbortController;
+  private refreshTimeoutId?: ReturnType<typeof setTimeout>;
 
   readonly status = this._status.asReadonly();
   readonly torrents = this._torrents.asReadonly();
@@ -51,19 +53,21 @@ export class DownloadsFacade {
     this.pollHandle = setInterval(() => void this.runScheduledRefresh(false), intervalMs);
   }
 
-  async refresh(options: { initial?: boolean } = {}): Promise<void> {
+  async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<void> {
     const initial =
       options.initial === true || this._status() === 'loading' || this._status() === 'error';
     this._refreshing.set(true);
     const requestId = ++this.requestId;
     try {
-      const torrents = await this.api.listTorrents();
+      const torrents = await this.api.listTorrents(options.signal);
       if (requestId !== this.requestId) return;
       this._torrents.set(torrents);
       this._status.set(torrents.length ? 'ready' : 'empty');
       this._error.set('');
     } catch {
       if (requestId !== this.requestId) return;
+      // Cancelled refreshes must not mutate facade state; callers apply timeout/teardown policy.
+      if (options.signal?.aborted) return;
       this.applyRefreshFailure(initial);
     } finally {
       if (requestId === this.requestId) this._refreshing.set(false);
@@ -104,20 +108,24 @@ export class DownloadsFacade {
   private async runScheduledRefresh(initial: boolean): Promise<void> {
     if (this.scheduledInFlight) return;
     this.scheduledInFlight = true;
-    const refreshPromise = this.refresh({ initial });
-    const startedRequestId = this.requestId;
+    const abort = new AbortController();
+    this.refreshAbort = abort;
+    this.refreshTimeoutId = setTimeout(() => abort.abort(), SCHEDULED_REFRESH_TIMEOUT_MS);
     try {
-      await Promise.race([refreshPromise, rejectAfter(SCHEDULED_REFRESH_TIMEOUT_MS)]);
-    } catch {
-      // Only timeouts reject here — refresh() handles API failures without rethrowing.
-      // Invalidate the hung generation so a late settle cannot overwrite newer state,
-      // and clear the in-flight lock so the next interval can poll again.
-      if (this._refreshing() && this.requestId === startedRequestId) {
-        this.requestId++;
-        this._refreshing.set(false);
+      await this.refresh({ initial, signal: abort.signal });
+      // Timeout abort while polling is still armed: surface retained/hard failure and free the slot.
+      if (abort.signal.aborted && this.pollHandle !== undefined) {
         this.applyRefreshFailure(initial);
+        this._refreshing.set(false);
       }
     } finally {
+      if (this.refreshTimeoutId !== undefined) {
+        clearTimeout(this.refreshTimeoutId);
+        this.refreshTimeoutId = undefined;
+      }
+      if (this.refreshAbort === abort) {
+        this.refreshAbort = undefined;
+      }
       this.scheduledInFlight = false;
     }
   }
@@ -126,12 +134,10 @@ export class DownloadsFacade {
     const hasPrior = this._status() === 'ready' || this._status() === 'empty';
     if (!initial && hasPrior) {
       this._error.set(REFRESH_ERROR);
-      this._notice.set('');
       return;
     }
     this._status.set('error');
     this._error.set(LOAD_ERROR);
-    this._notice.set('');
     if (initial) {
       this._torrents.set([]);
     }
@@ -140,11 +146,15 @@ export class DownloadsFacade {
   private stopPolling(): void {
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = undefined;
+    if (this.refreshTimeoutId !== undefined) {
+      clearTimeout(this.refreshTimeoutId);
+      this.refreshTimeoutId = undefined;
+    }
+    // Invalidate before abort so a racing settle cannot write after teardown.
+    this.requestId++;
+    this.refreshAbort?.abort();
+    this.refreshAbort = undefined;
+    this.scheduledInFlight = false;
+    this._refreshing.set(false);
   }
-}
-
-function rejectAfter(ms: number): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Scheduled download refresh timed out')), ms);
-  });
 }

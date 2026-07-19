@@ -125,7 +125,82 @@ describe('DownloadsFacade', () => {
     vi.useRealTimers();
   });
 
-  it('clears a success notice when a later background refresh fails', async () => {
+  it('aborts the active listTorrents signal when a scheduled refresh times out', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred } = Promise.withResolvers<DownloadTorrent[]>();
+    api.nextResponse = deferred;
+
+    facade.startPolling(SCHEDULED_REFRESH_TIMEOUT_MS + 1_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.listCalls).toBe(1);
+    expect(api.lastSignal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
+    expect(api.lastSignal?.aborted).toBe(true);
+    expect(api.listCalls).toBe(1);
+
+    api.nextResponse = undefined;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(api.listCalls).toBe(2);
+
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
+  });
+
+  it('does not start a second scheduled request until the timed-out one is aborted', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred } = Promise.withResolvers<DownloadTorrent[]>();
+    api.nextResponse = deferred;
+
+    facade.startPolling(SCHEDULED_REFRESH_TIMEOUT_MS + 1_000);
+    await vi.advanceTimersByTimeAsync(0);
+    const firstSignal = api.lastSignal;
+    expect(api.listCalls).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS - 1);
+    expect(api.listCalls).toBe(1);
+    expect(firstSignal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(firstSignal?.aborted).toBe(true);
+    expect(api.listCalls).toBe(1);
+
+    api.nextResponse = undefined;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(api.listCalls).toBe(2);
+    expect(api.lastSignal).not.toBe(firstSignal);
+    expect(api.lastSignal?.aborted).toBe(false);
+
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
+  });
+
+  it('aborts an active refresh on destroy and ignores a late resolution', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred, resolve } = Promise.withResolvers<DownloadTorrent[]>();
+    api.nextResponse = deferred;
+
+    facade.startPolling(100);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.listCalls).toBe(1);
+    expect(facade.status()).toBe('loading');
+    const signal = api.lastSignal;
+
+    TestBed.resetTestingModule();
+    expect(signal?.aborted).toBe(true);
+
+    resolve([{ ...torrent, id: 'late', name: 'Late' }]);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(facade.status()).toBe('loading');
+    expect(facade.torrents()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(api.listCalls).toBe(1);
+    vi.useRealTimers();
+  });
+
+  it('keeps mutation success notice when a later background refresh fails', async () => {
     await facade.refresh({ initial: true });
     await facade.runAction('pause');
     expect(facade.notice()).toBe('All downloads paused.');
@@ -134,7 +209,21 @@ describe('DownloadsFacade', () => {
     await facade.refresh();
     expect(facade.status()).toBe('ready');
     expect(facade.error()).toContain('Showing last loaded queue');
-    expect(facade.notice()).toBe('');
+    expect(facade.notice()).toBe('All downloads paused.');
+  });
+
+  it('keeps mutation error notice when a later background refresh fails', async () => {
+    await facade.refresh({ initial: true });
+    api.actionFailure = true;
+    await facade.runAction('pause');
+    expect(facade.notice()).toContain('Could not pause downloads');
+
+    api.actionFailure = false;
+    api.failure = true;
+    await facade.refresh();
+    expect(facade.status()).toBe('ready');
+    expect(facade.error()).toContain('Showing last loaded queue');
+    expect(facade.notice()).toContain('Could not pause downloads');
   });
 
   it('prevents conflicting actions and refreshes after success', async () => {
@@ -226,10 +315,40 @@ class MockApi implements MediaStackApi {
   action: Promise<void> = Promise.resolve();
   torrentAction: Promise<void> = Promise.resolve();
   nextResponse?: Promise<DownloadTorrent[]>;
+  lastSignal?: AbortSignal;
 
-  listTorrents(): Promise<DownloadTorrent[]> {
+  listTorrents(signal?: AbortSignal): Promise<DownloadTorrent[]> {
     this.listCalls++;
-    if (this.nextResponse) return this.nextResponse;
+    this.lastSignal = signal;
+    if (signal?.aborted) {
+      return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+    }
+    if (this.nextResponse) {
+      const pending = this.nextResponse;
+      return new Promise<DownloadTorrent[]>((resolve, reject) => {
+        let settled = false;
+        const onAbort = () => {
+          if (settled) return;
+          settled = true;
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        void pending.then(
+          (value) => {
+            if (settled) return;
+            settled = true;
+            signal?.removeEventListener('abort', onAbort);
+            resolve(value);
+          },
+          (error: unknown) => {
+            if (settled) return;
+            settled = true;
+            signal?.removeEventListener('abort', onAbort);
+            reject(error);
+          },
+        );
+      });
+    }
     return this.failure ? Promise.reject(new Error('offline')) : Promise.resolve(this.items);
   }
   pauseAll(): Promise<void> {

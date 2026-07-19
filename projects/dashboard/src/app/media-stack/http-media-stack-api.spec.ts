@@ -209,6 +209,17 @@ describe('HttpMediaStackApi', () => {
     ]);
   });
 
+  it('cancels the torrents HTTP request when the abort signal fires', async () => {
+    const abort = new AbortController();
+    const pending = api.listTorrents(abort.signal);
+    const req = http.expectOne('/api/qbt/torrents');
+    expect(req.request.method).toBe('GET');
+
+    abort.abort();
+    expect(req.cancelled).toBe(true);
+    await expect(pending).rejects.toBeTruthy();
+  });
+
   it('accepts a valid empty torrent list', async () => {
     const pending = api.listTorrents();
     http.expectOne('/api/qbt/torrents').flush([]);

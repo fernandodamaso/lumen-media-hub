@@ -17,7 +17,7 @@ import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
 
 export interface MediaStackApi {
-  listTorrents(): Promise<DownloadTorrent[]>;
+  listTorrents(signal?: AbortSignal): Promise<DownloadTorrent[]>;
   pauseAll(): Promise<void>;
   resumeAll(): Promise<void>;
   pauseTorrent(id: string): Promise<void>;

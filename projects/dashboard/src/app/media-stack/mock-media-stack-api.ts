@@ -541,7 +541,7 @@ export class MockMediaStackApi implements MediaStackApi {
     this.automationScenario = scenario;
   }
 
-  listTorrents(): Promise<DownloadTorrent[]> {
+  listTorrents(_signal?: AbortSignal): Promise<DownloadTorrent[]> {
     return Promise.resolve(this.torrents.map((torrent) => mapTorrent({ ...torrent })));
   }
 

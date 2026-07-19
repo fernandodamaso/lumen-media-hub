@@ -66,13 +66,9 @@ export const Gallery: Story = {
     const posters = canvasElement.querySelectorAll('.mm-poster');
     if (posters.length !== 3) throw new Error(`Expected 3 posters, found ${posters.length}`);
     for (const poster of posters) {
-      if (poster.tagName !== 'DIV') throw new Error(`Expected div poster root, found ${poster.tagName}`);
-      if (poster.closest('article') === poster) {
-        throw new Error('Poster primitive must not use an article root');
+      if (poster.tagName !== 'DIV') {
+        throw new Error(`Poster primitive must use a div root, found ${poster.tagName}`);
       }
-    }
-    if ([...posters].some((poster) => poster.tagName === 'ARTICLE')) {
-      throw new Error('Poster primitive must not use an article root');
     }
     const titles = [...canvasElement.querySelectorAll('.mm-poster strong')].map((el) => el.textContent?.trim());
     if (!titles.includes('The Long Night') || !titles.includes('Empty shelf') || !titles.includes('Queued')) {

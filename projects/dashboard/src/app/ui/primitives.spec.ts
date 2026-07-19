@@ -75,6 +75,10 @@ class FooterActionsOnlyCardHost {}
 class ContainerRegionsHost {}
 
 describe('app/ui primitives', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('renders button content and preserves its base and variant classes', () => {
     const fixture = TestBed.createComponent(MmButton);
     fixture.componentRef.setInput('variant', 'quiet');
@@ -169,20 +173,23 @@ describe('app/ui primitives', () => {
 
   it('clears the theme picker saved-state timeout on destroy', async () => {
     vi.useFakeTimers();
-    const fixture = TestBed.createComponent(MmThemePicker);
-    fixture.detectChanges();
-    const picker = fixture.componentInstance;
-    const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    try {
+      const fixture = TestBed.createComponent(MmThemePicker);
+      fixture.detectChanges();
+      const picker = fixture.componentInstance;
+      const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
 
-    select.value = 'tokyo-night';
-    select.dispatchEvent(new Event('change'));
-    fixture.detectChanges();
-    expect(picker.justSaved()).toBe(true);
+      select.value = 'tokyo-night';
+      select.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+      expect(picker.justSaved()).toBe(true);
 
-    fixture.destroy();
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(picker.justSaved()).toBe(true);
-    vi.useRealTimers();
+      fixture.destroy();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(picker.justSaved()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps shared buttons at least 40px high', () => {

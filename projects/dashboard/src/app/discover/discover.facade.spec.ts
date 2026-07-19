@@ -255,6 +255,190 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trending Ember']);
   });
 
+  it('ignores a superseded Hermes response for the same filter', async () => {
+    await facade.setTab('hermes');
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
+
+    const { promise: firstGate, resolve: releaseFirst } = Promise.withResolvers<HermesDiscover>();
+    api.hermesGate = firstGate;
+    const first = facade.setTab('hermes');
+    await Promise.resolve();
+
+    api.hermes = {
+      ok: true,
+      items: [
+        {
+          ...api.hermes.items[0],
+          title: 'Newer Hermes',
+        },
+      ],
+    };
+    const second = facade.setTab('hermes');
+    await second;
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Newer Hermes']);
+
+    releaseFirst({
+      ok: true,
+      items: [{ ...api.hermes.items[0], title: 'Stale Hermes' }],
+    });
+    await first;
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Newer Hermes']);
+  });
+
+  it('ignores a superseded Jellyseerr filter response after switching kinds', async () => {
+    await facade.setTab('jellyseerr');
+    await flush();
+
+    const { promise: trendingGate, resolve: releaseTrending } = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+    }>();
+    api.jellyseerrGate = trendingGate;
+    const stale = facade.setTab('jellyseerr');
+    await Promise.resolve();
+
+    facade.setJellyseerrKind('movies');
+    await flush();
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Neon Archive']);
+
+    releaseTrending({
+      ok: true,
+      items: [{ type: 'movie', title: 'Stale Trending', tmdb_id: 99 }],
+    });
+    await stale;
+    expect(facade.jellyseerrKind()).toBe('movies');
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Neon Archive']);
+  });
+
+  it('retains last-good Hermes results when a background refresh fails', async () => {
+    await facade.setTab('hermes');
+    expect(facade.status()).toBe('ready');
+    expect(facade.visibleItems()).toHaveLength(1);
+
+    api.hermes = { ok: false, items: [], error: 'Hermes offline' };
+    await facade.setTab('hermes');
+    expect(facade.status()).toBe('ready');
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
+    expect(facade.noticeTone()).toBe('warning');
+    expect(facade.notice()).toContain('Showing last loaded');
+  });
+
+  it('retains an empty Hermes last-good state when a later refresh fails', async () => {
+    api.hermes = { ok: true, items: [] };
+    await facade.setTab('hermes');
+    expect(facade.status()).toBe('empty');
+    expect(facade.visibleItems()).toEqual([]);
+
+    api.hermes = { ok: false, items: [], error: 'Hermes offline' };
+    await facade.setTab('hermes');
+    expect(facade.status()).toBe('empty');
+    expect(facade.error()).toBe('');
+    expect(facade.noticeTone()).toBe('warning');
+    expect(facade.notice()).toContain('Showing last loaded');
+  });
+
+  it('hard-errors on the initial Hermes load failure', async () => {
+    api.hermes = { ok: false, items: [], error: 'Hermes offline' };
+    await facade.setTab('hermes');
+    expect(facade.status()).toBe('error');
+    expect(facade.error()).toContain('Hermes offline');
+    expect(facade.visibleItems()).toEqual([]);
+  });
+
+  it('keeps a mutation notice when the follow-up Hermes refresh fails', async () => {
+    await facade.setTab('hermes');
+    api.requestResult = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
+    api.hermes = { ok: false, items: [], error: 'Hermes offline' };
+    await facade.requestItem(facade.visibleItems()[0]);
+    expect(facade.status()).toBe('ready');
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
+    expect(facade.noticeTone()).toBe('success');
+    expect(facade.notice()).toContain('Requested');
+    expect(facade.notice()).toContain('may be stale');
+  });
+
+  it('applies a superseded successful Hermes payload when recovering an exclusive error', async () => {
+    const { promise: firstGate, resolve: releaseFirst } = Promise.withResolvers<HermesDiscover>();
+    api.hermesGate = firstGate;
+    const first = facade.setTab('hermes');
+    await Promise.resolve();
+
+    api.hermes = { ok: false, items: [], error: 'Hermes offline' };
+    await facade.setTab('hermes');
+    expect(facade.status()).toBe('error');
+
+    releaseFirst({
+      ok: true,
+      items: [
+        {
+          id: 'hermes-eligible',
+          source: 'hermes',
+          type: 'movie',
+          title: 'Recovered Title',
+          year: 2024,
+          tmdb_id: 101001,
+          active: true,
+          feedback: null,
+          feedback_at: null,
+          request_state: null,
+          requested_at: null,
+          jellyseerr_request_id: null,
+          in_library: false,
+          added_at: '2026-07-10T12:00:00Z',
+        },
+      ],
+    });
+    await first;
+    expect(facade.status()).toBe('ready');
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Recovered Title']);
+    expect(facade.error()).toBe('');
+  });
+
+  it('keeps browse status ready while a request mutation is busy', async () => {
+    await facade.setTab('hermes');
+    const { promise: requestGate, resolve: releaseRequest } = Promise.withResolvers<DiscoverAction>();
+    api.requestGate = requestGate;
+    const pending = facade.requestItem(facade.visibleItems()[0]);
+    await Promise.resolve();
+    expect(facade.busyItemId()).toBe('hermes-eligible');
+    expect(facade.status()).toBe('ready');
+    expect(facade.visibleItems()).toHaveLength(1);
+    releaseRequest({ ok: false, error: 'Cannot request' });
+    await pending;
+    expect(facade.status()).toBe('ready');
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
+    expect(facade.noticeTone()).toBe('danger');
+  });
+
+  it('skips overlapping scheduled polls while a refresh is in flight', async () => {
+    vi.useFakeTimers();
+    await facade.setTab('hermes');
+    expect(api.hermesCalls).toBe(1);
+
+    const { promise: hermesGate, resolve: releaseHermes } = Promise.withResolvers<HermesDiscover>();
+    api.hermesGate = hermesGate;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(api.hermesCalls).toBe(2);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(api.hermesCalls).toBe(2);
+
+    // Same-tab refresh restarts the interval but must not clear the in-flight poll guard.
+    await facade.setTab('hermes');
+    const afterManual = api.hermesCalls;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(api.hermesCalls).toBe(afterManual);
+
+    releaseHermes({
+      ok: true,
+      items: api.hermes.items.map((item) => ({ ...item })),
+    });
+    await flush();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(api.hermesCalls).toBe(afterManual + 1);
+    vi.useRealTimers();
+  });
+
   it('keeps request-more pending when the follow-up list omits generation_request', async () => {
     await facade.setTab('hermes');
     api.moreResult = { ok: true, queued: true, message: 'More recommendations queued.' };
@@ -349,6 +533,7 @@ class MockApi implements MediaStackApi {
   feedbackGate: Promise<DiscoverAction> | null = null;
   hermesGate: Promise<HermesDiscover> | null = null;
   jellyseerrGate: Promise<{ ok: boolean; items: ExternalDiscoverItem[] }> | null = null;
+  requestGate: Promise<DiscoverAction> | null = null;
   requestResult: DiscoverAction = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
   moreResult: DiscoverAction = { ok: true, queued: true };
   skipGenerationOnMore = false;
@@ -425,6 +610,11 @@ class MockApi implements MediaStackApi {
   }
   requestMedia(payload: DiscoverRequestPayload) {
     this.requestCalls.push(payload);
+    if (this.requestGate) {
+      const gate = this.requestGate;
+      this.requestGate = null;
+      return gate;
+    }
     return Promise.resolve(this.requestResult);
   }
   listCronLogs() {

@@ -46,6 +46,8 @@ import {
   mapLiveJellyfinItem,
   mapLiveStorageVolume,
   mapLiveTorrent,
+  requireExternalDiscoverPayload,
+  requireHermesDiscoverPayload,
   requireLiveCalendarEvent,
   requireLiveLibraryStats,
 } from './live-api.mappers';
@@ -221,7 +223,7 @@ export class HttpMediaStackApi implements MediaStackApi {
 
   listHermesRecommendations(): Promise<HermesDiscover> {
     return this.getSoftEnvelope<MediaStackHermesDiscoverDto>('/discover/hermes', (data) => {
-      requireArrayField(data as unknown as Record<string, unknown>, 'items', 'Malformed Hermes response');
+      requireHermesDiscoverPayload(data as unknown as Record<string, unknown>);
     }).then(mapHermesDiscover);
   }
 
@@ -244,14 +246,14 @@ export class HttpMediaStackApi implements MediaStackApi {
     return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(
       `/discover/jellyseerr?kind=${kind}`,
       (data) => {
-        requireArrayField(data as unknown as Record<string, unknown>, 'items', 'Malformed Jellyseerr response');
+        requireExternalDiscoverPayload(data as unknown as Record<string, unknown>, 'Jellyseerr');
       },
     ).then(mapExternalDiscover);
   }
 
   listTraktDiscover(type: TraktDiscoverType): Promise<ExternalDiscover> {
     return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(`/discover/trakt?type=${type}`, (data) => {
-      requireArrayField(data as unknown as Record<string, unknown>, 'items', 'Malformed Trakt response');
+      requireExternalDiscoverPayload(data as unknown as Record<string, unknown>, 'Trakt');
     }).then(mapExternalDiscover);
   }
 

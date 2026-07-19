@@ -5,13 +5,12 @@
 </section>
 
 <div class="toolbar">
-  <div class="tabs" role="radiogroup" aria-label="Discover sources">
+  <div class="tabs" role="group" aria-label="Discover sources">
     @for (tab of tabs; track tab.id) {
       <button
         type="button"
-        role="radio"
         class="tab"
-        [attr.aria-checked]="facade.tab() === tab.id"
+        [attr.aria-pressed]="facade.tab() === tab.id"
         (click)="setTab(tab.id)"
       >
         {{ tab.label }}

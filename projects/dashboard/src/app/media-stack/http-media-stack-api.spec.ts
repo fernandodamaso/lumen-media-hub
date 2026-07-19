@@ -777,6 +777,69 @@ describe('HttpMediaStackApi', () => {
     await expect(hermes).resolves.toMatchObject({ ok: true, items: [] });
   });
 
+  it('rejects discover members missing required identity fields', async () => {
+    const missingTitle = api.listHermesRecommendations();
+    http.expectOne('/api/discover/hermes').flush({
+      ok: true,
+      items: [
+        {
+          id: 'hermes-1',
+          source: 'hermes',
+          type: 'movie',
+          tmdb_id: 101,
+          active: true,
+          added_at: '2026-07-10T12:00:00Z',
+        },
+      ],
+    });
+    await expect(missingTitle).rejects.toThrow(/missing title/);
+
+    const missingTmdb = api.listJellyseerrDiscover('trending');
+    http.expectOne('/api/discover/jellyseerr?kind=trending').flush({
+      ok: true,
+      items: [{ type: 'movie', title: 'Untitled' }],
+    });
+    await expect(missingTmdb).rejects.toThrow(/missing tmdb_id/);
+
+    const badType = api.listTraktDiscover('movies');
+    http.expectOne('/api/discover/trakt?type=movies').flush({
+      ok: true,
+      items: [{ type: 'anime', title: 'Bad', tmdb_id: 9 }],
+    });
+    await expect(badType).rejects.toThrow(/missing type/);
+  });
+
+  it('maps valid Hermes members including history fields', async () => {
+    const pending = api.listHermesRecommendations();
+    http.expectOne('/api/discover/hermes').flush({
+      ok: true,
+      items: [
+        {
+          id: 'hermes-1',
+          source: 'hermes',
+          type: 'movie',
+          title: 'Signal Drift',
+          tmdb_id: 101001,
+          active: true,
+          feedback: null,
+          feedback_at: null,
+          request_state: null,
+          requested_at: null,
+          jellyseerr_request_id: null,
+          added_at: '2026-07-10T12:00:00Z',
+        },
+      ],
+      pending_request_sync: [{ id: 'hermes-1', jellyseerr_request_id: 55 }],
+      generation_request: { requested_at: '2026-07-12T00:00:00Z', status: 'pending' },
+    });
+    await expect(pending).resolves.toMatchObject({
+      ok: true,
+      items: [expect.objectContaining({ id: 'hermes-1', title: 'Signal Drift' })],
+      pending_request_sync: [{ id: 'hermes-1', jellyseerr_request_id: 55 }],
+      generation_request: { status: 'pending' },
+    });
+  });
+
   it('rejects cron log members missing required identity or timestamps', async () => {
     const missingGeneratedAt = api.listCronLogs();
     http.expectOne('/api/cron/logs').flush({ ok: true, logs: [] });

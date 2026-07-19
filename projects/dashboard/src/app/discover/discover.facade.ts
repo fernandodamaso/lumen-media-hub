@@ -24,6 +24,9 @@ export type HermesView = 'active' | 'history';
 
 const HERMES_POLL_MS = 30_000;
 const EXTERNAL_POLL_MS = 60_000;
+const LOAD_ERROR = 'Discover is temporarily unavailable. Try again.';
+const REFRESH_NOTICE = 'Could not refresh. Showing last loaded results.';
+const STALE_HINT = ' Results may be stale.';
 
 @Injectable()
 export class DiscoverFacade {
@@ -54,6 +57,19 @@ export class DiscoverFacade {
 
   /** True after a local request-more until the API has reported generation_request at least once. */
   private generationObserved = false;
+
+  private hermesRequestId = 0;
+  private jellyseerrRequestId = 0;
+  private traktRequestId = 0;
+  /** Highest generation whose success payload was committed (Hermes). */
+  private hermesAppliedId = 0;
+  private jellyseerrAppliedId = 0;
+  private traktAppliedId = 0;
+  /** True after at least one successful Hermes payload (including empty). */
+  private hermesLoaded = false;
+  private scheduledInFlight = false;
+  private scheduledRefreshGen = 0;
+  private pollHandle?: ReturnType<typeof setInterval>;
 
   readonly tab = this._tab.asReadonly();
   readonly hermesView = this._hermesView.asReadonly();
@@ -95,8 +111,6 @@ export class DiscoverFacade {
     return (this._traktCache()[type] ?? []).map((item) => toExternalCardItem(item, 'trakt', requestedKeys));
   });
 
-  private pollHandle?: ReturnType<typeof setInterval>;
-
   constructor() {
     this.destroyRef.onDestroy(() => this.stopPolling());
   }
@@ -131,25 +145,6 @@ export class DiscoverFacade {
     if (this._traktType() === type) return;
     this._traktType.set(type);
     void this.refreshCurrentTab();
-  }
-
-  private async refreshCurrentTab(): Promise<void> {
-    const tab = this._tab();
-    if (tab === 'hermes') {
-      await this.loadHermes();
-      return;
-    }
-    if (tab === 'jellyseerr') {
-      await this.loadJellyseerr(this._jellyseerrKind());
-      return;
-    }
-    await this.loadTrakt(this._traktType());
-  }
-
-  private restartPolling(): void {
-    this.stopPolling();
-    const interval = this._tab() === 'hermes' ? HERMES_POLL_MS : EXTERNAL_POLL_MS;
-    this.pollHandle = setInterval(() => void this.refreshCurrentTab(), interval);
   }
 
   async submitFeedback(id: string, feedback: DiscoverFeedback): Promise<void> {
@@ -250,33 +245,180 @@ export class DiscoverFacade {
     );
   }
 
-  private stopPolling(): void {
+  private async refreshCurrentTab(): Promise<void> {
+    const tab = this._tab();
+    if (tab === 'hermes') {
+      await this.loadHermes();
+      return;
+    }
+    if (tab === 'jellyseerr') {
+      await this.loadJellyseerr(this._jellyseerrKind());
+      return;
+    }
+    await this.loadTrakt(this._traktType());
+  }
+
+  private restartPolling(): void {
+    // Clear the interval timer only — leave scheduledInFlight alone so an
+    // outstanding scheduled refresh keeps owning the overlap guard.
+    this.stopPolling(false);
+    const interval = this._tab() === 'hermes' ? HERMES_POLL_MS : EXTERNAL_POLL_MS;
+    this.pollHandle = setInterval(() => void this.runScheduledRefresh(), interval);
+  }
+
+  private async runScheduledRefresh(): Promise<void> {
+    if (this.scheduledInFlight) return;
+    this.scheduledInFlight = true;
+    const ownedGen = ++this.scheduledRefreshGen;
+    try {
+      await this.refreshCurrentTab();
+    } finally {
+      if (ownedGen === this.scheduledRefreshGen) {
+        this.scheduledInFlight = false;
+      }
+    }
+  }
+
+  private stopPolling(invalidateInFlight = true): void {
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = undefined;
+    if (invalidateInFlight) {
+      // Destroy / hard stop: drop the interval and orphan any in-flight finally
+      // so it cannot clear a later scheduled refresh's guard.
+      this.scheduledRefreshGen++;
+      this.scheduledInFlight = false;
+      this.hermesRequestId++;
+      this.jellyseerrRequestId++;
+      this.traktRequestId++;
+    }
   }
 
   private async loadHermes(): Promise<void> {
-    const hadData = this._hermesItems().length > 0;
-    if (!hadData) this._status.set('loading');
+    const requestId = ++this.hermesRequestId;
+    const isInitial = !this.hermesLoaded;
+    if (isInitial && this._tab() === 'hermes') {
+      this._status.set('loading');
+    }
     try {
       const response = await this.api.listHermesRecommendations();
       if (!response.ok) {
-        if (this._tab() !== 'hermes') return;
-        this._status.set('error');
-        this._error.set(response.error ?? 'Discover is temporarily unavailable. Try again.');
+        // Failures only apply when still current — a stale failure must not clobber newer work.
+        if (requestId !== this.hermesRequestId || this._tab() !== 'hermes') return;
+        this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
         return;
       }
+      // Valid success may still commit when superseded, as long as it is not older than an
+      // already-applied generation (so a late good payload can recover an exclusive error).
+      if (requestId < this.hermesAppliedId) return;
       this.applyHermesPayload(response);
+      this.hermesAppliedId = requestId;
+      this.hermesLoaded = true;
       if (this._tab() !== 'hermes') return;
+      const isCurrent = requestId === this.hermesRequestId;
+      if (!isCurrent && this._status() !== 'error') return;
       const visible = this.visibleItems();
       this._status.set(visible.length ? 'ready' : 'empty');
       this._error.set('');
+      if (this._notice() === REFRESH_NOTICE) this._notice.set('');
     } catch {
-      if (this._tab() !== 'hermes') return;
-      this._status.set('error');
-      this._error.set('Discover is temporarily unavailable. Try again.');
-      this._notice.set('');
+      if (requestId !== this.hermesRequestId || this._tab() !== 'hermes') return;
+      this.applyBrowseFailure(isInitial, LOAD_ERROR);
     }
+  }
+
+  private async loadJellyseerr(kind: JellyseerrDiscoverKind): Promise<void> {
+    const requestId = ++this.jellyseerrRequestId;
+    const cached = this._jellyseerrCache()[kind];
+    const isInitial = !cached;
+    if (cached) {
+      if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
+        this._status.set(cached.length ? 'ready' : 'empty');
+        this._error.set('');
+      }
+    } else if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
+      this._status.set('loading');
+    }
+    try {
+      const response = await this.api.listJellyseerrDiscover(kind);
+      if (!response.ok) {
+        if (requestId !== this.jellyseerrRequestId) return;
+        if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
+          this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
+        }
+        return;
+      }
+      if (requestId < this.jellyseerrAppliedId) return;
+      this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: response.items }));
+      this.jellyseerrAppliedId = requestId;
+      if (this._tab() !== 'jellyseerr' || this._jellyseerrKind() !== kind) return;
+      const isCurrent = requestId === this.jellyseerrRequestId;
+      if (!isCurrent && this._status() !== 'error') return;
+      this._status.set(response.items.length ? 'ready' : 'empty');
+      this._error.set('');
+      if (this._notice() === REFRESH_NOTICE) this._notice.set('');
+    } catch {
+      if (requestId !== this.jellyseerrRequestId) return;
+      if (this._tab() !== 'jellyseerr' || this._jellyseerrKind() !== kind) return;
+      this.applyBrowseFailure(isInitial, LOAD_ERROR);
+    }
+  }
+
+  private async loadTrakt(type: TraktDiscoverType): Promise<void> {
+    const requestId = ++this.traktRequestId;
+    const cached = this._traktCache()[type];
+    const isInitial = !cached;
+    if (cached) {
+      if (this._tab() === 'trakt' && this._traktType() === type) {
+        this._status.set(cached.length ? 'ready' : 'empty');
+        this._error.set('');
+      }
+    } else if (this._tab() === 'trakt' && this._traktType() === type) {
+      this._status.set('loading');
+    }
+    try {
+      const response = await this.api.listTraktDiscover(type);
+      if (!response.ok) {
+        if (requestId !== this.traktRequestId) return;
+        if (this._tab() === 'trakt' && this._traktType() === type) {
+          this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
+        }
+        return;
+      }
+      if (requestId < this.traktAppliedId) return;
+      this._traktCache.update((cache) => ({ ...cache, [type]: response.items }));
+      this.traktAppliedId = requestId;
+      if (this._tab() !== 'trakt' || this._traktType() !== type) return;
+      const isCurrent = requestId === this.traktRequestId;
+      if (!isCurrent && this._status() !== 'error') return;
+      this._status.set(response.items.length ? 'ready' : 'empty');
+      this._error.set('');
+      if (this._notice() === REFRESH_NOTICE) this._notice.set('');
+    } catch {
+      if (requestId !== this.traktRequestId) return;
+      if (this._tab() !== 'trakt' || this._traktType() !== type) return;
+      this.applyBrowseFailure(isInitial, LOAD_ERROR);
+    }
+  }
+
+  /**
+   * Background failures keep last-good browse state and surface a non-destructive notice.
+   * Initial failures (no last-good) flip to exclusive error.
+   * Mutation notices stay visible; a refresh failure appends a stale hint rather than replacing them.
+   */
+  private applyBrowseFailure(isInitial: boolean, message: string): void {
+    if (!isInitial) {
+      const notice = this._notice();
+      if (!notice || notice === REFRESH_NOTICE) {
+        this._noticeTone.set('warning');
+        this._notice.set(REFRESH_NOTICE);
+      } else if (!notice.includes(STALE_HINT)) {
+        this._notice.set(`${notice}${STALE_HINT}`);
+      }
+      return;
+    }
+    this._status.set('error');
+    this._error.set(message);
+    this._notice.set('');
   }
 
   private applyHermesPayload(response: HermesDiscover): void {
@@ -296,68 +438,6 @@ export class DiscoverFacade {
     if (!this._generationPending() || this.generationObserved) {
       this._generationPending.set(false);
       this.generationObserved = false;
-    }
-  }
-
-  private async loadJellyseerr(kind: JellyseerrDiscoverKind): Promise<void> {
-    const cached = this._jellyseerrCache()[kind];
-    if (cached) {
-      if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
-        this._status.set(cached.length ? 'ready' : 'empty');
-        this._error.set('');
-      }
-    } else {
-      this._status.set('loading');
-    }
-    try {
-      const response = await this.api.listJellyseerrDiscover(kind);
-      if (!response.ok) {
-        if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
-          this._status.set('error');
-          this._error.set(response.error ?? 'Discover is temporarily unavailable. Try again.');
-        }
-        return;
-      }
-      this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: response.items }));
-      if (this._tab() !== 'jellyseerr' || this._jellyseerrKind() !== kind) return;
-      this._status.set(response.items.length ? 'ready' : 'empty');
-      this._error.set('');
-    } catch {
-      if (this._tab() !== 'jellyseerr' || this._jellyseerrKind() !== kind) return;
-      this._status.set('error');
-      this._error.set('Discover is temporarily unavailable. Try again.');
-      this._notice.set('');
-    }
-  }
-
-  private async loadTrakt(type: TraktDiscoverType): Promise<void> {
-    const cached = this._traktCache()[type];
-    if (cached) {
-      if (this._tab() === 'trakt' && this._traktType() === type) {
-        this._status.set(cached.length ? 'ready' : 'empty');
-        this._error.set('');
-      }
-    } else {
-      this._status.set('loading');
-    }
-    try {
-      const response = await this.api.listTraktDiscover(type);
-      if (!response.ok) {
-        if (this._tab() === 'trakt' && this._traktType() === type) {
-          this._status.set('error');
-          this._error.set(response.error ?? 'Discover is temporarily unavailable. Try again.');
-        }
-        return;
-      }
-      this._traktCache.update((cache) => ({ ...cache, [type]: response.items }));
-      if (this._tab() !== 'trakt' || this._traktType() !== type) return;
-      this._status.set(response.items.length ? 'ready' : 'empty');
-      this._error.set('');
-    } catch {
-      if (this._tab() !== 'trakt' || this._traktType() !== type) return;
-      this._status.set('error');
-      this._error.set('Discover is temporarily unavailable. Try again.');
-      this._notice.set('');
     }
   }
 

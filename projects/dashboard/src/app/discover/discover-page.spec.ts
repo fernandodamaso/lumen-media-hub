@@ -51,6 +51,47 @@ describe('DiscoverPage', () => {
     expect(facade.submitFeedback).toHaveBeenCalledWith('no-tmdb', 'liked');
     expect(facade.requestItem).not.toHaveBeenCalled();
   });
+
+  it('exposes source tabs as pressed buttons in a labelled group', () => {
+    facade.status.set('ready');
+    fixture.detectChanges();
+
+    const group = fixture.nativeElement.querySelector('.tabs') as HTMLElement;
+    expect(group.getAttribute('role')).toBe('group');
+    expect(group.getAttribute('aria-label')).toBe('Discover sources');
+    expect(fixture.nativeElement.querySelector('[role="radio"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[role="radiogroup"]')).toBeNull();
+
+    const sourceButtons = sourceTabButtons();
+    expect(sourceButtons.map((button) => button.textContent?.trim())).toEqual([
+      'Hermes',
+      'Jellyseerr',
+      'Trakt',
+    ]);
+    expect(sourceButtons.every((button) => button.type === 'button')).toBe(true);
+    expect(sourceButtons[0].getAttribute('aria-pressed')).toBe('true');
+    expect(sourceButtons[1].getAttribute('aria-pressed')).toBe('false');
+
+    // Document order is focus/tab order for these native buttons.
+    expect(sourceButtons[0].compareDocumentPosition(sourceButtons[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(sourceButtons[1].compareDocumentPosition(sourceButtons[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    sourceButtons[1].focus();
+    expect(document.activeElement).toBe(sourceButtons[1]);
+    sourceButtons[1].click();
+    fixture.detectChanges();
+    expect(facade.setTab).toHaveBeenCalledWith('jellyseerr');
+
+    facade.tab.set('jellyseerr');
+    fixture.detectChanges();
+    expect(sourceTabButtons()[1].getAttribute('aria-pressed')).toBe('true');
+    expect(sourceTabButtons()[0].getAttribute('aria-pressed')).toBe('false');
+
+    sourceButtons[2].focus();
+    expect(document.activeElement).toBe(sourceButtons[2]);
+    sourceButtons[2].click();
+    expect(facade.setTab).toHaveBeenCalledWith('trakt');
+  });
 });
 
 function clickTab(label: string): void {
@@ -58,6 +99,10 @@ function clickTab(label: string): void {
     candidate.textContent?.includes(label),
   );
   button?.click();
+}
+
+function sourceTabButtons(): HTMLButtonElement[] {
+  return Array.from(document.querySelectorAll('.tabs button.tab')) as HTMLButtonElement[];
 }
 
 function card(overrides: Partial<DiscoverCardItem> = {}): DiscoverCardItem {

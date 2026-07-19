@@ -323,12 +323,37 @@ describe('DiscoverFacade', () => {
     expect(facade.notice()).toContain('Showing last loaded');
   });
 
+  it('retains an empty Hermes last-good state when a later refresh fails', async () => {
+    api.hermes = { ok: true, items: [] };
+    await facade.setTab('hermes');
+    expect(facade.status()).toBe('empty');
+    expect(facade.visibleItems()).toEqual([]);
+
+    api.hermes = { ok: false, items: [], error: 'Hermes offline' };
+    await facade.setTab('hermes');
+    expect(facade.status()).toBe('empty');
+    expect(facade.error()).toBe('');
+    expect(facade.noticeTone()).toBe('warning');
+    expect(facade.notice()).toContain('Showing last loaded');
+  });
+
   it('hard-errors on the initial Hermes load failure', async () => {
     api.hermes = { ok: false, items: [], error: 'Hermes offline' };
     await facade.setTab('hermes');
     expect(facade.status()).toBe('error');
     expect(facade.error()).toContain('Hermes offline');
     expect(facade.visibleItems()).toEqual([]);
+  });
+
+  it('keeps a mutation notice when the follow-up Hermes refresh fails', async () => {
+    await facade.setTab('hermes');
+    api.requestResult = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
+    api.hermes = { ok: false, items: [], error: 'Hermes offline' };
+    await facade.requestItem(facade.visibleItems()[0]);
+    expect(facade.status()).toBe('ready');
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
+    expect(facade.noticeTone()).toBe('success');
+    expect(facade.notice()).toContain('Requested');
   });
 
   it('keeps browse status ready while a request mutation is busy', async () => {
@@ -360,13 +385,19 @@ describe('DiscoverFacade', () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(api.hermesCalls).toBe(2);
 
+    // Same-tab refresh restarts the interval but must not clear the in-flight poll guard.
+    await facade.setTab('hermes');
+    const afterManual = api.hermesCalls;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(api.hermesCalls).toBe(afterManual);
+
     releaseHermes({
       ok: true,
       items: api.hermes.items.map((item) => ({ ...item })),
     });
     await flush();
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(api.hermesCalls).toBe(3);
+    expect(api.hermesCalls).toBe(afterManual + 1);
     vi.useRealTimers();
   });
 

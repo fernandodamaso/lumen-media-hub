@@ -60,7 +60,10 @@ export class DiscoverFacade {
   private hermesRequestId = 0;
   private jellyseerrRequestId = 0;
   private traktRequestId = 0;
+  /** True after at least one successful Hermes payload (including empty). */
+  private hermesLoaded = false;
   private scheduledInFlight = false;
+  private scheduledRefreshGen = 0;
   private pollHandle?: ReturnType<typeof setInterval>;
 
   readonly tab = this._tab.asReadonly();
@@ -251,6 +254,8 @@ export class DiscoverFacade {
   }
 
   private restartPolling(): void {
+    // Clear the interval timer only — leave scheduledInFlight alone so an
+    // outstanding scheduled refresh keeps owning the overlap guard.
     this.stopPolling(false);
     const interval = this._tab() === 'hermes' ? HERMES_POLL_MS : EXTERNAL_POLL_MS;
     this.pollHandle = setInterval(() => void this.runScheduledRefresh(), interval);
@@ -259,18 +264,24 @@ export class DiscoverFacade {
   private async runScheduledRefresh(): Promise<void> {
     if (this.scheduledInFlight) return;
     this.scheduledInFlight = true;
+    const ownedGen = ++this.scheduledRefreshGen;
     try {
       await this.refreshCurrentTab();
     } finally {
-      this.scheduledInFlight = false;
+      if (ownedGen === this.scheduledRefreshGen) {
+        this.scheduledInFlight = false;
+      }
     }
   }
 
   private stopPolling(invalidateInFlight = true): void {
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = undefined;
-    this.scheduledInFlight = false;
     if (invalidateInFlight) {
+      // Destroy / hard stop: drop the interval and orphan any in-flight finally
+      // so it cannot clear a later scheduled refresh's guard.
+      this.scheduledRefreshGen++;
+      this.scheduledInFlight = false;
       this.hermesRequestId++;
       this.jellyseerrRequestId++;
       this.traktRequestId++;
@@ -279,7 +290,7 @@ export class DiscoverFacade {
 
   private async loadHermes(): Promise<void> {
     const requestId = ++this.hermesRequestId;
-    const isInitial = this._hermesItems().length === 0;
+    const isInitial = !this.hermesLoaded;
     if (isInitial && this._tab() === 'hermes') {
       this._status.set('loading');
     }
@@ -292,6 +303,7 @@ export class DiscoverFacade {
         return;
       }
       this.applyHermesPayload(response);
+      this.hermesLoaded = true;
       if (requestId !== this.hermesRequestId || this._tab() !== 'hermes') return;
       const visible = this.visibleItems();
       this._status.set(visible.length ? 'ready' : 'empty');
@@ -320,7 +332,7 @@ export class DiscoverFacade {
       if (requestId !== this.jellyseerrRequestId) return;
       if (!response.ok) {
         if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
-          this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR, Boolean(cached));
+          this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
         }
         return;
       }
@@ -333,7 +345,7 @@ export class DiscoverFacade {
     } catch {
       if (requestId !== this.jellyseerrRequestId) return;
       if (this._tab() !== 'jellyseerr' || this._jellyseerrKind() !== kind) return;
-      this.applyBrowseFailure(isInitial, LOAD_ERROR, Boolean(cached));
+      this.applyBrowseFailure(isInitial, LOAD_ERROR);
     }
   }
 
@@ -354,7 +366,7 @@ export class DiscoverFacade {
       if (requestId !== this.traktRequestId) return;
       if (!response.ok) {
         if (this._tab() === 'trakt' && this._traktType() === type) {
-          this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR, Boolean(cached));
+          this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
         }
         return;
       }
@@ -367,24 +379,21 @@ export class DiscoverFacade {
     } catch {
       if (requestId !== this.traktRequestId) return;
       if (this._tab() !== 'trakt' || this._traktType() !== type) return;
-      this.applyBrowseFailure(isInitial, LOAD_ERROR, Boolean(cached));
+      this.applyBrowseFailure(isInitial, LOAD_ERROR);
     }
   }
 
   /**
    * Background failures keep last-good browse state and surface a non-destructive notice.
    * Initial failures (no last-good) flip to exclusive error.
+   * Existing mutation notices are preserved so a follow-up refresh failure does not erase them.
    */
-  private applyBrowseFailure(isInitial: boolean, message: string, hasCachedExternal = false): void {
-    const hasPrior =
-      !isInitial &&
-      (hasCachedExternal ||
-        this._hermesItems().length > 0 ||
-        this._status() === 'ready' ||
-        this._status() === 'empty');
-    if (hasPrior) {
-      this._noticeTone.set('warning');
-      this._notice.set(REFRESH_NOTICE);
+  private applyBrowseFailure(isInitial: boolean, message: string): void {
+    if (!isInitial) {
+      if (!this._notice() || this._notice() === REFRESH_NOTICE) {
+        this._noticeTone.set('warning');
+        this._notice.set(REFRESH_NOTICE);
+      }
       return;
     }
     this._status.set('error');

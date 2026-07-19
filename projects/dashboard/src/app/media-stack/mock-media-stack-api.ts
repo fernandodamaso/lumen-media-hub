@@ -612,7 +612,7 @@ export class MockMediaStackApi implements MediaStackApi {
     return Promise.resolve(mapStorageOverview(demoStorageOverview()));
   }
 
-  getAutomationSummary(): Promise<AutomationSummary> {
+  getAutomationSummary(_signal?: AbortSignal): Promise<AutomationSummary> {
     const summary =
       this.automationScenario === 'partial'
         ? PARTIAL_AUTOMATION_SUMMARY
@@ -622,7 +622,7 @@ export class MockMediaStackApi implements MediaStackApi {
     return Promise.resolve(mapAutomationSummary(structuredClone(summary)));
   }
 
-  listCronLogs(): Promise<CronLogs> {
+  listCronLogs(_signal?: AbortSignal): Promise<CronLogs> {
     return Promise.resolve(mapCronLogs(copyCronLogs(demoCronLogs())));
   }
 

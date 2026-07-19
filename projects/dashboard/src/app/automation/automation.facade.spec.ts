@@ -3,7 +3,7 @@ import { computed, signal } from '@angular/core';
 import { vi } from 'vitest';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { CronLogs, CronRun } from '../reports/reports.models';
-import { AutomationFacade } from './automation.facade';
+import { AutomationFacade, SCHEDULED_REFRESH_TIMEOUT_MS } from './automation.facade';
 import { AutomationSummary, summarizeAutomationHealth } from './automation.models';
 import { ServiceHealthFacade, ServiceHealthStatus } from './service-health.facade';
 
@@ -192,6 +192,82 @@ describe('AutomationFacade', () => {
     vi.useRealTimers();
   });
 
+  it('recovers scheduled polling after a hung refresh times out', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred } = Promise.withResolvers<CronLogs>();
+    api.nextResponse = deferred;
+
+    facade.startPolling(SCHEDULED_REFRESH_TIMEOUT_MS + 1_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.cronCalls).toBe(1);
+    expect(facade.refreshing()).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
+    expect(facade.refreshing()).toBe(false);
+    expect(facade.status()).toBe('error');
+    expect(facade.error()).toContain('temporarily unavailable');
+
+    api.nextResponse = undefined;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(api.cronCalls).toBe(2);
+    expect(facade.status()).toBe('empty');
+    expect(facade.refreshing()).toBe(false);
+
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
+  });
+
+  it('aborts the active listCronLogs signal when a scheduled refresh times out', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred } = Promise.withResolvers<CronLogs>();
+    api.nextResponse = deferred;
+
+    facade.startPolling(SCHEDULED_REFRESH_TIMEOUT_MS + 1_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.cronCalls).toBe(1);
+    expect(api.lastSignal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
+    expect(api.lastSignal?.aborted).toBe(true);
+    expect(api.cronCalls).toBe(1);
+
+    api.nextResponse = undefined;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(api.cronCalls).toBe(2);
+
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
+  });
+
+  it('aborts an active refresh on destroy and ignores a late resolution', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred, resolve } = Promise.withResolvers<CronLogs>();
+    api.nextResponse = deferred;
+
+    facade.startPolling(100);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.cronCalls).toBe(1);
+    expect(facade.status()).toBe('loading');
+    const signal = api.lastSignal;
+
+    TestBed.resetTestingModule();
+    expect(signal?.aborted).toBe(true);
+
+    resolve({
+      ok: true,
+      generatedAt: '2026-07-14T12:00:00Z',
+      runs: [cronRun('Late', '2026-07-14T12:00:00Z')],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(facade.status()).toBe('loading');
+    expect(facade.tasks()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(api.cronCalls).toBe(1);
+    vi.useRealTimers();
+  });
+
   it('keeps run refresh failures independent from service-health state', async () => {
     health.summary.set({
       generatedAt: '2026-07-12T18:00:00Z',
@@ -247,11 +323,16 @@ class MockApi implements MediaStackApi {
   cronLogs: CronLogs = { ok: true, generatedAt: '2026-07-14T12:00:00Z', runs: [] };
   nextResponse?: Promise<CronLogs>;
   cronCalls = 0;
+  lastSignal?: AbortSignal;
 
-  listCronLogs() {
+  listCronLogs(signal?: AbortSignal) {
     this.cronCalls++;
+    this.lastSignal = signal;
+    if (signal?.aborted) {
+      return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+    }
     if (this.cronFailure) return Promise.reject(new Error('offline'));
-    if (this.nextResponse) return this.nextResponse;
+    if (this.nextResponse) return abortable(this.nextResponse, signal);
     return Promise.resolve(structuredClone(this.cronLogs));
   }
 
@@ -307,4 +388,30 @@ class MockApi implements MediaStackApi {
   requestMedia() {
     return Promise.resolve({ ok: true });
   }
+}
+
+function abortable<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    void pending.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
 }

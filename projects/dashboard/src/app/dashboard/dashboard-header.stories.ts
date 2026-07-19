@@ -25,3 +25,7 @@ export const Default: Story = {};
 export const JustSynced: Story = {
   args: { syncedAt: 'just now' },
 };
+
+export const SyncUnavailable: Story = {
+  args: { syncedAt: '' },
+};

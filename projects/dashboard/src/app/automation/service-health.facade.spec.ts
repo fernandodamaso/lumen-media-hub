@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { AutomationSummary } from './automation.models';
-import { ServiceHealthFacade } from './service-health.facade';
+import { ServiceHealthFacade, SCHEDULED_REFRESH_TIMEOUT_MS } from './service-health.facade';
 
 const healthySummary: AutomationSummary = {
   generatedAt: '2026-07-12T18:00:00Z',
@@ -123,8 +123,11 @@ describe('ServiceHealthFacade', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(api.summaryCalls).toBe(1);
     expect(facade.status()).toBe('loading');
+    const signal = api.lastSignal;
 
     TestBed.resetTestingModule();
+    expect(signal?.aborted).toBe(true);
+
     resolve({
       ...healthySummary,
       generatedAt: '2026-07-12T21:00:00Z',
@@ -138,6 +141,53 @@ describe('ServiceHealthFacade', () => {
     expect(api.summaryCalls).toBe(1);
     vi.useRealTimers();
   });
+
+  it('recovers scheduled polling after a hung refresh times out', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred } = Promise.withResolvers<AutomationSummary>();
+    api.nextResponse = deferred;
+
+    facade.startPolling(SCHEDULED_REFRESH_TIMEOUT_MS + 1_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.summaryCalls).toBe(1);
+    expect(facade.refreshing()).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
+    expect(facade.refreshing()).toBe(false);
+    expect(facade.status()).toBe('error');
+    expect(facade.error()).toContain('temporarily unavailable');
+
+    api.nextResponse = undefined;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(api.summaryCalls).toBe(2);
+    expect(facade.status()).toBe('ready');
+    expect(facade.refreshing()).toBe(false);
+
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
+  });
+
+  it('aborts the active getAutomationSummary signal when a scheduled refresh times out', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred } = Promise.withResolvers<AutomationSummary>();
+    api.nextResponse = deferred;
+
+    facade.startPolling(SCHEDULED_REFRESH_TIMEOUT_MS + 1_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.summaryCalls).toBe(1);
+    expect(api.lastSignal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
+    expect(api.lastSignal?.aborted).toBe(true);
+    expect(api.summaryCalls).toBe(1);
+
+    api.nextResponse = undefined;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(api.summaryCalls).toBe(2);
+
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
+  });
 });
 
 class MockApi implements MediaStackApi {
@@ -145,11 +195,19 @@ class MockApi implements MediaStackApi {
   nextResponse?: Promise<AutomationSummary>;
   failure = false;
   summaryCalls = 0;
+  lastSignal?: AbortSignal;
 
-  getAutomationSummary(): Promise<AutomationSummary> {
+  getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary> {
     this.summaryCalls++;
+    this.lastSignal = signal;
+    if (signal?.aborted) {
+      return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+    }
     if (this.failure) return Promise.reject(new Error('offline'));
-    if (this.nextResponse) return this.nextResponse;
+    if (this.nextResponse) {
+      const pending = this.nextResponse;
+      return abortable(pending, signal);
+    }
     return Promise.resolve(structuredClone(this.summary));
   }
 
@@ -204,4 +262,30 @@ class MockApi implements MediaStackApi {
   requestMedia() {
     return Promise.resolve({ ok: true });
   }
+}
+
+function abortable<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    void pending.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
 }

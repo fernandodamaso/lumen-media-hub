@@ -67,6 +67,8 @@ export class CalendarFacade {
           ...event,
           href: resolveCalendarLink(event.title, library, this.linkBases, event.kind),
         }));
+      // Abort after enrichment must not commit, or the scheduled timeout path would wipe a false success.
+      if (requestId !== this.requestId || options.signal?.aborted) return;
       this._events.set(events);
       this._status.set(events.length ? 'ready' : 'empty');
       this._error.set('');

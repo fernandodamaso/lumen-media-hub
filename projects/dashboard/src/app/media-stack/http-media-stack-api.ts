@@ -1,6 +1,6 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, fromEvent, takeUntil } from 'rxjs';
 
 import { environment } from '../../environments/environment';
 import { ArrLibrary, CalendarEvent } from '../calendar/calendar.models';
@@ -58,16 +58,10 @@ export class HttpMediaStackApi implements MediaStackApi {
   private readonly http = inject(HttpClient);
   private readonly base = environment.apiBaseUrl.replace(/\/$/, '');
 
-  listTorrents(): Promise<DownloadTorrent[]> {
-    return this.getRaw<unknown>('/qbt/torrents').then((data) => {
-      if (Array.isArray(data)) {
-        return data.map((item, index) => mapTorrent(mapLiveTorrent(item, index)));
-      }
-      const envelope = requireOkEnvelope(data, 'Malformed torrents response');
-      if (envelope.ok === false) {
-        throw new Error(envelope.error || 'Failed to list torrents');
-      }
-      throw new Error('Malformed torrents response');
+  listTorrents(signal?: AbortSignal): Promise<DownloadTorrent[]> {
+    return this.getRaw<unknown>('/qbt/torrents', signal).then((data) => {
+      const members = this.requireTorrentMembers(data);
+      return members.map((item, index) => mapTorrent(mapLiveTorrent(item, index)));
     });
   }
 
@@ -236,12 +230,41 @@ export class HttpMediaStackApi implements MediaStackApi {
       .filter((item): item is LibraryItem => item !== null);
   }
 
-  private async getRaw<T>(path: string): Promise<T> {
+  private async getRaw<T>(path: string, signal?: AbortSignal): Promise<T> {
     try {
-      return await firstValueFrom(this.http.get<T>(`${this.base}${path}`));
+      if (signal?.aborted) {
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      }
+      const request$ = this.http.get<T>(`${this.base}${path}`);
+      // Unsubscribe on abort so Angular tears down the in-flight XHR/fetch request.
+      return await firstValueFrom(
+        signal ? request$.pipe(takeUntil(fromEvent(signal, 'abort'))) : request$,
+      );
     } catch (error) {
+      if (signal?.aborted) {
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      }
       throw this.toError(error, `GET ${path} failed`);
     }
+  }
+
+  /**
+   * Accept bare torrent arrays or successful envelopes with a torrents array.
+   * Soft `{ ok: false }` throws with the backend message; malformed shapes reject separately.
+   */
+  private requireTorrentMembers(data: unknown): unknown[] {
+    if (Array.isArray(data)) {
+      return data;
+    }
+    const envelope = requireOkEnvelope(data, 'Malformed torrents response');
+    if (envelope.ok === false) {
+      throw new Error(envelope.error || 'Failed to list torrents');
+    }
+    return requireArrayField(
+      data as Record<string, unknown>,
+      'torrents',
+      'Malformed torrents response',
+    );
   }
 
   /** Return envelope DTOs when valid so facades can read ok/error (mock parity). */

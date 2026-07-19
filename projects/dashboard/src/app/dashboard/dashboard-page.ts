@@ -53,7 +53,8 @@ export class DashboardPage {
 
   readonly syncedAt = computed(() => {
     const generatedAt = this.health.generatedAt();
-    return generatedAt ? formatRelativeTime(generatedAt) : 'just now';
+    // Do not invent "just now" when the backend omitted freshness.
+    return generatedAt ? formatRelativeTime(generatedAt) : '';
   });
 
   readonly libraryTotal = computed(() => {

@@ -61,3 +61,64 @@ export function isAbortError(error: unknown): boolean {
     (error instanceof Error && error.name === 'AbortError')
   );
 }
+
+/** Require a non-empty trimmed string; never invent an identity or label. */
+export function requireNonEmptyString(
+  value: unknown,
+  context: string,
+): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(context);
+  }
+  return value.trim();
+}
+
+/** Require a parseable ISO / Date-parseable timestamp string from the backend. */
+export function requireIsoTimestamp(value: unknown, context: string): string {
+  const text = requireNonEmptyString(value, context);
+  if (Number.isNaN(Date.parse(text))) {
+    throw new Error(context);
+  }
+  return text;
+}
+
+/**
+ * Validate GET /cron/logs success payloads before domain mapping.
+ * Soft `{ ok: false }` envelopes skip this (handled by requireSoftEnvelope).
+ */
+export function requireCronLogsPayload(data: Record<string, unknown>): void {
+  requireIsoTimestamp(
+    data['generatedAt'],
+    'Malformed cron logs response: missing generatedAt',
+  );
+  const logs = requireArrayField(data, 'logs', 'Malformed cron logs response');
+  logs.forEach((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`Malformed cron logs response: member ${index} is not an object`);
+    }
+    requireNonEmptyString(
+      entry['id'],
+      `Malformed cron logs response: member ${index} is missing id`,
+    );
+    requireNonEmptyString(
+      entry['title'],
+      `Malformed cron logs response: member ${index} is missing title`,
+    );
+    const runs = entry['runs'];
+    if (runs === undefined || runs === null) return;
+    if (!Array.isArray(runs)) {
+      throw new Error(`Malformed cron logs response: member ${index} has invalid runs`);
+    }
+    runs.forEach((run, runIndex) => {
+      if (!isRecord(run)) {
+        throw new Error(
+          `Malformed cron logs response: member ${index} run ${runIndex} is not an object`,
+        );
+      }
+      requireIsoTimestamp(
+        run['timestamp'],
+        `Malformed cron logs response: member ${index} run ${runIndex} is missing timestamp`,
+      );
+    });
+  });
+}

@@ -454,19 +454,34 @@ function bazarrDetail(block: LiveAutomationServiceBlock | undefined): string {
   return `${block.wantedEpisodes ?? 0} ep · ${block.wantedMovies ?? 0} movies wanted`;
 }
 
+function mapGeneratedAt(value: unknown, context: string): string {
+  if (value === undefined || value === null || value === '') {
+    // Live backends may omit freshness; never substitute the client clock.
+    return '';
+  }
+  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
+    throw new Error(`${context}: invalid generatedAt`);
+  }
+  return value;
+}
+
 function mapPreviewItems(
   items: LiveAutomationPreviewItem[] | undefined,
   kind: string,
   serviceId: string,
 ): MediaStackAutomationPreviewItemDto[] {
   return (items ?? [])
-    .filter((item) => item.label)
-    .map((item, index) => ({
-      id: `${serviceId}-${kind}-${index}`,
-      title: String(item.label),
-      when: item.airDate || item.timeleft || item.status || undefined,
-      kind,
-    }));
+    .filter((item) => typeof item.label === 'string' && item.label.trim())
+    .map((item) => {
+      const title = String(item.label).trim();
+      return {
+        // Identity comes from backend-visible fields — never invent clock/index-only ids.
+        id: `${serviceId}-${kind}-${title}`,
+        title,
+        when: item.airDate || item.timeleft || item.status || undefined,
+        kind,
+      };
+    });
 }
 
 /**
@@ -477,6 +492,8 @@ export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStac
   if (live && live.ok === false && !live.sonarr && !live.radarr && !live.prowlarr && !live.bazarr) {
     throw new Error(live.error || 'Automation summary unavailable');
   }
+
+  const generatedAt = mapGeneratedAt(live.generatedAt, 'Malformed automation summary response');
 
   const sonarr = live.sonarr;
   const radarr = live.radarr;
@@ -600,7 +617,7 @@ export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStac
   }
 
   return {
-    generatedAt: live.generatedAt ?? new Date().toISOString(),
+    generatedAt,
     services,
     preview,
     problems,

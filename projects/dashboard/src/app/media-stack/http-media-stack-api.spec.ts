@@ -138,6 +138,7 @@ describe('live-api.mappers', () => {
   it('passes through service latencyMs when present', () => {
     const dto = mapLiveAutomationSummary({
       ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
       sonarr: { ok: true, missing: 0, monitored: 1, queued: 0, latencyMs: 21 },
       radarr: { ok: true, movies: 1, missing: 0, queued: 0 },
     });
@@ -180,12 +181,29 @@ describe('live-api.mappers', () => {
     const dto = mapLiveAutomationSummary({
       ok: false,
       error: 'partial outage',
+      generatedAt: '2026-07-13T12:00:00Z',
       sonarr: { ok: true, missing: 0, monitored: 2, queued: 0 },
       radarr: { ok: false, error: 'timeout' },
     });
     expect(dto.services?.find((s) => s.id === 'sonarr')?.status).toBe('healthy');
     expect(dto.services?.find((s) => s.id === 'radarr')?.status).toBe('down');
     expect(dto.problems?.some((p) => p.summary === 'partial outage')).toBe(true);
+  });
+
+  it('rejects automation summaries that invent freshness instead of using backend generatedAt', () => {
+    const missing = mapLiveAutomationSummary({
+      ok: true,
+      sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
+    });
+    expect(missing.generatedAt).toBe('');
+
+    expect(() =>
+      mapLiveAutomationSummary({
+        ok: true,
+        generatedAt: 'not-a-date',
+        sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
+      }),
+    ).toThrow(/invalid generatedAt/);
   });
 });
 
@@ -483,8 +501,8 @@ describe('HttpMediaStackApi', () => {
     await expect(library).resolves.toMatchObject({ ok: true, series: { show: 'slug' } });
 
     const logs = api.listCronLogs();
-    http.expectOne('/api/cron/logs').flush({ ok: true, logs: [] });
-    await expect(logs).resolves.toMatchObject({ ok: true, runs: [] });
+    http.expectOne('/api/cron/logs').flush({ ok: true, generatedAt: '2026-07-13T12:00:00Z', logs: [] });
+    await expect(logs).resolves.toMatchObject({ ok: true, runs: [], generatedAt: '2026-07-13T12:00:00Z' });
   });
 
   it('merges jellyfin movies and series for listLibraryItems', async () => {
@@ -530,12 +548,14 @@ describe('HttpMediaStackApi', () => {
     const pending = api.getAutomationSummary();
     http.expectOne('/api/automation/summary').flush({
       ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
       sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
       radarr: { ok: true, movies: 1, missing: 0, queued: 0 },
       prowlarr: { ok: true, indexers: 1, enabled: 1 },
       bazarr: { ok: true, wantedEpisodes: 0, wantedMovies: 0 },
     });
     const summary = await pending;
+    expect(summary.generatedAt).toBe('2026-07-13T12:00:00Z');
     expect(summary.services).toHaveLength(4);
     expect(summary.services?.every((s) => s.status === 'healthy')).toBe(true);
   });
@@ -603,12 +623,14 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/automation/summary').flush({
       ok: false,
       error: 'partial outage',
+      generatedAt: '2026-07-13T12:00:00Z',
       sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
       radarr: { ok: false, error: 'radarr down' },
       prowlarr: { ok: true, indexers: 1, enabled: 1 },
       bazarr: { ok: true, wantedEpisodes: 0, wantedMovies: 0 },
     });
     const summary = await pending;
+    expect(summary.generatedAt).toBe('2026-07-13T12:00:00Z');
     expect(summary.services?.find((s) => s.id === 'radarr')).toMatchObject({ status: 'down' });
     expect(summary.problems?.some((p) => p.id === 'automation-global')).toBe(true);
   });
@@ -732,12 +754,44 @@ describe('HttpMediaStackApi', () => {
 
   it('accepts valid empty arrays in ok:true soft envelopes', async () => {
     const logs = api.listCronLogs();
-    http.expectOne('/api/cron/logs').flush({ ok: true, logs: [] });
+    http.expectOne('/api/cron/logs').flush({ ok: true, generatedAt: '2026-07-13T12:00:00Z', logs: [] });
     await expect(logs).resolves.toMatchObject({ ok: true, runs: [] });
 
     const hermes = api.listHermesRecommendations();
     http.expectOne('/api/discover/hermes').flush({ ok: true, items: [] });
     await expect(hermes).resolves.toMatchObject({ ok: true, items: [] });
+  });
+
+  it('rejects cron log members missing required identity or timestamps', async () => {
+    const missingGeneratedAt = api.listCronLogs();
+    http.expectOne('/api/cron/logs').flush({ ok: true, logs: [] });
+    await expect(missingGeneratedAt).rejects.toThrow(/missing generatedAt/);
+
+    const missingJobId = api.listCronLogs();
+    http.expectOne('/api/cron/logs').flush({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      logs: [{ title: 'Watchdog', file: 'w.log', format: 'ndjson', schedule: '* * * * *', exists: true, runs: [] }],
+    });
+    await expect(missingJobId).rejects.toThrow(/missing id/);
+
+    const missingRunTimestamp = api.listCronLogs();
+    http.expectOne('/api/cron/logs').flush({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      logs: [
+        {
+          id: 'watchdog',
+          title: 'Watchdog',
+          file: 'w.log',
+          format: 'ndjson',
+          schedule: '* * * * *',
+          exists: true,
+          runs: [{ status: 'ok', detail: 'ok' }],
+        },
+      ],
+    });
+    await expect(missingRunTimestamp).rejects.toThrow(/missing timestamp/);
   });
 
   it('rejects malformed automation summaries at the HTTP boundary', async () => {
@@ -764,6 +818,14 @@ describe('HttpMediaStackApi', () => {
     const invalidService = api.getAutomationSummary();
     http.expectOne('/api/automation/summary').flush({ ok: true, sonarr: 'down' });
     await expect(invalidService).rejects.toThrow(/Malformed automation summary/);
+
+    const invalidGeneratedAt = api.getAutomationSummary();
+    http.expectOne('/api/automation/summary').flush({
+      ok: true,
+      generatedAt: 'not-a-date',
+      sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
+    });
+    await expect(invalidGeneratedAt).rejects.toThrow(/invalid generatedAt/);
   });
 
   it('preserves backend error for automation ok:false without full summary', async () => {
@@ -776,11 +838,13 @@ describe('HttpMediaStackApi', () => {
     const pending = api.getAutomationSummary();
     http.expectOne('/api/automation/summary').flush({
       ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
       sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
     });
     const summary = await pending;
     const sonarr = summary.services?.find((s) => s.id === 'sonarr');
     expect(sonarr).toMatchObject({ status: 'healthy' });
+    expect(summary.generatedAt).toBe('2026-07-13T12:00:00Z');
   });
 
   it('rejects with a stable Error on a real transport network failure', async () => {

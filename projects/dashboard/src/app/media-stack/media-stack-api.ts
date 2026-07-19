@@ -31,8 +31,8 @@ export interface MediaStackApi {
   listLibraryItems(filter?: { kind?: LibraryItemKind }, signal?: AbortSignal): Promise<LibraryListResult>;
   getLibraryStats(signal?: AbortSignal): Promise<LibraryStats>;
   getStorageOverview(signal?: AbortSignal): Promise<StorageOverview>;
-  getAutomationSummary(): Promise<AutomationSummary>;
-  listCronLogs(): Promise<CronLogs>;
+  getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary>;
+  listCronLogs(signal?: AbortSignal): Promise<CronLogs>;
   listHermesRecommendations(): Promise<HermesDiscover>;
   submitHermesFeedback(id: string, feedback: DiscoverFeedback, notes?: string): Promise<DiscoverAction>;
   requestHermesMore(): Promise<DiscoverAction>;

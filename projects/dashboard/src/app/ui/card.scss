@@ -22,11 +22,16 @@
 
 .mm-card__header,
 .mm-card__footer {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: space-between;
   gap: var(--mm-space-md);
   padding: 16px 20px;
+}
+
+.mm-card__header:has(> div > *),
+.mm-card__footer:has(> div > *) {
+  display: flex;
 }
 
 .mm-card__header {
@@ -54,13 +59,7 @@
 
 .mm-card__heading:empty,
 .mm-card__actions:empty,
-.mm-card__footer > div:empty {
-  display: none;
-}
-
-.mm-card__header:not(:has(.mm-card__heading > *)):not(:has(.mm-card__actions > *)),
-.mm-card__header[hidden],
-.mm-card__footer[hidden] {
+.mm-card__footer-content:empty {
   display: none;
 }
 

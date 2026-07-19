@@ -54,6 +54,7 @@ import {
   isAbortError,
   isRecord,
   requireArrayField,
+  requireCronLogsPayload,
   requireHardEnvelope,
   requireOkEnvelope,
   requireSoftEnvelope,
@@ -163,8 +164,8 @@ export class HttpMediaStackApi implements MediaStackApi {
     return { items: [...movies, ...series], availability };
   }
 
-  getAutomationSummary(): Promise<AutomationSummary> {
-    return this.getRaw<unknown>('/automation/summary').then((data) => {
+  getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary> {
+    return this.getRaw<unknown>('/automation/summary', signal).then((data) => {
       const envelope = requireSoftEnvelope<OkEnvelope & Partial<LiveAutomationSummary>>(
         data,
         'Malformed automation summary response',
@@ -207,10 +208,14 @@ export class HttpMediaStackApi implements MediaStackApi {
     ).then((data) => mapLibraryStats(requireLiveLibraryStats(data)));
   }
 
-  listCronLogs(): Promise<CronLogs> {
-    return this.getSoftEnvelope<MediaStackCronLogsDto>('/cron/logs', (data) => {
-      requireArrayField(data as unknown as Record<string, unknown>, 'logs', 'Malformed cron logs response');
-    }).then(mapCronLogs);
+  listCronLogs(signal?: AbortSignal): Promise<CronLogs> {
+    return this.getSoftEnvelope<MediaStackCronLogsDto>(
+      '/cron/logs',
+      (data) => {
+        requireCronLogsPayload(data as unknown as Record<string, unknown>);
+      },
+      signal,
+    ).then(mapCronLogs);
   }
 
   listHermesRecommendations(): Promise<HermesDiscover> {

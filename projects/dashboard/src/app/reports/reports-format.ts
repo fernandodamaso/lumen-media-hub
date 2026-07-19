@@ -53,13 +53,16 @@ export const mapCronRun = (
   index: number,
 ): CronRun => {
   const status = run.status?.trim() || 'ok';
+  const timestamp = run.timestamp?.trim() ?? '';
+  // Identity is composed only from backend job id + backend timestamp (or entry sentinel).
+  const id = timestamp ? `${job.id}-${timestamp}-${index}` : `${job.id}-entry`;
   return {
-    id: `${job.id}-${run.timestamp ?? 'unknown'}-${index}`,
+    id,
     jobId: job.id,
     jobTitle: job.title,
     status,
     triage: isQuietRun(run) ? 'quiet' : 'actionable',
-    timestamp: run.timestamp ?? '',
+    timestamp,
     detail: run.detail?.trim() ?? '',
     fatal: run.fatal ?? null,
     applied: typeof run.applied === 'number' ? run.applied : null,

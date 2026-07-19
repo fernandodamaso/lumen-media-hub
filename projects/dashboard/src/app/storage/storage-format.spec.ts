@@ -15,20 +15,23 @@ describe('storage format / storage mapping', () => {
     expect(overview.volumes[0]).toMatchObject({ id: 'media-library', usedBytes: 10, totalBytes: 20 });
   });
 
-  it('defaults missing fields and clamps invalid values', () => {
-    const overview = mapStorageOverview({
-      volumes: [
-        { id: '', label: ' ', kind: 'unknown-kind', usedBytes: -5, totalBytes: Number.NaN },
-      ],
-    });
-    expect(overview.generatedAt).toBe('');
-    expect(overview.volumes[0]).toEqual({
-      id: 'unknown',
-      label: 'Unnamed volume',
+  it('keeps zero capacities and rejects missing identity fields', () => {
+    expect(
+      mapStorageOverview({
+        volumes: [{ id: 'empty', label: 'Empty', kind: 'cache', usedBytes: 0, totalBytes: 0 }],
+      }).volumes[0],
+    ).toEqual({
+      id: 'empty',
+      label: 'Empty',
       kind: 'cache',
       usedBytes: 0,
       totalBytes: 0,
     });
+    expect(() =>
+      mapStorageOverview({
+        volumes: [{ id: '', label: ' ', kind: 'unknown-kind', usedBytes: -5, totalBytes: Number.NaN }],
+      }),
+    ).toThrow(/missing id/);
     expect(mapStorageOverview({}).volumes).toEqual([]);
   });
 });

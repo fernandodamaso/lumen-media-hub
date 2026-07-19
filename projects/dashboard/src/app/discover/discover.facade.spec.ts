@@ -369,7 +369,7 @@ class MockApi implements MediaStackApi {
     return Promise.resolve();
   }
   getLibraryStats() {
-    return Promise.resolve({ movies: 0, series: 0 });
+    return Promise.resolve({ movies: 0, series: 0, availability: 'complete' as const });
   }
   getStorageOverview() {
     return Promise.resolve({ generatedAt: '', volumes: [] });
@@ -381,7 +381,7 @@ class MockApi implements MediaStackApi {
     return Promise.resolve({ ok: true, series: {}, movies: {} });
   }
   listLibraryItems() {
-    return Promise.resolve([]);
+    return Promise.resolve({ items: [], availability: 'complete' as const });
   }
   getAutomationSummary() {
     return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [], availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const } });

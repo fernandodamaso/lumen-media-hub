@@ -21,6 +21,12 @@
   margin-bottom: var(--mm-space-lg);
 }
 
+.metrics-notice {
+  margin: calc(-1 * var(--mm-space-sm)) 0 var(--mm-space-lg);
+  color: var(--mm-component-text-secondary);
+  font-size: var(--mm-text-md);
+}
+
 .home-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));

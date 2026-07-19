@@ -8,23 +8,35 @@ export const mapStorageOverview = (dto: MediaStackStorageOverviewDto): StorageOv
   volumes: (dto.volumes ?? []).map(mapStorageVolume),
 });
 
-const mapStorageVolume = (volume: MediaStackStorageVolumeDto): StorageVolume => ({
-  id: volume.id?.trim() || 'unknown',
-  label: volume.label?.trim() || 'Unnamed volume',
-  kind: normalizeStorageVolumeKind(volume.kind),
-  usedBytes: normalizeBytes(volume.usedBytes),
-  totalBytes: normalizeBytes(volume.totalBytes),
-});
+const mapStorageVolume = (volume: MediaStackStorageVolumeDto): StorageVolume => {
+  const id = volume.id?.trim();
+  const label = volume.label?.trim();
+  if (!id) {
+    throw new Error('Malformed storage volume: missing id');
+  }
+  if (!label) {
+    throw new Error('Malformed storage volume: missing label');
+  }
+  if (typeof volume.usedBytes !== 'number' || !Number.isFinite(volume.usedBytes)) {
+    throw new Error('Malformed storage volume: missing usedBytes');
+  }
+  if (typeof volume.totalBytes !== 'number' || !Number.isFinite(volume.totalBytes)) {
+    throw new Error('Malformed storage volume: missing totalBytes');
+  }
+  return {
+    id,
+    label,
+    kind: normalizeStorageVolumeKind(volume.kind),
+    usedBytes: Math.max(0, volume.usedBytes),
+    totalBytes: Math.max(0, volume.totalBytes),
+  };
+};
 
 function normalizeStorageVolumeKind(kind: string | undefined): StorageVolumeKind {
   const normalized = kind?.trim().toLowerCase() ?? '';
   return STORAGE_VOLUME_KINDS.includes(normalized as StorageVolumeKind)
     ? (normalized as StorageVolumeKind)
     : 'cache';
-}
-
-function normalizeBytes(value: number | undefined): number {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
 export function formatStorageBytes(bytes: number): string {

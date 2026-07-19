@@ -18,10 +18,13 @@ export const LIBRARY_KIND_LABEL: Record<LibraryItemKind, string> = {
 export const mapLibraryItem = (dto: MediaStackLibraryItemDto): LibraryItem | null => {
   const kind = normalizeLibraryKind(dto.kind);
   if (!kind) return null;
+  const id = dto.id?.trim();
+  const title = dto.title?.trim();
+  if (!id || !title) return null;
   const artworkState = normalizeArtworkState(dto.artworkState, dto.posterUrl);
   return {
-    id: dto.id?.trim() || 'unknown',
-    title: dto.title?.trim() || 'Untitled',
+    id,
+    title,
     kind,
     meta: formatLibraryMeta(dto.year, kind),
     art: resolveLibraryArt(dto.posterUrl, artworkState),
@@ -65,11 +68,16 @@ function resolveLibraryArt(posterUrl: string | undefined, artworkState: LibraryA
 export const libraryEmptyMessage = (kind: LibraryItemKind): string =>
   kind === 'movie' ? 'No movies in the demo library.' : 'No series in the demo library.';
 
-export const mapLibraryStats = (dto: MediaStackLibraryStatsDto): LibraryStats => ({
-  movies: normalizeCount(dto.movies),
-  series: normalizeCount(dto.series),
-});
-
-function normalizeCount(value: number | undefined): number {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
-}
+export const mapLibraryStats = (dto: MediaStackLibraryStatsDto): LibraryStats => {
+  if (typeof dto.movies !== 'number' || !Number.isFinite(dto.movies)) {
+    throw new Error('Malformed library stats: missing movies');
+  }
+  if (typeof dto.series !== 'number' || !Number.isFinite(dto.series)) {
+    throw new Error('Malformed library stats: missing series');
+  }
+  return {
+    movies: Math.max(0, Math.round(dto.movies)),
+    series: Math.max(0, Math.round(dto.series)),
+    availability: 'complete',
+  };
+};

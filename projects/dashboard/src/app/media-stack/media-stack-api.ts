@@ -11,7 +11,11 @@ import {
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
-import { LibraryItem, LibraryItemKind, LibraryStats } from '../library/library.models';
+import {
+  LibraryItemKind,
+  LibraryListResult,
+  LibraryStats,
+} from '../library/library.models';
 import { AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
@@ -22,11 +26,11 @@ export interface MediaStackApi {
   resumeAll(): Promise<void>;
   pauseTorrent(id: string): Promise<void>;
   resumeTorrent(id: string): Promise<void>;
-  listCalendarEvents(): Promise<CalendarEvent[]>;
-  getArrLibrary(): Promise<ArrLibrary>;
-  listLibraryItems(filter?: { kind?: LibraryItemKind }): Promise<LibraryItem[]>;
-  getLibraryStats(): Promise<LibraryStats>;
-  getStorageOverview(): Promise<StorageOverview>;
+  listCalendarEvents(signal?: AbortSignal): Promise<CalendarEvent[]>;
+  getArrLibrary(signal?: AbortSignal): Promise<ArrLibrary>;
+  listLibraryItems(filter?: { kind?: LibraryItemKind }, signal?: AbortSignal): Promise<LibraryListResult>;
+  getLibraryStats(signal?: AbortSignal): Promise<LibraryStats>;
+  getStorageOverview(signal?: AbortSignal): Promise<StorageOverview>;
   getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary>;
   listCronLogs(signal?: AbortSignal): Promise<CronLogs>;
   listHermesRecommendations(): Promise<HermesDiscover>;

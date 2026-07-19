@@ -6,7 +6,8 @@ import {
   MediaStackAutomationServiceDto,
   MediaStackAutomationSummaryDto,
 } from './wire/automation';
-import { MediaStackLibraryItemDto } from './wire/library';
+import { MediaStackCalendarEventDto } from './wire/calendar';
+import { MediaStackLibraryItemDto, MediaStackLibraryStatsDto } from './wire/library';
 import { MediaStackStorageVolumeDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
 
@@ -44,6 +45,15 @@ export interface LiveJellyfinItem {
   name?: string;
   year?: number | null;
   id?: string;
+  image?: string | null;
+  rating?: number | null;
+}
+
+/** Validated Jellyfin list member — required identity fields are present. */
+export interface ValidatedLiveJellyfinItem {
+  id: string;
+  name: string;
+  year?: number | null;
   image?: string | null;
   rating?: number | null;
 }
@@ -121,11 +131,11 @@ export function requireLiveTorrent(raw: unknown, index = 0): ValidatedLiveQbtTor
     throw new Error(`Malformed torrents response: member ${index} is missing state`);
   }
 
-  const progress = requireFiniteNumberField(raw, 'progress', index);
+  const progress = requireFiniteNumberField(raw, 'progress', index, 'torrents');
   const size = requireSizeField(raw, index);
-  const dlspeed = requireFiniteNumberField(raw, 'dlspeed', index);
-  const upspeed = requireFiniteNumberField(raw, 'upspeed', index);
-  const eta = requireFiniteNumberField(raw, 'eta', index);
+  const dlspeed = requireFiniteNumberField(raw, 'dlspeed', index, 'torrents');
+  const upspeed = requireFiniteNumberField(raw, 'upspeed', index, 'torrents');
+  const eta = requireFiniteNumberField(raw, 'eta', index, 'torrents');
 
   const amountLeftRaw = raw['amount_left'];
   let amount_left: number | undefined;
@@ -160,14 +170,172 @@ export function requireLiveTorrent(raw: unknown, index = 0): ValidatedLiveQbtTor
   };
 }
 
+/**
+ * Reject calendar members lacking required air identity (title/additional/date).
+ * Optional presentation fields stay optional; wrong types are rejected.
+ */
+export function requireLiveCalendarEvent(raw: unknown, index = 0): MediaStackCalendarEventDto {
+  if (!isRecord(raw)) {
+    throw new Error(`Malformed calendar response: member ${index} is not an object`);
+  }
+
+  const title = raw['title'];
+  const additional = raw['additional'];
+  const date = raw['date'];
+  if (typeof title !== 'string' || !title.trim()) {
+    throw new Error(`Malformed calendar response: member ${index} is missing title`);
+  }
+  if (typeof additional !== 'string') {
+    throw new Error(`Malformed calendar response: member ${index} is missing additional`);
+  }
+  if (typeof date !== 'string' || !date.trim()) {
+    throw new Error(`Malformed calendar response: member ${index} is missing date`);
+  }
+
+  const airDateRaw = raw['airDate'];
+  let airDate: string | undefined;
+  if (airDateRaw !== undefined && airDateRaw !== null) {
+    if (typeof airDateRaw !== 'string') {
+      throw new Error(`Malformed calendar response: member ${index} has invalid airDate`);
+    }
+    airDate = airDateRaw;
+  }
+
+  const kindRaw = raw['kind'];
+  let kind: 'episode' | 'movie' | undefined;
+  if (kindRaw !== undefined && kindRaw !== null) {
+    if (kindRaw !== 'episode' && kindRaw !== 'movie') {
+      throw new Error(`Malformed calendar response: member ${index} has invalid kind`);
+    }
+    kind = kindRaw;
+  }
+
+  const statusRaw = raw['status'];
+  let status: string | undefined;
+  if (statusRaw !== undefined && statusRaw !== null) {
+    if (typeof statusRaw !== 'string') {
+      throw new Error(`Malformed calendar response: member ${index} has invalid status`);
+    }
+    status = statusRaw;
+  }
+
+  const artRaw = raw['art'];
+  let art: string | undefined;
+  if (artRaw !== undefined && artRaw !== null) {
+    if (typeof artRaw !== 'string') {
+      throw new Error(`Malformed calendar response: member ${index} has invalid art`);
+    }
+    art = artRaw;
+  }
+
+  const hasFile = optionalBoolean(raw, 'hasFile', index, 'calendar');
+  const monitored = optionalBoolean(raw, 'monitored', index, 'calendar');
+  const premiere = optionalBoolean(raw, 'premiere', index, 'calendar');
+  const seriesId = optionalFiniteNumber(raw, 'seriesId', index, 'calendar');
+
+  return {
+    title,
+    additional,
+    date,
+    airDate,
+    kind,
+    status,
+    art,
+    hasFile,
+    monitored,
+    premiere,
+    seriesId,
+  };
+}
+
+/**
+ * Reject Jellyfin list members lacking required identity (id/name).
+ * Do not synthesize ids or titles for missing values.
+ */
+export function requireLiveJellyfinItem(raw: unknown, index = 0): ValidatedLiveJellyfinItem {
+  if (!isRecord(raw)) {
+    throw new Error(`Malformed jellyfin items response: member ${index} is not an object`);
+  }
+
+  const id = raw['id'];
+  const name = raw['name'];
+  if (typeof id !== 'string' || !id.trim()) {
+    throw new Error(`Malformed jellyfin items response: member ${index} is missing id`);
+  }
+  if (typeof name !== 'string' || !name.trim()) {
+    throw new Error(`Malformed jellyfin items response: member ${index} is missing name`);
+  }
+
+  const yearRaw = raw['year'];
+  let year: number | null | undefined;
+  if (yearRaw !== undefined) {
+    if (yearRaw !== null && (typeof yearRaw !== 'number' || !Number.isFinite(yearRaw))) {
+      throw new Error(`Malformed jellyfin items response: member ${index} has invalid year`);
+    }
+    year = yearRaw;
+  }
+
+  const imageRaw = raw['image'];
+  let image: string | null | undefined;
+  if (imageRaw !== undefined) {
+    if (imageRaw !== null && typeof imageRaw !== 'string') {
+      throw new Error(`Malformed jellyfin items response: member ${index} has invalid image`);
+    }
+    image = imageRaw;
+  }
+
+  const ratingRaw = raw['rating'];
+  let rating: number | null | undefined;
+  if (ratingRaw !== undefined) {
+    if (ratingRaw !== null && (typeof ratingRaw !== 'number' || !Number.isFinite(ratingRaw))) {
+      throw new Error(`Malformed jellyfin items response: member ${index} has invalid rating`);
+    }
+    rating = ratingRaw;
+  }
+
+  return { id, name, year, image, rating };
+}
+
+/**
+ * Reject library stats envelopes that coerce missing counts into zeros.
+ * Finite zero counts are valid empty totals.
+ */
+export function requireLiveLibraryStats(raw: unknown): MediaStackLibraryStatsDto {
+  if (!isRecord(raw)) {
+    throw new Error('Malformed library stats response');
+  }
+  const movies = raw['movies'];
+  const series = raw['series'];
+  if (typeof movies !== 'number' || !Number.isFinite(movies)) {
+    throw new Error('Malformed library stats response: missing movies');
+  }
+  if (typeof series !== 'number' || !Number.isFinite(series)) {
+    throw new Error('Malformed library stats response: missing series');
+  }
+  // Negative counts are malformed — do not clamp into trustworthy zeros at the format layer.
+  if (movies < 0) {
+    throw new Error('Malformed library stats response: invalid movies');
+  }
+  if (series < 0) {
+    throw new Error('Malformed library stats response: invalid series');
+  }
+  return {
+    ok: typeof raw['ok'] === 'boolean' ? raw['ok'] : undefined,
+    movies,
+    series,
+    error: typeof raw['error'] === 'string' ? raw['error'] : undefined,
+  };
+}
+
 function requireFiniteNumberField(
   raw: Record<string, unknown>,
   field: string,
   index: number,
+  resource: string,
 ): number {
   const value = raw[field];
   if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`Malformed torrents response: member ${index} is missing ${field}`);
+    throw new Error(`Malformed ${resource} response: member ${index} is missing ${field}`);
   }
   return value;
 }
@@ -182,6 +350,34 @@ function requireSizeField(raw: Record<string, unknown>, index: number): number {
     return totalSize;
   }
   throw new Error(`Malformed torrents response: member ${index} is missing size`);
+}
+
+function optionalBoolean(
+  raw: Record<string, unknown>,
+  field: string,
+  index: number,
+  resource: string,
+): boolean | undefined {
+  const value = raw[field];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'boolean') {
+    throw new Error(`Malformed ${resource} response: member ${index} has invalid ${field}`);
+  }
+  return value;
+}
+
+function optionalFiniteNumber(
+  raw: Record<string, unknown>,
+  field: string,
+  index: number,
+  resource: string,
+): number | undefined {
+  const value = raw[field];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Malformed ${resource} response: member ${index} has invalid ${field}`);
+  }
+  return value;
 }
 
 export function mapLiveTorrent(raw: unknown, index = 0): MediaStackTorrentDto {
@@ -206,19 +402,21 @@ export function mapLiveTorrent(raw: unknown, index = 0): MediaStackTorrentDto {
 }
 
 export function mapLiveJellyfinItem(
-  item: LiveJellyfinItem,
+  item: unknown,
   kind: LibraryItemKind,
+  index = 0,
 ): MediaStackLibraryItemDto {
-  const posterUrl = item.image ? String(item.image) : undefined;
+  const validated = requireLiveJellyfinItem(item, index);
+  const posterUrl = validated.image ? String(validated.image) : undefined;
   return {
-    id: item.id ? String(item.id) : '',
-    title: item.name ? String(item.name) : 'Untitled',
+    id: validated.id,
+    title: validated.name,
     kind,
-    year: item.year == null ? undefined : Number(item.year) || undefined,
+    year: validated.year == null ? undefined : Number(validated.year) || undefined,
     posterUrl,
     artworkState: posterUrl ? 'ok' : 'missing',
     playable: true,
-    rating: item.rating,
+    rating: validated.rating,
   };
 }
 
@@ -445,14 +643,89 @@ export interface LiveStorageVolume {
   total?: number;
 }
 
-export function mapLiveStorageVolume(raw: LiveStorageVolume, index = 0): MediaStackStorageVolumeDto {
-  const used = Number(raw.usedBytes ?? raw.used);
-  const total = Number(raw.totalBytes ?? raw.total);
+/** Validated storage volume — identity and byte capacities are present (zeros allowed). */
+export interface ValidatedLiveStorageVolume {
+  id: string;
+  label: string;
+  kind?: string;
+  usedBytes: number;
+  totalBytes: number;
+}
+
+/**
+ * Reject storage volumes that lack required identity or byte capacities.
+ * Do not synthesize volume ids, names, or zero capacities for missing fields.
+ */
+export function requireLiveStorageVolume(raw: unknown, index = 0): ValidatedLiveStorageVolume {
+  if (!isRecord(raw)) {
+    throw new Error(`Malformed storage overview response: member ${index} is not an object`);
+  }
+
+  const id = raw['id'];
+  if (typeof id !== 'string' || !id.trim()) {
+    throw new Error(`Malformed storage overview response: member ${index} is missing id`);
+  }
+
+  const labelRaw = raw['label'];
+  const nameRaw = raw['name'];
+  let label: string | undefined;
+  if (typeof labelRaw === 'string' && labelRaw.trim()) {
+    label = labelRaw;
+  } else if (typeof nameRaw === 'string' && nameRaw.trim()) {
+    label = nameRaw;
+  } else if (labelRaw !== undefined && labelRaw !== null && typeof labelRaw !== 'string') {
+    throw new Error(`Malformed storage overview response: member ${index} has invalid label`);
+  } else if (nameRaw !== undefined && nameRaw !== null && typeof nameRaw !== 'string') {
+    throw new Error(`Malformed storage overview response: member ${index} has invalid name`);
+  } else {
+    throw new Error(`Malformed storage overview response: member ${index} is missing label`);
+  }
+
+  const used =
+    typeof raw['usedBytes'] === 'number' && Number.isFinite(raw['usedBytes'])
+      ? raw['usedBytes']
+      : typeof raw['used'] === 'number' && Number.isFinite(raw['used'])
+        ? raw['used']
+        : null;
+  const total =
+    typeof raw['totalBytes'] === 'number' && Number.isFinite(raw['totalBytes'])
+      ? raw['totalBytes']
+      : typeof raw['total'] === 'number' && Number.isFinite(raw['total'])
+        ? raw['total']
+        : null;
+  if (used === null) {
+    throw new Error(`Malformed storage overview response: member ${index} is missing usedBytes`);
+  }
+  if (total === null) {
+    throw new Error(`Malformed storage overview response: member ${index} is missing totalBytes`);
+  }
+  // Negative capacities are malformed — zeros remain valid empty capacity.
+  if (used < 0) {
+    throw new Error(`Malformed storage overview response: member ${index} has invalid usedBytes`);
+  }
+  if (total < 0) {
+    throw new Error(`Malformed storage overview response: member ${index} has invalid totalBytes`);
+  }
+
+  const kindRaw = raw['kind'];
+  let kind: string | undefined;
+  if (kindRaw !== undefined && kindRaw !== null) {
+    if (typeof kindRaw !== 'string') {
+      throw new Error(`Malformed storage overview response: member ${index} has invalid kind`);
+    }
+    kind = kindRaw;
+  }
+
+  return { id, label, kind, usedBytes: used, totalBytes: total };
+}
+
+export function mapLiveStorageVolume(raw: unknown, index = 0): MediaStackStorageVolumeDto {
+  const volume = requireLiveStorageVolume(raw, index);
   return {
-    id: raw.id ? String(raw.id) : `volume-${index}`,
-    label: raw.label ? String(raw.label) : raw.name ? String(raw.name) : 'Unnamed volume',
-    kind: typeof raw.kind === 'string' ? raw.kind : undefined,
-    usedBytes: Number.isFinite(used) ? used : 0,
-    totalBytes: Number.isFinite(total) ? total : 0,
+    id: volume.id,
+    label: volume.label,
+    kind: volume.kind,
+    usedBytes: volume.usedBytes,
+    totalBytes: volume.totalBytes,
   };
 }

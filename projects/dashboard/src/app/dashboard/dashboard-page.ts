@@ -66,7 +66,16 @@ export class DashboardPage {
   readonly libraryMeta = computed(() => {
     const stats = this.library.stats();
     if (!stats) return null;
+    // Home totals come from /jellyfin/stats (always complete). Partial availability is only for
+    // unfiltered listLibraryItems aggregation, not this metric.
     return `${stats.movies} movies · ${stats.series} series`;
+  });
+
+  readonly libraryNotice = computed(() => {
+    if (this.library.error() && this.library.status() === 'ready') {
+      return this.library.error();
+    }
+    return '';
   });
 
   readonly downloadsMeta = computed(() => {

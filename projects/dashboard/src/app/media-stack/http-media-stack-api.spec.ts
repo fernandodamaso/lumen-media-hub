@@ -146,17 +146,35 @@ describe('live-api.mappers', () => {
     expect(dto.services?.find((s) => s.id === 'radarr')?.latencyMs).toBeNull();
   });
 
-  it('maps live storage volumes with field fallbacks', () => {
+  it('maps live storage volumes without synthesizing identity', () => {
     expect(
       mapLiveStorageVolume({ id: 'vol-1', label: 'Media', kind: 'library', usedBytes: 10, totalBytes: 20 }),
     ).toEqual({ id: 'vol-1', label: 'Media', kind: 'library', usedBytes: 10, totalBytes: 20 });
-    expect(mapLiveStorageVolume({ name: 'Scratch', used: 5, total: 50 }, 2)).toEqual({
-      id: 'volume-2',
+    expect(mapLiveStorageVolume({ id: 'scratch', name: 'Scratch', used: 5, total: 50 })).toEqual({
+      id: 'scratch',
       label: 'Scratch',
       kind: undefined,
       usedBytes: 5,
       totalBytes: 50,
     });
+    expect(mapLiveStorageVolume({ id: 'empty', label: 'Empty', usedBytes: 0, totalBytes: 0 })).toEqual({
+      id: 'empty',
+      label: 'Empty',
+      kind: undefined,
+      usedBytes: 0,
+      totalBytes: 0,
+    });
+  });
+
+  it('rejects storage volumes that lack required identity or capacity', () => {
+    expect(() => mapLiveStorageVolume({ name: 'Scratch', used: 5, total: 50 })).toThrow(/missing id/);
+    expect(() => mapLiveStorageVolume({ id: 'x', usedBytes: 1, totalBytes: 2 })).toThrow(/missing label/);
+    expect(() => mapLiveStorageVolume({ id: 'x', label: 'X', totalBytes: 2 })).toThrow(/missing usedBytes/);
+  });
+
+  it('rejects jellyfin items that lack required identity', () => {
+    expect(() => mapLiveJellyfinItem({ name: 'Dune' }, 'movie')).toThrow(/missing id/);
+    expect(() => mapLiveJellyfinItem({ id: '1' }, 'movie')).toThrow(/missing name/);
   });
 
   it('maps automation ok:false when nested service blocks remain', () => {
@@ -416,35 +434,61 @@ describe('HttpMediaStackApi', () => {
       generatedAt: '2026-07-13T12:00:00Z',
       volumes: [
         { id: 'media', label: 'Media library', kind: 'library', usedBytes: 10, totalBytes: 20 },
-        { name: 'Scratch', used: 5, total: 50 },
+        { id: 'scratch', name: 'Scratch', used: 5, total: 50 },
       ],
     });
     await expect(pending).resolves.toEqual({
       generatedAt: '2026-07-13T12:00:00Z',
       volumes: [
         { id: 'media', label: 'Media library', kind: 'library', usedBytes: 10, totalBytes: 20 },
-        { id: 'volume-1', label: 'Scratch', kind: 'cache', usedBytes: 5, totalBytes: 50 },
+        { id: 'scratch', label: 'Scratch', kind: 'cache', usedBytes: 5, totalBytes: 50 },
       ],
     });
   });
 
-  it('rejects malformed storage overview payloads', async () => {
+  it('rejects malformed storage volumes and envelopes', async () => {
     const pending = api.getStorageOverview();
     http.expectOne('/api/storage/overview').flush({ ok: true, volumes: 'nope' });
     await expect(pending).rejects.toThrow(/Malformed storage overview/);
+
+    const missingId = api.getStorageOverview();
+    http.expectOne('/api/storage/overview').flush({
+      ok: true,
+      volumes: [{ name: 'Scratch', used: 5, total: 50 }],
+    });
+    await expect(missingId).rejects.toThrow(/missing id/);
+
+    const negativeBytes = api.getStorageOverview();
+    http.expectOne('/api/storage/overview').flush({
+      ok: true,
+      volumes: [{ id: 'media', label: 'Media', usedBytes: -1, totalBytes: 20 }],
+    });
+    await expect(negativeBytes).rejects.toThrow(/invalid usedBytes/);
   });
 
-  it('GETs jellyfin stats with defensive counts', async () => {
+  it('GETs jellyfin stats and rejects missing counts', async () => {
     const pending = api.getLibraryStats();
     http.expectOne('/api/jellyfin/stats').flush({ ok: true, movies: 428, series: 76 });
-    await expect(pending).resolves.toEqual({ movies: 428, series: 76 });
+    await expect(pending).resolves.toEqual({ movies: 428, series: 76, availability: 'complete' });
 
-    const partial = api.getLibraryStats();
+    const zeros = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/stats').flush({ ok: true, movies: 0, series: 0 });
+    await expect(zeros).resolves.toEqual({ movies: 0, series: 0, availability: 'complete' });
+
+    const missingSeries = api.getLibraryStats();
     http.expectOne('/api/jellyfin/stats').flush({ ok: true, movies: 12 });
-    await expect(partial).resolves.toEqual({ movies: 12, series: 0 });
+    await expect(missingSeries).rejects.toThrow(/missing series/);
+
+    const softFail = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/stats').flush({ ok: false, error: 'jellyfin down' });
+    await expect(softFail).rejects.toThrow('jellyfin down');
+
+    const negativeCounts = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/stats').flush({ ok: true, movies: -1, series: 2 });
+    await expect(negativeCounts).rejects.toThrow(/invalid movies/);
   });
 
-  it('unwraps calendar envelope and rejects ok:false', async () => {
+  it('unwraps calendar envelope and rejects ok:false or malformed members', async () => {
     const pending = api.listCalendarEvents();
     http.expectOne('/api/sonarr/calendar').flush({
       ok: true,
@@ -457,6 +501,13 @@ describe('HttpMediaStackApi', () => {
     const failed = api.listCalendarEvents();
     http.expectOne('/api/sonarr/calendar').flush({ ok: false, error: 'sonarr offline' });
     await expect(failed).rejects.toThrow('sonarr offline');
+
+    const malformed = api.listCalendarEvents();
+    http.expectOne('/api/sonarr/calendar').flush({
+      ok: true,
+      events: [{ additional: 'S01E01', date: '20:00' }],
+    });
+    await expect(malformed).rejects.toThrow(/missing title/);
   });
 
   it('GETs arr library and cron logs', async () => {
@@ -475,23 +526,25 @@ describe('HttpMediaStackApi', () => {
     const seriesReq = http.expectOne('/api/jellyfin/series');
     movieReq.flush({ ok: true, items: [{ id: 'm1', name: 'Movie', year: 2020, image: '/m' }] });
     seriesReq.flush({ ok: true, items: [{ id: 's1', name: 'Series' }] });
-    const items = await pending;
-    expect(items).toEqual([
-      expect.objectContaining({ id: 'm1', kind: 'movie', title: 'Movie' }),
-      expect.objectContaining({ id: 's1', kind: 'series', title: 'Series', artworkState: 'missing' }),
-    ]);
+    await expect(pending).resolves.toEqual({
+      availability: 'complete',
+      items: [
+        expect.objectContaining({ id: 'm1', kind: 'movie', title: 'Movie' }),
+        expect.objectContaining({ id: 's1', kind: 'series', title: 'Series', artworkState: 'missing' }),
+      ],
+    });
   });
 
   it('filters jellyfin requests by kind', async () => {
     const moviesOnly = api.listLibraryItems({ kind: 'movie' });
     http.expectOne('/api/jellyfin/movies').flush({ ok: true, items: [{ id: 'm1', name: 'Movie' }] });
     http.expectNone('/api/jellyfin/series');
-    await expect(moviesOnly).resolves.toHaveLength(1);
+    await expect(moviesOnly).resolves.toMatchObject({ availability: 'complete', items: [{ id: 'm1' }] });
 
     const seriesOnly = api.listLibraryItems({ kind: 'series' });
     http.expectOne('/api/jellyfin/series').flush({ ok: true, items: [{ id: 's1', name: 'Series' }] });
     http.expectNone('/api/jellyfin/movies');
-    await expect(seriesOnly).resolves.toHaveLength(1);
+    await expect(seriesOnly).resolves.toMatchObject({ availability: 'complete', items: [{ id: 's1' }] });
   });
 
   it('rejects filtered jellyfin loads when the requested kind fails', async () => {
@@ -597,13 +650,26 @@ describe('HttpMediaStackApi', () => {
     expect(summary.problems?.some((p) => p.id === 'automation-global')).toBe(true);
   });
 
-  it('keeps jellyfin movies when series fails', async () => {
+  it('keeps jellyfin movies when series fails and labels the list partial', async () => {
     const pending = api.listLibraryItems();
     const movieReq = http.expectOne('/api/jellyfin/movies');
     const seriesReq = http.expectOne('/api/jellyfin/series');
     movieReq.flush({ ok: true, items: [{ id: 'm1', name: 'Movie' }] });
     seriesReq.flush({ ok: false, error: 'series offline' });
-    await expect(pending).resolves.toEqual([expect.objectContaining({ id: 'm1', kind: 'movie' })]);
+    await expect(pending).resolves.toEqual({
+      availability: 'partial',
+      items: [expect.objectContaining({ id: 'm1', kind: 'movie' })],
+    });
+  });
+
+  it('rejects unfiltered library list when abort cancels one jellyfin kind mid-flight', async () => {
+    const abort = new AbortController();
+    const pending = api.listLibraryItems(undefined, abort.signal);
+    const movieReq = http.expectOne('/api/jellyfin/movies');
+    http.expectOne('/api/jellyfin/series');
+    movieReq.flush({ ok: true, items: [{ id: 'm1', name: 'Movie' }] });
+    abort.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
   });
 
   it('rejects library list only when both jellyfin kinds fail', async () => {
@@ -611,6 +677,12 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/jellyfin/movies').flush({ ok: false, error: 'movies down' });
     http.expectOne('/api/jellyfin/series').flush({ error: 'series boom' }, { status: 500, statusText: 'Err' });
     await expect(pending).rejects.toThrow();
+  });
+
+  it('rejects jellyfin members that lack required identity', async () => {
+    const pending = api.listLibraryItems({ kind: 'movie' });
+    http.expectOne('/api/jellyfin/movies').flush({ ok: true, items: [{ name: 'Movie' }] });
+    await expect(pending).rejects.toThrow(/missing id/);
   });
 
   it('surfaces HTTP and void-action ok:false failures as rejected promises', async () => {

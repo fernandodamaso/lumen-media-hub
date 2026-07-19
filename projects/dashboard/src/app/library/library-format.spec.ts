@@ -91,9 +91,18 @@ describe('library format / library mapping', () => {
     expect(libraryEmptyMessage('series')).toContain('series');
   });
 
-  it('maps library stats defensively', () => {
-    expect(mapLibraryStats({ movies: 428, series: 76 })).toEqual({ movies: 428, series: 76 });
-    expect(mapLibraryStats({ movies: 12 })).toEqual({ movies: 12, series: 0 });
-    expect(mapLibraryStats({})).toEqual({ movies: 0, series: 0 });
+  it('maps library stats and rejects missing counts', () => {
+    expect(mapLibraryStats({ movies: 428, series: 76 })).toEqual({
+      movies: 428,
+      series: 76,
+      availability: 'complete',
+    });
+    expect(mapLibraryStats({ movies: 0, series: 0 })).toEqual({
+      movies: 0,
+      series: 0,
+      availability: 'complete',
+    });
+    expect(() => mapLibraryStats({ movies: 12 } as never)).toThrow(/missing series/);
+    expect(() => mapLibraryStats({} as never)).toThrow(/missing movies/);
   });
 });

@@ -1,5 +1,5 @@
 import { LibraryItemKind } from '../library/library.models';
-import { isRecord } from './http-response';
+import { isRecord, requireArrayField, requireNonEmptyString } from './http-response';
 import {
   MediaStackAutomationPreviewItemDto,
   MediaStackAutomationProblemDto,
@@ -7,6 +7,12 @@ import {
   MediaStackAutomationSummaryDto,
 } from './wire/automation';
 import { MediaStackCalendarEventDto } from './wire/calendar';
+import {
+  MediaStackDiscoverFeedbackDto,
+  MediaStackDiscoverItemDto,
+  MediaStackDiscoverMediaTypeDto,
+  MediaStackExternalDiscoverItemDto,
+} from './wire/discover';
 import { MediaStackLibraryItemDto, MediaStackLibraryStatsDto } from './wire/library';
 import { MediaStackStorageVolumeDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
@@ -728,4 +734,252 @@ export function mapLiveStorageVolume(raw: unknown, index = 0): MediaStackStorage
     usedBytes: volume.usedBytes,
     totalBytes: volume.totalBytes,
   };
+}
+
+const DISCOVER_MEDIA_TYPES: ReadonlySet<string> = new Set(['movie', 'tv']);
+const DISCOVER_FEEDBACK: ReadonlySet<string> = new Set(['liked', 'disliked', 'watched', 'skipped']);
+
+/**
+ * Validate GET /discover/hermes success envelopes before domain mapping.
+ * Soft `{ ok: false }` envelopes skip this (handled by requireSoftEnvelope).
+ */
+export function requireHermesDiscoverPayload(data: Record<string, unknown>): void {
+  const items = requireArrayField(data, 'items', 'Malformed Hermes response');
+  items.forEach((item, index) => {
+    requireLiveHermesDiscoverItem(item, index);
+  });
+
+  const pending = data['pending_request_sync'];
+  if (pending !== undefined && pending !== null) {
+    if (!Array.isArray(pending)) {
+      throw new Error('Malformed Hermes response: pending_request_sync is not an array');
+    }
+    pending.forEach((entry, index) => {
+      if (!isRecord(entry)) {
+        throw new Error(`Malformed Hermes response: pending_request_sync member ${index} is not an object`);
+      }
+      requireNonEmptyString(
+        entry['id'],
+        `Malformed Hermes response: pending_request_sync member ${index} is missing id`,
+      );
+      const requestId = entry['jellyseerr_request_id'];
+      if (typeof requestId !== 'number' || !Number.isFinite(requestId)) {
+        throw new Error(
+          `Malformed Hermes response: pending_request_sync member ${index} is missing jellyseerr_request_id`,
+        );
+      }
+    });
+  }
+
+  const generation = data['generation_request'];
+  if (generation !== undefined && generation !== null) {
+    if (!isRecord(generation)) {
+      throw new Error('Malformed Hermes response: generation_request is not an object');
+    }
+    requireNonEmptyString(
+      generation['requested_at'],
+      'Malformed Hermes response: generation_request is missing requested_at',
+    );
+    if (generation['status'] !== 'pending') {
+      throw new Error('Malformed Hermes response: generation_request has invalid status');
+    }
+  }
+}
+
+/**
+ * Validate GET /discover/jellyseerr|trakt success envelopes before domain mapping.
+ */
+export function requireExternalDiscoverPayload(
+  data: Record<string, unknown>,
+  resource: 'Jellyseerr' | 'Trakt',
+): void {
+  const items = requireArrayField(data, 'items', `Malformed ${resource} response`);
+  items.forEach((item, index) => {
+    requireLiveExternalDiscoverItem(item, index, resource);
+  });
+}
+
+/**
+ * Reject Hermes members lacking required identity/browse fields.
+ * Call before mapHermesDiscover so missing values are never synthesized into plausible cards.
+ */
+export function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDiscoverItemDto {
+  if (!isRecord(raw)) {
+    throw new Error(`Malformed Hermes response: member ${index} is not an object`);
+  }
+
+  const id = requireNonEmptyString(raw['id'], `Malformed Hermes response: member ${index} is missing id`);
+  const source = requireNonEmptyString(
+    raw['source'],
+    `Malformed Hermes response: member ${index} is missing source`,
+  );
+  const type = requireDiscoverMediaType(raw['type'], index, 'Hermes');
+  const title = requireNonEmptyString(
+    raw['title'],
+    `Malformed Hermes response: member ${index} is missing title`,
+  );
+  const tmdbId = requireRequiredFiniteNumber(raw, 'tmdb_id', index, 'Hermes');
+  const active = raw['active'];
+  if (typeof active !== 'boolean') {
+    throw new Error(`Malformed Hermes response: member ${index} is missing active`);
+  }
+  const addedAt = requireNonEmptyString(
+    raw['added_at'],
+    `Malformed Hermes response: member ${index} is missing added_at`,
+  );
+
+  const year = optionalNullableFiniteNumber(raw, 'year', index, 'Hermes');
+  const reason = optionalNullableString(raw, 'reason', index, 'Hermes');
+  const feedback = requireDiscoverFeedback(raw['feedback'], index, 'Hermes');
+  const feedbackAt = optionalNullableString(raw, 'feedback_at', index, 'Hermes') ?? null;
+  const requestState = requireDiscoverRequestState(raw['request_state'], index, 'Hermes');
+  const requestedAt = optionalNullableString(raw, 'requested_at', index, 'Hermes') ?? null;
+  const jellyseerrRequestId = optionalNullableFiniteNumber(raw, 'jellyseerr_request_id', index, 'Hermes');
+  const inLibrary = optionalBoolean(raw, 'in_library', index, 'Hermes');
+  const jellyfinId = optionalNullableString(raw, 'jellyfin_id', index, 'Hermes');
+  const posterPath = optionalNullableString(raw, 'poster_path', index, 'Hermes');
+  const posterUrl = optionalNullableString(raw, 'poster_url', index, 'Hermes');
+  const notes = optionalNullableString(raw, 'notes', index, 'Hermes');
+  const rating = optionalNullableFiniteNumber(raw, 'rating', index, 'Hermes');
+
+  return {
+    id,
+    source,
+    type,
+    title,
+    year,
+    tmdb_id: tmdbId,
+    reason: reason ?? undefined,
+    active,
+    feedback,
+    feedback_at: feedbackAt,
+    request_state: requestState,
+    requested_at: requestedAt,
+    jellyseerr_request_id: jellyseerrRequestId ?? null,
+    in_library: inLibrary,
+    jellyfin_id: jellyfinId,
+    poster_path: posterPath,
+    poster_url: posterUrl,
+    added_at: addedAt,
+    notes: notes ?? undefined,
+    rating,
+  };
+}
+
+/**
+ * Reject external discover members lacking required type/title/tmdb identity.
+ */
+export function requireLiveExternalDiscoverItem(
+  raw: unknown,
+  index = 0,
+  resource: 'Jellyseerr' | 'Trakt' = 'Jellyseerr',
+): MediaStackExternalDiscoverItemDto {
+  if (!isRecord(raw)) {
+    throw new Error(`Malformed ${resource} response: member ${index} is not an object`);
+  }
+
+  const type = requireDiscoverMediaType(raw['type'], index, resource);
+  const title = requireNonEmptyString(
+    raw['title'],
+    `Malformed ${resource} response: member ${index} is missing title`,
+  );
+  const tmdbId = requireRequiredFiniteNumber(raw, 'tmdb_id', index, resource);
+
+  const id = optionalNullableString(raw, 'id', index, resource) ?? undefined;
+  const source = optionalNullableString(raw, 'source', index, resource) ?? undefined;
+  const year = optionalNullableFiniteNumber(raw, 'year', index, resource);
+  const overview = optionalNullableString(raw, 'overview', index, resource) ?? undefined;
+  const posterUrl = optionalNullableString(raw, 'poster_url', index, resource);
+  const rating = optionalNullableFiniteNumber(raw, 'rating', index, resource);
+
+  return {
+    id: id ?? undefined,
+    source: source ?? undefined,
+    type,
+    title,
+    year,
+    tmdb_id: tmdbId,
+    overview,
+    poster_url: posterUrl,
+    rating,
+  };
+}
+
+function requireDiscoverMediaType(
+  value: unknown,
+  index: number,
+  resource: string,
+): MediaStackDiscoverMediaTypeDto {
+  if (typeof value !== 'string' || !DISCOVER_MEDIA_TYPES.has(value)) {
+    throw new Error(`Malformed ${resource} response: member ${index} is missing type`);
+  }
+  return value as MediaStackDiscoverMediaTypeDto;
+}
+
+function requireDiscoverFeedback(
+  value: unknown,
+  index: number,
+  resource: string,
+): MediaStackDiscoverFeedbackDto | null {
+  if (value === undefined) return null;
+  if (value === null) return null;
+  if (typeof value !== 'string' || !DISCOVER_FEEDBACK.has(value)) {
+    throw new Error(`Malformed ${resource} response: member ${index} has invalid feedback`);
+  }
+  return value as MediaStackDiscoverFeedbackDto;
+}
+
+function requireDiscoverRequestState(
+  value: unknown,
+  index: number,
+  resource: string,
+): 'requested' | null {
+  if (value === undefined || value === null) return null;
+  if (value !== 'requested') {
+    throw new Error(`Malformed ${resource} response: member ${index} has invalid request_state`);
+  }
+  return 'requested';
+}
+
+function requireRequiredFiniteNumber(
+  raw: Record<string, unknown>,
+  field: string,
+  index: number,
+  resource: string,
+): number {
+  const value = raw[field];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Malformed ${resource} response: member ${index} is missing ${field}`);
+  }
+  return value;
+}
+
+function optionalNullableString(
+  raw: Record<string, unknown>,
+  field: string,
+  index: number,
+  resource: string,
+): string | null | undefined {
+  const value = raw[field];
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== 'string') {
+    throw new Error(`Malformed ${resource} response: member ${index} has invalid ${field}`);
+  }
+  return value;
+}
+
+function optionalNullableFiniteNumber(
+  raw: Record<string, unknown>,
+  field: string,
+  index: number,
+  resource: string,
+): number | null | undefined {
+  const value = raw[field];
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Malformed ${resource} response: member ${index} has invalid ${field}`);
+  }
+  return value;
 }

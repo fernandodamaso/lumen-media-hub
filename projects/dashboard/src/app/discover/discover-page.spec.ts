@@ -51,6 +51,43 @@ describe('DiscoverPage', () => {
     expect(facade.submitFeedback).toHaveBeenCalledWith('no-tmdb', 'liked');
     expect(facade.requestItem).not.toHaveBeenCalled();
   });
+
+  it('exposes source tabs as pressed buttons in a labelled group', () => {
+    facade.status.set('ready');
+    fixture.detectChanges();
+
+    const group = fixture.nativeElement.querySelector('.tabs') as HTMLElement;
+    expect(group.getAttribute('role')).toBe('group');
+    expect(group.getAttribute('aria-label')).toBe('Discover sources');
+    expect(fixture.nativeElement.querySelector('[role="radio"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[role="radiogroup"]')).toBeNull();
+
+    const sourceButtons = sourceTabButtons();
+    expect(sourceButtons.map((button) => button.textContent?.trim())).toEqual([
+      'Hermes',
+      'Jellyseerr',
+      'Trakt',
+    ]);
+    expect(sourceButtons[0].getAttribute('aria-pressed')).toBe('true');
+    expect(sourceButtons[1].getAttribute('aria-pressed')).toBe('false');
+
+    sourceButtons[1].focus();
+    expect(document.activeElement).toBe(sourceButtons[1]);
+    sourceButtons[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    sourceButtons[1].click();
+    fixture.detectChanges();
+    expect(facade.setTab).toHaveBeenCalledWith('jellyseerr');
+
+    facade.tab.set('jellyseerr');
+    fixture.detectChanges();
+    expect(sourceTabButtons()[1].getAttribute('aria-pressed')).toBe('true');
+    expect(sourceTabButtons()[0].getAttribute('aria-pressed')).toBe('false');
+
+    sourceButtons[2].focus();
+    sourceButtons[2].dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    sourceButtons[2].click();
+    expect(facade.setTab).toHaveBeenCalledWith('trakt');
+  });
 });
 
 function clickTab(label: string): void {
@@ -58,6 +95,10 @@ function clickTab(label: string): void {
     candidate.textContent?.includes(label),
   );
   button?.click();
+}
+
+function sourceTabButtons(): HTMLButtonElement[] {
+  return Array.from(document.querySelectorAll('.tabs button.tab')) as HTMLButtonElement[];
 }
 
 function card(overrides: Partial<DiscoverCardItem> = {}): DiscoverCardItem {

@@ -24,6 +24,8 @@ export type HermesView = 'active' | 'history';
 
 const HERMES_POLL_MS = 30_000;
 const EXTERNAL_POLL_MS = 60_000;
+const LOAD_ERROR = 'Discover is temporarily unavailable. Try again.';
+const REFRESH_NOTICE = 'Could not refresh. Showing last loaded results.';
 
 @Injectable()
 export class DiscoverFacade {
@@ -54,6 +56,12 @@ export class DiscoverFacade {
 
   /** True after a local request-more until the API has reported generation_request at least once. */
   private generationObserved = false;
+
+  private hermesRequestId = 0;
+  private jellyseerrRequestId = 0;
+  private traktRequestId = 0;
+  private scheduledInFlight = false;
+  private pollHandle?: ReturnType<typeof setInterval>;
 
   readonly tab = this._tab.asReadonly();
   readonly hermesView = this._hermesView.asReadonly();
@@ -95,8 +103,6 @@ export class DiscoverFacade {
     return (this._traktCache()[type] ?? []).map((item) => toExternalCardItem(item, 'trakt', requestedKeys));
   });
 
-  private pollHandle?: ReturnType<typeof setInterval>;
-
   constructor() {
     this.destroyRef.onDestroy(() => this.stopPolling());
   }
@@ -131,25 +137,6 @@ export class DiscoverFacade {
     if (this._traktType() === type) return;
     this._traktType.set(type);
     void this.refreshCurrentTab();
-  }
-
-  private async refreshCurrentTab(): Promise<void> {
-    const tab = this._tab();
-    if (tab === 'hermes') {
-      await this.loadHermes();
-      return;
-    }
-    if (tab === 'jellyseerr') {
-      await this.loadJellyseerr(this._jellyseerrKind());
-      return;
-    }
-    await this.loadTrakt(this._traktType());
-  }
-
-  private restartPolling(): void {
-    this.stopPolling();
-    const interval = this._tab() === 'hermes' ? HERMES_POLL_MS : EXTERNAL_POLL_MS;
-    this.pollHandle = setInterval(() => void this.refreshCurrentTab(), interval);
   }
 
   async submitFeedback(id: string, feedback: DiscoverFeedback): Promise<void> {
@@ -250,33 +237,159 @@ export class DiscoverFacade {
     );
   }
 
-  private stopPolling(): void {
+  private async refreshCurrentTab(): Promise<void> {
+    const tab = this._tab();
+    if (tab === 'hermes') {
+      await this.loadHermes();
+      return;
+    }
+    if (tab === 'jellyseerr') {
+      await this.loadJellyseerr(this._jellyseerrKind());
+      return;
+    }
+    await this.loadTrakt(this._traktType());
+  }
+
+  private restartPolling(): void {
+    this.stopPolling(false);
+    const interval = this._tab() === 'hermes' ? HERMES_POLL_MS : EXTERNAL_POLL_MS;
+    this.pollHandle = setInterval(() => void this.runScheduledRefresh(), interval);
+  }
+
+  private async runScheduledRefresh(): Promise<void> {
+    if (this.scheduledInFlight) return;
+    this.scheduledInFlight = true;
+    try {
+      await this.refreshCurrentTab();
+    } finally {
+      this.scheduledInFlight = false;
+    }
+  }
+
+  private stopPolling(invalidateInFlight = true): void {
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = undefined;
+    this.scheduledInFlight = false;
+    if (invalidateInFlight) {
+      this.hermesRequestId++;
+      this.jellyseerrRequestId++;
+      this.traktRequestId++;
+    }
   }
 
   private async loadHermes(): Promise<void> {
-    const hadData = this._hermesItems().length > 0;
-    if (!hadData) this._status.set('loading');
+    const requestId = ++this.hermesRequestId;
+    const isInitial = this._hermesItems().length === 0;
+    if (isInitial && this._tab() === 'hermes') {
+      this._status.set('loading');
+    }
     try {
       const response = await this.api.listHermesRecommendations();
+      if (requestId !== this.hermesRequestId) return;
       if (!response.ok) {
         if (this._tab() !== 'hermes') return;
-        this._status.set('error');
-        this._error.set(response.error ?? 'Discover is temporarily unavailable. Try again.');
+        this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
         return;
       }
       this.applyHermesPayload(response);
-      if (this._tab() !== 'hermes') return;
+      if (requestId !== this.hermesRequestId || this._tab() !== 'hermes') return;
       const visible = this.visibleItems();
       this._status.set(visible.length ? 'ready' : 'empty');
       this._error.set('');
+      if (this._notice() === REFRESH_NOTICE) this._notice.set('');
     } catch {
-      if (this._tab() !== 'hermes') return;
-      this._status.set('error');
-      this._error.set('Discover is temporarily unavailable. Try again.');
-      this._notice.set('');
+      if (requestId !== this.hermesRequestId || this._tab() !== 'hermes') return;
+      this.applyBrowseFailure(isInitial, LOAD_ERROR);
     }
+  }
+
+  private async loadJellyseerr(kind: JellyseerrDiscoverKind): Promise<void> {
+    const requestId = ++this.jellyseerrRequestId;
+    const cached = this._jellyseerrCache()[kind];
+    const isInitial = !cached;
+    if (cached) {
+      if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
+        this._status.set(cached.length ? 'ready' : 'empty');
+        this._error.set('');
+      }
+    } else if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
+      this._status.set('loading');
+    }
+    try {
+      const response = await this.api.listJellyseerrDiscover(kind);
+      if (requestId !== this.jellyseerrRequestId) return;
+      if (!response.ok) {
+        if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
+          this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR, Boolean(cached));
+        }
+        return;
+      }
+      this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: response.items }));
+      if (requestId !== this.jellyseerrRequestId) return;
+      if (this._tab() !== 'jellyseerr' || this._jellyseerrKind() !== kind) return;
+      this._status.set(response.items.length ? 'ready' : 'empty');
+      this._error.set('');
+      if (this._notice() === REFRESH_NOTICE) this._notice.set('');
+    } catch {
+      if (requestId !== this.jellyseerrRequestId) return;
+      if (this._tab() !== 'jellyseerr' || this._jellyseerrKind() !== kind) return;
+      this.applyBrowseFailure(isInitial, LOAD_ERROR, Boolean(cached));
+    }
+  }
+
+  private async loadTrakt(type: TraktDiscoverType): Promise<void> {
+    const requestId = ++this.traktRequestId;
+    const cached = this._traktCache()[type];
+    const isInitial = !cached;
+    if (cached) {
+      if (this._tab() === 'trakt' && this._traktType() === type) {
+        this._status.set(cached.length ? 'ready' : 'empty');
+        this._error.set('');
+      }
+    } else if (this._tab() === 'trakt' && this._traktType() === type) {
+      this._status.set('loading');
+    }
+    try {
+      const response = await this.api.listTraktDiscover(type);
+      if (requestId !== this.traktRequestId) return;
+      if (!response.ok) {
+        if (this._tab() === 'trakt' && this._traktType() === type) {
+          this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR, Boolean(cached));
+        }
+        return;
+      }
+      this._traktCache.update((cache) => ({ ...cache, [type]: response.items }));
+      if (requestId !== this.traktRequestId) return;
+      if (this._tab() !== 'trakt' || this._traktType() !== type) return;
+      this._status.set(response.items.length ? 'ready' : 'empty');
+      this._error.set('');
+      if (this._notice() === REFRESH_NOTICE) this._notice.set('');
+    } catch {
+      if (requestId !== this.traktRequestId) return;
+      if (this._tab() !== 'trakt' || this._traktType() !== type) return;
+      this.applyBrowseFailure(isInitial, LOAD_ERROR, Boolean(cached));
+    }
+  }
+
+  /**
+   * Background failures keep last-good browse state and surface a non-destructive notice.
+   * Initial failures (no last-good) flip to exclusive error.
+   */
+  private applyBrowseFailure(isInitial: boolean, message: string, hasCachedExternal = false): void {
+    const hasPrior =
+      !isInitial &&
+      (hasCachedExternal ||
+        this._hermesItems().length > 0 ||
+        this._status() === 'ready' ||
+        this._status() === 'empty');
+    if (hasPrior) {
+      this._noticeTone.set('warning');
+      this._notice.set(REFRESH_NOTICE);
+      return;
+    }
+    this._status.set('error');
+    this._error.set(message);
+    this._notice.set('');
   }
 
   private applyHermesPayload(response: HermesDiscover): void {
@@ -296,68 +409,6 @@ export class DiscoverFacade {
     if (!this._generationPending() || this.generationObserved) {
       this._generationPending.set(false);
       this.generationObserved = false;
-    }
-  }
-
-  private async loadJellyseerr(kind: JellyseerrDiscoverKind): Promise<void> {
-    const cached = this._jellyseerrCache()[kind];
-    if (cached) {
-      if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
-        this._status.set(cached.length ? 'ready' : 'empty');
-        this._error.set('');
-      }
-    } else {
-      this._status.set('loading');
-    }
-    try {
-      const response = await this.api.listJellyseerrDiscover(kind);
-      if (!response.ok) {
-        if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
-          this._status.set('error');
-          this._error.set(response.error ?? 'Discover is temporarily unavailable. Try again.');
-        }
-        return;
-      }
-      this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: response.items }));
-      if (this._tab() !== 'jellyseerr' || this._jellyseerrKind() !== kind) return;
-      this._status.set(response.items.length ? 'ready' : 'empty');
-      this._error.set('');
-    } catch {
-      if (this._tab() !== 'jellyseerr' || this._jellyseerrKind() !== kind) return;
-      this._status.set('error');
-      this._error.set('Discover is temporarily unavailable. Try again.');
-      this._notice.set('');
-    }
-  }
-
-  private async loadTrakt(type: TraktDiscoverType): Promise<void> {
-    const cached = this._traktCache()[type];
-    if (cached) {
-      if (this._tab() === 'trakt' && this._traktType() === type) {
-        this._status.set(cached.length ? 'ready' : 'empty');
-        this._error.set('');
-      }
-    } else {
-      this._status.set('loading');
-    }
-    try {
-      const response = await this.api.listTraktDiscover(type);
-      if (!response.ok) {
-        if (this._tab() === 'trakt' && this._traktType() === type) {
-          this._status.set('error');
-          this._error.set(response.error ?? 'Discover is temporarily unavailable. Try again.');
-        }
-        return;
-      }
-      this._traktCache.update((cache) => ({ ...cache, [type]: response.items }));
-      if (this._tab() !== 'trakt' || this._traktType() !== type) return;
-      this._status.set(response.items.length ? 'ready' : 'empty');
-      this._error.set('');
-    } catch {
-      if (this._tab() !== 'trakt' || this._traktType() !== type) return;
-      this._status.set('error');
-      this._error.set('Discover is temporarily unavailable. Try again.');
-      this._notice.set('');
     }
   }
 

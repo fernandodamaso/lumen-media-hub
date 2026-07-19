@@ -1,4 +1,4 @@
-import { ApplicationConfig, provideBrowserGlobalErrorListeners, provideZoneChangeDetection } from '@angular/core';
+import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { provideRouter, withEnabledBlockingInitialNavigation } from '@angular/router';
 
@@ -8,7 +8,6 @@ import { provideMediaStackApi, provideOperationalLinkBases } from './media-stack
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes, withEnabledBlockingInitialNavigation()),
     provideHttpClient(),
     ...provideMediaStackApi(),

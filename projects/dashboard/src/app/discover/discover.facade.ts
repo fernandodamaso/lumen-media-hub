@@ -26,6 +26,7 @@ const HERMES_POLL_MS = 30_000;
 const EXTERNAL_POLL_MS = 60_000;
 const LOAD_ERROR = 'Discover is temporarily unavailable. Try again.';
 const REFRESH_NOTICE = 'Could not refresh. Showing last loaded results.';
+const STALE_HINT = ' Results may be stale.';
 
 @Injectable()
 export class DiscoverFacade {
@@ -60,6 +61,10 @@ export class DiscoverFacade {
   private hermesRequestId = 0;
   private jellyseerrRequestId = 0;
   private traktRequestId = 0;
+  /** Highest generation whose success payload was committed (Hermes). */
+  private hermesAppliedId = 0;
+  private jellyseerrAppliedId = 0;
+  private traktAppliedId = 0;
   /** True after at least one successful Hermes payload (including empty). */
   private hermesLoaded = false;
   private scheduledInFlight = false;
@@ -296,15 +301,21 @@ export class DiscoverFacade {
     }
     try {
       const response = await this.api.listHermesRecommendations();
-      if (requestId !== this.hermesRequestId) return;
       if (!response.ok) {
-        if (this._tab() !== 'hermes') return;
+        // Failures only apply when still current — a stale failure must not clobber newer work.
+        if (requestId !== this.hermesRequestId || this._tab() !== 'hermes') return;
         this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
         return;
       }
+      // Valid success may still commit when superseded, as long as it is not older than an
+      // already-applied generation (so a late good payload can recover an exclusive error).
+      if (requestId < this.hermesAppliedId) return;
       this.applyHermesPayload(response);
+      this.hermesAppliedId = requestId;
       this.hermesLoaded = true;
-      if (requestId !== this.hermesRequestId || this._tab() !== 'hermes') return;
+      if (this._tab() !== 'hermes') return;
+      const isCurrent = requestId === this.hermesRequestId;
+      if (!isCurrent && this._status() !== 'error') return;
       const visible = this.visibleItems();
       this._status.set(visible.length ? 'ready' : 'empty');
       this._error.set('');
@@ -329,16 +340,19 @@ export class DiscoverFacade {
     }
     try {
       const response = await this.api.listJellyseerrDiscover(kind);
-      if (requestId !== this.jellyseerrRequestId) return;
       if (!response.ok) {
+        if (requestId !== this.jellyseerrRequestId) return;
         if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
           this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
         }
         return;
       }
+      if (requestId < this.jellyseerrAppliedId) return;
       this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: response.items }));
-      if (requestId !== this.jellyseerrRequestId) return;
+      this.jellyseerrAppliedId = requestId;
       if (this._tab() !== 'jellyseerr' || this._jellyseerrKind() !== kind) return;
+      const isCurrent = requestId === this.jellyseerrRequestId;
+      if (!isCurrent && this._status() !== 'error') return;
       this._status.set(response.items.length ? 'ready' : 'empty');
       this._error.set('');
       if (this._notice() === REFRESH_NOTICE) this._notice.set('');
@@ -363,16 +377,19 @@ export class DiscoverFacade {
     }
     try {
       const response = await this.api.listTraktDiscover(type);
-      if (requestId !== this.traktRequestId) return;
       if (!response.ok) {
+        if (requestId !== this.traktRequestId) return;
         if (this._tab() === 'trakt' && this._traktType() === type) {
           this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
         }
         return;
       }
+      if (requestId < this.traktAppliedId) return;
       this._traktCache.update((cache) => ({ ...cache, [type]: response.items }));
-      if (requestId !== this.traktRequestId) return;
+      this.traktAppliedId = requestId;
       if (this._tab() !== 'trakt' || this._traktType() !== type) return;
+      const isCurrent = requestId === this.traktRequestId;
+      if (!isCurrent && this._status() !== 'error') return;
       this._status.set(response.items.length ? 'ready' : 'empty');
       this._error.set('');
       if (this._notice() === REFRESH_NOTICE) this._notice.set('');
@@ -386,13 +403,16 @@ export class DiscoverFacade {
   /**
    * Background failures keep last-good browse state and surface a non-destructive notice.
    * Initial failures (no last-good) flip to exclusive error.
-   * Existing mutation notices are preserved so a follow-up refresh failure does not erase them.
+   * Mutation notices stay visible; a refresh failure appends a stale hint rather than replacing them.
    */
   private applyBrowseFailure(isInitial: boolean, message: string): void {
     if (!isInitial) {
-      if (!this._notice() || this._notice() === REFRESH_NOTICE) {
+      const notice = this._notice();
+      if (!notice || notice === REFRESH_NOTICE) {
         this._noticeTone.set('warning');
         this._notice.set(REFRESH_NOTICE);
+      } else if (!notice.includes(STALE_HINT)) {
+        this._notice.set(`${notice}${STALE_HINT}`);
       }
       return;
     }

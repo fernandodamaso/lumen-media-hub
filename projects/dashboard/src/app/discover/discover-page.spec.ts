@@ -68,12 +68,16 @@ describe('DiscoverPage', () => {
       'Jellyseerr',
       'Trakt',
     ]);
+    expect(sourceButtons.every((button) => button.type === 'button')).toBe(true);
     expect(sourceButtons[0].getAttribute('aria-pressed')).toBe('true');
     expect(sourceButtons[1].getAttribute('aria-pressed')).toBe('false');
 
+    // Document order is focus/tab order for these native buttons.
+    expect(sourceButtons[0].compareDocumentPosition(sourceButtons[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(sourceButtons[1].compareDocumentPosition(sourceButtons[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
     sourceButtons[1].focus();
     expect(document.activeElement).toBe(sourceButtons[1]);
-    sourceButtons[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     sourceButtons[1].click();
     fixture.detectChanges();
     expect(facade.setTab).toHaveBeenCalledWith('jellyseerr');
@@ -84,7 +88,7 @@ describe('DiscoverPage', () => {
     expect(sourceTabButtons()[0].getAttribute('aria-pressed')).toBe('false');
 
     sourceButtons[2].focus();
-    sourceButtons[2].dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    expect(document.activeElement).toBe(sourceButtons[2]);
     sourceButtons[2].click();
     expect(facade.setTab).toHaveBeenCalledWith('trakt');
   });

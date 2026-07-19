@@ -354,6 +354,44 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
     expect(facade.noticeTone()).toBe('success');
     expect(facade.notice()).toContain('Requested');
+    expect(facade.notice()).toContain('may be stale');
+  });
+
+  it('applies a superseded successful Hermes payload when recovering an exclusive error', async () => {
+    const { promise: firstGate, resolve: releaseFirst } = Promise.withResolvers<HermesDiscover>();
+    api.hermesGate = firstGate;
+    const first = facade.setTab('hermes');
+    await Promise.resolve();
+
+    api.hermes = { ok: false, items: [], error: 'Hermes offline' };
+    await facade.setTab('hermes');
+    expect(facade.status()).toBe('error');
+
+    releaseFirst({
+      ok: true,
+      items: [
+        {
+          id: 'hermes-eligible',
+          source: 'hermes',
+          type: 'movie',
+          title: 'Recovered Title',
+          year: 2024,
+          tmdb_id: 101001,
+          active: true,
+          feedback: null,
+          feedback_at: null,
+          request_state: null,
+          requested_at: null,
+          jellyseerr_request_id: null,
+          in_library: false,
+          added_at: '2026-07-10T12:00:00Z',
+        },
+      ],
+    });
+    await first;
+    expect(facade.status()).toBe('ready');
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Recovered Title']);
+    expect(facade.error()).toBe('');
   });
 
   it('keeps browse status ready while a request mutation is busy', async () => {

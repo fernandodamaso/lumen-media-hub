@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { LucideCheck, LucideChevronDown } from '@lucide/angular';
 import { MEDIA_UI_THEMES, ThemeService, MediaUiTheme } from './theme.service';
 
@@ -11,6 +11,7 @@ import { MEDIA_UI_THEMES, ThemeService, MediaUiTheme } from './theme.service';
 })
 export class MmThemePicker {
   readonly themeService = inject(ThemeService);
+  private readonly destroyRef = inject(DestroyRef);
   readonly themes = MEDIA_UI_THEMES;
   readonly labels: Record<MediaUiTheme, string> = {
     nocturne: 'Nocturne',
@@ -20,6 +21,10 @@ export class MmThemePicker {
   readonly justSaved = signal(false);
   private savedTimeout?: ReturnType<typeof setTimeout>;
 
+  constructor() {
+    this.destroyRef.onDestroy(() => this.clearSavedTimeout());
+  }
+
   select(event: Event): void {
     const value = (event.target as HTMLSelectElement).value as MediaUiTheme;
     this.themeService.setTheme(value);
@@ -27,8 +32,15 @@ export class MmThemePicker {
   }
 
   private flashSaved(): void {
-    if (this.savedTimeout) clearTimeout(this.savedTimeout);
+    this.clearSavedTimeout();
     this.justSaved.set(true);
     this.savedTimeout = setTimeout(() => this.justSaved.set(false), 1500);
+  }
+
+  private clearSavedTimeout(): void {
+    if (this.savedTimeout) {
+      clearTimeout(this.savedTimeout);
+      this.savedTimeout = undefined;
+    }
   }
 }

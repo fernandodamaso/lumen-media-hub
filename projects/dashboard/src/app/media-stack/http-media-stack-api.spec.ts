@@ -625,6 +625,16 @@ describe('HttpMediaStackApi', () => {
     });
   });
 
+  it('rejects unfiltered library list when abort cancels one jellyfin kind mid-flight', async () => {
+    const abort = new AbortController();
+    const pending = api.listLibraryItems(undefined, abort.signal);
+    const movieReq = http.expectOne('/api/jellyfin/movies');
+    http.expectOne('/api/jellyfin/series');
+    movieReq.flush({ ok: true, items: [{ id: 'm1', name: 'Movie' }] });
+    abort.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
   it('rejects library list only when both jellyfin kinds fail', async () => {
     const pending = api.listLibraryItems();
     http.expectOne('/api/jellyfin/movies').flush({ ok: false, error: 'movies down' });

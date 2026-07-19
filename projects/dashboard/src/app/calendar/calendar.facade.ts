@@ -7,6 +7,7 @@ import {
   resolveCalendarLink,
 } from './calendar.models';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
+import { isAbortError } from '../media-stack/http-response';
 
 export type CalendarStatus = 'loading' | 'ready' | 'empty' | 'error';
 
@@ -147,13 +148,4 @@ export class CalendarFacade {
     this.scheduledInFlight = false;
     this._refreshing.set(false);
   }
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    (typeof DOMException !== 'undefined' &&
-      error instanceof DOMException &&
-      error.name === 'AbortError') ||
-    (error instanceof Error && error.name === 'AbortError')
-  );
 }

@@ -51,6 +51,7 @@ import {
 } from './live-api.mappers';
 import {
   OkEnvelope,
+  isAbortError,
   isRecord,
   requireArrayField,
   requireHardEnvelope,
@@ -131,6 +132,21 @@ export class HttpMediaStackApi implements MediaStackApi {
       this.fetchJellyfinKind('movies', signal),
       this.fetchJellyfinKind('series', signal),
     ]);
+
+    // Cancellation must not look like one-source partial availability.
+    if (signal?.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    }
+    const abortedResult = [moviesResult, seriesResult].find(
+      (result): result is PromiseRejectedResult =>
+        result.status === 'rejected' && isAbortError(result.reason),
+    );
+    if (abortedResult) {
+      throw abortedResult.reason instanceof Error
+        ? abortedResult.reason
+        : new DOMException('The operation was aborted.', 'AbortError');
+    }
+
     const movies = moviesResult.status === 'fulfilled' ? moviesResult.value : [];
     const series = seriesResult.status === 'fulfilled' ? seriesResult.value : [];
 

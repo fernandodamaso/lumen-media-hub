@@ -51,3 +51,13 @@ export function requireArrayField(
   }
   return value;
 }
+
+/** True for DOMException/Error AbortError — used so cancellation is not mistaken for soft failure. */
+export function isAbortError(error: unknown): boolean {
+  return (
+    (typeof DOMException !== 'undefined' &&
+      error instanceof DOMException &&
+      error.name === 'AbortError') ||
+    (error instanceof Error && error.name === 'AbortError')
+  );
+}

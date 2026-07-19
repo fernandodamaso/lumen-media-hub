@@ -4,6 +4,7 @@ import { MmStatus } from './index';
 type StatusArgs = {
   tone: 'success' | 'warning' | 'danger' | 'info' | 'premiere';
   label: string;
+  announce: boolean;
 };
 
 const meta: Meta<StatusArgs> = {
@@ -16,21 +17,31 @@ const meta: Meta<StatusArgs> = {
       options: ['success', 'warning', 'danger', 'info', 'premiere'],
     },
     label: { control: 'text' },
+    announce: { control: 'boolean' },
   },
   args: {
     tone: 'info',
     label: 'Processing',
+    announce: false,
   },
   render: (args) => ({
     props: args,
-    template: `<mm-status [tone]="tone">{{ label }}</mm-status>`,
+    template: `<mm-status [tone]="tone" [announce]="announce">{{ label }}</mm-status>`,
   }),
 };
 
 export default meta;
 type Story = StoryObj<StatusArgs>;
 
-export const Default: Story = {};
+export const Default: Story = {
+  play: async ({ canvasElement }) => {
+    const status = canvasElement.querySelector('.mm-status');
+    if (!status) throw new Error('Status was not rendered');
+    if (status.getAttribute('role') === 'status') {
+      throw new Error('Default status must not create a live region');
+    }
+  },
+};
 
 export const Success: Story = {
   args: { tone: 'success', label: 'Ready' },
@@ -42,6 +53,17 @@ export const Warning: Story = {
 
 export const Danger: Story = {
   args: { tone: 'danger', label: 'Failed' },
+};
+
+export const Announcing: Story = {
+  args: { tone: 'warning', label: 'Queue updated', announce: true },
+  play: async ({ canvasElement }) => {
+    const live = canvasElement.querySelectorAll('[role="status"]');
+    if (live.length !== 1) throw new Error(`Expected one live region, found ${live.length}`);
+    if (!live[0]?.classList.contains('mm-status')) {
+      throw new Error('Opt-in announce must use the status chip as the live region');
+    }
+  },
 };
 
 export const Tones: Story = {
@@ -56,8 +78,11 @@ export const Tones: Story = {
     </div>`,
   }),
   play: async ({ canvasElement }) => {
-    const statuses = canvasElement.querySelectorAll('[role="status"]');
+    const statuses = canvasElement.querySelectorAll('.mm-status');
     if (statuses.length !== 5) throw new Error(`Expected 5 status chips, found ${statuses.length}`);
+    if (canvasElement.querySelectorAll('[role="status"]').length !== 0) {
+      throw new Error('Neutral status gallery must not create live regions');
+    }
     for (const tone of ['success', 'warning', 'danger', 'info', 'premiere']) {
       if (!canvasElement.querySelector(`.mm-status--${tone}`)) {
         throw new Error(`Missing status tone: ${tone}`);

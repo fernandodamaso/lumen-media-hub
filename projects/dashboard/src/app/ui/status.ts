@@ -10,7 +10,7 @@ import {
   selector: 'mm-status',
   imports: [LucideCircleCheck, LucideInfo, LucideAlertCircle, LucideTriangleAlert],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<span role="status" [class]="'mm-status mm-status--' + tone()">
+  template: `<span [attr.role]="announce() ? 'status' : null" [class]="'mm-status mm-status--' + tone()">
     @if (tone() === 'success') {
       <svg lucideCircleCheck [size]="15" aria-hidden="true"></svg>
     } @else if (tone() === 'danger') {
@@ -42,4 +42,6 @@ import {
 })
 export class MmStatus {
   readonly tone = input<'success' | 'warning' | 'danger' | 'info' | 'premiere'>('info');
+  /** When true, exposes a live region for genuinely dynamic status changes. */
+  readonly announce = input(false);
 }

@@ -188,6 +188,37 @@ describe('ServiceHealthFacade', () => {
     TestBed.resetTestingModule();
     vi.useRealTimers();
   });
+
+  it('does not let a timed-out poll stamp failure over a newer successful refresh', async () => {
+    vi.useFakeTimers();
+    const { promise: deferred } = Promise.withResolvers<AutomationSummary>();
+    api.nextResponse = deferred;
+
+    facade.startPolling(SCHEDULED_REFRESH_TIMEOUT_MS + 1_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.summaryCalls).toBe(1);
+    const hungSignal = api.lastSignal;
+
+    api.nextResponse = undefined;
+    api.summary = {
+      ...healthySummary,
+      generatedAt: '2026-07-12T21:00:00Z',
+      services: [{ id: 'radarr', name: 'Radarr', status: 'healthy', detail: 'OK', latencyMs: 10 }],
+    };
+    await facade.refresh();
+    expect(facade.status()).toBe('ready');
+    expect(facade.services()[0]?.id).toBe('radarr');
+    expect(facade.error()).toBe('');
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
+    expect(hungSignal?.aborted).toBe(true);
+    expect(facade.status()).toBe('ready');
+    expect(facade.services()[0]?.id).toBe('radarr');
+    expect(facade.error()).toBe('');
+
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
+  });
 });
 
 class MockApi implements MediaStackApi {

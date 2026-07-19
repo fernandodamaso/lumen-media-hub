@@ -45,22 +45,24 @@ export class ServiceHealthFacade {
     this.pollHandle = setInterval(() => void this.runScheduledRefresh(false), intervalMs);
   }
 
-  async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<void> {
+  async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<boolean> {
     const initial =
       options.initial === true || this._status() === 'loading' || this._status() === 'error';
     this._refreshing.set(true);
     const requestId = ++this.requestId;
     try {
       const summary = await this.api.getAutomationSummary(options.signal);
-      if (requestId !== this.requestId) return;
+      if (requestId !== this.requestId) return false;
       this._summary.set(summary);
       this._error.set('');
       this._status.set(summary.services.length ? 'ready' : 'empty');
+      return true;
     } catch {
-      if (requestId !== this.requestId) return;
+      if (requestId !== this.requestId) return false;
       // Cancelled refreshes must not mutate facade state; callers apply timeout/teardown policy.
-      if (options.signal?.aborted) return;
+      if (options.signal?.aborted) return true;
       this.applyRefreshFailure(initial);
+      return true;
     } finally {
       if (requestId === this.requestId) this._refreshing.set(false);
     }
@@ -73,9 +75,9 @@ export class ServiceHealthFacade {
     this.refreshAbort = abort;
     this.refreshTimeoutId = setTimeout(() => abort.abort(), SCHEDULED_REFRESH_TIMEOUT_MS);
     try {
-      await this.refresh({ initial, signal: abort.signal });
-      // Timeout abort while polling is still armed: surface retained/hard failure and free the slot.
-      if (abort.signal.aborted && this.pollHandle !== undefined) {
+      const wasCurrent = await this.refresh({ initial, signal: abort.signal });
+      // Only stamp timeout failure when this aborted request is still the latest generation.
+      if (abort.signal.aborted && wasCurrent && this.pollHandle !== undefined) {
         this.applyRefreshFailure(initial);
         this._refreshing.set(false);
       }

@@ -48,16 +48,17 @@ export class AutomationFacade {
     this.pollHandle = setInterval(() => void this.runScheduledRefresh(false), intervalMs);
   }
 
-  async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<void> {
+  async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<boolean> {
     const initial =
       options.initial === true || this._status() === 'loading' || this._status() === 'error';
     this._refreshing.set(true);
     const requestId = ++this.requestId;
     try {
       const logs = await this.api.listCronLogs(options.signal);
-      if (requestId !== this.requestId) return;
+      if (requestId !== this.requestId) return false;
       if (!logs.ok) {
-        throw new Error(logs.error?.trim() || 'Cron logs unavailable');
+        this.applyRefreshFailure(initial, logs.error?.trim());
+        return true;
       }
       const latest = new Map<string, CronRun>();
       for (const run of logs.runs) {
@@ -67,11 +68,13 @@ export class AutomationFacade {
       this._tasks.set([...latest.values()].sort((left, right) => left.jobTitle.localeCompare(right.jobTitle)));
       this._error.set('');
       this._status.set(this._tasks().length ? 'ready' : 'empty');
+      return true;
     } catch {
-      if (requestId !== this.requestId) return;
+      if (requestId !== this.requestId) return false;
       // Cancelled refreshes must not mutate facade state; callers apply timeout/teardown policy.
-      if (options.signal?.aborted) return;
+      if (options.signal?.aborted) return true;
       this.applyRefreshFailure(initial);
+      return true;
     } finally {
       if (requestId === this.requestId) this._refreshing.set(false);
     }
@@ -84,9 +87,9 @@ export class AutomationFacade {
     this.refreshAbort = abort;
     this.refreshTimeoutId = setTimeout(() => abort.abort(), SCHEDULED_REFRESH_TIMEOUT_MS);
     try {
-      await this.refresh({ initial, signal: abort.signal });
-      // Timeout abort while polling is still armed: surface retained/hard failure and free the slot.
-      if (abort.signal.aborted && this.pollHandle !== undefined) {
+      const wasCurrent = await this.refresh({ initial, signal: abort.signal });
+      // Only stamp timeout failure when this aborted request is still the latest generation.
+      if (abort.signal.aborted && wasCurrent && this.pollHandle !== undefined) {
         this.applyRefreshFailure(initial);
         this._refreshing.set(false);
       }
@@ -102,14 +105,14 @@ export class AutomationFacade {
     }
   }
 
-  private applyRefreshFailure(initial: boolean): void {
+  private applyRefreshFailure(initial: boolean, backendMessage?: string): void {
     const hasPrior = this._status() === 'ready' || this._status() === 'empty';
     if (!initial && hasPrior) {
       this._error.set(REFRESH_ERROR);
       return;
     }
     this._status.set('error');
-    this._error.set(LOAD_ERROR);
+    this._error.set(backendMessage || LOAD_ERROR);
     if (initial) {
       this._tasks.set([]);
     }

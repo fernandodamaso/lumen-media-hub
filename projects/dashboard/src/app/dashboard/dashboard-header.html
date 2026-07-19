@@ -3,9 +3,9 @@
     <h1>Dashboard</h1>
     <div class="page-meta">
       <p class="subtitle">Your media stack at a glance</p>
-      <span class="sync-status" aria-live="polite">
-        <span class="sync-status__dot" aria-hidden="true"></span>
+      <span class="sync-status" aria-live="polite" [class.sync-status--unavailable]="!syncedAt()">
         @if (syncedAt()) {
+          <span class="sync-status__dot" aria-hidden="true"></span>
           <span>Synced {{ syncedAt() }}</span>
         } @else {
           <span>Sync time unavailable</span>

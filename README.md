@@ -42,7 +42,7 @@ Live mode is **local-only**. Do not point a static host at the live configuratio
 | `npm run start:live` | Live serve with API proxy |
 | `npm run lint` | ESLint |
 | `npm test -- --watch=false` | Vitest unit / facade / page specs |
-| `npm run test:smoke` | Playwright direct-route and assembled-app smoke checks |
+| `npm run test:smoke` | Playwright direct-route and assembled-app smoke checks (auto-starts dev server) |
 | `npm run build` | Canonical production dashboard build |
 | `npm run storybook` | Interactive Storybook (includes a11y addon / play functions) |
 | `npm run build:storybook` | Compile Storybook static output |

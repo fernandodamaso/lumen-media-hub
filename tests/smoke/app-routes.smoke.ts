@@ -9,7 +9,7 @@ const routes = [
 
 for (const route of routes) {
   test(`direct navigation to ${route.path} renders expected page`, async ({ page }) => {
-    await page.goto(route.path, { waitUntil: 'networkidle' });
+    await page.goto(route.path);
     const main = page.locator('main').first();
     await expect(main).toBeVisible();
     await expect(main).toContainText(route.heading);
@@ -18,7 +18,7 @@ for (const route of routes) {
 }
 
 test('unknown route falls back to dashboard', async ({ page }) => {
-  await page.goto('/nonexistent-route-xyz', { waitUntil: 'networkidle' });
+  await page.goto('/nonexistent-route-xyz');
   const main = page.locator('main').first();
   await expect(main).toBeVisible();
   await expect(main).toContainText('Dashboard');
@@ -38,7 +38,7 @@ test('theme selection persists across direct navigation', async ({ page }) => {
 });
 
 test('sidebar navigation links are present', async ({ page }) => {
-  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.goto('/');
   const workspaceNav = page.locator('.sidebar__nav');
   await expect(workspaceNav).toBeVisible();
   await expect(workspaceNav.locator('a')).toHaveCount(3);

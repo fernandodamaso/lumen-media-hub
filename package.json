@@ -6,6 +6,7 @@
     "start": "ng serve",
     "start:live": "ng serve --configuration=live",
     "build": "ng build dashboard --configuration production",
+    "build:live": "ng build dashboard --configuration production-live",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "lint": "eslint .",

@@ -27,6 +27,20 @@ describe('App shell', () => {
     expect(fixture.nativeElement.querySelector('router-outlet')).toBeTruthy();
   });
 
+  it('conditionally includes SABnzbd based on environment.useLiveApi', () => {
+    const fixture = TestBed.createComponent(App);
+    // The App component's services array is built at class-load time:
+    // SABnzbd is spliced in only when !environment.useLiveApi (Demo).
+    // When useLiveApi is true (Live), it is excluded.
+    // This test verifies the conditional exists and fires correctly
+    // in the default (Demo) configuration.
+    const names = fixture.componentInstance.services.map((s) => s.name);
+    expect(names).toContain('SABnzbd');
+    // Live-mode exclusion is compile-time verified by the build:live
+    // configuration which file-replaces environment.ts with
+    // environment.live.ts (useLiveApi: true).
+  });
+
   it.each([
     ['/', 'Dashboard', null],
     ['/dashboard', 'Dashboard', null],

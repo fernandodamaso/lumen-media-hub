@@ -1,4 +1,4 @@
-/** Raw storage-overview payload from GET /storage/overview stays behind this boundary. */
+/** Raw storage model from GET /system/resources stays behind this boundary. */
 export interface MediaStackStorageVolumeDto {
   id: string;
   label: string;

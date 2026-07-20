@@ -7,7 +7,6 @@ export const environment = {
   sonarrBase: 'http://localhost:8989',
   radarrBase: 'http://localhost:7878',
   prowlarrBase: 'http://localhost:9696',
-  sabnzbdBase: 'http://localhost:8080',
-  qbittorrentBase: 'http://localhost:9090',
+  qbittorrentBase: 'http://127.0.0.1:8081',
   bazarrBase: 'http://localhost:6767',
 };

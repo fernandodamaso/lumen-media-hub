@@ -6,7 +6,7 @@ import { HttpMediaStackApi } from './http-media-stack-api';
 import {
   mapLiveAutomationSummary,
   mapLiveJellyfinItem,
-  mapLiveStorageVolume,
+  mapLiveSystemResourcesDisk,
   mapLiveTorrent,
 } from './live-api.mappers';
 
@@ -146,30 +146,56 @@ describe('live-api.mappers', () => {
     expect(dto.services?.find((s) => s.id === 'radarr')?.latencyMs).toBeNull();
   });
 
-  it('maps live storage volumes without synthesizing identity', () => {
+  it('maps live storage volume from system resources disk', () => {
     expect(
-      mapLiveStorageVolume({ id: 'vol-1', label: 'Media', kind: 'library', usedBytes: 10, totalBytes: 20 }),
-    ).toEqual({ id: 'vol-1', label: 'Media', kind: 'library', usedBytes: 10, totalBytes: 20 });
-    expect(mapLiveStorageVolume({ id: 'scratch', name: 'Scratch', used: 5, total: 50 })).toEqual({
-      id: 'scratch',
-      label: 'Scratch',
-      kind: undefined,
+      mapLiveSystemResourcesDisk({ path: '/data', total: 100, used: 30, free: 70, percent: 30 }),
+    ).toEqual({ id: 'media-volume', label: 'Media volume (/data)', kind: 'library', usedBytes: 30, totalBytes: 100 });
+    expect(mapLiveSystemResourcesDisk({ path: '/data', used: 5, total: 50, free: 45, percent: 10 })).toEqual({
+      id: 'media-volume',
+      label: 'Media volume (/data)',
+      kind: 'library',
       usedBytes: 5,
       totalBytes: 50,
     });
-    expect(mapLiveStorageVolume({ id: 'empty', label: 'Empty', usedBytes: 0, totalBytes: 0 })).toEqual({
-      id: 'empty',
-      label: 'Empty',
-      kind: undefined,
+    expect(mapLiveSystemResourcesDisk({ path: '/data', used: 0, total: 0, free: 0, percent: 0 })).toEqual({
+      id: 'media-volume',
+      label: 'Media volume (/data)',
+      kind: 'library',
       usedBytes: 0,
       totalBytes: 0,
     });
   });
 
-  it('rejects storage volumes that lack required identity or capacity', () => {
-    expect(() => mapLiveStorageVolume({ name: 'Scratch', used: 5, total: 50 })).toThrow(/missing id/);
-    expect(() => mapLiveStorageVolume({ id: 'x', usedBytes: 1, totalBytes: 2 })).toThrow(/missing label/);
-    expect(() => mapLiveStorageVolume({ id: 'x', label: 'X', totalBytes: 2 })).toThrow(/missing usedBytes/);
+  it('rejects system resources disk that lack required fields', () => {
+    expect(() => mapLiveSystemResourcesDisk({ total: 20, used: 10, free: 10, percent: 50 })).toThrow(/missing disk.path/);
+    expect(() => mapLiveSystemResourcesDisk({ path: '/data', total: 20, free: 10, percent: 50 })).toThrow(/missing disk.used/);
+    expect(() => mapLiveSystemResourcesDisk({ path: '/data', used: 10, free: 10, percent: 50 })).toThrow(/missing disk.total/);
+    expect(() => mapLiveSystemResourcesDisk({ path: '/data', used: 10, total: 20, percent: 50 })).toThrow(/missing disk.free/);
+    expect(() => mapLiveSystemResourcesDisk({ path: '/data', used: 10, total: 20, free: 10 })).toThrow(/missing disk.percent/);
+  });
+
+  it('rejects system resources disk with used exceeding total', () => {
+    expect(() =>
+      mapLiveSystemResourcesDisk({ path: '/data', total: 100, used: 150, free: 10, percent: 50 }),
+    ).toThrow(/used exceeds/);
+  });
+
+  it('rejects system resources disk with free exceeding total', () => {
+    expect(() =>
+      mapLiveSystemResourcesDisk({ path: '/data', total: 100, used: 10, free: 500, percent: 50 }),
+    ).toThrow(/free exceeds/);
+  });
+
+  it('rejects system resources disk with percent out of range', () => {
+    expect(() =>
+      mapLiveSystemResourcesDisk({ path: '/data', total: 100, used: 50, free: 50, percent: 500 }),
+    ).toThrow(/percent out of range/);
+  });
+
+  it('rejects system resources disk with negative capacities', () => {
+    expect(() =>
+      mapLiveSystemResourcesDisk({ path: '/data', total: 100, used: -1, free: 101, percent: -1 }),
+    ).toThrow(/negative disk capacity/);
   });
 
   it('rejects jellyfin items that lack required identity', () => {
@@ -427,65 +453,88 @@ describe('HttpMediaStackApi', () => {
     await expect(failed).rejects.toThrow('qbt locked');
   });
 
-  it('GETs storage overview and maps volumes', async () => {
+  it('GETs system resources and maps disk to storage volume', async () => {
     const pending = api.getStorageOverview();
-    http.expectOne('/api/storage/overview').flush({
+    http.expectOne('/api/system/resources').flush({
       ok: true,
       generatedAt: '2026-07-13T12:00:00Z',
-      volumes: [
-        { id: 'media', label: 'Media library', kind: 'library', usedBytes: 10, totalBytes: 20 },
-        { id: 'scratch', name: 'Scratch', used: 5, total: 50 },
-      ],
+      disk: { path: '/data', total: 100, used: 30, free: 70, percent: 30 },
     });
     await expect(pending).resolves.toEqual({
       generatedAt: '2026-07-13T12:00:00Z',
       volumes: [
-        { id: 'media', label: 'Media library', kind: 'library', usedBytes: 10, totalBytes: 20 },
-        { id: 'scratch', label: 'Scratch', kind: 'cache', usedBytes: 5, totalBytes: 50 },
+        { id: 'media-volume', label: 'Media volume (/data)', kind: 'library', usedBytes: 30, totalBytes: 100 },
       ],
     });
   });
 
-  it('rejects malformed storage volumes and envelopes', async () => {
-    const pending = api.getStorageOverview();
-    http.expectOne('/api/storage/overview').flush({ ok: true, volumes: 'nope' });
-    await expect(pending).rejects.toThrow(/Malformed storage overview/);
+  it('rejects malformed system resources responses', async () => {
+    const missingDisk = api.getStorageOverview();
+    http.expectOne('/api/system/resources').flush({ ok: true, generatedAt: '2026-07-13T12:00:00Z' });
+    await expect(missingDisk).rejects.toThrow(/missing disk/);
 
-    const missingId = api.getStorageOverview();
-    http.expectOne('/api/storage/overview').flush({
-      ok: true,
-      volumes: [{ name: 'Scratch', used: 5, total: 50 }],
-    });
-    await expect(missingId).rejects.toThrow(/missing id/);
+    const nullDisk = api.getStorageOverview();
+    http.expectOne('/api/system/resources').flush({ ok: true, disk: null });
+    await expect(nullDisk).rejects.toThrow(/missing disk/);
 
-    const negativeBytes = api.getStorageOverview();
-    http.expectOne('/api/storage/overview').flush({
+    const missingPath = api.getStorageOverview();
+    http.expectOne('/api/system/resources').flush({
       ok: true,
-      volumes: [{ id: 'media', label: 'Media', usedBytes: -1, totalBytes: 20 }],
+      disk: { total: 100, used: 30, free: 70, percent: 30 },
     });
-    await expect(negativeBytes).rejects.toThrow(/invalid usedBytes/);
+    await expect(missingPath).rejects.toThrow(/missing disk.path/);
+
+    const missingPercent = api.getStorageOverview();
+    http.expectOne('/api/system/resources').flush({
+      ok: true,
+      disk: { path: '/data', total: 100, used: 30, free: 70 },
+    });
+    await expect(missingPercent).rejects.toThrow(/missing disk.percent/);
+
+    const usedExceeds = api.getStorageOverview();
+    http.expectOne('/api/system/resources').flush({
+      ok: true,
+      disk: { path: '/data', total: 100, used: 150, free: 10, percent: 150 },
+    });
+    await expect(usedExceeds).rejects.toThrow(/used exceeds/);
   });
 
-  it('GETs jellyfin stats and rejects missing counts', async () => {
+  it('GETs jellyfin movies and series concurrently for library stats', async () => {
     const pending = api.getLibraryStats();
-    http.expectOne('/api/jellyfin/stats').flush({ ok: true, movies: 428, series: 76 });
-    await expect(pending).resolves.toEqual({ movies: 428, series: 76, availability: 'complete' });
+    const movieReq = http.expectOne('/api/jellyfin/movies');
+    const seriesReq = http.expectOne('/api/jellyfin/series');
+    movieReq.flush({ ok: true, items: [{ id: 'm1', name: 'Movie 1' }, { id: 'm2', name: 'Movie 2' }] });
+    seriesReq.flush({ ok: true, items: [{ id: 's1', name: 'Series 1' }] });
+    await expect(pending).resolves.toEqual({ movies: 2, series: 1, availability: 'complete' });
 
     const zeros = api.getLibraryStats();
-    http.expectOne('/api/jellyfin/stats').flush({ ok: true, movies: 0, series: 0 });
+    http.expectOne('/api/jellyfin/movies').flush({ ok: true, items: [] });
+    http.expectOne('/api/jellyfin/series').flush({ ok: true, items: [] });
     await expect(zeros).resolves.toEqual({ movies: 0, series: 0, availability: 'complete' });
+  });
 
-    const missingSeries = api.getLibraryStats();
-    http.expectOne('/api/jellyfin/stats').flush({ ok: true, movies: 12 });
-    await expect(missingSeries).rejects.toThrow(/missing series/);
+  it('rejects library stats when movies request fails', async () => {
+    const pending = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/movies').flush({ ok: false, error: 'movies offline' });
+    await expect(pending).rejects.toThrow('movies offline');
+    http.expectOne('/api/jellyfin/series').flush({ ok: true, items: [] });
+  });
 
-    const softFail = api.getLibraryStats();
-    http.expectOne('/api/jellyfin/stats').flush({ ok: false, error: 'jellyfin down' });
-    await expect(softFail).rejects.toThrow('jellyfin down');
+  it('rejects library stats when series request fails', async () => {
+    const pending = api.getLibraryStats();
+    const movieReq = http.expectOne('/api/jellyfin/movies');
+    http.expectOne('/api/jellyfin/series').flush({ error: 'series boom' }, { status: 500, statusText: 'Err' });
+    await expect(pending).rejects.toThrow('series boom');
+    movieReq.flush({ ok: true, items: [] });
+  });
 
-    const negativeCounts = api.getLibraryStats();
-    http.expectOne('/api/jellyfin/stats').flush({ ok: true, movies: -1, series: 2 });
-    await expect(negativeCounts).rejects.toThrow(/invalid movies/);
+  it('fail-fast: rejects immediately when the first jellyfin request fails', async () => {
+    const pending = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/movies').flush({ ok: false, error: 'movies offline' });
+    // Assert rejection without flushing the /jellyfin/series request — Promise.all rejects
+    // as soon as any member rejects, it does not wait for remaining requests.
+    await expect(pending).rejects.toThrow('movies offline');
+    http.expectOne('/api/jellyfin/series').flush({ ok: true, items: [] });
   });
 
   it('unwraps calendar envelope and rejects ok:false or malformed members', async () => {

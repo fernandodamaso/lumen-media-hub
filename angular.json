@@ -65,6 +65,30 @@
                   "with": "projects/dashboard/src/environments/environment.live.ts"
                 }
               ]
+            },
+            "production-live": {
+              "optimization": true,
+              "outputHashing": "all",
+              "sourceMap": false,
+              "extractLicenses": true,
+              "fileReplacements": [
+                {
+                  "replace": "projects/dashboard/src/environments/environment.ts",
+                  "with": "projects/dashboard/src/environments/environment.live.ts"
+                }
+              ],
+              "budgets": [
+                {
+                  "type": "initial",
+                  "maximumWarning": "500kB",
+                  "maximumError": "1MB"
+                },
+                {
+                  "type": "anyComponentStyle",
+                  "maximumWarning": "4kB",
+                  "maximumError": "8kB"
+                }
+              ]
             }
           },
           "defaultConfiguration": "production"
@@ -81,6 +105,9 @@
             "live": {
               "buildTarget": "dashboard:build:live",
               "proxyConfig": "projects/dashboard/proxy.conf.js"
+            },
+            "production-live": {
+              "buildTarget": "dashboard:build:production-live"
             }
           },
           "defaultConfiguration": "development"

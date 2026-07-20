@@ -637,102 +637,66 @@ export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStac
   };
 }
 
-/** Raw storage volume from GET /storage/overview. */
-export interface LiveStorageVolume {
-  id?: string;
-  label?: string;
-  name?: string;
-  kind?: string;
-  usedBytes?: number;
-  used?: number;
-  totalBytes?: number;
+/** Raw system-resources disk shape from GET /system/resources. */
+export interface LiveSystemResourcesDisk {
+  path?: string;
   total?: number;
-}
-
-/** Validated storage volume — identity and byte capacities are present (zeros allowed). */
-export interface ValidatedLiveStorageVolume {
-  id: string;
-  label: string;
-  kind?: string;
-  usedBytes: number;
-  totalBytes: number;
+  used?: number;
+  free?: number;
+  percent?: number;
 }
 
 /**
- * Reject storage volumes that lack required identity or byte capacities.
- * Do not synthesize volume ids, names, or zero capacities for missing fields.
+ * Map the disk block from GET /system/resources into a stable storage volume.
+ * Uses the backend mount path as the label and a fixed volume identity.
+ * Validates all disk fields including free and percent; enforces used ≤ total.
  */
-export function requireLiveStorageVolume(raw: unknown, index = 0): ValidatedLiveStorageVolume {
-  if (!isRecord(raw)) {
-    throw new Error(`Malformed storage overview response: member ${index} is not an object`);
+export function mapLiveSystemResourcesDisk(disk: unknown): MediaStackStorageVolumeDto {
+  if (!isRecord(disk)) {
+    throw new Error('Malformed system resources response: disk is not an object');
   }
 
-  const id = raw['id'];
-  if (typeof id !== 'string' || !id.trim()) {
-    throw new Error(`Malformed storage overview response: member ${index} is missing id`);
+  const path = disk['path'];
+  if (typeof path !== 'string' || !path.trim()) {
+    throw new Error('Malformed system resources response: missing disk.path');
   }
 
-  const labelRaw = raw['label'];
-  const nameRaw = raw['name'];
-  let label: string | undefined;
-  if (typeof labelRaw === 'string' && labelRaw.trim()) {
-    label = labelRaw;
-  } else if (typeof nameRaw === 'string' && nameRaw.trim()) {
-    label = nameRaw;
-  } else if (labelRaw !== undefined && labelRaw !== null && typeof labelRaw !== 'string') {
-    throw new Error(`Malformed storage overview response: member ${index} has invalid label`);
-  } else if (nameRaw !== undefined && nameRaw !== null && typeof nameRaw !== 'string') {
-    throw new Error(`Malformed storage overview response: member ${index} has invalid name`);
-  } else {
-    throw new Error(`Malformed storage overview response: member ${index} is missing label`);
+  const used = disk['used'];
+  const total = disk['total'];
+  const free = disk['free'];
+  const percent = disk['percent'];
+
+  if (typeof used !== 'number' || !Number.isFinite(used)) {
+    throw new Error('Malformed system resources response: missing disk.used');
+  }
+  if (typeof total !== 'number' || !Number.isFinite(total)) {
+    throw new Error('Malformed system resources response: missing disk.total');
+  }
+  if (typeof free !== 'number' || !Number.isFinite(free)) {
+    throw new Error('Malformed system resources response: missing disk.free');
+  }
+  if (typeof percent !== 'number' || !Number.isFinite(percent)) {
+    throw new Error('Malformed system resources response: missing disk.percent');
+  }
+  if (used < 0 || total < 0 || free < 0 || percent < 0) {
+    throw new Error('Malformed system resources response: negative disk capacity');
+  }
+  if (used > total) {
+    throw new Error('Malformed system resources response: disk.used exceeds disk.total');
+  }
+  if (free > total) {
+    throw new Error('Malformed system resources response: disk.free exceeds disk.total');
+  }
+  if (percent < 0 || percent > 100) {
+    throw new Error('Malformed system resources response: disk.percent out of range');
   }
 
-  const used =
-    typeof raw['usedBytes'] === 'number' && Number.isFinite(raw['usedBytes'])
-      ? raw['usedBytes']
-      : typeof raw['used'] === 'number' && Number.isFinite(raw['used'])
-        ? raw['used']
-        : null;
-  const total =
-    typeof raw['totalBytes'] === 'number' && Number.isFinite(raw['totalBytes'])
-      ? raw['totalBytes']
-      : typeof raw['total'] === 'number' && Number.isFinite(raw['total'])
-        ? raw['total']
-        : null;
-  if (used === null) {
-    throw new Error(`Malformed storage overview response: member ${index} is missing usedBytes`);
-  }
-  if (total === null) {
-    throw new Error(`Malformed storage overview response: member ${index} is missing totalBytes`);
-  }
-  // Negative capacities are malformed — zeros remain valid empty capacity.
-  if (used < 0) {
-    throw new Error(`Malformed storage overview response: member ${index} has invalid usedBytes`);
-  }
-  if (total < 0) {
-    throw new Error(`Malformed storage overview response: member ${index} has invalid totalBytes`);
-  }
-
-  const kindRaw = raw['kind'];
-  let kind: string | undefined;
-  if (kindRaw !== undefined && kindRaw !== null) {
-    if (typeof kindRaw !== 'string') {
-      throw new Error(`Malformed storage overview response: member ${index} has invalid kind`);
-    }
-    kind = kindRaw;
-  }
-
-  return { id, label, kind, usedBytes: used, totalBytes: total };
-}
-
-export function mapLiveStorageVolume(raw: unknown, index = 0): MediaStackStorageVolumeDto {
-  const volume = requireLiveStorageVolume(raw, index);
   return {
-    id: volume.id,
-    label: volume.label,
-    kind: volume.kind,
-    usedBytes: volume.usedBytes,
-    totalBytes: volume.totalBytes,
+    id: 'media-volume',
+    label: `Media volume (${path})`,
+    kind: 'library',
+    usedBytes: used,
+    totalBytes: total,
   };
 }
 

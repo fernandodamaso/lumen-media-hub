@@ -44,12 +44,11 @@ import {
   LiveJellyfinListResponse,
   mapLiveAutomationSummary,
   mapLiveJellyfinItem,
-  mapLiveStorageVolume,
+  mapLiveSystemResourcesDisk,
   mapLiveTorrent,
   requireExternalDiscoverPayload,
   requireHermesDiscoverPayload,
   requireLiveCalendarEvent,
-  requireLiveLibraryStats,
 } from './live-api.mappers';
 import {
   OkEnvelope,
@@ -186,29 +185,33 @@ export class HttpMediaStackApi implements MediaStackApi {
   }
 
   getStorageOverview(signal?: AbortSignal): Promise<StorageOverview> {
-    return this.getSoftEnvelope<OkEnvelope & { generatedAt?: string; volumes?: unknown[] }>(
-      '/storage/overview',
-      (data) => {
-        requireArrayField(data as unknown as Record<string, unknown>, 'volumes', 'Malformed storage overview response');
-      },
-      signal,
-    ).then((data) =>
-      mapStorageOverview({
-        generatedAt: data.generatedAt,
-        volumes: (data.volumes ?? []).map((volume, index) => mapLiveStorageVolume(volume, index)),
-      }),
-    );
+    return this.getRaw<unknown>('/system/resources', signal).then((data) => {
+      const envelope = requireSoftEnvelope<OkEnvelope & { generatedAt?: string; disk?: unknown }>(
+        data,
+        'Malformed system resources response',
+      );
+      const disk = envelope.disk;
+      if (!disk) {
+        throw new Error('Malformed system resources response: missing disk');
+      }
+      const volume = mapLiveSystemResourcesDisk(disk);
+      return mapStorageOverview({
+        generatedAt: envelope.generatedAt,
+        volumes: [volume],
+      });
+    });
   }
 
-  getLibraryStats(signal?: AbortSignal): Promise<LibraryStats> {
-    // Hard-fail soft { ok:false } with the backend message — do not map it as "missing movies".
-    return this.getHardEnvelope<OkEnvelope>(
-      '/jellyfin/stats',
-      (data) => {
-        requireLiveLibraryStats(data);
-      },
-      signal,
-    ).then((data) => mapLibraryStats(requireLiveLibraryStats(data)));
+  async getLibraryStats(signal?: AbortSignal): Promise<LibraryStats> {
+    const [movies, series] = await Promise.all([
+      this.fetchJellyfinKind('movies', signal),
+      this.fetchJellyfinKind('series', signal),
+    ]);
+
+    return mapLibraryStats({
+      movies: movies.length,
+      series: series.length,
+    });
   }
 
   listCronLogs(signal?: AbortSignal): Promise<CronLogs> {

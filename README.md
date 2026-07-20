@@ -1,8 +1,6 @@
 # Media Manager Angular
 
-Angular 22 workspace for the Media Manager shell: a single `dashboard` app with local design system (`app/ui`) and API boundary (`app/media-stack`).
-
-This repository is currently a **private local showcase**. Public GitHub Pages is deferred; run Demo mode locally to evaluate the product.
+Angular 22 workspace for the Media Manager shell: a single `dashboard` app with local design system (`app/ui`) and API boundary (`app/media-stack`). Containerized with Nginx reverse proxy for Docker deployment.
 
 ## Quick start (Demo / mock)
 
@@ -20,7 +18,40 @@ Open [http://localhost:4200/](http://localhost:4200/). Default startup uses in-p
 | `/discover` | Hermes, Jellyseerr, and Trakt recommendations |
 | Storybook | Design-system showcase ΓÇö `npm run storybook` ΓåÆ [http://localhost:6006/](http://localhost:6006/) |
 
-## Live mode (optional)
+## Production deployment (Docker)
+
+The production-live build is containerized with Nginx as reverse proxy. It must run on the same Docker network as the `homepage-actions` backend (typically `media_media-net`).
+
+```bash
+npm run build:live
+docker build -t media-dashboard-angular:local .
+```
+
+The image is deployed through Docker Compose alongside the backend services. For local verification with an existing Compose setup:
+
+```bash
+docker run --rm -p 3000:80 \
+  --network media_media-net \
+  -e ACTIONS_TOKEN=... \
+  media-dashboard-angular:local
+```
+
+Open [http://127.0.0.1:3000/](http://127.0.0.1:3000/).
+
+**Request flow:**
+
+```
+Browser → http://127.0.0.1:3000
+  → Angular Nginx
+    /        → Angular static files
+    /api/*   → homepage-actions:8085/* (with X-Actions-Token header)
+```
+
+- Nginx strips `/api` via trailing-slash `proxy_pass`.
+- `ACTIONS_TOKEN` is injected by Compose/Nginx from the container environment and never emitted into JavaScript, HTML, or source maps.
+- The browser never sees the token and never connects directly to backend services.
+
+## Live dev mode (optional)
 
 With a local [`homepage-actions`](https://github.com/fernandodamaso) service on port **8085**:
 
@@ -43,7 +74,8 @@ Live mode is **local-only**. Do not point a static host at the live configuratio
 | `npm run lint` | ESLint |
 | `npm test -- --watch=false` | Vitest unit / facade / page specs |
 | `npm run test:smoke` | Playwright direct-route and assembled-app smoke checks (auto-starts dev server) |
-| `npm run build` | Canonical production dashboard build |
+| `npm run build` | Canonical production (Demo mode) build |
+| `npm run build:live` | Production-live Docker build (optimized, no source maps, live backend) |
 | `npm run storybook` | Interactive Storybook (includes a11y addon / play functions) |
 | `npm run build:storybook` | Compile Storybook static output |
 | `npm run test:storybook` | Serve `storybook-static` and run interaction/a11y checks (`@storybook/test-runner`) |
@@ -86,12 +118,9 @@ The Home dashboard was rebuilt to the Nocturne ops-console spec (fixed 285px sid
 
 ## Non-goals
 
-- Making the repository public or enabling GitHub Pages (deferred by owner decision)
-- npm package publication
+- Published to npm/hosting (private self-hosted Docker deployment)
 - Light themes or responsive certification
-- Replacing the React deployment
 - Backend rewrite or secrets in this repo
-- Development-only mock scenario selectors
 
 ## Verification
 

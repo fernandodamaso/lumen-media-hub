@@ -1,0 +1,11 @@
+node_modules
+dist
+.angular
+.worktrees
+storybook-static
+.playwright-cli
+.git
+docs
+tests
+*.md
+!README.md

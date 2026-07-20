@@ -13,15 +13,29 @@ Single Angular app (`dashboard`) owning the shell, feature boards, design system
 
 ## Data flow
 
+### Production (Docker)
+
 ```text
-MediaStackApi (port)  ΓåÉ app/media-stack
-        Γöé
-        Γö£ΓöÇΓöÇ MockMediaStackApi     ΓåÉ Demo default
-        ΓööΓöÇΓöÇ HttpMediaStackApi     ΓåÉ live serve only (`start:live`)
-                Γöé
+Browser → http://127.0.0.1:3000
+  → Angular Nginx container
+    /        → Angular static SPA (production-live build)
+    /api/*   → homepage-actions:8085/* (Nginx strips /api prefix)
+                  → qBittorrent / Jellyfin / system resources
+```
+
+`ACTIONS_TOKEN` lives in the Compose environment and is injected by Nginx's `envsubst` into the `X-Actions-Token` header on proxied requests. The token never appears in Angular source, bundles, source maps, or browser-visible configuration.
+
+### Development (Demo / Live serve)
+
+```text
+MediaStackApi (port)  ← app/media-stack
+        │
+        ├── MockMediaStackApi     ← Demo default (npm start)
+        └── HttpMediaStackApi     ← live serve only (npm run start:live)
+                │
          Feature facades
-                Γöé
-         Boards / pages  ΓåÆ  app/ui primitives
+                │
+         Boards / pages  →  app/ui primitives
 ```
 
 Providers are selected in [media-stack-api.providers.ts](../projects/dashboard/src/app/media-stack/media-stack-api.providers.ts) from [environment.ts](../projects/dashboard/src/environments/environment.ts).
@@ -33,11 +47,33 @@ Feature code imports domain models from its own folder and talks to the backend 
 | Mode | How | API | Operational deep links |
 |------|-----|-----|------------------------|
 | Demo | `npm start` | Mock | Local Jellyfin / Sonarr / Radarr bases from environment |
-| Live | `npm run start:live` | HTTP ΓåÆ `:8085` via `/api` proxy | Same local bases |
+| Live dev | `npm run start:live` | HTTP → `:8085` via `/api` proxy | Same local bases |
+| Production | `docker run` or `docker compose up` | Same-origin `/api/*` → `homepage-actions:8085` via Nginx | Service deep-links from environment |
 
-Empty calendar bases must not fall back to relative `/series/...` or `/movie/...` URLs. Resolvers treat a missing or blank base as ΓÇ£no link.ΓÇ¥
+Empty calendar bases must not fall back to relative `/series/...` or `/movie/...` URLs. Resolvers treat a missing or blank base as "no link."
 
-Public static hosting (GitHub Pages) remains deferred and is not packaged from this repo.
+## API endpoints (production-live)
+
+| Endpoint | Method | Backend source |
+|---|---|---|
+| `/api/system/resources` | GET | Storage volume from `disk.path`, `disk.used`, `disk.total` |
+| `/api/qbt/torrents` | GET | Active torrents |
+| `/api/qbt/torrents/stop` | POST `{ "id" }` | Per-torrent pause (token required) |
+| `/api/qbt/torrents/start` | POST `{ "id" }` | Per-torrent resume (token required) |
+| `/api/stop-all` | POST | Global pause (token required) |
+| `/api/start-all` | POST | Global resume (token required) |
+| `/api/jellyfin/movies` | GET | Movie library items |
+| `/api/jellyfin/series` | GET | Series library items |
+| `/api/sonarr/calendar` | GET | Upcoming calendar events |
+| `/api/arr/library` | GET | Series/movie library index |
+| `/api/automation/summary` | GET | Service health and warnings |
+| `/api/cron/logs` | GET | Automation run logs |
+| `/api/discover/hermes` | GET | Hermes recommendations |
+| `/api/discover/jellyseerr` | GET | Jellyseerr discover |
+| `/api/discover/trakt` | GET | Trakt discover |
+| `/api/discover/request` | POST | Request media (token required) |
+
+Storage uses `/system/resources` (not `/storage/overview`) and labels the volume from the backend mount path (e.g., `Media volume (/data)`). Library stats are derived from concurrent `/jellyfin/movies` and `/jellyfin/series` requests rather than a dedicated stats endpoint.
 
 ## Routes
 
@@ -50,12 +86,25 @@ Public static hosting (GitHub Pages) remains deferred and is not packaged from t
 
 Design-system showcase is Storybook (`npm run storybook`), not an in-app `/ui` route.
 
-## Local API expectations (live mode)
+## Security
 
-- Service: `homepage-actions` listening on `http://127.0.0.1:8085`
-- Browser calls `/api/...`; proxy strips `/api` and forwards
-- Optional `ACTIONS_TOKEN` for mutating methods
-- Demo mode never requires this service
+- `ACTIONS_TOKEN` is consumed from the Compose environment via Nginx `envsubst`.
+- Nginx injects it into the `X-Actions-Token` header on proxied requests.
+- The token never appears in Angular source, bundles, source maps, HTML, or error pages.
+- SABnzbd is excluded from the live application shell; only qBittorrent on port `8081` remains as a download client.
+
+Backend security enforcement (fail-closed token validation, per-torrent routes, CORS allowlist) is pending implementation in the backend repository (`D:\media`).
+
+## Docker build
+
+```bash
+npm run build:live
+docker build -t media-dashboard-angular:local .
+```
+
+Multi-stage build: `node:22-alpine` compiles the production-live Angular build, then `nginx:1.27-alpine` serves the static assets with the reverse-proxy template.
+
+The container must be deployed on the same Docker network as `homepage-actions` (`media_media-net`) for DNS resolution of the upstream service name. The `${ACTIONS_TOKEN}` variable is substituted by the official Nginx entrypoint at container startup.
 
 ## Themes
 
@@ -76,3 +125,4 @@ Tokens live in [`app/ui/media-ui.scss`](../projects/dashboard/src/app/ui/media-u
 - Shell navigation and home composition specs
 - Provider specs proving Demo→mock and Live→HTTP
 - Storybook interaction + accessibility via `npm run test:storybook` (after `build:storybook`)
+- Playwright smoke tests support both local `ng serve` and remote `SMOKE_BASE_URL` targets

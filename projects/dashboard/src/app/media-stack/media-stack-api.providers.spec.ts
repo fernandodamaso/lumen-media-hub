@@ -66,7 +66,6 @@ describe('provideOperationalLinkBases', () => {
       sonarr: environment.sonarrBase,
       radarr: environment.radarrBase,
       prowlarr: environment.prowlarrBase,
-      sabnzbd: environment.sabnzbdBase,
       qbittorrent: environment.qbittorrentBase,
       bazarr: environment.bazarrBase,
     });

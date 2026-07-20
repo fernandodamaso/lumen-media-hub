@@ -25,7 +25,6 @@ export interface ServiceLinkBases {
   sonarr?: string;
   radarr?: string;
   prowlarr?: string;
-  sabnzbd?: string;
   qbittorrent?: string;
   bazarr?: string;
 }
@@ -57,7 +56,6 @@ export function provideOperationalLinkBases(): Provider[] {
         sonarr: environment.sonarrBase,
         radarr: environment.radarrBase,
         prowlarr: environment.prowlarrBase,
-        sabnzbd: environment.sabnzbdBase,
         qbittorrent: environment.qbittorrentBase,
         bazarr: environment.bazarrBase,
       } satisfies ServiceLinkBases,

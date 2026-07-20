@@ -20,5 +20,7 @@ jobs:
       - run: npm run build:storybook
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
+      - name: Run assembled app smoke tests
+        run: npm run test:smoke
       - name: Serve Storybook and run interaction/a11y tests
         run: npm run test:storybook

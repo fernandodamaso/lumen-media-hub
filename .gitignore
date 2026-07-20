@@ -40,9 +40,8 @@ testem.log
 __screenshots__/
 .playwright-cli/
 /documentation.json
-/tests
-/tests-results
-/plans
+/test-results
+/playwright-report
 
 # System files
 .DS_Store

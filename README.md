@@ -42,6 +42,7 @@ Live mode is **local-only**. Do not point a static host at the live configuratio
 | `npm run start:live` | Live serve with API proxy |
 | `npm run lint` | ESLint |
 | `npm test -- --watch=false` | Vitest unit / facade / page specs |
+| `npm run test:smoke` | Playwright direct-route and assembled-app smoke checks (auto-starts dev server) |
 | `npm run build` | Canonical production dashboard build |
 | `npm run storybook` | Interactive Storybook (includes a11y addon / play functions) |
 | `npm run build:storybook` | Compile Storybook static output |
@@ -65,7 +66,7 @@ See [docs/architecture.md](docs/architecture.md) for the port ΓåÆ adapter Γ�
 
 - **Unit / integration:** Vitest via `ng test` (facades, boards, pages, shell navigation, API boundary).
 - **Storybook:** Interactive review via `npm run storybook`. CI runs `build:storybook` then `test:storybook` (play functions + a11y).
-- **Browser acceptance:** Manual desktop checklist in [docs/browser-acceptance.md](docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
+- **Browser acceptance:** Playwright verifies direct routes, fallback routing, titles, theme persistence, and shell navigation via `npm run test:smoke`. The broader manual desktop checklist remains in [docs/browser-acceptance.md](docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
 
 ## Screenshots
 
@@ -100,6 +101,7 @@ npm start
 # in another shell:
 npm run lint
 npm test -- --watch=false
+npm run test:smoke
 npm run build
 npm run build:storybook
 npm run test:storybook

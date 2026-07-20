@@ -1,6 +1,6 @@
 import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
-import { provideRouter, withEnabledBlockingInitialNavigation } from '@angular/router';
+import { provideRouter } from '@angular/router';
 
 import { routes } from './app.routes';
 import { provideMediaStackApi, provideOperationalLinkBases } from './media-stack/media-stack-api.providers';
@@ -8,7 +8,7 @@ import { provideMediaStackApi, provideOperationalLinkBases } from './media-stack
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    provideRouter(routes, withEnabledBlockingInitialNavigation()),
+    provideRouter(routes),
     provideHttpClient(),
     ...provideMediaStackApi(),
     ...provideOperationalLinkBases(),

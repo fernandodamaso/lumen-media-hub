@@ -1,0 +1,39 @@
+/// Shared card header/footer chrome for dashboard boards and cards.
+
+@mixin title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--mm-component-text-primary);
+  font-size: var(--mm-text-heading);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+@mixin title-icon {
+  color: var(--mm-component-accent);
+}
+
+@mixin text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mm-component-accent);
+  font-size: var(--mm-text-md);
+  font-weight: 700;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 3px solid var(--mm-component-focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+@mixin notice {
+  margin: 0 0 14px;
+}

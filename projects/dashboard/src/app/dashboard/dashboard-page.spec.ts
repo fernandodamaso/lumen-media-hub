@@ -15,6 +15,7 @@ import { StorageFacade, StorageStatus } from '../storage/storage.facade';
 import { StorageOverview } from '../storage/storage.models';
 import { CronRun } from '../reports/reports.models';
 import { AutomationSummary, summarizeAutomationHealth } from '../automation/automation.models';
+import { fixtureHost } from '../../testing/fixture-host';
 import { DashboardPage } from './dashboard-page';
 
 describe('DashboardPage composition', () => {
@@ -59,7 +60,7 @@ describe('DashboardPage composition', () => {
     setReady();
     fixture.detectChanges();
 
-    const root = fixture.nativeElement as HTMLElement;
+    const root = fixtureHost(fixture);
     expect(root.querySelector('mm-dashboard-header')).toBeTruthy();
     expect(root.querySelector('.metrics-row')).toBeTruthy();
     expect(root.querySelector('mm-attention-banner')).toBeTruthy();
@@ -107,7 +108,7 @@ describe('DashboardPage composition', () => {
     storage.overview.set(storageOverview());
     fixture.detectChanges();
 
-    const root = fixture.nativeElement as HTMLElement;
+    const root = fixtureHost(fixture);
     expect(root.querySelector('.metrics-row')?.textContent).toContain('Library');
     expect(root.querySelector('.metrics-row')?.textContent).toContain('—');
     expect(root.querySelector('[data-region="downloads"]')?.textContent).toContain('Signal Drift');
@@ -122,7 +123,7 @@ describe('DashboardPage composition', () => {
     const styles = dashboardStyles();
     expect(styles).not.toMatch(/@keyframes[\s\S]*region-enter/);
     expect(styles).not.toContain('animation: region-enter');
-    expect(fixture.nativeElement.querySelectorAll('.region').length).toBeGreaterThanOrEqual(5);
+    expect(fixtureHost(fixture).querySelectorAll('.region').length).toBeGreaterThanOrEqual(5);
   });
 
   it('aligns attention headline with actionable problems and surfaces problem summaries', () => {
@@ -146,7 +147,7 @@ describe('DashboardPage composition', () => {
     });
     fixture.detectChanges();
 
-    const banner = fixture.nativeElement.querySelector('mm-attention-banner') as HTMLElement;
+    const banner = fixtureHost(fixture).querySelector('mm-attention-banner') as HTMLElement;
     expect(banner.textContent).toContain('2 items need attention');
     expect(banner.textContent).toContain('Indexer A · disabled');
     expect(banner.textContent).toContain('+2 more');
@@ -175,7 +176,7 @@ describe('DashboardPage composition', () => {
     fixture.detectChanges();
 
     expect(fixture.componentInstance.syncedAt()).toBe(formatRelativeTime('2026-07-22T11:00:00Z'));
-    expect(fixture.nativeElement.textContent).not.toContain('Sync time unavailable');
+    expect(fixtureHost(fixture).textContent).not.toContain('Sync time unavailable');
   });
 
   it('refreshes all dashboard facades from the header action', () => {

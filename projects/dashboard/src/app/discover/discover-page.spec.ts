@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { vi } from 'vitest';
+import { fixtureHost } from '../../testing/fixture-host';
 import { DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { DiscoverCardItem, DiscoverHistoryFilter } from './discover-format';
 import { DiscoverPage } from './discover-page';
@@ -27,7 +28,7 @@ describe('DiscoverPage', () => {
     facade.status.set('ready');
     facade.visibleItems.set([card({ title: 'Signal Drift' })]);
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Browse Hermes');
+    expect(fixtureHost(fixture).textContent).toContain('Browse Hermes');
 
     clickTab('Jellyseerr');
     expect(facade.setTab).toHaveBeenCalledWith('jellyseerr');
@@ -42,7 +43,7 @@ describe('DiscoverPage', () => {
     ]);
     fixture.detectChanges();
 
-    const buttons = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>);
+    const buttons = Array.from(fixtureHost(fixture).querySelectorAll('button'));
     const noTmdb = buttons.find((button) => button.textContent.includes('No TMDB ID'));
     if (!noTmdb) throw new Error('No TMDB ID button not found');
     expect(noTmdb.disabled).toBe(true);
@@ -58,11 +59,12 @@ describe('DiscoverPage', () => {
     facade.status.set('ready');
     fixture.detectChanges();
 
-    const group = fixture.nativeElement.querySelector('.tabs') as HTMLElement;
+    const root = fixtureHost(fixture);
+    const group = root.querySelector('.tabs') as HTMLElement;
     expect(group.getAttribute('role')).toBe('group');
     expect(group.getAttribute('aria-label')).toBe('Discover sources');
-    expect(fixture.nativeElement.querySelector('[role="radio"]')).toBeNull();
-    expect(fixture.nativeElement.querySelector('[role="radiogroup"]')).toBeNull();
+    expect(root.querySelector('[role="radio"]')).toBeNull();
+    expect(root.querySelector('[role="radiogroup"]')).toBeNull();
 
     const sourceButtons = sourceTabButtons();
     expect(sourceButtons.map((button) => button.textContent.trim())).toEqual([
@@ -97,7 +99,7 @@ describe('DiscoverPage', () => {
 });
 
 function clickTab(label: string): void {
-  const button = (Array.from(document.querySelectorAll('button'))).find((candidate) =>
+  const button = Array.from(document.querySelectorAll('button')).find((candidate) =>
     candidate.textContent.includes(label),
   );
   button?.click();

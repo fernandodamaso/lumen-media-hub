@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { LucideActivity, LucideChevronRight, LucideSettings } from '@lucide/angular';
@@ -10,7 +11,18 @@ import { AUTOMATION_SERVICE_STATUS_VIEW } from '../automation/automation-format'
 
 @Component({
   selector: 'mm-service-health-card',
-  imports: [MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus, RouterLink, LucideActivity, LucideChevronRight, LucideSettings],
+  imports: [
+    NgTemplateOutlet,
+    MmButton,
+    MmCard,
+    MmSkeleton,
+    MmStateCard,
+    MmStatus,
+    RouterLink,
+    LucideActivity,
+    LucideChevronRight,
+    LucideSettings,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './service-health-card.html',
   styleUrl: './service-health-card.scss',

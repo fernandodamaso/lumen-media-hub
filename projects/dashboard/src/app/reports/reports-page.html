@@ -47,26 +47,7 @@
   @if (actionableRuns().length) {
     <div class="run-list" aria-label="Actionable runs">
       @for (run of actionableRuns(); track run.id) {
-        <details class="run" [open]="expanded().has(run.id)" (toggle)="onToggle(run.id, $event)">
-          <summary>
-            <div class="run-head">
-              <strong>{{ run.jobTitle }}</strong>
-              <mm-status [tone]="statusView(run.status).tone">{{ statusView(run.status).label }}</mm-status>
-              <span class="run-time">{{ formatRunTimestamp(run.timestamp) }}</span>
-            </div>
-          </summary>
-          <div class="run-detail">
-            @if (run.detail) {
-              <p>{{ run.detail }}</p>
-            }
-            @if (run.fatal) {
-              <p class="fatal">{{ run.fatal }}</p>
-            }
-            @if (run.applied !== null) {
-              <p>Applied {{ run.applied }}</p>
-            }
-          </div>
-        </details>
+        <ng-container *ngTemplateOutlet="runCard; context: { $implicit: run, showExtras: true }" />
       }
     </div>
   }
@@ -76,22 +57,34 @@
       <summary>{{ quietRuns().length }} quiet run{{ quietRuns().length === 1 ? '' : 's' }}</summary>
       <div class="run-list quiet-list" aria-label="Quiet runs">
         @for (run of quietRuns(); track run.id) {
-          <details class="run" [open]="expanded().has(run.id)" (toggle)="onToggle(run.id, $event)">
-            <summary>
-              <div class="run-head">
-                <strong>{{ run.jobTitle }}</strong>
-                <mm-status [tone]="statusView(run.status).tone">{{ statusView(run.status).label }}</mm-status>
-                <span class="run-time">{{ formatRunTimestamp(run.timestamp) }}</span>
-              </div>
-            </summary>
-            <div class="run-detail">
-              @if (run.detail) {
-                <p>{{ run.detail }}</p>
-              }
-            </div>
-          </details>
+          <ng-container *ngTemplateOutlet="runCard; context: { $implicit: run, showExtras: false }" />
         }
       </div>
     </details>
   }
 }
+
+<ng-template #runCard let-run let-showExtras="showExtras">
+  <details class="run" [open]="expanded().has(run.id)" (toggle)="onToggle(run.id, $event)">
+    <summary>
+      <div class="run-head">
+        <strong>{{ run.jobTitle }}</strong>
+        <mm-status [tone]="statusView(run.status).tone">{{ statusView(run.status).label }}</mm-status>
+        <span class="run-time">{{ formatRunTimestamp(run.timestamp) }}</span>
+      </div>
+    </summary>
+    <div class="run-detail">
+      @if (run.detail) {
+        <p>{{ run.detail }}</p>
+      }
+      @if (showExtras) {
+        @if (run.fatal) {
+          <p class="fatal">{{ run.fatal }}</p>
+        }
+        @if (run.applied !== null) {
+          <p>Applied {{ run.applied }}</p>
+        }
+      }
+    </div>
+  </details>
+</ng-template>

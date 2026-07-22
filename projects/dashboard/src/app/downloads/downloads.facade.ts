@@ -1,5 +1,10 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
+import {
+  applyPolledRefreshFailure,
+  isInitialRefresh,
+  runPolledRefresh,
+} from '../media-stack/polled-refresh';
 import { ScheduledPollController } from '../media-stack/scheduled-poll';
 import { DownloadTorrent, summarizeDownloads } from './downloads.models';
 
@@ -61,25 +66,23 @@ export class DownloadsFacade {
   }
 
   async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<void> {
-    const initial =
-      options.initial === true || this._status() === 'loading' || this._status() === 'error';
-    this._refreshing.set(true);
-    const requestId = this.poll.beginRequest();
-    try {
-      const torrents = await this.api.listTorrents(options.signal);
-      if (!this.poll.isCurrent(requestId)) return;
-      this._torrents.set(torrents);
-      this._lastFetchedAt.set(new Date().toISOString());
-      this._status.set(torrents.length ? 'ready' : 'empty');
-      this._error.set('');
-    } catch {
-      if (!this.poll.isCurrent(requestId)) return;
-      // Cancelled refreshes must not mutate facade state; callers apply timeout/teardown policy.
-      if (options.signal?.aborted) return;
-      this.applyRefreshFailure(initial);
-    } finally {
-      if (this.poll.isCurrent(requestId)) this._refreshing.set(false);
-    }
+    const initial = isInitialRefresh(this._status(), options.initial);
+    await runPolledRefresh({
+      poll: this.poll,
+      refreshing: this._refreshing,
+      signal: options.signal,
+      load: async (requestId) => {
+        const torrents = await this.api.listTorrents(options.signal);
+        if (!this.poll.isCurrent(requestId)) return;
+        this._torrents.set(torrents);
+        this._lastFetchedAt.set(new Date().toISOString());
+        this._status.set(torrents.length ? 'ready' : 'empty');
+        this._error.set('');
+      },
+      onFailure: () => {
+        this.applyRefreshFailure(initial);
+      },
+    });
   }
 
   async runAction(action: DownloadsAction): Promise<void> {
@@ -114,15 +117,15 @@ export class DownloadsFacade {
   }
 
   private applyRefreshFailure(initial: boolean): void {
-    const hasPrior = this._status() === 'ready' || this._status() === 'empty';
-    if (!initial && hasPrior) {
-      this._error.set(REFRESH_ERROR);
-      return;
-    }
-    this._status.set('error');
-    this._error.set(LOAD_ERROR);
-    if (initial) {
-      this._torrents.set([]);
-    }
+    applyPolledRefreshFailure({
+      initial,
+      status: this._status,
+      error: this._error,
+      refreshError: REFRESH_ERROR,
+      loadError: LOAD_ERROR,
+      clearPayload: () => {
+        this._torrents.set([]);
+      },
+    });
   }
 }

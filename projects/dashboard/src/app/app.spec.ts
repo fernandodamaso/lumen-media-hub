@@ -3,6 +3,7 @@ import { provideLocationMocks, SpyLocation } from '@angular/common/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { fixtureHost } from '../testing/fixture-host';
 import { App } from './app';
 import { routes } from './app.routes';
 import { ServiceHealthFacade } from './automation/service-health.facade';
@@ -26,30 +27,32 @@ describe('App shell', () => {
   it('renders the shell and its primary navigation', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
+    const root = fixtureHost(fixture);
 
-    expect(fixture.nativeElement.querySelector('.brand')?.textContent).toContain('Media Manager');
-    expect(fixture.nativeElement.querySelector('.demo-badge')?.textContent).toContain('Demo');
-    expect(fixture.nativeElement.querySelectorAll('.sidebar__nav a')).toHaveLength(3);
-    expect(fixture.nativeElement.querySelectorAll('.service-link')).toHaveLength(7);
-    expect(fixture.nativeElement.querySelector('router-outlet')).toBeTruthy();
+    expect(root.querySelector('.brand')?.textContent).toContain('Media Manager');
+    expect(root.querySelector('.demo-badge')?.textContent).toContain('Demo');
+    expect(root.querySelectorAll('.sidebar__nav a')).toHaveLength(3);
+    expect(root.querySelectorAll('.service-link')).toHaveLength(7);
+    expect(root.querySelector('router-outlet')).toBeTruthy();
   });
 
   it('wires SERVICE_LINK_BASES into sidebar anchors and keeps SABnzbd inert', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
+    const root = fixtureHost(fixture);
 
     const byName = new Map(fixture.componentInstance.services().map((service) => [service.name, service]));
     expect(byName.get('Jellyfin')?.href).toBe('http://localhost:8096/');
     expect(byName.get('Sonarr')?.href).toBe('http://localhost:8989/');
     expect(byName.get('SABnzbd')?.href).toBeNull();
 
-    const jellyfin = [...fixture.nativeElement.querySelectorAll('.service-link')].find((el: Element) =>
+    const jellyfin = [...root.querySelectorAll('.service-link')].find((el: Element) =>
       el.textContent.includes('Jellyfin'),
     ) as HTMLAnchorElement | undefined;
     expect(jellyfin?.tagName).toBe('A');
     expect(jellyfin?.getAttribute('href')).toBe('http://localhost:8096/');
 
-    const sabnzbd = [...fixture.nativeElement.querySelectorAll('.service-link')].find((el: Element) =>
+    const sabnzbd = [...root.querySelectorAll('.service-link')].find((el: Element) =>
       el.textContent.includes('SABnzbd'),
     ) as HTMLElement | undefined;
     expect(sabnzbd?.tagName).toBe('SPAN');
@@ -60,7 +63,7 @@ describe('App shell', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     expect(fixture.componentInstance.services().every((service) => service.status === 'unknown')).toBe(true);
-    expect(fixture.nativeElement.querySelector('.service-dot--unknown')).toBeTruthy();
+    expect(fixtureHost(fixture).querySelector('.service-dot--unknown')).toBeTruthy();
 
     const health = TestBed.inject(ServiceHealthFacade);
     await health.refresh({ initial: true });

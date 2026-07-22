@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
+import { fixtureHost } from '../../testing/fixture-host';
 import { MmButton, MmCard, MmPoster, MmProgress, MmStateCard, MmStatus, MmThemePicker } from './index';
 
 @Component({
@@ -84,23 +85,23 @@ describe('app/ui primitives', () => {
     fixture.componentRef.setInput('variant', 'quiet');
     fixture.componentRef.setInput('busy', true);
     fixture.detectChanges();
-    const button = fixture.nativeElement.querySelector('button');
+    const button = fixtureHost(fixture).querySelector('button');
 
-    expect(button.className).toContain('mm-button');
-    expect(button.className).toContain('mm-button--quiet');
-    expect(button.getAttribute('aria-busy')).toBe('true');
+    expect(button?.className).toContain('mm-button');
+    expect(button?.className).toContain('mm-button--quiet');
+    expect(button?.getAttribute('aria-busy')).toBe('true');
   });
 
   it('keeps the status base class alongside its tone class without a live region by default', () => {
     const fixture = TestBed.createComponent(MmStatus);
     fixture.componentRef.setInput('tone', 'danger');
     fixture.detectChanges();
-    const status = fixture.nativeElement.querySelector('.mm-status');
+    const status = fixtureHost(fixture).querySelector('.mm-status');
 
-    expect(status.classList).toContain('mm-status');
-    expect(status.classList).toContain('mm-status--danger');
-    expect(status.getAttribute('role')).toBeNull();
-    expect(status.getAttribute('aria-live')).toBeNull();
+    expect(status?.classList).toContain('mm-status');
+    expect(status?.classList).toContain('mm-status--danger');
+    expect(status?.getAttribute('role')).toBeNull();
+    expect(status?.getAttribute('aria-live')).toBeNull();
   });
 
   it('exposes an opt-in live region when announce is enabled', () => {
@@ -108,55 +109,61 @@ describe('app/ui primitives', () => {
     fixture.componentRef.setInput('tone', 'warning');
     fixture.componentRef.setInput('announce', true);
     fixture.detectChanges();
-    const status = fixture.nativeElement.querySelector('.mm-status');
+    const status = fixtureHost(fixture).querySelector('.mm-status');
 
-    expect(status.getAttribute('role')).toBe('status');
+    expect(status?.getAttribute('role')).toBe('status');
   });
 
   it('renders optional card regions and omits empty header and footer chrome without DOM mutation', () => {
     const complete = TestBed.createComponent(CardRegionsHost);
     complete.detectChanges();
-    expect(complete.nativeElement.querySelector('.mm-card__header')?.textContent).toContain('Library');
-    expect(complete.nativeElement.querySelector('.mm-card__footer')?.textContent).toContain('8 items shown');
-    expect(complete.nativeElement.querySelector('.mm-card')?.getAttribute('aria-labelledby')).toBe('test-heading');
-    expect(complete.nativeElement.querySelector('.mm-card__header')?.hasAttribute('hidden')).toBe(false);
-    expect(complete.nativeElement.querySelector('.mm-card__footer')?.hasAttribute('hidden')).toBe(false);
+    const completeRoot = fixtureHost(complete);
+    expect(completeRoot.querySelector('.mm-card__header')?.textContent).toContain('Library');
+    expect(completeRoot.querySelector('.mm-card__footer')?.textContent).toContain('8 items shown');
+    expect(completeRoot.querySelector('.mm-card')?.getAttribute('aria-labelledby')).toBe('test-heading');
+    expect(completeRoot.querySelector('.mm-card__header')?.hasAttribute('hidden')).toBe(false);
+    expect(completeRoot.querySelector('.mm-card__footer')?.hasAttribute('hidden')).toBe(false);
 
     const bodyOnly = TestBed.createComponent(BodyOnlyCardHost);
     bodyOnly.detectChanges();
-    expect(getComputedStyle(bodyOnly.nativeElement.querySelector('.mm-card__header')).display).toBe('none');
-    expect(getComputedStyle(bodyOnly.nativeElement.querySelector('.mm-card__footer')).display).toBe('none');
-    expect(bodyOnly.nativeElement.querySelector('.mm-card__header')?.hasAttribute('hidden')).toBe(false);
+    const bodyOnlyRoot = fixtureHost(bodyOnly);
+    expect(getComputedStyle(bodyOnlyRoot.querySelector('.mm-card__header') as Element).display).toBe('none');
+    expect(getComputedStyle(bodyOnlyRoot.querySelector('.mm-card__footer') as Element).display).toBe('none');
+    expect(bodyOnlyRoot.querySelector('.mm-card__header')?.hasAttribute('hidden')).toBe(false);
 
     const headingOnly = TestBed.createComponent(HeadingOnlyCardHost);
     headingOnly.detectChanges();
-    expect(getComputedStyle(headingOnly.nativeElement.querySelector('.mm-card__header')).display).not.toBe('none');
-    expect(getComputedStyle(headingOnly.nativeElement.querySelector('.mm-card__footer')).display).toBe('none');
+    const headingOnlyRoot = fixtureHost(headingOnly);
+    expect(getComputedStyle(headingOnlyRoot.querySelector('.mm-card__header') as Element).display).not.toBe('none');
+    expect(getComputedStyle(headingOnlyRoot.querySelector('.mm-card__footer') as Element).display).toBe('none');
 
     const headerActionsOnly = TestBed.createComponent(HeaderActionsOnlyCardHost);
     headerActionsOnly.detectChanges();
-    expect(getComputedStyle(headerActionsOnly.nativeElement.querySelector('.mm-card__header')).display).not.toBe(
+    const headerActionsOnlyRoot = fixtureHost(headerActionsOnly);
+    expect(getComputedStyle(headerActionsOnlyRoot.querySelector('.mm-card__header') as Element).display).not.toBe(
       'none',
     );
-    expect(headerActionsOnly.nativeElement.querySelector('.mm-card__actions')?.textContent).toContain('Only actions');
+    expect(headerActionsOnlyRoot.querySelector('.mm-card__actions')?.textContent).toContain('Only actions');
 
     const footerContentOnly = TestBed.createComponent(FooterContentOnlyCardHost);
     footerContentOnly.detectChanges();
-    expect(getComputedStyle(footerContentOnly.nativeElement.querySelector('.mm-card__header')).display).toBe('none');
-    expect(getComputedStyle(footerContentOnly.nativeElement.querySelector('.mm-card__footer')).display).not.toBe(
+    const footerContentOnlyRoot = fixtureHost(footerContentOnly);
+    expect(getComputedStyle(footerContentOnlyRoot.querySelector('.mm-card__header') as Element).display).toBe('none');
+    expect(getComputedStyle(footerContentOnlyRoot.querySelector('.mm-card__footer') as Element).display).not.toBe(
       'none',
     );
 
     const footerActionsOnly = TestBed.createComponent(FooterActionsOnlyCardHost);
     footerActionsOnly.detectChanges();
-    expect(getComputedStyle(footerActionsOnly.nativeElement.querySelector('.mm-card__footer')).display).not.toBe(
+    const footerActionsOnlyRoot = fixtureHost(footerActionsOnly);
+    expect(getComputedStyle(footerActionsOnlyRoot.querySelector('.mm-card__footer') as Element).display).not.toBe(
       'none',
     );
-    expect(footerActionsOnly.nativeElement.querySelector('.mm-card__footer')?.textContent).toContain('Footer actions');
+    expect(footerActionsOnlyRoot.querySelector('.mm-card__footer')?.textContent).toContain('Footer actions');
 
     const containerRegions = TestBed.createComponent(ContainerRegionsHost);
     containerRegions.detectChanges();
-    const projectedFooter = containerRegions.nativeElement.querySelector('.mm-card__footer') as HTMLElement;
+    const projectedFooter = fixtureHost(containerRegions).querySelector('.mm-card__footer') as HTMLElement;
     expect(projectedFooter.hidden).toBe(false);
     expect(projectedFooter.textContent).toContain('8 items shown');
     expect(projectedFooter.textContent).toContain('View all');
@@ -165,7 +172,7 @@ describe('app/ui primitives', () => {
   it('renders posters as a neutral wrapper without an article root', () => {
     const fixture = TestBed.createComponent(MmPoster);
     fixture.detectChanges();
-    const host = fixture.nativeElement as HTMLElement;
+    const host = fixtureHost(fixture);
 
     expect(host.querySelector('article')).toBeNull();
     expect(host.querySelector('.mm-poster')?.tagName).toBe('DIV');
@@ -177,7 +184,7 @@ describe('app/ui primitives', () => {
       const fixture = TestBed.createComponent(MmThemePicker);
       fixture.detectChanges();
       const picker = fixture.componentInstance;
-      const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+      const select = fixtureHost(fixture).querySelector('select') as HTMLSelectElement;
 
       select.value = 'tokyo-night';
       select.dispatchEvent(new Event('change'));
@@ -196,27 +203,28 @@ describe('app/ui primitives', () => {
     const fixture = TestBed.createComponent(MmButton);
     fixture.detectChanges();
 
-    expect(getComputedStyle(fixture.nativeElement.querySelector('button')).minHeight).toBe('40px');
+    expect(getComputedStyle(fixtureHost(fixture).querySelector('button') as Element).minHeight).toBe('40px');
   });
 
   it('exposes progress semantics and the state-card danger tone', () => {
     const progress = TestBed.createComponent(MmProgress);
     progress.componentRef.setInput('value', 42);
     progress.detectChanges();
-    expect(progress.nativeElement.querySelector('[role="progressbar"]').getAttribute('aria-valuenow')).toBe('42');
-    expect(getComputedStyle(progress.nativeElement).display).toBe('flex');
+    const progressRoot = fixtureHost(progress);
+    expect(progressRoot.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('42');
+    expect(getComputedStyle(progressRoot).display).toBe('flex');
 
     const state = TestBed.createComponent(MmStateCard);
     state.componentRef.setInput('tone', 'danger');
     state.detectChanges();
-    expect(state.nativeElement.querySelector('.mm-state-card--danger')).toBeTruthy();
+    expect(fixtureHost(state).querySelector('.mm-state-card--danger')).toBeTruthy();
   });
 
   it('lets the primary button receive keyboard focus', () => {
     const fixture = TestBed.createComponent(MmButton);
     fixture.componentRef.setInput('label', 'Focus me');
     fixture.detectChanges();
-    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    const button = fixtureHost(fixture).querySelector('button') as HTMLButtonElement;
     button.focus();
     expect(document.activeElement).toBe(button);
   });

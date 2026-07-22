@@ -36,36 +36,30 @@
               rel="noreferrer"
               [attr.aria-label]="service.name + ', ' + service.statusLabel"
             >
-              <span class="service-mark" aria-hidden="true">{{ service.initial }}</span>
-              <span>{{ service.name }}</span>
-              <span
-                class="service-dot"
-                [class.service-dot--healthy]="service.status === 'healthy'"
-                [class.service-dot--degraded]="service.status === 'degraded'"
-                [class.service-dot--offline]="service.status === 'offline'"
-                [class.service-dot--unknown]="service.status === 'unknown'"
-                aria-hidden="true"
-              ></span>
+              <ng-container *ngTemplateOutlet="serviceNavInner; context: { $implicit: service }" />
             </a>
           } @else {
             <span
               class="service-link service-link--inert"
               [attr.aria-label]="service.name + ', ' + service.statusLabel"
             >
-              <span class="service-mark" aria-hidden="true">{{ service.initial }}</span>
-              <span>{{ service.name }}</span>
-              <span
-                class="service-dot"
-                [class.service-dot--healthy]="service.status === 'healthy'"
-                [class.service-dot--degraded]="service.status === 'degraded'"
-                [class.service-dot--offline]="service.status === 'offline'"
-                [class.service-dot--unknown]="service.status === 'unknown'"
-                aria-hidden="true"
-              ></span>
+              <ng-container *ngTemplateOutlet="serviceNavInner; context: { $implicit: service }" />
             </span>
           }
         }
       </div>
+      <ng-template #serviceNavInner let-service>
+        <span class="service-mark" aria-hidden="true">{{ service.initial }}</span>
+        <span>{{ service.name }}</span>
+        <span
+          class="service-dot"
+          [class.service-dot--healthy]="service.status === 'healthy'"
+          [class.service-dot--degraded]="service.status === 'degraded'"
+          [class.service-dot--offline]="service.status === 'offline'"
+          [class.service-dot--unknown]="service.status === 'unknown'"
+          aria-hidden="true"
+        ></span>
+      </ng-template>
       <div class="sidebar__footer">
         <mm-theme-picker />
       </div>

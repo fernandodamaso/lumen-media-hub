@@ -8,6 +8,11 @@ import {
 } from './calendar.models';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 import { isAbortError } from '../media-stack/http-response';
+import {
+  applyPolledRefreshFailure,
+  isInitialRefresh,
+  runPolledRefresh,
+} from '../media-stack/polled-refresh';
 import { ScheduledPollController } from '../media-stack/scheduled-poll';
 
 export type CalendarStatus = 'loading' | 'ready' | 'empty' | 'error';
@@ -59,38 +64,37 @@ export class CalendarFacade {
   }
 
   async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<void> {
-    const initial =
-      options.initial === true || this._status() === 'loading' || this._status() === 'error';
-    this._refreshing.set(true);
-    const requestId = this.poll.beginRequest();
-    try {
-      const rawEvents = await this.api.listCalendarEvents(options.signal);
-      if (!this.poll.isCurrent(requestId)) return;
-      const [library, posters] = await Promise.all([
-        this.loadLibrary(options.signal),
-        this.loadPosterArtByTitle(options.signal),
-      ]);
-      if (!this.poll.isCurrent(requestId)) return;
-      const events = [...rawEvents]
-        .sort(compareCalendarEvents)
-        .map((event) => ({
-          ...event,
-          art: posters.get(event.title.trim().toLowerCase()) ?? event.art,
-          href: resolveCalendarLink(event.title, library, this.linkBases, event.kind),
-        }));
-      // Abort after enrichment must not commit, or the scheduled timeout path would wipe a false success.
-      if (!this.poll.isCurrent(requestId) || options.signal?.aborted) return;
-      this._events.set(events);
-      this._lastFetchedAt.set(new Date().toISOString());
-      this._status.set(events.length ? 'ready' : 'empty');
-      this._error.set('');
-    } catch {
-      if (!this.poll.isCurrent(requestId)) return;
-      if (options.signal?.aborted) return;
-      this.applyRefreshFailure(initial);
-    } finally {
-      if (this.poll.isCurrent(requestId)) this._refreshing.set(false);
-    }
+    const initial = isInitialRefresh(this._status(), options.initial);
+    await runPolledRefresh({
+      poll: this.poll,
+      refreshing: this._refreshing,
+      signal: options.signal,
+      load: async (requestId) => {
+        const rawEvents = await this.api.listCalendarEvents(options.signal);
+        if (!this.poll.isCurrent(requestId)) return;
+        const [library, posters] = await Promise.all([
+          this.loadLibrary(options.signal),
+          this.loadPosterArtByTitle(options.signal),
+        ]);
+        if (!this.poll.isCurrent(requestId)) return;
+        const events = [...rawEvents]
+          .sort(compareCalendarEvents)
+          .map((event) => ({
+            ...event,
+            art: posters.get(event.title.trim().toLowerCase()) ?? event.art,
+            href: resolveCalendarLink(event.title, library, this.linkBases, event.kind),
+          }));
+        // Abort after enrichment must not commit, or the scheduled timeout path would wipe a false success.
+        if (!this.poll.isCurrent(requestId) || options.signal?.aborted) return;
+        this._events.set(events);
+        this._lastFetchedAt.set(new Date().toISOString());
+        this._status.set(events.length ? 'ready' : 'empty');
+        this._error.set('');
+      },
+      onFailure: () => {
+        this.applyRefreshFailure(initial);
+      },
+    });
   }
 
   private async loadLibrary(signal?: AbortSignal) {
@@ -124,15 +128,15 @@ export class CalendarFacade {
   }
 
   private applyRefreshFailure(initial: boolean): void {
-    const hasPrior = this._status() === 'ready' || this._status() === 'empty';
-    if (!initial && hasPrior) {
-      this._error.set(REFRESH_ERROR);
-      return;
-    }
-    this._status.set('error');
-    this._error.set(LOAD_ERROR);
-    if (initial) {
-      this._events.set([]);
-    }
+    applyPolledRefreshFailure({
+      initial,
+      status: this._status,
+      error: this._error,
+      refreshError: REFRESH_ERROR,
+      loadError: LOAD_ERROR,
+      clearPayload: () => {
+        this._events.set([]);
+      },
+    });
   }
 }

@@ -1,5 +1,10 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
+import {
+  applyPolledRefreshFailure,
+  isInitialRefresh,
+  runPolledRefresh,
+} from '../media-stack/polled-refresh';
 import { ScheduledPollController } from '../media-stack/scheduled-poll';
 import { StorageOverview, StorageVolume } from './storage.models';
 
@@ -48,37 +53,36 @@ export class StorageFacade {
   }
 
   async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<void> {
-    const initial =
-      options.initial === true || this._status() === 'loading' || this._status() === 'error';
-    this._refreshing.set(true);
-    const requestId = this.poll.beginRequest();
-    try {
-      const overview = await this.api.getStorageOverview(options.signal);
-      if (!this.poll.isCurrent(requestId)) return;
-      this._overview.set(overview);
-      this._lastFetchedAt.set(new Date().toISOString());
-      this._error.set('');
-      this._status.set(overview.volumes.length ? 'ready' : 'empty');
-    } catch {
-      if (!this.poll.isCurrent(requestId)) return;
-      if (options.signal?.aborted) return;
-      this.applyRefreshFailure(initial);
-    } finally {
-      if (this.poll.isCurrent(requestId)) this._refreshing.set(false);
-    }
+    const initial = isInitialRefresh(this._status(), options.initial);
+    await runPolledRefresh({
+      poll: this.poll,
+      refreshing: this._refreshing,
+      signal: options.signal,
+      load: async (requestId) => {
+        const overview = await this.api.getStorageOverview(options.signal);
+        if (!this.poll.isCurrent(requestId)) return;
+        this._overview.set(overview);
+        this._lastFetchedAt.set(new Date().toISOString());
+        this._error.set('');
+        this._status.set(overview.volumes.length ? 'ready' : 'empty');
+      },
+      onFailure: () => {
+        this.applyRefreshFailure(initial);
+      },
+    });
   }
 
   private applyRefreshFailure(initial: boolean): void {
-    const hasPrior = this._status() === 'ready' || this._status() === 'empty';
-    if (!initial && hasPrior) {
-      this._error.set(REFRESH_ERROR);
-      return;
-    }
-    this._status.set('error');
-    this._error.set(LOAD_ERROR);
-    if (initial) {
-      this._overview.set(null);
-    }
+    applyPolledRefreshFailure({
+      initial,
+      status: this._status,
+      error: this._error,
+      refreshError: REFRESH_ERROR,
+      loadError: LOAD_ERROR,
+      clearPayload: () => {
+        this._overview.set(null);
+      },
+    });
   }
 }
 

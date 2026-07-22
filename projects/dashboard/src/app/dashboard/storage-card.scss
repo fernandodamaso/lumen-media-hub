@@ -1,18 +1,11 @@
+@use '../ui/card-chrome' as chrome;
+
 :host { display: block; }
 
-.storage h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  color: var(--mm-component-text-primary);
-  font-size: var(--mm-text-heading);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-.storage h2 svg { color: var(--mm-component-accent); }
+.storage h2 { @include chrome.title; }
+.storage h2 svg { @include chrome.title-icon; }
 
-.notice { margin: 0 0 14px; }
+.notice { @include chrome.notice; }
 
 .storage-list {
   display: grid;

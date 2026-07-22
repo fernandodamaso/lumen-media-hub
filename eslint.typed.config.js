@@ -103,16 +103,6 @@ module.exports = tseslint.config(
     },
   },
   {
-    files: ['**/*.{spec,stories}.ts'],
-    rules: {
-      '@typescript-eslint/no-unsafe-member-access': 'warn',
-      '@typescript-eslint/no-unsafe-call': 'warn',
-      '@typescript-eslint/no-unsafe-argument': 'warn',
-      '@typescript-eslint/no-unsafe-assignment': 'warn',
-      '@typescript-eslint/no-unsafe-return': 'warn',
-    },
-  },
-  {
     files: ['**/app/app.ts'],
     rules: {
       '@angular-eslint/component-selector': [

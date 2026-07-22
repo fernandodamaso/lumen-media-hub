@@ -39,12 +39,7 @@
               rel="noreferrer"
               [attr.aria-label]="service.name + ', ' + statusLabel(service.status) + ', ' + statusDetail(service)"
             >
-              <span class="service-row__mark" aria-hidden="true">{{ service.name.charAt(0) }}</span>
-              <span class="service-row__name">{{ service.name }}</span>
-              <span class="service-row__status" [class]="'service-row__status--' + service.status">
-                {{ statusLabel(service.status) }}
-              </span>
-              <span class="service-row__detail">{{ statusDetail(service) }}</span>
+              <ng-container *ngTemplateOutlet="serviceRowBody; context: { $implicit: service }" />
               <svg lucideChevronRight [size]="16" aria-hidden="true"></svg>
             </a>
           } @else {
@@ -52,17 +47,20 @@
               class="service-row service-row--inert"
               [attr.aria-label]="service.name + ', ' + statusLabel(service.status) + ', ' + statusDetail(service)"
             >
-              <span class="service-row__mark" aria-hidden="true">{{ service.name.charAt(0) }}</span>
-              <span class="service-row__name">{{ service.name }}</span>
-              <span class="service-row__status" [class]="'service-row__status--' + service.status">
-                {{ statusLabel(service.status) }}
-              </span>
-              <span class="service-row__detail">{{ statusDetail(service) }}</span>
+              <ng-container *ngTemplateOutlet="serviceRowBody; context: { $implicit: service }" />
             </div>
           }
         </li>
       }
     </ul>
+    <ng-template #serviceRowBody let-service>
+      <span class="service-row__mark" aria-hidden="true">{{ service.name.charAt(0) }}</span>
+      <span class="service-row__name">{{ service.name }}</span>
+      <span class="service-row__status" [class]="'service-row__status--' + service.status">
+        {{ statusLabel(service.status) }}
+      </span>
+      <span class="service-row__detail">{{ statusDetail(service) }}</span>
+    </ng-template>
   }
 
   <ng-container mm-card-footer>

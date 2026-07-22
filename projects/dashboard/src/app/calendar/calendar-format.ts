@@ -15,35 +15,33 @@ export function groupCalendarEvents<T extends { airDate: string }>(events: T[], 
   const today = localKey(now);
   const tomorrowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
   const tomorrow = localKey(tomorrowDate);
-  const nextWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7);
+  const dayAfterDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
+  const dayAfter = localKey(dayAfterDate);
+  const horizon = new Set([today, tomorrow, dayAfter]);
   const groups = new Map<string, CalendarDateGroup<T>>();
   for (const event of events) {
     const match = event.airDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    const key = match ? match[0] : 'undated';
+    if (!match) continue;
+    const key = match[0];
+    // Home Upcoming rail only shows today through the day after tomorrow.
+    if (!horizon.has(key)) continue;
     let group = groups.get(key);
     if (!group) {
       let label = 'DATE UNAVAILABLE';
-      if (match) {
-        const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
-        if (key === today) {
-          label = 'TODAY';
-        } else if (key === tomorrow) {
-          label = 'TOMORROW';
-        } else if (date.getTime() <= nextWeek.getTime()) {
-          label = 'THIS WEEK';
-        } else {
-          const month = new Intl.DateTimeFormat('en', { month: 'short' }).format(date).toUpperCase();
-          const day = String(date.getDate());
-          const weekday = new Intl.DateTimeFormat('en', { weekday: 'short' }).format(date).toUpperCase();
-          label = `${weekday}, ${month} ${day}`;
-        }
+      const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
+      if (key === today) {
+        label = 'TODAY';
+      } else if (key === tomorrow) {
+        label = 'TOMORROW';
+      } else {
+        label = new Intl.DateTimeFormat('en', { weekday: 'long' }).format(date).toUpperCase();
       }
       group = { key, label, events: [] };
       groups.set(key, group);
     }
     group.events.push(event);
   }
-  return [...groups.values()].sort((a, b) => a.key === 'undated' ? 1 : b.key === 'undated' ? -1 : a.key.localeCompare(b.key));
+  return [...groups.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
 function localKey(date: Date): string {

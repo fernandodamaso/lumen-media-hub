@@ -38,36 +38,45 @@ describe('CalendarBoard', () => {
   });
 
   it('renders mixed events with links only for known library mappings', () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d0 = String(now.getDate()).padStart(2, '0');
+    const d1Date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const d2Date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
+    const d1 = `${d1Date.getFullYear()}-${String(d1Date.getMonth() + 1).padStart(2, '0')}-${String(d1Date.getDate()).padStart(2, '0')}`;
+    const d2 = `${d2Date.getFullYear()}-${String(d2Date.getMonth() + 1).padStart(2, '0')}-${String(d2Date.getDate()).padStart(2, '0')}`;
+
     facade.status.set('ready');
     facade.events.set([
       {
         id: '1',
-        time: 'Jul 12',
+        time: '18:00',
         kind: 'episode',
         title: 'Cowboy Bebop',
         subtitle: 'S1 E5',
         status: 'pending',
-        airDate: '2026-07-12T18:00:00Z',
+        airDate: `${y}-${m}-${d0}T18:00:00`,
         href: 'http://localhost:8989/series/cowboy-bebop',
       },
       {
         id: '2',
-        time: 'Jul 13',
+        time: '00:00',
         kind: 'movie',
         title: 'Dune',
         subtitle: 'Theatrical',
         status: 'available',
-        airDate: '2026-07-13T00:00:00Z',
+        airDate: `${d1}T00:00:00`,
         href: 'http://localhost:7878/movie/dune-2021',
       },
       {
         id: '3',
-        time: 'Jul 15',
+        time: '12:00',
         kind: 'movie',
         title: 'Night Transit',
         subtitle: 'Premiere',
         status: 'pending',
-        airDate: '2026-07-15T12:00:00Z',
+        airDate: `${d2}T12:00:00`,
         href: null,
       },
     ]);
@@ -77,7 +86,8 @@ describe('CalendarBoard', () => {
     expect(text).toContain('Cowboy Bebop');
     expect(text).toContain('Episode');
     expect(text).toContain('Movie');
-    expect(text).toContain('Available');
+    expect(text).toContain('TODAY');
+    expect(text).toContain('TOMORROW');
 
     const links = Array.from(fixture.nativeElement.querySelectorAll('a.cal-link')) as HTMLAnchorElement[];
     expect(links).toHaveLength(2);

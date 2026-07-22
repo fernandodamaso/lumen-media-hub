@@ -27,15 +27,9 @@ export class CalendarBoard {
     return base ? `${base}/calendar` : null;
   }
 
-  formatTime(airDate: string, groupLabel: string): string {
+  formatTime(airDate: string, _groupLabel?: string): string {
     const match = airDate.match(/T(\d{2}):(\d{2})/);
-    const time = match ? `${match[1]}:${match[2]}` : '—';
-    if (groupLabel !== 'THIS WEEK') return time;
-    const dateMatch = airDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!dateMatch) return time;
-    const date = new Date(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]), 12);
-    const weekday = new Intl.DateTimeFormat('en', { weekday: 'short' }).format(date);
-    return `${weekday} · ${time}`;
+    return match ? `${match[1]}:${match[2]}` : '—';
   }
 
   kindLabel(kind: CalendarMediaKind): string {

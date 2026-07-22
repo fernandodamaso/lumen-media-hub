@@ -37,7 +37,6 @@
         <h3 class="date-heading">{{ group.label }}</h3>
         @for (event of group.events; track event.id) {
           <article class="cal-row">
-            <span class="cal-time">{{ formatTime(event.airDate, group.label) }}</span>
             <span class="cal-thumb" aria-hidden="true" [style.background]="event.art"></span>
             <div class="cal-copy">
               <div class="cal-title-row">
@@ -55,7 +54,10 @@
                   <span class="cal-title" [attr.title]="event.title">{{ event.title }}</span>
                 }
               </div>
-              <span class="cal-subtitle">{{ kindLabel(event.kind) }} · {{ event.subtitle }}</span>
+              <div class="cal-meta">
+                <span class="cal-subtitle">{{ kindLabel(event.kind) }} · {{ event.subtitle }}</span>
+                <span class="cal-time">{{ formatTime(event.airDate) }}</span>
+              </div>
             </div>
           </article>
         }

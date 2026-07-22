@@ -249,6 +249,32 @@ describe('HttpMediaStackApi', () => {
     http.verify();
   });
 
+  function flushSidebarProbes(options?: { jellyfinOk?: boolean; qbitOk?: boolean }): void {
+    const jellyfinOk = options?.jellyfinOk !== false;
+    const qbitOk = options?.qbitOk !== false;
+    const jellyfin = http.expectOne('/api/jellyfin/series');
+    if (jellyfinOk) {
+      jellyfin.flush({ ok: true, items: [] });
+    } else {
+      jellyfin.flush({ error: 'jellyfin down' }, { status: 503, statusText: 'Unavailable' });
+    }
+    const qbit = http.expectOne('/api/qbt/torrents');
+    if (qbitOk) {
+      qbit.flush([]);
+    } else {
+      qbit.flush({ error: 'qbit down' }, { status: 503, statusText: 'Unavailable' });
+    }
+  }
+
+  async function flushAutomationSummary(
+    body: object,
+    probeOptions?: { jellyfinOk?: boolean; qbitOk?: boolean },
+  ): Promise<void> {
+    // Summary + sidebar probes are requested in parallel.
+    http.expectOne('/api/automation/summary').flush(body);
+    flushSidebarProbes(probeOptions);
+  }
+
   it('GETs torrents and maps payloads', async () => {
     const pending = api.listTorrents();
     const req = http.expectOne('/api/qbt/torrents');
@@ -608,9 +634,9 @@ describe('HttpMediaStackApi', () => {
     await expect(seriesOnly).rejects.toThrow('series down');
   });
 
-  it('maps automation summary from nested live payload', async () => {
+  it('maps automation summary from nested live payload and probes sidebar services', async () => {
     const pending = api.getAutomationSummary();
-    http.expectOne('/api/automation/summary').flush({
+    await flushAutomationSummary({
       ok: true,
       generatedAt: '2026-07-13T12:00:00Z',
       sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
@@ -620,8 +646,10 @@ describe('HttpMediaStackApi', () => {
     });
     const summary = await pending;
     expect(summary.generatedAt).toBe('2026-07-13T12:00:00Z');
-    expect(summary.services).toHaveLength(4);
-    expect(summary.services?.every((s) => s.status === 'healthy')).toBe(true);
+    expect(summary.services).toHaveLength(6);
+    expect(summary.services.find((s) => s.id === 'jellyfin')).toMatchObject({ status: 'healthy' });
+    expect(summary.services.find((s) => s.id === 'qbittorrent')).toMatchObject({ status: 'healthy' });
+    expect(summary.services.filter((s) => ['sonarr', 'radarr', 'prowlarr', 'bazarr'].includes(s.id)).every((s) => s.status === 'healthy')).toBe(true);
   });
 
   it('keeps discover feedback PATCH separate from requestMedia POST', async () => {
@@ -684,18 +712,23 @@ describe('HttpMediaStackApi', () => {
 
   it('maps automation ok:false when nested service blocks are present', async () => {
     const pending = api.getAutomationSummary();
-    http.expectOne('/api/automation/summary').flush({
-      ok: false,
-      error: 'partial outage',
-      generatedAt: '2026-07-13T12:00:00Z',
-      sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
-      radarr: { ok: false, error: 'radarr down' },
-      prowlarr: { ok: true, indexers: 1, enabled: 1 },
-      bazarr: { ok: true, wantedEpisodes: 0, wantedMovies: 0 },
-    });
+    await flushAutomationSummary(
+      {
+        ok: false,
+        error: 'partial outage',
+        generatedAt: '2026-07-13T12:00:00Z',
+        sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
+        radarr: { ok: false, error: 'radarr down' },
+        prowlarr: { ok: true, indexers: 1, enabled: 1 },
+        bazarr: { ok: true, wantedEpisodes: 0, wantedMovies: 0 },
+      },
+      { jellyfinOk: false, qbitOk: true },
+    );
     const summary = await pending;
     expect(summary.generatedAt).toBe('2026-07-13T12:00:00Z');
     expect(summary.services?.find((s) => s.id === 'radarr')).toMatchObject({ status: 'down' });
+    expect(summary.services?.find((s) => s.id === 'jellyfin')).toMatchObject({ status: 'down' });
+    expect(summary.services?.find((s) => s.id === 'qbittorrent')).toMatchObject({ status: 'healthy' });
     expect(summary.problems?.some((p) => p.id === 'automation-global')).toBe(true);
   });
 
@@ -924,26 +957,32 @@ describe('HttpMediaStackApi', () => {
   it('rejects malformed automation summaries at the HTTP boundary', async () => {
     const primitive = api.getAutomationSummary();
     http.expectOne('/api/automation/summary').flush('nope');
+    flushSidebarProbes();
     await expect(primitive).rejects.toThrow(/Malformed automation summary/);
 
     const array = api.getAutomationSummary();
     http.expectOne('/api/automation/summary').flush([{ ok: true }]);
+    flushSidebarProbes();
     await expect(array).rejects.toThrow(/Malformed automation summary/);
 
     const emptyObject = api.getAutomationSummary();
     http.expectOne('/api/automation/summary').flush({});
+    flushSidebarProbes();
     await expect(emptyObject).rejects.toThrow(/Malformed automation summary/);
 
     const missingOk = api.getAutomationSummary();
     http.expectOne('/api/automation/summary').flush({ sonarr: { ok: true } });
+    flushSidebarProbes();
     await expect(missingOk).rejects.toThrow(/Malformed automation summary/);
 
     const okTrueNoServices = api.getAutomationSummary();
     http.expectOne('/api/automation/summary').flush({ ok: true, generatedAt: '2026-07-13T12:00:00Z' });
+    flushSidebarProbes();
     await expect(okTrueNoServices).rejects.toThrow(/Malformed automation summary/);
 
     const invalidService = api.getAutomationSummary();
     http.expectOne('/api/automation/summary').flush({ ok: true, sonarr: 'down' });
+    flushSidebarProbes();
     await expect(invalidService).rejects.toThrow(/Malformed automation summary/);
 
     const invalidGeneratedAt = api.getAutomationSummary();
@@ -952,18 +991,20 @@ describe('HttpMediaStackApi', () => {
       generatedAt: 'not-a-date',
       sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
     });
+    flushSidebarProbes();
     await expect(invalidGeneratedAt).rejects.toThrow(/invalid generatedAt/);
   });
 
   it('preserves backend error for automation ok:false without full summary', async () => {
     const pending = api.getAutomationSummary();
     http.expectOne('/api/automation/summary').flush({ ok: false, error: 'automation backend unavailable' });
+    flushSidebarProbes();
     await expect(pending).rejects.toThrow('automation backend unavailable');
   });
 
   it('accepts partial automation summaries when ok:true and some service blocks are present', async () => {
     const pending = api.getAutomationSummary();
-    http.expectOne('/api/automation/summary').flush({
+    await flushAutomationSummary({
       ok: true,
       generatedAt: '2026-07-13T12:00:00Z',
       sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
@@ -971,6 +1012,7 @@ describe('HttpMediaStackApi', () => {
     const summary = await pending;
     const sonarr = summary.services?.find((s) => s.id === 'sonarr');
     expect(sonarr).toMatchObject({ status: 'healthy' });
+    expect(summary.services?.find((s) => s.id === 'jellyfin')).toMatchObject({ status: 'healthy' });
     expect(summary.generatedAt).toBe('2026-07-13T12:00:00Z');
   });
 

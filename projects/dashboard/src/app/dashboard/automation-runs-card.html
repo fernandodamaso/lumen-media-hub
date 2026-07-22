@@ -17,9 +17,9 @@
       @for (i of skeletonRows; track i) {
         <div class="run-row run-row--skeleton">
           <mm-skeleton variant="text" width="120px" height="14px" />
-          <mm-skeleton variant="text" width="70px" height="14px" />
           <mm-skeleton variant="text" width="60%" height="14px" />
           <mm-skeleton variant="text" width="50px" height="14px" />
+          <mm-skeleton variant="text" width="70px" height="14px" />
         </div>
       }
     </div>
@@ -34,9 +34,9 @@
       <div class="runs-table__head" role="rowgroup">
         <div class="run-row run-row--head" role="row">
           <span role="columnheader">Job</span>
-          <span role="columnheader">Status</span>
           <span role="columnheader">Details</span>
           <span role="columnheader">Time</span>
+          <span role="columnheader">Status</span>
         </div>
       </div>
       <div class="runs-table__body" role="rowgroup">
@@ -46,14 +46,14 @@
               <span class="run-job">{{ run.jobTitle }}</span>
               <span class="run-job-meta">{{ jobMeta(run) }}</span>
             </div>
-            <div class="run-cell run-cell--status" role="cell">
-              <mm-status [tone]="statusView(run.status).tone">{{ statusView(run.status).label }}</mm-status>
-            </div>
             <div class="run-cell run-cell--details" role="cell">
               {{ run.detail || run.fatal || '—' }}
             </div>
             <div class="run-cell run-cell--time" role="cell">
               {{ formatRelativeTime(run.timestamp) }}
+            </div>
+            <div class="run-cell run-cell--status" role="cell">
+              <mm-status [tone]="statusView(run.status).tone">{{ statusView(run.status).label }}</mm-status>
             </div>
           </div>
         }

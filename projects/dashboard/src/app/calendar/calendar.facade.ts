@@ -59,12 +59,16 @@ export class CalendarFacade {
     try {
       const rawEvents = await this.api.listCalendarEvents(options.signal);
       if (requestId !== this.requestId) return;
-      const library = await this.loadLibrary(options.signal);
+      const [library, posters] = await Promise.all([
+        this.loadLibrary(options.signal),
+        this.loadPosterArtByTitle(options.signal),
+      ]);
       if (requestId !== this.requestId) return;
       const events = [...rawEvents]
         .sort(compareCalendarEvents)
         .map((event) => ({
           ...event,
+          art: posters.get(event.title.trim().toLowerCase()) ?? event.art,
           href: resolveCalendarLink(event.title, library, this.linkBases, event.kind),
         }));
       // Abort after enrichment must not commit, or the scheduled timeout path would wipe a false success.
@@ -90,6 +94,24 @@ export class CalendarFacade {
         throw error;
       }
       return { ok: false, series: {}, movies: {} };
+    }
+  }
+
+  private async loadPosterArtByTitle(signal?: AbortSignal): Promise<Map<string, string>> {
+    try {
+      const result = await this.api.listLibraryItems(undefined, signal);
+      const posters = new Map<string, string>();
+      for (const item of result.items) {
+        const key = item.title.trim().toLowerCase();
+        if (!key || !item.art?.trim()) continue;
+        if (!posters.has(key)) posters.set(key, item.art);
+      }
+      return posters;
+    } catch (error: unknown) {
+      if (signal?.aborted || isAbortError(error)) {
+        throw error;
+      }
+      return new Map();
     }
   }
 

@@ -29,42 +29,23 @@
 
 .home-grid {
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 5fr) minmax(0, 3fr) minmax(0, 4fr);
   gap: 20px;
   align-items: start;
 }
 
-.home-grid__downloads {
-  grid-column: 1 / span 5;
-  grid-row: 1;
+.home-grid__col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
   min-width: 0;
-  container-type: inline-size;
 }
 
-.home-grid__runs {
-  grid-column: 1 / span 5;
-  grid-row: 2;
-  min-width: 0;
-  container-type: inline-size;
-}
-
-.home-grid__calendar {
-  grid-column: 6 / span 3;
-  grid-row: 1 / span 2;
-  min-width: 0;
-  container-type: inline-size;
-}
-
-.home-grid__health {
-  grid-column: 9 / span 4;
-  grid-row: 1;
-  min-width: 0;
-  container-type: inline-size;
-}
-
+.home-grid__downloads,
+.home-grid__runs,
+.home-grid__calendar,
+.home-grid__health,
 .home-grid__storage {
-  grid-column: 9 / span 4;
-  grid-row: 2;
   min-width: 0;
   container-type: inline-size;
 }
@@ -73,7 +54,7 @@
   min-width: 0;
 }
 
-.home-grid > .region > * {
+.home-grid .region > * {
   display: block;
   height: 100%;
 }
@@ -84,10 +65,6 @@
   }
   .home-grid {
     grid-template-columns: 1fr;
-  }
-  .home-grid > * {
-    grid-column: 1;
-    grid-row: auto;
   }
 }
 

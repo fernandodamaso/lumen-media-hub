@@ -37,12 +37,20 @@ describe('ServiceHealthFacade', () => {
     expect(facade.status()).toBe('ready');
     expect(facade.services()).toHaveLength(1);
     expect(facade.generatedAt()).toBe('2026-07-12T18:00:00Z');
+    expect(facade.lastFetchedAt()).toBeTruthy();
     expect(facade.error()).toBe('');
 
     api.summary = emptySummary;
     await facade.refresh();
     expect(facade.status()).toBe('empty');
     expect(facade.generatedAt()).toBe('2026-07-12T19:00:00Z');
+  });
+
+  it('records lastFetchedAt even when the backend omits generatedAt', async () => {
+    api.summary = { ...healthySummary, generatedAt: '' };
+    await facade.refresh({ initial: true });
+    expect(facade.generatedAt()).toBe('');
+    expect(facade.lastFetchedAt()).toBeTruthy();
   });
 
   it('surfaces exclusive error on initial load failure', async () => {

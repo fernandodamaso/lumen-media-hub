@@ -2,8 +2,8 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { LucideCalendarDays, LucideChevronRight, LucideExternalLink } from '@lucide/angular';
 import { MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { SERVICE_LINK_BASES, ServiceLinkBases } from '../media-stack/media-stack-api.providers';
-import { CalendarEventStatus, CalendarMediaKind } from './calendar.models';
-import { CALENDAR_KIND_VIEW, CALENDAR_STATUS_VIEW } from './calendar-format';
+import { CalendarMediaKind } from './calendar.models';
+import { CALENDAR_KIND_VIEW } from './calendar-format';
 import { CalendarFacade } from './calendar.facade';
 
 @Component({
@@ -40,10 +40,6 @@ export class CalendarBoard {
 
   kindLabel(kind: CalendarMediaKind): string {
     return CALENDAR_KIND_VIEW[kind].label;
-  }
-
-  statusView(status: CalendarEventStatus) {
-    return CALENDAR_STATUS_VIEW[status];
   }
 
   retry(): void {

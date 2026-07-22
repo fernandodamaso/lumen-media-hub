@@ -20,7 +20,7 @@ import {
   LibraryListResult,
   LibraryStats,
 } from '../library/library.models';
-import { AutomationSummary } from '../automation/automation.models';
+import { AutomationService, AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
 import { MediaStackApi } from './media-stack-api';
@@ -165,8 +165,10 @@ export class HttpMediaStackApi implements MediaStackApi {
     return { items: [...movies, ...series], availability };
   }
 
-  getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary> {
-    return this.getRaw<unknown>('/automation/summary', signal).then((data) => {
+  async getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary> {
+    const probesPromise = this.probeSidebarServices(signal);
+    try {
+      const data = await this.getRaw<unknown>('/automation/summary', signal);
       const envelope = requireSoftEnvelope<OkEnvelope & Partial<LiveAutomationSummary>>(
         data,
         'Malformed automation summary response',
@@ -180,8 +182,49 @@ export class HttpMediaStackApi implements MediaStackApi {
           }
         },
       );
-      return mapAutomationSummary(mapLiveAutomationSummary(envelope as LiveAutomationSummary));
-    });
+      const summary = mapAutomationSummary(mapLiveAutomationSummary(envelope as LiveAutomationSummary));
+      const extras = await probesPromise;
+      return {
+        ...summary,
+        services: [...summary.services, ...extras],
+      };
+    } catch (error) {
+      // Settle probes so a failed summary does not leave in-flight sidebar checks hanging.
+      await probesPromise.catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** Soft-probe Jellyfin / qBittorrent so sidebar dots are API-driven (not stuck unknown). */
+  private async probeSidebarServices(signal?: AbortSignal): Promise<AutomationService[]> {
+    const [jellyfin, qbittorrent] = await Promise.all([
+      this.probeReachableService('jellyfin', 'Jellyfin', '/jellyfin/series', signal),
+      this.probeReachableService('qbittorrent', 'qBittorrent', '/qbt/torrents', signal),
+    ]);
+    return [jellyfin, qbittorrent];
+  }
+
+  private async probeReachableService(
+    id: string,
+    name: string,
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<AutomationService> {
+    try {
+      await this.getRaw<unknown>(path, signal);
+      return { id, name, status: 'healthy', detail: 'Reachable', latencyMs: null };
+    } catch (error) {
+      if (signal?.aborted || isAbortError(error)) {
+        throw error;
+      }
+      return {
+        id,
+        name,
+        status: 'down',
+        detail: error instanceof Error ? error.message : 'Unavailable',
+        latencyMs: null,
+      };
+    }
   }
 
   getStorageOverview(signal?: AbortSignal): Promise<StorageOverview> {

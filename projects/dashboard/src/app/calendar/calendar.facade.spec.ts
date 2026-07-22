@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { ArrLibrary, CALENDAR_LINK_BASES, CalendarEvent } from './calendar.models';
+import { LibraryItem } from '../library/library.models';
 import { CalendarFacade, SCHEDULED_REFRESH_TIMEOUT_MS } from './calendar.facade';
 
 describe('CalendarFacade', () => {
@@ -274,6 +275,50 @@ describe('CalendarFacade', () => {
     vi.useRealTimers();
   });
 
+  it('enriches event art from library posters by title and keeps gradients when unmatched', async () => {
+    api.libraryItems = [
+      {
+        id: 'jf-1',
+        title: 'Cowboy Bebop',
+        kind: 'series',
+        meta: '1998 · Series',
+        art: 'url("https://jellyfin.example/bebop.jpg") center / cover no-repeat',
+        overview: '',
+        href: null,
+        artworkState: 'ok',
+        playable: true,
+      },
+    ];
+    api.events = api.events.map((event) => ({
+      ...event,
+      art: 'linear-gradient(145deg, #111, #000 70%)',
+    }));
+    await facade.refresh({ initial: true });
+    const byTitle = new Map(facade.events().map((event) => [event.title, event.art]));
+    expect(byTitle.get('Cowboy Bebop')).toBe(
+      'url("https://jellyfin.example/bebop.jpg") center / cover no-repeat',
+    );
+    expect(byTitle.get('Dune')).toContain('linear-gradient');
+  });
+
+  it('keeps gradient art when library item load fails without aborting', async () => {
+    api.libraryItemsFailure = true;
+    api.events = [
+      {
+        id: 'Cowboy Bebop-S1 E5-2026-07-12T18:00:00Z',
+        time: 'Jul 12',
+        kind: 'episode',
+        title: 'Cowboy Bebop',
+        subtitle: 'S1 E5',
+        status: 'pending',
+        airDate: '2026-07-12T18:00:00Z',
+        art: 'linear-gradient(145deg, #111, #000 70%)',
+      },
+    ];
+    await facade.refresh({ initial: true });
+    expect(facade.events()[0]?.art).toContain('linear-gradient');
+  });
+
   it('refreshes on one interval and stops polling when destroyed', async () => {
     vi.useFakeTimers();
     facade.startPolling(100);
@@ -327,6 +372,8 @@ class MockApi implements MediaStackApi {
   calendarCalls = 0;
   failure = false;
   libraryFailure = false;
+  libraryItems: LibraryItem[] = [];
+  libraryItemsFailure = false;
   nextResponse?: Promise<CalendarEvent[]>;
   nextLibrary?: Promise<ArrLibrary>;
   lastSignal?: AbortSignal;
@@ -426,8 +473,13 @@ class MockApi implements MediaStackApi {
           movies: { ...this.library.movies },
         });
   }
-  listLibraryItems() {
-    return Promise.resolve({ items: [], availability: 'complete' as const });
+  listLibraryItems(_filter?: unknown, signal?: AbortSignal) {
+    if (signal?.aborted) {
+      return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+    }
+    return this.libraryItemsFailure
+      ? Promise.reject(new Error('library offline'))
+      : Promise.resolve({ items: this.libraryItems.map((item) => ({ ...item })), availability: 'complete' as const });
   }
   getAutomationSummary() {
     return Promise.resolve({

@@ -17,6 +17,7 @@ export class ServiceHealthFacade {
   private readonly _summary = signal<AutomationSummary | null>(null);
   private readonly _error = signal('');
   private readonly _refreshing = signal(false);
+  private readonly _lastFetchedAt = signal('');
   private requestId = 0;
   private scheduledInFlight = false;
   private pollHandle?: ReturnType<typeof setInterval>;
@@ -27,6 +28,7 @@ export class ServiceHealthFacade {
   readonly summary = this._summary.asReadonly();
   readonly error = this._error.asReadonly();
   readonly refreshing = this._refreshing.asReadonly();
+  readonly lastFetchedAt = this._lastFetchedAt.asReadonly();
   readonly services = computed(() => this._summary()?.services ?? []);
   readonly problems = computed(() => this._summary()?.problems ?? []);
   readonly generatedAt = computed(() => this._summary()?.generatedAt ?? '');
@@ -54,6 +56,7 @@ export class ServiceHealthFacade {
       const summary = await this.api.getAutomationSummary(options.signal);
       if (requestId !== this.requestId) return false;
       this._summary.set(summary);
+      this._lastFetchedAt.set(new Date().toISOString());
       this._error.set('');
       this._status.set(summary.services.length ? 'ready' : 'empty');
       return true;

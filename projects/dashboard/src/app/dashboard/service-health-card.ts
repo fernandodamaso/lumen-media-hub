@@ -28,9 +28,13 @@ export class ServiceHealthCard {
   }
 
   statusDetail(service: AutomationService): string {
-    if (typeof service.latencyMs === 'number') return `${service.latencyMs} ms`;
+    if (service.status === 'healthy') {
+      if (typeof service.latencyMs === 'number') return `${service.latencyMs} ms`;
+      return service.detail || 'Healthy';
+    }
+    if (service.status === 'degraded') return service.detail || 'Needs attention';
     if (service.status === 'down' || service.status === 'unknown') return service.detail || 'Unavailable';
-    return 'Healthy';
+    return service.detail || 'Healthy';
   }
 
   serviceHref(id: string): string | null {

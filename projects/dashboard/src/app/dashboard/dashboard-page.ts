@@ -53,8 +53,10 @@ export class DashboardPage {
 
   readonly syncedAt = computed(() => {
     const generatedAt = this.health.generatedAt();
-    // Do not invent "just now" when the backend omitted freshness.
-    return generatedAt ? formatRelativeTime(generatedAt) : '';
+    // Prefer backend freshness; fall back to last successful client fetch.
+    if (generatedAt) return formatRelativeTime(generatedAt);
+    const lastFetchedAt = this.health.lastFetchedAt();
+    return lastFetchedAt ? formatRelativeTime(lastFetchedAt) : '';
   });
 
   readonly libraryTotal = computed(() => {
@@ -81,13 +83,6 @@ export class DashboardPage {
   readonly downloadsMeta = computed(() => {
     const active = this.downloads.summary().active;
     return active === 1 ? '1 active download' : `${active} active downloads`;
-  });
-
-  readonly servicesMeta = computed(() => {
-    const services = this.health.services();
-    const total = services.length;
-    const healthy = services.filter((service) => service.status === 'healthy').length;
-    return `${healthy} / ${total} healthy`;
   });
 
   readonly servicesStatus = computed(() => {
@@ -117,11 +112,23 @@ export class DashboardPage {
   });
 
   readonly attentionHeadline = computed(() => {
-    const count = this.health.problems().length;
-    return `${count} item${count === 1 ? '' : 's'} need attention`;
+    const actionable = this.health.health().actionableCount;
+    if (actionable > 0) {
+      return `${actionable} item${actionable === 1 ? '' : 's'} need attention`;
+    }
+    const troubled = this.health
+      .services()
+      .filter((service) => service.status === 'down' || service.status === 'degraded').length;
+    return `${troubled} item${troubled === 1 ? '' : 's'} need attention`;
   });
 
   readonly attentionMessage = computed(() => {
+    const problems = this.health.problems();
+    if (problems.length) {
+      const top = problems.slice(0, 3).map((problem) => problem.summary);
+      const remaining = problems.length - top.length;
+      return remaining > 0 ? `${top.join(' · ')} · +${remaining} more` : top.join(' · ');
+    }
     const down = this.health.services()
       .filter((service) => service.status === 'down')
       .map((service) => service.name);

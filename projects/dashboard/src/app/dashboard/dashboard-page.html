@@ -61,19 +61,25 @@
 }
 
 <div class="home-grid" data-testid="home-grid">
-  <div class="home-grid__downloads region" id="downloads-region" data-region="downloads">
-    <mm-downloads-board />
+  <div class="home-grid__col home-grid__col--main">
+    <div class="home-grid__downloads region" id="downloads-region" data-region="downloads">
+      <mm-downloads-board />
+    </div>
+    <div class="home-grid__runs region" id="runs-region" data-region="runs">
+      <mm-automation-runs-card />
+    </div>
   </div>
-  <div class="home-grid__runs region" id="runs-region" data-region="runs">
-    <mm-automation-runs-card />
+  <div class="home-grid__col home-grid__col--side">
+    <div class="home-grid__health region" id="service-health-region" data-region="service-health">
+      <mm-service-health-card />
+    </div>
+    <div class="home-grid__storage region" id="storage-region" data-region="storage">
+      <mm-storage-card />
+    </div>
   </div>
-  <div class="home-grid__calendar region" id="calendar-region" data-region="calendar">
-    <mm-calendar-board />
-  </div>
-  <div class="home-grid__health region" id="service-health-region" data-region="service-health">
-    <mm-service-health-card />
-  </div>
-  <div class="home-grid__storage region" id="storage-region" data-region="storage">
-    <mm-storage-card />
+  <div class="home-grid__col home-grid__col--calendar">
+    <div class="home-grid__calendar region" id="calendar-region" data-region="calendar">
+      <mm-calendar-board />
+    </div>
   </div>
 </div>

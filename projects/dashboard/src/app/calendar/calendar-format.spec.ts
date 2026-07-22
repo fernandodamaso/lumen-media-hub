@@ -25,7 +25,7 @@ describe('calendar format / calendar mapping', () => {
     expect(CALENDAR_STATUS_VIEW.available).toEqual({ label: 'Available', tone: 'success' });
     expect(CALENDAR_STATUS_VIEW.monitored).toEqual({ label: 'Monitored', tone: 'info' });
     expect(CALENDAR_STATUS_VIEW.premiere).toEqual({ label: 'Premiere', tone: 'premiere' });
-    expect(CALENDAR_STATUS_VIEW.pending).toEqual({ label: 'Upcoming', tone: 'warning' });
+    expect(CALENDAR_STATUS_VIEW.pending).toEqual({ label: 'Soon', tone: 'warning' });
   });
 
   it('derives status from file, monitored, and premiere indicators when missing', () => {

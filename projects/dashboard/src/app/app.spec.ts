@@ -5,6 +5,7 @@ import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { App } from './app';
 import { routes } from './app.routes';
+import { ServiceHealthFacade } from './automation/service-health.facade';
 import { MEDIA_STACK_API } from './media-stack/media-stack-api';
 import { MockMediaStackApi } from './media-stack/mock-media-stack-api';
 
@@ -27,6 +28,24 @@ describe('App shell', () => {
     expect(fixture.nativeElement.querySelector('router-outlet')).toBeTruthy();
   });
 
+  it('overlays sidebar service status from live health and leaves untracked services unknown', async () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.services().every((service) => service.status === 'unknown')).toBe(true);
+    expect(fixture.nativeElement.querySelector('.service-dot--unknown')).toBeTruthy();
+
+    const health = TestBed.inject(ServiceHealthFacade);
+    await health.refresh({ initial: true });
+    fixture.detectChanges();
+
+    const byName = new Map(fixture.componentInstance.services().map((service) => [service.name, service]));
+    expect(byName.get('Sonarr')?.status).toBe('healthy');
+    expect(byName.get('Prowlarr')?.status).toBe('degraded');
+    expect(byName.get('SABnzbd')?.status).toBe('offline');
+    expect(byName.get('Jellyfin')?.status).toBe('healthy');
+    expect(byName.get('qBittorrent')?.status).toBe('healthy');
+  });
+
   it('conditionally includes SABnzbd based on environment.useLiveApi', () => {
     const fixture = TestBed.createComponent(App);
     // The App component's services array is built at class-load time:
@@ -34,7 +53,7 @@ describe('App shell', () => {
     // When useLiveApi is true (Live), it is excluded.
     // This test verifies the conditional exists and fires correctly
     // in the default (Demo) configuration.
-    const names = fixture.componentInstance.services.map((s) => s.name);
+    const names = fixture.componentInstance.services().map((s) => s.name);
     expect(names).toContain('SABnzbd');
     // Live-mode exclusion is compile-time verified by the build:live
     // configuration which file-replaces environment.ts with

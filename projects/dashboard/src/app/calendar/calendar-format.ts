@@ -61,7 +61,7 @@ export const CALENDAR_STATUS_VIEW: Record<CalendarEventStatus, { label: string; 
   available: { label: 'Available', tone: 'success' },
   monitored: { label: 'Monitored', tone: 'info' },
   premiere: { label: 'Premiere', tone: 'premiere' },
-  pending: { label: 'Upcoming', tone: 'warning' },
+  pending: { label: 'Soon', tone: 'warning' },
 };
 
 export const mapCalendarEvent = (event: MediaStackCalendarEventDto): CalendarEvent => {

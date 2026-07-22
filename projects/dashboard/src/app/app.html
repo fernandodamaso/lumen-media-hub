@@ -27,7 +27,7 @@
 
       <div class="sidebar__services">
         <span class="nav-label nav-label-spaced">Services</span>
-        @for (service of services; track service.id) {
+        @for (service of services(); track service.id) {
           <a
             class="service-link"
             [href]="service.href"
@@ -42,6 +42,7 @@
               [class.service-dot--healthy]="service.status === 'healthy'"
               [class.service-dot--degraded]="service.status === 'degraded'"
               [class.service-dot--offline]="service.status === 'offline'"
+              [class.service-dot--unknown]="service.status === 'unknown'"
               aria-hidden="true"
             ></span>
           </a>

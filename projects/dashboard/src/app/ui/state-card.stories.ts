@@ -65,12 +65,12 @@ export const ErrorState: Story = {
       </mm-state-card>
     </div>`,
   }),
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     if (!canvasElement.querySelector('.mm-state-card--danger')) {
       throw new Error('Error state card is missing its danger tone');
     }
     const retry = [...canvasElement.querySelectorAll('button')].find(
-      (button) => button.textContent?.trim() === 'Retry',
+      (button) => button.textContent.trim() === 'Retry',
     );
     if (!retry) throw new Error('Retry action was not rendered on the error state card');
     retry.focus({ focusVisible: true });
@@ -93,14 +93,14 @@ export const States: Story = {
       </mm-state-card>
     </div>`,
   }),
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const cards = canvasElement.querySelectorAll('.mm-state-card');
     if (cards.length !== 3) throw new Error(`Expected 3 state cards, found ${cards.length}`);
     if (!canvasElement.querySelector('.mm-state-card--danger')) {
       throw new Error('Error state card is missing its danger tone');
     }
     const retry = [...canvasElement.querySelectorAll('button')].find(
-      (button) => button.textContent?.trim() === 'Retry',
+      (button) => button.textContent.trim() === 'Retry',
     );
     if (!retry) throw new Error('Retry action was not rendered on the error state card');
     retry.focus({ focusVisible: true });

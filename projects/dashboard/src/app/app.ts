@@ -4,7 +4,12 @@ import { LucideCompass, LucideFileText, LucideLayoutDashboard } from '@lucide/an
 import { MmThemePicker, ThemeService } from '@app/ui';
 
 import { AutomationServiceStatus } from './automation/automation.models';
+import {
+  resolveServiceHref,
+  visibleServiceCatalog,
+} from './automation/service-catalog';
 import { ServiceHealthFacade } from './automation/service-health.facade';
+import { SERVICE_LINK_BASES } from './media-stack/media-stack-api.providers';
 import { environment } from '../environments/environment';
 
 type ServiceStatus = 'healthy' | 'degraded' | 'offline' | 'unknown';
@@ -35,22 +40,16 @@ const STATUS_LABEL: Record<ServiceStatus, string> = {
 export class App {
   readonly themeService = inject(ThemeService);
   private readonly health = inject(ServiceHealthFacade);
+  private readonly linkBases = inject(SERVICE_LINK_BASES);
   readonly modeLabel = environment.modeLabel;
 
-  private readonly serviceCatalog: Omit<ServiceNavItem, 'status' | 'statusLabel'>[] = (() => {
-    const items: Omit<ServiceNavItem, 'status' | 'statusLabel'>[] = [
-      { id: 'jellyfin', name: 'Jellyfin', initial: 'J', href: null },
-      { id: 'sonarr', name: 'Sonarr', initial: 'S', href: null },
-      { id: 'radarr', name: 'Radarr', initial: 'R', href: null },
-      { id: 'prowlarr', name: 'Prowlarr', initial: 'P', href: null },
-      { id: 'qbittorrent', name: 'qBittorrent', initial: 'q', href: null },
-      { id: 'bazarr', name: 'Bazarr', initial: 'B', href: null },
-    ];
-    if (!environment.useLiveApi) {
-      items.splice(4, 0, { id: 'sabnzbd', name: 'SABnzbd', initial: 'S', href: null });
-    }
-    return items;
-  })();
+  private readonly serviceCatalog: Omit<ServiceNavItem, 'status' | 'statusLabel'>[] =
+    visibleServiceCatalog(environment.useLiveApi).map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      initial: entry.initial,
+      href: resolveServiceHref(entry.id, this.linkBases),
+    }));
 
   readonly services = computed(() => {
     const liveById = new Map(this.health.services().map((service) => [service.id, service]));

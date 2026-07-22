@@ -2,7 +2,7 @@
 export interface MediaStackLibraryItemDto {
   id: string;
   title: string;
-  kind: 'movie' | 'series' | string;
+  kind: string;
   year?: number;
   overview?: string;
   posterUrl?: string;
@@ -11,7 +11,7 @@ export interface MediaStackLibraryItemDto {
   rating?: number | null;
 }
 
-/** Raw library stats payload from GET /jellyfin/stats. */
+/** Aggregate library counts derived from Jellyfin movie/series list responses. */
 export interface MediaStackLibraryStatsDto {
   ok?: boolean;
   /** Required finite counts when ok:true — missing must not coerce to 0 as success. */

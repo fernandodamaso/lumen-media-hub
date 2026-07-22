@@ -34,7 +34,7 @@ export default meta;
 type Story = StoryObj<StatusArgs>;
 
 export const Default: Story = {
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const status = canvasElement.querySelector('.mm-status');
     if (!status) throw new Error('Status was not rendered');
     if (status.getAttribute('role') === 'status') {
@@ -57,10 +57,10 @@ export const Danger: Story = {
 
 export const Announcing: Story = {
   args: { tone: 'warning', label: 'Queue updated', announce: true },
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const live = canvasElement.querySelectorAll('[role="status"]');
     if (live.length !== 1) throw new Error(`Expected one live region, found ${live.length}`);
-    if (!live[0]?.classList.contains('mm-status')) {
+    if (!live[0].classList.contains('mm-status')) {
       throw new Error('Opt-in announce must use the status chip as the live region');
     }
   },
@@ -77,7 +77,7 @@ export const Tones: Story = {
       <mm-status tone="premiere">Premiere</mm-status>
     </div>`,
   }),
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const statuses = canvasElement.querySelectorAll('.mm-status');
     if (statuses.length !== 5) throw new Error(`Expected 5 status chips, found ${statuses.length}`);
     if (canvasElement.querySelectorAll('[role="status"]').length !== 0) {

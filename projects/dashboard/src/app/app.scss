@@ -74,8 +74,8 @@
   border-radius: 0 999px 999px 0;
   background: var(--mm-component-accent-strong);
 }
-.sidebar__services a:not([href]) { cursor: default; }
 .sidebar__services .service-link { padding-block: 5px; margin: 0; }
+.sidebar__services .service-link--inert { cursor: default; }
 .service-mark {
   display: grid;
   place-items: center;
@@ -133,8 +133,7 @@
     height: auto;
     gap: 4px;
     padding: 8px 24px;
-    overflow-x: auto;
-    overflow-y: visible;
+    overflow: auto visible;
     border-right: 0;
     border-bottom: 1px solid var(--mm-component-border);
     -webkit-mask-image: linear-gradient(90deg, #000 94%, transparent);
@@ -161,5 +160,5 @@
 }
 
 @media (pointer: coarse) {
-  .brand, .sidebar__nav a, .sidebar__services a { min-height: 44px; }
+  .brand, .sidebar__nav a, .sidebar__services .service-link { min-height: 44px; }
 }

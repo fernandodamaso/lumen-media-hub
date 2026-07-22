@@ -55,7 +55,7 @@ export const Variants: Story = {
       <mm-skeleton variant="circle" width="48px" height="48px" />
     </div>`,
   }),
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const skeletons = canvasElement.querySelectorAll('.mm-skeleton');
     if (skeletons.length !== 4) throw new Error(`Expected 4 skeletons, found ${skeletons.length}`);
     for (const skeleton of skeletons) {

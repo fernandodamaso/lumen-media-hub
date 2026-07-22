@@ -1,10 +1,10 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { LucideAlertTriangle, LucideChevronRight } from '@lucide/angular';
+import { LucideChevronRight, LucideTriangleAlert } from '@lucide/angular';
 
 @Component({
   selector: 'mm-attention-banner',
-  imports: [RouterLink, LucideAlertTriangle, LucideChevronRight],
+  imports: [RouterLink, LucideTriangleAlert, LucideChevronRight],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './attention-banner.html',
   styleUrl: './attention-banner.scss',

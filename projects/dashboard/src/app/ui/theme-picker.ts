@@ -22,7 +22,7 @@ export class MmThemePicker {
   private savedTimeout?: ReturnType<typeof setTimeout>;
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.clearSavedTimeout());
+    this.destroyRef.onDestroy(() => { this.clearSavedTimeout(); });
   }
 
   select(event: Event): void {
@@ -34,7 +34,7 @@ export class MmThemePicker {
   private flashSaved(): void {
     this.clearSavedTimeout();
     this.justSaved.set(true);
-    this.savedTimeout = setTimeout(() => this.justSaved.set(false), 1500);
+    this.savedTimeout = setTimeout(() => { this.justSaved.set(false); }, 1500);
   }
 
   private clearSavedTimeout(): void {

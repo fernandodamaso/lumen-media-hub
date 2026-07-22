@@ -59,7 +59,7 @@ describe('ReportsPage', () => {
     expect(actionableList?.textContent).toContain('Watchdog');
     expect(quietSection.open).toBe(false);
 
-    const firstActionable = actionableList?.querySelector('.run') as HTMLElement;
+    const firstActionable = actionableList?.querySelector('.run') as HTMLElement | null;
     expect(firstActionable?.textContent).toContain('Watchdog');
   });
 
@@ -152,8 +152,8 @@ function createFacade() {
 }
 
 function findButton(label: string): HTMLButtonElement {
-  const buttons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
-  const match = buttons.find((button) => button.textContent?.includes(label));
+  const buttons = Array.from(document.querySelectorAll('button'));
+  const match = buttons.find((button) => button.textContent.includes(label));
   if (!match) throw new Error(`Button not found: ${label}`);
   return match;
 }

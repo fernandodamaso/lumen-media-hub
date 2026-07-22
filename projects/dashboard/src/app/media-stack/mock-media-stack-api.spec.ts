@@ -106,7 +106,8 @@ describe('MockMediaStackApi', () => {
 
   it('keeps feedback mutation isolated from request fields', async () => {
     const api = new MockMediaStackApi();
-    const before = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible')!;
+    const before = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible');
+    if (!before) throw new Error('hermes-eligible missing before feedback');
     const requestSnapshot = {
       request_state: before.request_state,
       requested_at: before.requested_at,
@@ -116,7 +117,8 @@ describe('MockMediaStackApi', () => {
     const result = await api.submitHermesFeedback('hermes-eligible', 'liked');
     expect(result.ok).toBe(true);
 
-    const after = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible')!;
+    const after = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible');
+    if (!after) throw new Error('hermes-eligible missing after feedback');
     expect(after.feedback).toBe('liked');
     expect(after.feedback_at).toBeTruthy();
     expect(after.active).toBe(false);
@@ -127,14 +129,16 @@ describe('MockMediaStackApi', () => {
 
   it('requestMedia updates request fields without touching feedback', async () => {
     const api = new MockMediaStackApi();
-    const before = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible')!;
+    const before = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible');
+    if (!before) throw new Error('hermes-eligible missing before request');
     expect(before.feedback).toBeNull();
 
     const result = await api.requestMedia({ mediaType: 'movie', mediaId: 101001, hermesId: 'hermes-eligible' });
     expect(result.ok).toBe(true);
     expect(result.dashboard_state_persisted).toBe(true);
 
-    const after = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible')!;
+    const after = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible');
+    if (!after) throw new Error('hermes-eligible missing after request');
     expect(after.request_state).toBe('requested');
     expect(after.requested_at).toBeTruthy();
     expect(after.jellyseerr_request_id).toBeTruthy();
@@ -149,7 +153,8 @@ describe('MockMediaStackApi', () => {
     expect(result.dashboard_state_persisted).toBe(false);
     expect(result.partial_success).toBe(true);
 
-    const after = (await api.listHermesRecommendations()).items.find((item) => item.id === MOCK_SYNC_FAILED_HERMES_ID)!;
+    const after = (await api.listHermesRecommendations()).items.find((item) => item.id === MOCK_SYNC_FAILED_HERMES_ID);
+    if (!after) throw new Error('sync-failed hermes item missing');
     expect(after.request_state).toBeNull();
     expect(after.jellyseerr_request_id).toBeTruthy();
   });
@@ -262,9 +267,10 @@ describe('MockMediaStackApi', () => {
     const api: MediaStackApi = new MockMediaStackApi();
     const storage = await api.getStorageOverview();
     expect(storage.generatedAt).toBeTruthy();
-    expect(storage.volumes.map((volume) => volume.kind)).toEqual(['library', 'downloads', 'cache']);
+    expect(storage.volumes.map((volume) => volume.kind)).toEqual(['library']);
     const library = storage.volumes[0];
-    expect(library.label).toBe('Media library');
+    expect(library.id).toBe('media-volume');
+    expect(library.label).toBe('Media volume (/data)');
     expect(library.usedBytes).toBeGreaterThan(4.5 * 1024 ** 4);
     expect(library.usedBytes).toBeLessThan(library.totalBytes);
 

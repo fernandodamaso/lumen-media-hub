@@ -89,15 +89,15 @@ describe('CalendarBoard', () => {
     expect(text).toContain('TODAY');
     expect(text).toContain('TOMORROW');
 
-    const links = Array.from(fixture.nativeElement.querySelectorAll('a.cal-link')) as HTMLAnchorElement[];
+    const links: HTMLAnchorElement[] = Array.from(fixture.nativeElement.querySelectorAll('a.cal-link'));
     expect(links).toHaveLength(2);
     expect(links[0].getAttribute('href')).toBe('http://localhost:8989/series/cowboy-bebop');
     expect(links[0].getAttribute('target')).toBe('_blank');
     expect(links[0].getAttribute('rel')).toBe('noreferrer');
     expect(links[1].getAttribute('href')).toBe('http://localhost:7878/movie/dune-2021');
 
-    const unmatched = Array.from(fixture.nativeElement.querySelectorAll('.cal-title')) as HTMLElement[];
-    const night = unmatched.find((node) => node.textContent?.includes('Night Transit'));
+    const unmatched: HTMLElement[] = Array.from(fixture.nativeElement.querySelectorAll('.cal-title'));
+    const night = unmatched.find((node) => node.textContent.includes('Night Transit'));
     expect(night?.tagName.toLowerCase()).toBe('span');
     expect(fixture.nativeElement.querySelector('.cal-list')?.getAttribute('aria-live')).toBe('polite');
   });
@@ -110,9 +110,10 @@ describe('CalendarBoard', () => {
   });
 
   function findButton(label: string): HTMLButtonElement {
-    return (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find(
-      (button) => button.textContent?.includes(label),
-    ) as HTMLButtonElement;
+    const buttons: HTMLButtonElement[] = Array.from(fixture.nativeElement.querySelectorAll('button'));
+    const match = buttons.find((button) => button.textContent.includes(label));
+    if (!match) throw new Error(`Button not found: ${label}`);
+    return match;
   }
 });
 
@@ -120,7 +121,7 @@ function createFacade() {
   const status = signal<CalendarStatus>('loading');
   const events = signal<CalendarRailEvent[]>([]);
   const error = signal('');
-  const refresh = vi.fn(async () => status.set('ready'));
+  const refresh = vi.fn(() => { status.set('ready'); return Promise.resolve(); });
   return {
     status,
     events,
@@ -133,6 +134,6 @@ function createFacade() {
 
 function componentStyles(): string {
   return Array.from(document.querySelectorAll('style'))
-    .map((node) => node.textContent ?? '')
+    .map((node) => node.textContent)
     .join('\n');
 }

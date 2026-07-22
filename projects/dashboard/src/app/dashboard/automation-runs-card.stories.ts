@@ -88,7 +88,7 @@ export const Loading: Story = {
   }),
 };
 
-export const Error: Story = {
+export const ErrorState: Story = {
   render: () => ({
     moduleMetadata: {
       providers: [{ provide: AutomationFacade, useValue: createFacade('error', [], 'Automation runs are temporarily unavailable. Try again.') }],

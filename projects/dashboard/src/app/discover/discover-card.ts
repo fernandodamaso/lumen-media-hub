@@ -33,7 +33,7 @@ export class DiscoverCard {
   readonly syncFailed = input(false);
   readonly busy = input(false);
   readonly feedback = output<DiscoverFeedback>();
-  readonly request = output<void>();
+  readonly request = output();
 
   readonly feedbackOptions = FEEDBACK_OPTIONS;
 

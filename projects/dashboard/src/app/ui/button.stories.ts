@@ -63,7 +63,7 @@ export const Loading: Story = {
 
 export const KeyboardFocus: Story = {
   args: { label: 'Focus me' },
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const button = canvasElement.querySelector<HTMLButtonElement>('button');
     if (!button) throw new Error('Button was not rendered');
     button.focus({ focusVisible: true });

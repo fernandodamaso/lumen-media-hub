@@ -1,5 +1,6 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
+import { ScheduledPollController } from '../media-stack/scheduled-poll';
 import { DownloadTorrent, summarizeDownloads } from './downloads.models';
 
 export type DownloadsStatus = 'loading' | 'ready' | 'empty' | 'error';
@@ -7,13 +8,14 @@ export type DownloadsAction = 'pause' | 'resume';
 
 const REFRESH_ERROR = 'Could not refresh downloads. Showing last loaded queue.';
 const LOAD_ERROR = 'Downloads are temporarily unavailable. Try again.';
-/** Bound scheduled polls so a hung `/qbt/torrents` request cannot lock out later ticks. */
-export const SCHEDULED_REFRESH_TIMEOUT_MS = 15_000;
+/** Re-export for existing specs; canonical home is `media-stack/scheduled-poll`. */
+export { SCHEDULED_REFRESH_TIMEOUT_MS } from '../media-stack/scheduled-poll';
 
 @Injectable()
 export class DownloadsFacade {
   private readonly api = inject(MEDIA_STACK_API);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly poll = new ScheduledPollController();
   private readonly _status = signal<DownloadsStatus>('loading');
   private readonly _torrents = signal<DownloadTorrent[]>([]);
   private readonly _error = signal('');
@@ -21,11 +23,7 @@ export class DownloadsFacade {
   private readonly _pendingAction = signal<DownloadsAction | null>(null);
   private readonly _pendingTorrentId = signal<string | null>(null);
   private readonly _refreshing = signal(false);
-  private requestId = 0;
-  private scheduledInFlight = false;
-  private pollHandle?: ReturnType<typeof setInterval>;
-  private refreshAbort?: AbortController;
-  private refreshTimeoutId?: ReturnType<typeof setTimeout>;
+  private readonly _lastFetchedAt = signal('');
 
   readonly status = this._status.asReadonly();
   readonly torrents = this._torrents.asReadonly();
@@ -34,6 +32,7 @@ export class DownloadsFacade {
   readonly pendingAction = this._pendingAction.asReadonly();
   readonly pendingTorrentId = this._pendingTorrentId.asReadonly();
   readonly refreshing = this._refreshing.asReadonly();
+  readonly lastFetchedAt = this._lastFetchedAt.asReadonly();
   readonly summary = computed(() => summarizeDownloads(this._torrents()));
   readonly canPauseAll = computed(() => this._torrents().some((torrent) => torrent.state === 'downloading'));
   readonly canResumeAll = computed(() => this._torrents().some((torrent) => torrent.state === 'paused'));
@@ -44,33 +43,42 @@ export class DownloadsFacade {
   });
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.stopPolling());
+    this.destroyRef.onDestroy(() => {
+      this.poll.stop();
+      this._refreshing.set(false);
+    });
   }
 
   startPolling(intervalMs = 10_000): void {
-    if (this.pollHandle) return;
-    void this.runScheduledRefresh(true);
-    this.pollHandle = setInterval(() => void this.runScheduledRefresh(false), intervalMs);
+    this.poll.startRefreshing(
+      intervalMs,
+      (options) => this.refresh(options),
+      (initial) => {
+        this.applyRefreshFailure(initial);
+        this._refreshing.set(false);
+      },
+    );
   }
 
   async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<void> {
     const initial =
       options.initial === true || this._status() === 'loading' || this._status() === 'error';
     this._refreshing.set(true);
-    const requestId = ++this.requestId;
+    const requestId = this.poll.beginRequest();
     try {
       const torrents = await this.api.listTorrents(options.signal);
-      if (requestId !== this.requestId) return;
+      if (!this.poll.isCurrent(requestId)) return;
       this._torrents.set(torrents);
+      this._lastFetchedAt.set(new Date().toISOString());
       this._status.set(torrents.length ? 'ready' : 'empty');
       this._error.set('');
     } catch {
-      if (requestId !== this.requestId) return;
+      if (!this.poll.isCurrent(requestId)) return;
       // Cancelled refreshes must not mutate facade state; callers apply timeout/teardown policy.
       if (options.signal?.aborted) return;
       this.applyRefreshFailure(initial);
     } finally {
-      if (requestId === this.requestId) this._refreshing.set(false);
+      if (this.poll.isCurrent(requestId)) this._refreshing.set(false);
     }
   }
 
@@ -105,38 +113,6 @@ export class DownloadsFacade {
     }
   }
 
-  private async runScheduledRefresh(initial: boolean): Promise<void> {
-    if (this.scheduledInFlight) return;
-    this.scheduledInFlight = true;
-    const abort = new AbortController();
-    this.refreshAbort = abort;
-    this.refreshTimeoutId = setTimeout(() => abort.abort(), SCHEDULED_REFRESH_TIMEOUT_MS);
-    const priorRequestId = this.requestId;
-    try {
-      await this.refresh({ initial, signal: abort.signal });
-      // Timeout abort while polling is still armed: surface retained/hard failure and free the slot.
-      // Superseded attempts must not clobber a newer successful refresh.
-      const ownedRequestId = priorRequestId + 1;
-      if (
-        abort.signal.aborted &&
-        this.pollHandle !== undefined &&
-        this.requestId === ownedRequestId
-      ) {
-        this.applyRefreshFailure(initial);
-        this._refreshing.set(false);
-      }
-    } finally {
-      if (this.refreshTimeoutId !== undefined) {
-        clearTimeout(this.refreshTimeoutId);
-        this.refreshTimeoutId = undefined;
-      }
-      if (this.refreshAbort === abort) {
-        this.refreshAbort = undefined;
-      }
-      this.scheduledInFlight = false;
-    }
-  }
-
   private applyRefreshFailure(initial: boolean): void {
     const hasPrior = this._status() === 'ready' || this._status() === 'empty';
     if (!initial && hasPrior) {
@@ -148,20 +124,5 @@ export class DownloadsFacade {
     if (initial) {
       this._torrents.set([]);
     }
-  }
-
-  private stopPolling(): void {
-    if (this.pollHandle) clearInterval(this.pollHandle);
-    this.pollHandle = undefined;
-    if (this.refreshTimeoutId !== undefined) {
-      clearTimeout(this.refreshTimeoutId);
-      this.refreshTimeoutId = undefined;
-    }
-    // Invalidate before abort so a racing settle cannot write after teardown.
-    this.requestId++;
-    this.refreshAbort?.abort();
-    this.refreshAbort = undefined;
-    this.scheduledInFlight = false;
-    this._refreshing.set(false);
   }
 }

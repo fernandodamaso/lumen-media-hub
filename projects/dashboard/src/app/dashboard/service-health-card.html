@@ -31,21 +31,35 @@
     <ul class="service-list" aria-live="polite">
       @for (service of facade.services(); track service.id) {
         <li>
-          <a
-            class="service-row"
-            [href]="serviceHref(service.id)"
-            [attr.target]="serviceHref(service.id) ? '_blank' : null"
-            [attr.rel]="serviceHref(service.id) ? 'noreferrer' : null"
-            [attr.aria-label]="service.name + ', ' + statusLabel(service.status) + ', ' + statusDetail(service)"
-          >
-            <span class="service-row__mark" aria-hidden="true">{{ service.name.charAt(0) }}</span>
-            <span class="service-row__name">{{ service.name }}</span>
-            <span class="service-row__status" [class]="'service-row__status--' + service.status">
-              {{ statusLabel(service.status) }}
-            </span>
-            <span class="service-row__detail">{{ statusDetail(service) }}</span>
-            <svg lucideChevronRight [size]="16" aria-hidden="true"></svg>
-          </a>
+          @if (serviceHref(service.id); as href) {
+            <a
+              class="service-row"
+              [href]="href"
+              target="_blank"
+              rel="noreferrer"
+              [attr.aria-label]="service.name + ', ' + statusLabel(service.status) + ', ' + statusDetail(service)"
+            >
+              <span class="service-row__mark" aria-hidden="true">{{ service.name.charAt(0) }}</span>
+              <span class="service-row__name">{{ service.name }}</span>
+              <span class="service-row__status" [class]="'service-row__status--' + service.status">
+                {{ statusLabel(service.status) }}
+              </span>
+              <span class="service-row__detail">{{ statusDetail(service) }}</span>
+              <svg lucideChevronRight [size]="16" aria-hidden="true"></svg>
+            </a>
+          } @else {
+            <div
+              class="service-row service-row--inert"
+              [attr.aria-label]="service.name + ', ' + statusLabel(service.status) + ', ' + statusDetail(service)"
+            >
+              <span class="service-row__mark" aria-hidden="true">{{ service.name.charAt(0) }}</span>
+              <span class="service-row__name">{{ service.name }}</span>
+              <span class="service-row__status" [class]="'service-row__status--' + service.status">
+                {{ statusLabel(service.status) }}
+              </span>
+              <span class="service-row__detail">{{ statusDetail(service) }}</span>
+            </div>
+          }
         </li>
       }
     </ul>

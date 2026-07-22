@@ -42,11 +42,13 @@ describe('DiscoverPage', () => {
     ]);
     fixture.detectChanges();
 
-    const buttons = Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[];
-    const noTmdb = buttons.find((button) => button.textContent?.includes('No TMDB ID'))!;
+    const buttons = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>);
+    const noTmdb = buttons.find((button) => button.textContent.includes('No TMDB ID'));
+    if (!noTmdb) throw new Error('No TMDB ID button not found');
     expect(noTmdb.disabled).toBe(true);
 
-    const liked = buttons.find((button) => button.getAttribute('aria-label') === 'Liked')!;
+    const liked = buttons.find((button) => button.getAttribute('aria-label') === 'Liked');
+    if (!liked) throw new Error('Liked button not found');
     liked.click();
     expect(facade.submitFeedback).toHaveBeenCalledWith('no-tmdb', 'liked');
     expect(facade.requestItem).not.toHaveBeenCalled();
@@ -63,7 +65,7 @@ describe('DiscoverPage', () => {
     expect(fixture.nativeElement.querySelector('[role="radiogroup"]')).toBeNull();
 
     const sourceButtons = sourceTabButtons();
-    expect(sourceButtons.map((button) => button.textContent?.trim())).toEqual([
+    expect(sourceButtons.map((button) => button.textContent.trim())).toEqual([
       'Hermes',
       'Jellyseerr',
       'Trakt',
@@ -95,14 +97,14 @@ describe('DiscoverPage', () => {
 });
 
 function clickTab(label: string): void {
-  const button = (Array.from(document.querySelectorAll('button')) as HTMLButtonElement[]).find((candidate) =>
-    candidate.textContent?.includes(label),
+  const button = (Array.from(document.querySelectorAll('button'))).find((candidate) =>
+    candidate.textContent.includes(label),
   );
   button?.click();
 }
 
 function sourceTabButtons(): HTMLButtonElement[] {
-  return Array.from(document.querySelectorAll('.tabs button.tab')) as HTMLButtonElement[];
+  return Array.from(document.querySelectorAll('.tabs button.tab'));
 }
 
 function card(overrides: Partial<DiscoverCardItem> = {}): DiscoverCardItem {
@@ -133,7 +135,6 @@ function createFacade() {
   const requestingMore = signal(false);
   const generationPending = signal(false);
   const visibleItems = signal<DiscoverCardItem[]>([]);
-  const syncFailed = new Set<string>();
 
   return {
     tab,
@@ -149,15 +150,14 @@ function createFacade() {
     requestingMore,
     generationPending,
     visibleItems,
-    setTab: vi.fn((value: DiscoverSourceTab) => tab.set(value)),
-    setHermesView: vi.fn((value: HermesView) => hermesView.set(value)),
-    setHistoryFilter: vi.fn((value: DiscoverHistoryFilter) => historyFilter.set(value)),
-    setJellyseerrKind: vi.fn((value: JellyseerrDiscoverKind) => jellyseerrKind.set(value)),
-    setTraktType: vi.fn((value: TraktDiscoverType) => traktType.set(value)),
-    submitFeedback: vi.fn(async () => undefined),
-    requestItem: vi.fn(async () => undefined),
-    requestMore: vi.fn(async () => undefined),
-    isSyncFailed: (itemOrId: DiscoverCardItem | string) =>
-      typeof itemOrId === 'string' ? syncFailed.has(itemOrId) : syncFailed.has(itemOrId.id),
+    setTab: vi.fn((value: DiscoverSourceTab) => { tab.set(value); }),
+    setHermesView: vi.fn((value: HermesView) => { hermesView.set(value); }),
+    setHistoryFilter: vi.fn((value: DiscoverHistoryFilter) => { historyFilter.set(value); }),
+    setJellyseerrKind: vi.fn((value: JellyseerrDiscoverKind) => { jellyseerrKind.set(value); }),
+    setTraktType: vi.fn((value: TraktDiscoverType) => { traktType.set(value); }),
+    submitFeedback: vi.fn(() => Promise.resolve()),
+    requestItem: vi.fn(() => Promise.resolve()),
+    requestMore: vi.fn(() => Promise.resolve()),
+    isSyncFailed: () => false,
   };
 }

@@ -9,8 +9,8 @@ export const mapStorageOverview = (dto: MediaStackStorageOverviewDto): StorageOv
 });
 
 const mapStorageVolume = (volume: MediaStackStorageVolumeDto): StorageVolume => {
-  const id = volume.id?.trim();
-  const label = volume.label?.trim();
+  const id = volume.id.trim();
+  const label = volume.label.trim();
   if (!id) {
     throw new Error('Malformed storage volume: missing id');
   }
@@ -44,7 +44,7 @@ export function formatStorageBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const value = bytes / 1024 ** index;
-  return `${index >= 3 ? value.toFixed(1) : value.toFixed(index ? 0 : 0)} ${units[index]}`;
+  return `${index >= 3 ? value.toFixed(1) : value.toFixed(0)} ${units[index]}`;
 }
 
 export const STORAGE_VOLUME_ICON: Record<StorageVolumeKind, string> = {

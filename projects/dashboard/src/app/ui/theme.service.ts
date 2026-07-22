@@ -17,7 +17,7 @@ export class ThemeService {
   readonly theme = signal<MediaUiTheme>(this.readInitialTheme());
 
   constructor() {
-    effect(() => this.applyTheme(this.theme()));
+    effect(() => { this.applyTheme(this.theme()); });
   }
 
   setTheme(theme: MediaUiTheme): void {
@@ -49,7 +49,7 @@ export class ThemeService {
   }
 
   private updateThemeColor(color: string): void {
-    const meta = this.document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+    const meta = this.document.querySelector('meta[name="theme-color"]');
     if (meta) {
       meta.setAttribute('content', color);
     }

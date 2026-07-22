@@ -13,7 +13,7 @@ import {
   MediaStackDiscoverMediaTypeDto,
   MediaStackExternalDiscoverItemDto,
 } from './wire/discover';
-import { MediaStackLibraryItemDto, MediaStackLibraryStatsDto } from './wire/library';
+import { MediaStackLibraryItemDto } from './wire/library';
 import { MediaStackStorageVolumeDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
 
@@ -137,42 +137,17 @@ export function requireLiveTorrent(raw: unknown, index = 0): ValidatedLiveQbtTor
     throw new Error(`Malformed torrents response: member ${index} is missing state`);
   }
 
-  const progress = requireFiniteNumberField(raw, 'progress', index, 'torrents');
-  const size = requireSizeField(raw, index);
-  const dlspeed = requireFiniteNumberField(raw, 'dlspeed', index, 'torrents');
-  const upspeed = requireFiniteNumberField(raw, 'upspeed', index, 'torrents');
-  const eta = requireFiniteNumberField(raw, 'eta', index, 'torrents');
-
-  const amountLeftRaw = raw['amount_left'];
-  let amount_left: number | undefined;
-  if (amountLeftRaw !== undefined && amountLeftRaw !== null) {
-    if (typeof amountLeftRaw !== 'number' || !Number.isFinite(amountLeftRaw)) {
-      throw new Error(`Malformed torrents response: member ${index} has invalid amount_left`);
-    }
-    amount_left = amountLeftRaw;
-  }
-
-  // Optional: absent/null is fine; a present non-string value is rejected (no silent drop).
-  const categoryRaw = raw['category'];
-  let category: string | undefined;
-  if (categoryRaw !== undefined && categoryRaw !== null) {
-    if (typeof categoryRaw !== 'string') {
-      throw new Error(`Malformed torrents response: member ${index} has invalid category`);
-    }
-    category = categoryRaw;
-  }
-
   return {
     hash,
     name,
     state,
-    progress,
-    size,
-    amount_left,
-    dlspeed,
-    upspeed,
-    eta,
-    category,
+    progress: requireFiniteNumberField(raw, 'progress', index, 'torrents'),
+    size: requireSizeField(raw, index),
+    amount_left: optionalFiniteNumber(raw, 'amount_left', index, 'torrents'),
+    dlspeed: requireFiniteNumberField(raw, 'dlspeed', index, 'torrents'),
+    upspeed: requireFiniteNumberField(raw, 'upspeed', index, 'torrents'),
+    eta: requireFiniteNumberField(raw, 'eta', index, 'torrents'),
+    category: optionalString(raw, 'category', index, 'torrents'),
   };
 }
 
@@ -198,59 +173,18 @@ export function requireLiveCalendarEvent(raw: unknown, index = 0): MediaStackCal
     throw new Error(`Malformed calendar response: member ${index} is missing date`);
   }
 
-  const airDateRaw = raw['airDate'];
-  let airDate: string | undefined;
-  if (airDateRaw !== undefined && airDateRaw !== null) {
-    if (typeof airDateRaw !== 'string') {
-      throw new Error(`Malformed calendar response: member ${index} has invalid airDate`);
-    }
-    airDate = airDateRaw;
-  }
-
-  const kindRaw = raw['kind'];
-  let kind: 'episode' | 'movie' | undefined;
-  if (kindRaw !== undefined && kindRaw !== null) {
-    if (kindRaw !== 'episode' && kindRaw !== 'movie') {
-      throw new Error(`Malformed calendar response: member ${index} has invalid kind`);
-    }
-    kind = kindRaw;
-  }
-
-  const statusRaw = raw['status'];
-  let status: string | undefined;
-  if (statusRaw !== undefined && statusRaw !== null) {
-    if (typeof statusRaw !== 'string') {
-      throw new Error(`Malformed calendar response: member ${index} has invalid status`);
-    }
-    status = statusRaw;
-  }
-
-  const artRaw = raw['art'];
-  let art: string | undefined;
-  if (artRaw !== undefined && artRaw !== null) {
-    if (typeof artRaw !== 'string') {
-      throw new Error(`Malformed calendar response: member ${index} has invalid art`);
-    }
-    art = artRaw;
-  }
-
-  const hasFile = optionalBoolean(raw, 'hasFile', index, 'calendar');
-  const monitored = optionalBoolean(raw, 'monitored', index, 'calendar');
-  const premiere = optionalBoolean(raw, 'premiere', index, 'calendar');
-  const seriesId = optionalFiniteNumber(raw, 'seriesId', index, 'calendar');
-
   return {
     title,
     additional,
     date,
-    airDate,
-    kind,
-    status,
-    art,
-    hasFile,
-    monitored,
-    premiere,
-    seriesId,
+    airDate: optionalString(raw, 'airDate', index, 'calendar'),
+    kind: optionalCalendarKind(raw, index),
+    status: optionalString(raw, 'status', index, 'calendar'),
+    art: optionalString(raw, 'art', index, 'calendar'),
+    hasFile: optionalBoolean(raw, 'hasFile', index, 'calendar'),
+    monitored: optionalBoolean(raw, 'monitored', index, 'calendar'),
+    premiere: optionalBoolean(raw, 'premiere', index, 'calendar'),
+    seriesId: optionalFiniteNumber(raw, 'seriesId', index, 'calendar'),
   };
 }
 
@@ -272,64 +206,12 @@ export function requireLiveJellyfinItem(raw: unknown, index = 0): ValidatedLiveJ
     throw new Error(`Malformed jellyfin items response: member ${index} is missing name`);
   }
 
-  const yearRaw = raw['year'];
-  let year: number | null | undefined;
-  if (yearRaw !== undefined) {
-    if (yearRaw !== null && (typeof yearRaw !== 'number' || !Number.isFinite(yearRaw))) {
-      throw new Error(`Malformed jellyfin items response: member ${index} has invalid year`);
-    }
-    year = yearRaw;
-  }
-
-  const imageRaw = raw['image'];
-  let image: string | null | undefined;
-  if (imageRaw !== undefined) {
-    if (imageRaw !== null && typeof imageRaw !== 'string') {
-      throw new Error(`Malformed jellyfin items response: member ${index} has invalid image`);
-    }
-    image = imageRaw;
-  }
-
-  const ratingRaw = raw['rating'];
-  let rating: number | null | undefined;
-  if (ratingRaw !== undefined) {
-    if (ratingRaw !== null && (typeof ratingRaw !== 'number' || !Number.isFinite(ratingRaw))) {
-      throw new Error(`Malformed jellyfin items response: member ${index} has invalid rating`);
-    }
-    rating = ratingRaw;
-  }
-
-  return { id, name, year, image, rating };
-}
-
-/**
- * Reject library stats envelopes that coerce missing counts into zeros.
- * Finite zero counts are valid empty totals.
- */
-export function requireLiveLibraryStats(raw: unknown): MediaStackLibraryStatsDto {
-  if (!isRecord(raw)) {
-    throw new Error('Malformed library stats response');
-  }
-  const movies = raw['movies'];
-  const series = raw['series'];
-  if (typeof movies !== 'number' || !Number.isFinite(movies)) {
-    throw new Error('Malformed library stats response: missing movies');
-  }
-  if (typeof series !== 'number' || !Number.isFinite(series)) {
-    throw new Error('Malformed library stats response: missing series');
-  }
-  // Negative counts are malformed — do not clamp into trustworthy zeros at the format layer.
-  if (movies < 0) {
-    throw new Error('Malformed library stats response: invalid movies');
-  }
-  if (series < 0) {
-    throw new Error('Malformed library stats response: invalid series');
-  }
   return {
-    ok: typeof raw['ok'] === 'boolean' ? raw['ok'] : undefined,
-    movies,
-    series,
-    error: typeof raw['error'] === 'string' ? raw['error'] : undefined,
+    id,
+    name,
+    year: optionalNullableFiniteNumber(raw, 'year', index, 'jellyfin items'),
+    image: optionalNullableString(raw, 'image', index, 'jellyfin items'),
+    rating: optionalNullableFiniteNumber(raw, 'rating', index, 'jellyfin items'),
   };
 }
 
@@ -370,6 +252,32 @@ function optionalBoolean(
     throw new Error(`Malformed ${resource} response: member ${index} has invalid ${field}`);
   }
   return value;
+}
+
+function optionalString(
+  raw: Record<string, unknown>,
+  field: string,
+  index: number,
+  resource: string,
+): string | undefined {
+  const value = raw[field];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error(`Malformed ${resource} response: member ${index} has invalid ${field}`);
+  }
+  return value;
+}
+
+function optionalCalendarKind(
+  raw: Record<string, unknown>,
+  index: number,
+): 'episode' | 'movie' | undefined {
+  const kindRaw = raw['kind'];
+  if (kindRaw === undefined || kindRaw === null) return undefined;
+  if (kindRaw !== 'episode' && kindRaw !== 'movie') {
+    throw new Error(`Malformed calendar response: member ${index} has invalid kind`);
+  }
+  return kindRaw;
 }
 
 function optionalFiniteNumber(
@@ -413,12 +321,12 @@ export function mapLiveJellyfinItem(
   index = 0,
 ): MediaStackLibraryItemDto {
   const validated = requireLiveJellyfinItem(item, index);
-  const posterUrl = validated.image ? String(validated.image) : undefined;
+  const posterUrl = validated.image ?? undefined;
   return {
     id: validated.id,
     title: validated.name,
     kind,
-    year: validated.year == null ? undefined : Number(validated.year) || undefined,
+    year: validated.year == null ? undefined : validated.year || undefined,
     posterUrl,
     artworkState: posterUrl ? 'ok' : 'missing',
     playable: true,
@@ -502,7 +410,7 @@ function mapPreviewItems(
  * consumed by mapAutomationSummary.
  */
 export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStackAutomationSummaryDto {
-  if (live && live.ok === false && !live.sonarr && !live.radarr && !live.prowlarr && !live.bazarr) {
+  if (live.ok === false && !live.sonarr && !live.radarr && !live.prowlarr && !live.bazarr) {
     throw new Error(live.error || 'Automation summary unavailable');
   }
 
@@ -566,7 +474,20 @@ export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStac
     ...mapPreviewItems(bazarr?.wantedItems, 'wanted', 'bazarr'),
   ].slice(0, 12);
 
+  return {
+    generatedAt,
+    services,
+    preview,
+    problems: collectAutomationProblems(live),
+  };
+}
+
+function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutomationProblemDto[] {
   const problems: MediaStackAutomationProblemDto[] = [];
+  const sonarr = live.sonarr;
+  const radarr = live.radarr;
+  const prowlarr = live.prowlarr;
+  const bazarr = live.bazarr;
 
   for (const [id, block] of [
     ['sonarr', sonarr],
@@ -629,12 +550,7 @@ export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStac
     });
   }
 
-  return {
-    generatedAt,
-    services,
-    preview,
-    problems,
-  };
+  return problems;
 }
 
 /** Raw system-resources disk shape from GET /system/resources. */
@@ -649,7 +565,7 @@ export interface LiveSystemResourcesDisk {
 /**
  * Map the disk block from GET /system/resources into a stable storage volume.
  * Uses the backend mount path as the label and a fixed volume identity.
- * Validates all disk fields including free and percent; enforces used ≤ total.
+ * Validates path/used/total and enforces used ≤ total.
  */
 export function mapLiveSystemResourcesDisk(disk: unknown): MediaStackStorageVolumeDto {
   if (!isRecord(disk)) {
@@ -663,8 +579,6 @@ export function mapLiveSystemResourcesDisk(disk: unknown): MediaStackStorageVolu
 
   const used = disk['used'];
   const total = disk['total'];
-  const free = disk['free'];
-  const percent = disk['percent'];
 
   if (typeof used !== 'number' || !Number.isFinite(used)) {
     throw new Error('Malformed system resources response: missing disk.used');
@@ -672,23 +586,11 @@ export function mapLiveSystemResourcesDisk(disk: unknown): MediaStackStorageVolu
   if (typeof total !== 'number' || !Number.isFinite(total)) {
     throw new Error('Malformed system resources response: missing disk.total');
   }
-  if (typeof free !== 'number' || !Number.isFinite(free)) {
-    throw new Error('Malformed system resources response: missing disk.free');
-  }
-  if (typeof percent !== 'number' || !Number.isFinite(percent)) {
-    throw new Error('Malformed system resources response: missing disk.percent');
-  }
-  if (used < 0 || total < 0 || free < 0 || percent < 0) {
+  if (used < 0 || total < 0) {
     throw new Error('Malformed system resources response: negative disk capacity');
   }
   if (used > total) {
     throw new Error('Malformed system resources response: disk.used exceeds disk.total');
-  }
-  if (free > total) {
-    throw new Error('Malformed system resources response: disk.free exceeds disk.total');
-  }
-  if (percent < 0 || percent > 100) {
-    throw new Error('Malformed system resources response: disk.percent out of range');
   }
 
   return {
@@ -700,9 +602,6 @@ export function mapLiveSystemResourcesDisk(disk: unknown): MediaStackStorageVolu
   };
 }
 
-const DISCOVER_MEDIA_TYPES: ReadonlySet<string> = new Set(['movie', 'tv']);
-const DISCOVER_FEEDBACK: ReadonlySet<string> = new Set(['liked', 'disliked', 'watched', 'skipped']);
-
 /**
  * Validate GET /discover/hermes success envelopes before domain mapping.
  * Soft `{ ok: false }` envelopes skip this (handled by requireSoftEnvelope).
@@ -713,40 +612,43 @@ export function requireHermesDiscoverPayload(data: Record<string, unknown>): voi
     requireLiveHermesDiscoverItem(item, index);
   });
 
-  const pending = data['pending_request_sync'];
-  if (pending !== undefined && pending !== null) {
-    if (!Array.isArray(pending)) {
-      throw new Error('Malformed Hermes response: pending_request_sync is not an array');
-    }
-    pending.forEach((entry, index) => {
-      if (!isRecord(entry)) {
-        throw new Error(`Malformed Hermes response: pending_request_sync member ${index} is not an object`);
-      }
-      requireNonEmptyString(
-        entry['id'],
-        `Malformed Hermes response: pending_request_sync member ${index} is missing id`,
-      );
-      const requestId = entry['jellyseerr_request_id'];
-      if (typeof requestId !== 'number' || !Number.isFinite(requestId)) {
-        throw new Error(
-          `Malformed Hermes response: pending_request_sync member ${index} is missing jellyseerr_request_id`,
-        );
-      }
-    });
-  }
+  requirePendingRequestSync(data['pending_request_sync']);
+  requireGenerationRequest(data['generation_request']);
+}
 
-  const generation = data['generation_request'];
-  if (generation !== undefined && generation !== null) {
-    if (!isRecord(generation)) {
-      throw new Error('Malformed Hermes response: generation_request is not an object');
+function requirePendingRequestSync(pending: unknown): void {
+  if (pending === undefined || pending === null) return;
+  if (!Array.isArray(pending)) {
+    throw new Error('Malformed Hermes response: pending_request_sync is not an array');
+  }
+  pending.forEach((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`Malformed Hermes response: pending_request_sync member ${index} is not an object`);
     }
     requireNonEmptyString(
-      generation['requested_at'],
-      'Malformed Hermes response: generation_request is missing requested_at',
+      entry['id'],
+      `Malformed Hermes response: pending_request_sync member ${index} is missing id`,
     );
-    if (generation['status'] !== 'pending') {
-      throw new Error('Malformed Hermes response: generation_request has invalid status');
+    const requestId = entry['jellyseerr_request_id'];
+    if (typeof requestId !== 'number' || !Number.isFinite(requestId)) {
+      throw new Error(
+        `Malformed Hermes response: pending_request_sync member ${index} is missing jellyseerr_request_id`,
+      );
     }
+  });
+}
+
+function requireGenerationRequest(generation: unknown): void {
+  if (generation === undefined || generation === null) return;
+  if (!isRecord(generation)) {
+    throw new Error('Malformed Hermes response: generation_request is not an object');
+  }
+  requireNonEmptyString(
+    generation['requested_at'],
+    'Malformed Hermes response: generation_request is missing requested_at',
+  );
+  if (generation['status'] !== 'pending') {
+    throw new Error('Malformed Hermes response: generation_request has invalid status');
   }
 }
 
@@ -782,7 +684,7 @@ export function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaSta
     raw['title'],
     `Malformed Hermes response: member ${index} is missing title`,
   );
-  const tmdbId = requireRequiredFiniteNumber(raw, 'tmdb_id', index, 'Hermes');
+  const tmdbId = requireFiniteNumberField(raw, 'tmdb_id', index, 'Hermes');
   const active = raw['active'];
   if (typeof active !== 'boolean') {
     throw new Error(`Malformed Hermes response: member ${index} is missing active`);
@@ -847,7 +749,7 @@ export function requireLiveExternalDiscoverItem(
     raw['title'],
     `Malformed ${resource} response: member ${index} is missing title`,
   );
-  const tmdbId = requireRequiredFiniteNumber(raw, 'tmdb_id', index, resource);
+  const tmdbId = requireFiniteNumberField(raw, 'tmdb_id', index, resource);
 
   const id = optionalNullableString(raw, 'id', index, resource) ?? undefined;
   const source = optionalNullableString(raw, 'source', index, resource) ?? undefined;
@@ -874,10 +776,10 @@ function requireDiscoverMediaType(
   index: number,
   resource: string,
 ): MediaStackDiscoverMediaTypeDto {
-  if (typeof value !== 'string' || !DISCOVER_MEDIA_TYPES.has(value)) {
-    throw new Error(`Malformed ${resource} response: member ${index} is missing type`);
+  if (value === 'movie' || value === 'tv') {
+    return value;
   }
-  return value as MediaStackDiscoverMediaTypeDto;
+  throw new Error(`Malformed ${resource} response: member ${index} is missing type`);
 }
 
 function requireDiscoverFeedback(
@@ -885,12 +787,11 @@ function requireDiscoverFeedback(
   index: number,
   resource: string,
 ): MediaStackDiscoverFeedbackDto | null {
-  if (value === undefined) return null;
-  if (value === null) return null;
-  if (typeof value !== 'string' || !DISCOVER_FEEDBACK.has(value)) {
-    throw new Error(`Malformed ${resource} response: member ${index} has invalid feedback`);
+  if (value === undefined || value === null) return null;
+  if (value === 'liked' || value === 'disliked' || value === 'watched' || value === 'skipped') {
+    return value;
   }
-  return value as MediaStackDiscoverFeedbackDto;
+  throw new Error(`Malformed ${resource} response: member ${index} has invalid feedback`);
 }
 
 function requireDiscoverRequestState(
@@ -903,19 +804,6 @@ function requireDiscoverRequestState(
     throw new Error(`Malformed ${resource} response: member ${index} has invalid request_state`);
   }
   return 'requested';
-}
-
-function requireRequiredFiniteNumber(
-  raw: Record<string, unknown>,
-  field: string,
-  index: number,
-  resource: string,
-): number {
-  const value = raw[field];
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`Malformed ${resource} response: member ${index} is missing ${field}`);
-  }
-  return value;
 }
 
 function optionalNullableString(

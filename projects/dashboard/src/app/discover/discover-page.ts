@@ -48,7 +48,7 @@ export class DiscoverPage {
   }
 
   setTab(tab: DiscoverSourceTab): void {
-    this.facade.setTab(tab);
+    void this.facade.setTab(tab);
   }
 
   setHermesView(view: HermesView): void {

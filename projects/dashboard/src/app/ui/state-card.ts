@@ -1,11 +1,11 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import { LucideAlertCircle, LucideInbox, LucideLoaderCircle } from '@lucide/angular';
+import { LucideCircleAlert, LucideInbox, LucideLoaderCircle } from '@lucide/angular';
 
 export type MmStateCardKind = 'loading' | 'empty' | 'error';
 
 @Component({
   selector: 'mm-state-card',
-  imports: [LucideLoaderCircle, LucideInbox, LucideAlertCircle],
+  imports: [LucideLoaderCircle, LucideInbox, LucideCircleAlert],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './state-card.html',
   styleUrl: './state-card.scss',

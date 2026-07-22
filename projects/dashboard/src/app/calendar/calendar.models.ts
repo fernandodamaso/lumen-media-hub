@@ -66,9 +66,9 @@ export const resolveCalendarLink = (
   const radarrBase = (bases.radarrBase ?? DEFAULT_CALENDAR_LINK_BASES.radarrBase).replace(/\/$/, '');
   // Empty bases must not emit relative /series/... or /movie/... URLs.
   const seriesHref =
-    sonarrBase && library.series?.[key] ? `${sonarrBase}/series/${library.series[key]}` : null;
+    sonarrBase && library.series[key] ? `${sonarrBase}/series/${library.series[key]}` : null;
   const movieHref =
-    radarrBase && library.movies?.[key] ? `${radarrBase}/movie/${library.movies[key]}` : null;
+    radarrBase && library.movies[key] ? `${radarrBase}/movie/${library.movies[key]}` : null;
   if (kind === 'movie') return movieHref ?? seriesHref;
   if (kind === 'episode') return seriesHref ?? movieHref;
   return seriesHref ?? movieHref;

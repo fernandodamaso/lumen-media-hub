@@ -28,24 +28,42 @@
       <div class="sidebar__services">
         <span class="nav-label nav-label-spaced">Services</span>
         @for (service of services(); track service.id) {
-          <a
-            class="service-link"
-            [href]="service.href"
-            target="_blank"
-            rel="noreferrer"
-            [attr.aria-label]="service.name + ', ' + service.statusLabel"
-          >
-            <span class="service-mark" aria-hidden="true">{{ service.initial }}</span>
-            <span>{{ service.name }}</span>
+          @if (service.href) {
+            <a
+              class="service-link"
+              [href]="service.href"
+              target="_blank"
+              rel="noreferrer"
+              [attr.aria-label]="service.name + ', ' + service.statusLabel"
+            >
+              <span class="service-mark" aria-hidden="true">{{ service.initial }}</span>
+              <span>{{ service.name }}</span>
+              <span
+                class="service-dot"
+                [class.service-dot--healthy]="service.status === 'healthy'"
+                [class.service-dot--degraded]="service.status === 'degraded'"
+                [class.service-dot--offline]="service.status === 'offline'"
+                [class.service-dot--unknown]="service.status === 'unknown'"
+                aria-hidden="true"
+              ></span>
+            </a>
+          } @else {
             <span
-              class="service-dot"
-              [class.service-dot--healthy]="service.status === 'healthy'"
-              [class.service-dot--degraded]="service.status === 'degraded'"
-              [class.service-dot--offline]="service.status === 'offline'"
-              [class.service-dot--unknown]="service.status === 'unknown'"
-              aria-hidden="true"
-            ></span>
-          </a>
+              class="service-link service-link--inert"
+              [attr.aria-label]="service.name + ', ' + service.statusLabel"
+            >
+              <span class="service-mark" aria-hidden="true">{{ service.initial }}</span>
+              <span>{{ service.name }}</span>
+              <span
+                class="service-dot"
+                [class.service-dot--healthy]="service.status === 'healthy'"
+                [class.service-dot--degraded]="service.status === 'degraded'"
+                [class.service-dot--offline]="service.status === 'offline'"
+                [class.service-dot--unknown]="service.status === 'unknown'"
+                aria-hidden="true"
+              ></span>
+            </span>
+          }
         }
       </div>
       <div class="sidebar__footer">

@@ -11,9 +11,9 @@ import { MmButton } from '@app/ui';
 })
 export class DashboardHeader {
   readonly syncedAt = input<string>('just now');
-  readonly requestMedia = output<void>();
-  readonly openJellyfin = output<void>();
-  readonly refresh = output<void>();
+  readonly requestMedia = output();
+  readonly openJellyfin = output();
+  readonly refresh = output();
   readonly searchQuery = output<string>();
 
   private readonly searchInput = viewChild.required<ElementRef<HTMLInputElement>>('searchInput');

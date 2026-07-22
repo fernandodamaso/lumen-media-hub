@@ -103,7 +103,10 @@ describe('DownloadsBoard', () => {
   });
 
   function findButton(label: string): HTMLButtonElement {
-    return (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find((button) => button.textContent?.includes(label)) as HTMLButtonElement;
+    const buttons: HTMLButtonElement[] = Array.from(fixture.nativeElement.querySelectorAll('button'));
+    const match = buttons.find((button) => button.textContent.includes(label));
+    if (!match) throw new Error(`Button not found: ${label}`);
+    return match;
   }
 });
 
@@ -123,7 +126,7 @@ function createFacade() {
     canPauseAll: signal(false),
     canResumeAll: signal(false),
     startPolling: vi.fn(),
-    refresh: vi.fn(async () => status.set('ready')),
+    refresh: vi.fn(() => { status.set('ready'); return Promise.resolve(); }),
     runAction: vi.fn(),
     runTorrentAction: vi.fn(),
   };
@@ -135,6 +138,6 @@ function downloadingTorrent(): DownloadTorrent {
 
 function componentStyles(): string {
   return Array.from(document.querySelectorAll('style'))
-    .map((node) => node.textContent ?? '')
+    .map((node) => node.textContent)
     .join('\n');
 }

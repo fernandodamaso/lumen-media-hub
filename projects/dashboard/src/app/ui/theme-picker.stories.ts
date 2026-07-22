@@ -26,8 +26,10 @@ async function waitForThemeApplied(select: HTMLSelectElement): Promise<void> {
     ) {
       return;
     }
-    const { promise, resolve } = Promise.withResolvers<void>();
-    setTimeout(resolve, 10);
+    const { promise, resolve } = Promise.withResolvers<undefined>();
+    setTimeout(() => {
+      resolve(undefined);
+    }, 10);
     await promise;
   }
   if (select.value !== 'tokyo-night') throw new Error('Theme selection did not update');

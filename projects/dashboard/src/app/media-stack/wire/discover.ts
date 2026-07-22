@@ -38,7 +38,7 @@ export interface MediaStackExternalDiscoverItemDto {
 
 export interface MediaStackHermesDiscoverDto {
   ok: boolean;
-  items: MediaStackDiscoverItemDto[];
+  items?: MediaStackDiscoverItemDto[];
   pending_request_sync?: { id: string; jellyseerr_request_id: number }[];
   generation_request?: { requested_at: string; status: 'pending' } | null;
   error?: string;
@@ -46,7 +46,7 @@ export interface MediaStackHermesDiscoverDto {
 
 export interface MediaStackExternalDiscoverDto {
   ok: boolean;
-  items: MediaStackExternalDiscoverItemDto[];
+  items?: MediaStackExternalDiscoverItemDto[];
   error?: string;
 }
 

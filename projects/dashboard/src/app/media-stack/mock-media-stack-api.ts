@@ -56,9 +56,13 @@ function demoStorageOverview(): MediaStackStorageOverviewDto {
     ok: true,
     generatedAt: new Date().toISOString(),
     volumes: [
-      { id: 'media-library', label: 'Media library', kind: 'library', usedBytes: Math.round(4.8 * TIB), totalBytes: Math.round(7.2 * TIB) },
-      { id: 'downloads', label: 'Downloads', kind: 'downloads', usedBytes: 324 * GIB, totalBytes: TIB },
-      { id: 'cache', label: 'Cache & temp', kind: 'cache', usedBytes: 68 * GIB, totalBytes: 500 * GIB },
+      {
+        id: 'media-volume',
+        label: 'Media volume (/data)',
+        kind: 'library',
+        usedBytes: Math.round(4.8 * TIB),
+        totalBytes: Math.round(7.2 * TIB),
+      },
     ],
   };
 }
@@ -315,7 +319,7 @@ function demoCronLogs(now = Date.now()): MediaStackCronLogsDto {
 function copyCronLogs(source: MediaStackCronLogsDto): MediaStackCronLogsDto {
   return {
     ...source,
-    logs: source.logs.map(
+    logs: (source.logs ?? []).map(
       (entry): MediaStackCronLogEntryDto => ({
         ...entry,
         actions: entry.actions ? [...entry.actions] : undefined,
@@ -613,12 +617,14 @@ export class MockMediaStackApi implements MediaStackApi {
   }
 
   getAutomationSummary(_signal?: AbortSignal): Promise<AutomationSummary> {
-    const summary =
-      this.automationScenario === 'partial'
-        ? PARTIAL_AUTOMATION_SUMMARY
-        : this.automationScenario === 'empty'
-          ? { generatedAt: new Date().toISOString(), services: [], preview: [], problems: [] }
-          : demoAutomationSummary();
+    let summary;
+    if (this.automationScenario === 'partial') {
+      summary = PARTIAL_AUTOMATION_SUMMARY;
+    } else if (this.automationScenario === 'empty') {
+      summary = { generatedAt: new Date().toISOString(), services: [], preview: [], problems: [] };
+    } else {
+      summary = demoAutomationSummary();
+    }
     return Promise.resolve(mapAutomationSummary(structuredClone(summary)));
   }
 
@@ -685,7 +691,7 @@ export class MockMediaStackApi implements MediaStackApi {
     return Promise.resolve(
       mapExternalDiscover({
         ok: true,
-        items: (DEMO_JELLYSEERR[kind] ?? []).map((item) => ({ ...item })),
+        items: DEMO_JELLYSEERR[kind].map((item) => ({ ...item })),
       }),
     );
   }
@@ -694,7 +700,7 @@ export class MockMediaStackApi implements MediaStackApi {
     return Promise.resolve(
       mapExternalDiscover({
         ok: true,
-        items: (DEMO_TRAKT[type] ?? []).map((item) => ({ ...item })),
+        items: DEMO_TRAKT[type].map((item) => ({ ...item })),
       }),
     );
   }

@@ -23,10 +23,12 @@ export interface AutomationProblem {
   severity: AutomationProblemSeverity;
 }
 
+export type AutomationSectionState = 'present' | 'empty' | 'unavailable';
+
 export interface AutomationSectionAvailability {
-  services: 'present' | 'empty' | 'unavailable';
-  preview: 'present' | 'empty' | 'unavailable';
-  problems: 'present' | 'empty' | 'unavailable';
+  services: AutomationSectionState;
+  preview: AutomationSectionState;
+  problems: AutomationSectionState;
 }
 
 export interface AutomationSummary {

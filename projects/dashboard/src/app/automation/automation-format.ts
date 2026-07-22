@@ -26,25 +26,25 @@ export const AUTOMATION_PROBLEM_SEVERITY_VIEW: Record<AutomationProblemSeverity,
 };
 
 export const mapAutomationSummary = (dto: MediaStackAutomationSummaryDto): AutomationSummary => ({
-  generatedAt: dto.generatedAt ?? '',
+  generatedAt: wireText(dto.generatedAt),
   services: (dto.services ?? []).map((service) => ({
-    id: service.id ?? '',
-    name: service.name ?? '',
+    id: wireText(service.id),
+    name: wireText(service.name),
     status: normalizeAutomationStatus(service.status),
-    detail: service.detail ?? '',
+    detail: wireText(service.detail),
     latencyMs: normalizeLatencyMs(service.latencyMs),
   })),
   preview: (dto.preview ?? []).map((item) => ({
-    id: item.id ?? '',
-    title: item.title ?? '',
-    when: item.when ?? '',
-    kind: item.kind ?? '',
+    id: wireText(item.id),
+    title: wireText(item.title),
+    when: wireText(item.when),
+    kind: wireText(item.kind),
   })),
   problems: (dto.problems ?? []).map((problem) => ({
-    id: problem.id ?? '',
-    summary: problem.summary ?? '',
+    id: wireText(problem.id),
+    summary: wireText(problem.summary),
     serviceId: problem.serviceId ?? null,
-    severity: normalizeAutomationSeverity(problem.severity ?? 'info'),
+    severity: normalizeAutomationSeverity(problem.severity),
   })),
   availability: {
     services: deriveSectionAvailability(dto.services, dto.unavailable?.services),
@@ -53,8 +53,13 @@ export const mapAutomationSummary = (dto: MediaStackAutomationSummaryDto): Autom
   },
 });
 
-function normalizeAutomationStatus(status: string): AutomationServiceStatus {
-  const normalized = status?.toLowerCase() ?? '';
+/** Soft wire strings may be missing even when the DTO marks them required. */
+function wireText(value: string | null | undefined): string {
+  return value ?? '';
+}
+
+function normalizeAutomationStatus(status: string | null | undefined): AutomationServiceStatus {
+  const normalized = wireText(status).toLowerCase();
   return AUTOMATION_SERVICE_STATUSES.includes(normalized as AutomationServiceStatus)
     ? (normalized as AutomationServiceStatus)
     : 'unknown';
@@ -66,15 +71,15 @@ function normalizeLatencyMs(latencyMs: number | null | undefined): number | null
     : null;
 }
 
-function normalizeAutomationSeverity(severity: string): AutomationProblemSeverity {
-  const normalized = severity?.toLowerCase() ?? '';
+function normalizeAutomationSeverity(severity: string | null | undefined): AutomationProblemSeverity {
+  const normalized = wireText(severity || 'info').toLowerCase();
   return AUTOMATION_PROBLEM_SEVERITIES.includes(normalized as AutomationProblemSeverity)
     ? (normalized as AutomationProblemSeverity)
     : 'info';
 }
 
-function deriveSectionAvailability<T>(
-  items: T[] | null | undefined,
+function deriveSectionAvailability(
+  items: readonly unknown[] | null | undefined,
   unavailableFlag: boolean | undefined,
 ): 'present' | 'empty' | 'unavailable' {
   if (unavailableFlag) return 'unavailable';
@@ -102,15 +107,20 @@ export function formatRelativeTime(isoTimestamp: string): string {
   const date = new Date(isoTimestamp);
   if (Number.isNaN(date.getTime())) return '';
   const diffMs = date.getTime() - Date.now();
-  const diffSec = Math.floor(Math.abs(diffMs) / 1000);
-  const isFuture = diffMs >= 0;
-  if (diffSec < 5) return 'just now';
-  if (diffSec < 60) return isFuture ? `in ${diffSec}s` : `${diffSec}s ago`;
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return isFuture ? `in ${diffMin}m` : `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return isFuture ? `in ${diffHr}h` : `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  if (diffDay < 30) return isFuture ? `in ${diffDay}d` : `${diffDay}d ago`;
+  const absSec = Math.floor(Math.abs(diffMs) / 1000);
+  if (absSec < 5) return 'just now';
+  return formatRelativeUnits(absSec, diffMs >= 0, date);
+}
+
+function formatRelativeUnits(absSec: number, isFuture: boolean, date: Date): string {
+  const phrase = (amount: number, unit: string) =>
+    isFuture ? `in ${amount}${unit}` : `${amount}${unit} ago`;
+  if (absSec < 60) return phrase(absSec, 's');
+  const absMin = Math.floor(absSec / 60);
+  if (absMin < 60) return phrase(absMin, 'm');
+  const absHr = Math.floor(absMin / 60);
+  if (absHr < 24) return phrase(absHr, 'h');
+  const absDay = Math.floor(absHr / 24);
+  if (absDay < 30) return phrase(absDay, 'd');
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }

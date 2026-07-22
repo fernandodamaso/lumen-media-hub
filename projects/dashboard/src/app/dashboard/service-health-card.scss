@@ -34,7 +34,7 @@
   transition: color var(--mm-transition-fast);
 }
 .service-row:last-child { border-bottom: none; }
-.service-row:not([href]) { cursor: default; }
+.service-row--inert { cursor: default; }
 .service-row[href]:hover { color: var(--mm-component-text-primary); }
 .service-row:focus-visible {
   outline: 3px solid var(--mm-component-focus-ring);

@@ -58,4 +58,22 @@ describe('ServiceHealthCard', () => {
     };
     expect(card.statusDetail(degraded)).toBe('33 missing');
   });
+
+  it('resolves linked services and leaves unknown ids without href', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [ServiceHealthCard],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ServiceHealthFacade,
+          useValue: { startPolling: () => undefined, services: () => [], status: () => 'ready', error: () => '' },
+        },
+        { provide: SERVICE_LINK_BASES, useValue: { jellyfin: 'http://localhost:8096' } },
+      ],
+    });
+    const linked = TestBed.createComponent(ServiceHealthCard).componentInstance;
+    expect(linked.serviceHref('jellyfin')).toBe('http://localhost:8096/');
+    expect(linked.serviceHref('sabnzbd')).toBeNull();
+  });
 });

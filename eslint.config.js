@@ -1,6 +1,12 @@
 const tseslint = require('typescript-eslint');
 const angular = require('angular-eslint');
+const sonarjs = require('eslint-plugin-sonarjs');
 
+/**
+ * Fast day-to-day / agent / `ng lint` profile.
+ * Type-aware strict rules and smell-as-error live in eslint.typed.config.js
+ * (used by `lint:typed` / `quality:commit`).
+ */
 module.exports = tseslint.config(
   {
     ignores: [
@@ -12,12 +18,22 @@ module.exports = tseslint.config(
       '.worktrees/**',
       '**/.worktrees/**',
       'docs/mockups/**',
+      'scripts/**',
+      'eslint.config.js',
+      'eslint.typed.config.js',
+      'stylelint.config.js',
+      'knip.config.cjs',
+      '.dependency-cruiser.cjs',
+      'playwright.config.ts',
     ],
   },
   {
     files: ['**/*.ts'],
-    extends: [...tseslint.configs.recommended, ...angular.configs.tsRecommended],
-    languageOptions: { parserOptions: { projectService: true } },
+    extends: [
+      ...tseslint.configs.recommended,
+      ...angular.configs.tsRecommended,
+      sonarjs.configs.recommended,
+    ],
     processor: angular.processInlineTemplates,
     rules: {
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
@@ -30,11 +46,29 @@ module.exports = tseslint.config(
         { type: 'element', prefix: 'mm', style: 'kebab-case' },
       ],
       '@angular-eslint/prefer-on-push-component-change-detection': 'error',
+
+      // Angular inject() + kickoff in constructors is intentional here.
+      'sonarjs/no-async-constructor': 'off',
+
+      // Idle/agent: warn on smells so fixes stay focused.
+      'sonarjs/cognitive-complexity': ['warn', 15],
+      'sonarjs/no-identical-functions': 'warn',
+      'sonarjs/no-duplicate-string': ['warn', { threshold: 5 }],
+      'sonarjs/no-duplicated-branches': 'error',
+      'sonarjs/no-all-duplicated-branches': 'error',
+      'sonarjs/no-identical-expressions': 'error',
     },
   },
   {
-    // Bootstrap host: Angular requires `app-root`; feature components use `mm-`.
-    files: ['projects/dashboard/src/app/app.ts'],
+    files: ['**/*.{spec,stories}.ts', '**/mock-*.ts'],
+    rules: {
+      'sonarjs/no-clear-text-protocols': 'off',
+      'sonarjs/no-duplicate-string': 'off',
+      'sonarjs/no-identical-functions': 'off',
+    },
+  },
+  {
+    files: ['**/app/app.ts'],
     rules: {
       '@angular-eslint/component-selector': [
         'error',
@@ -48,9 +82,5 @@ module.exports = tseslint.config(
       ...angular.configs.templateRecommended,
       ...angular.configs.templateAccessibility,
     ],
-  },
-  {
-    files: ['eslint.config.js'],
-    languageOptions: { globals: { require: 'readonly', module: 'readonly' } },
   },
 );

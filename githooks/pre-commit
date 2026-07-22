@@ -1,0 +1,3 @@
+#!/bin/sh
+# Strong commit gate: typed lint + typecheck + styles (not full-repo quality).
+npm run quality:commit

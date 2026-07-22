@@ -3,7 +3,8 @@
   "version": 1,
   "cli": {
     "packageManager": "npm",
-    "analytics": false
+    "analytics": false,
+    "schematicCollections": ["angular-eslint"]
   },
   "newProjectRoot": "projects",
   "projects": {
@@ -30,9 +31,7 @@
                 "input": "projects/dashboard/public"
               }
             ],
-            "styles": [
-              "projects/dashboard/src/styles.scss"
-            ]
+            "styles": ["projects/dashboard/src/styles.scss"]
           },
           "configurations": {
             "production": {
@@ -116,10 +115,7 @@
           "builder": "@angular/build:unit-test",
           "options": {
             "tsConfig": "projects/dashboard/tsconfig.spec.json",
-            "exclude": [
-              "**/.worktrees/**",
-              "../../.worktrees/**"
-            ]
+            "exclude": ["**/.worktrees/**", "../../.worktrees/**"]
           }
         },
         "storybook": {
@@ -130,13 +126,8 @@
             "tsConfig": "tsconfig.storybook.json",
             "port": 6006,
             "compodoc": true,
-            "compodocArgs": [
-              "-e",
-              "json"
-            ],
-            "styles": [
-              "projects/dashboard/src/app/ui/media-ui.scss"
-            ]
+            "compodocArgs": ["-e", "json"],
+            "styles": ["projects/dashboard/src/app/ui/media-ui.scss"]
           }
         },
         "build-storybook": {
@@ -147,13 +138,18 @@
             "tsConfig": "tsconfig.storybook.json",
             "outputDir": "storybook-static",
             "compodoc": true,
-            "compodocArgs": [
-              "-e",
-              "json"
+            "compodocArgs": ["-e", "json"],
+            "styles": ["projects/dashboard/src/app/ui/media-ui.scss"]
+          }
+        },
+        "lint": {
+          "builder": "@angular-eslint/builder:lint",
+          "options": {
+            "lintFilePatterns": [
+              "projects/dashboard/**/*.ts",
+              "projects/dashboard/**/*.html"
             ],
-            "styles": [
-              "projects/dashboard/src/app/ui/media-ui.scss"
-            ]
+            "eslintConfig": "projects/dashboard/eslint.config.js"
           }
         }
       }

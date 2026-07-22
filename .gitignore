@@ -53,6 +53,9 @@ Thumbs.db
 # OpenCode local tooling state
 .opencode/
 
+# Local commandcode scratch
+.commandcode/
+
 # Local design-exploration mockups (logs, screenshots, scratch HTML)
 /docs/mockups/
 

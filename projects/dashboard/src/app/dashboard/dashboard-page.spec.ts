@@ -93,8 +93,9 @@ describe('DashboardPage composition', () => {
   it('collapses the grid to a single column on smaller viewports', () => {
     fixture.detectChanges();
     const styles = dashboardStyles();
-    expect(styles).toContain('@media (max-width: 1279px)');
-    expect(styles).toMatch(/@media \(max-width: 1279px\)[\s\S]*grid-template-columns:\s*1fr;/);
+    expect(styles).toContain('@container (max-width: 1279px)');
+    expect(styles).toMatch(/@container \(max-width: 1279px\)[\s\S]*grid-template-columns:\s*1fr;/);
+    expect(styles).toContain('@container (max-width: 639px)');
   });
 
   it('keeps other regions usable when one feature fails', () => {

@@ -73,7 +73,7 @@ describe('DownloadsBoard', () => {
     facade.nextAction.set('pause');
     fixture.detectChanges();
 
-    const pauseButton = fixtureHost(fixture).querySelector('.torrent-action') as HTMLButtonElement;
+    const pauseButton = fixtureHost(fixture).querySelector('mm-icon-button button') as HTMLButtonElement;
     expect(pauseButton).toBeTruthy();
     pauseButton.click();
     expect(facade.runTorrentAction).toHaveBeenCalledWith('a', 'pause');

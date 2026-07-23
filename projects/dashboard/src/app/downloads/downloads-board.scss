@@ -102,10 +102,6 @@
   flex-shrink: 0;
 }
 
-.torrent-status mm-button {
-  --mm-button-min-height: 28px;
-}
-
 .torrent-percent {
   min-width: 42px;
   color: var(--mm-component-text-primary);
@@ -160,33 +156,6 @@
 .meta-down { color: var(--mm-component-accent); }
 .meta-up { color: var(--mm-component-text-muted); }
 .meta-eta { color: var(--mm-component-text-muted); }
-
-.torrent-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--mm-component-border);
-  border-radius: 6px;
-  padding: 0;
-  background: var(--mm-component-control-bg);
-  color: var(--mm-component-text-secondary);
-  cursor: pointer;
-  transition: background var(--mm-transition-fast), color var(--mm-transition-fast);
-}
-.torrent-action:hover:not(:disabled) {
-  background: var(--mm-component-muted-bg);
-  color: var(--mm-component-text-primary);
-}
-.torrent-action:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-.torrent-action:focus-visible {
-  outline: 3px solid var(--mm-component-focus-ring);
-  outline-offset: 2px;
-}
 
 .seeding-divider {
   display: flex;

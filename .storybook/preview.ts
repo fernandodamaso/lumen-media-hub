@@ -16,7 +16,7 @@ const preview: Preview = {
   globalTypes: {
     theme: {
       description: 'Global dashboard UI theme',
-      defaultValue: 'nocturne',
+      defaultValue: 'github-dark-pro',
       toolbar: {
         icon: 'paintbrush',
         items: [
@@ -32,7 +32,7 @@ const preview: Preview = {
       providers: [provideRouter([])],
     }),
     (story, context) => {
-      applyTheme(String(context.globals['theme'] ?? 'nocturne'));
+      applyTheme(String(context.globals['theme'] ?? 'github-dark-pro'));
       return story();
     },
   ],

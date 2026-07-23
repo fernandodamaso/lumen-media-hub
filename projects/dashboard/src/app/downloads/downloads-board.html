@@ -70,21 +70,18 @@
                 </div>
                 <div class="torrent-status">
                   @if (torrent.state !== 'seeding') {
-                    <button
-                      type="button"
-                      class="torrent-action"
-                      [attr.aria-label]="(torrent.state === 'paused' ? 'Resume' : 'Pause') + ' ' + torrent.name"
+                    <mm-icon-button
+                      [label]="(torrent.state === 'paused' ? 'Resume' : 'Pause') + ' ' + torrent.name"
                       [disabled]="facade.pendingTorrentId() === torrent.id"
+                      [busy]="facade.pendingTorrentId() === torrent.id"
                       (click)="runTorrentAction(torrent.id, torrent.state === 'paused' ? 'resume' : 'pause')"
                     >
-                      @if (facade.pendingTorrentId() === torrent.id) {
-                        <svg lucideLoaderCircle [size]="14" [strokeWidth]="2.2" aria-hidden="true"></svg>
-                      } @else if (torrent.state === 'paused') {
+                      @if (torrent.state === 'paused') {
                         <svg lucidePlay [size]="14" aria-hidden="true"></svg>
                       } @else {
                         <svg lucidePause [size]="14" aria-hidden="true"></svg>
                       }
-                    </button>
+                    </mm-icon-button>
                   }
                   <span class="torrent-percent">{{ torrent.progress }}%</span>
                 </div>

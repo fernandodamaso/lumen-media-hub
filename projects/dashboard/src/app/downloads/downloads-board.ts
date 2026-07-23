@@ -1,13 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { LucideArrowDown, LucideArrowUp, LucideDownload, LucideExternalLink, LucideLoaderCircle, LucidePause, LucidePlay } from '@lucide/angular';
-import { MmButton, MmCard, MmProgress, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
+import { LucideArrowDown, LucideArrowUp, LucideDownload, LucideExternalLink, LucidePause, LucidePlay } from '@lucide/angular';
+import { MmButton, MmCard, MmIconButton, MmProgress, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { SERVICE_LINK_BASES } from '../media-stack/media-stack-api.providers';
 import { formatBytes, formatEta, formatRate, groupTorrents, torrentArt } from './downloads-format';
 import { DownloadsAction, DownloadsFacade } from './downloads.facade';
 
 @Component({
   selector: 'mm-downloads-board',
-  imports: [MmButton, MmCard, MmProgress, MmSkeleton, MmStateCard, MmStatus, LucideArrowDown, LucideArrowUp, LucideDownload, LucideExternalLink, LucideLoaderCircle, LucidePause, LucidePlay],
+  imports: [MmButton, MmCard, MmIconButton, MmProgress, MmSkeleton, MmStateCard, MmStatus, LucideArrowDown, LucideArrowUp, LucideDownload, LucideExternalLink, LucidePause, LucidePlay],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './downloads-board.html',
   styleUrl: './downloads-board.scss',

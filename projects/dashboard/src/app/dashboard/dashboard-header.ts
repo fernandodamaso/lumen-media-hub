@@ -1,10 +1,10 @@
 import { ChangeDetectionStrategy, Component, ElementRef, input, output, viewChild } from '@angular/core';
 import { LucideRefreshCw, LucideSearch } from '@lucide/angular';
-import { MmButton } from '@app/ui';
+import { MmButton, MmIconButton } from '@app/ui';
 
 @Component({
   selector: 'mm-dashboard-header',
-  imports: [MmButton, LucideRefreshCw, LucideSearch],
+  imports: [MmButton, MmIconButton, LucideRefreshCw, LucideSearch],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './dashboard-header.html',
   styleUrl: './dashboard-header.scss',

@@ -60,10 +60,14 @@ describe('ThemeService', () => {
 
     service.setTheme('nocturne');
     TestBed.tick();
-    expect(meta?.getAttribute('content')).toBe('#0b0e14');
+    expect(meta?.getAttribute('content')).toBe('#080d17');
 
     service.setTheme('tokyo-night');
     TestBed.tick();
     expect(meta?.getAttribute('content')).toBe('#16161e');
+
+    service.setTheme('github-dark-pro');
+    TestBed.tick();
+    expect(meta?.getAttribute('content')).toBe('#0d1117');
   });
 });

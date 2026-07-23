@@ -4,6 +4,8 @@ import { MmProgress } from './index';
 type ProgressArgs = {
   value: number;
   label: string;
+  tone: 'accent' | 'success' | 'warning' | 'info' | 'premiere';
+  showLabel: boolean;
 };
 
 const meta: Meta<ProgressArgs> = {
@@ -13,10 +15,14 @@ const meta: Meta<ProgressArgs> = {
   argTypes: {
     value: { control: { type: 'range', min: 0, max: 100, step: 1 } },
     label: { control: 'text' },
+    tone: { control: 'select', options: ['accent', 'success', 'warning', 'info', 'premiere'] },
+    showLabel: { control: 'boolean' },
   },
   args: {
     value: 68,
     label: 'Transcoding',
+    tone: 'accent',
+    showLabel: true,
   },
   render: (args) => ({
     props: args,
@@ -35,6 +41,28 @@ export const Queued: Story = {
 
 export const Finished: Story = {
   args: { value: 100, label: 'Finished' },
+};
+
+export const Tones: Story = {
+  render: () => ({
+    imports: [MmProgress],
+    template: `<div style="display:grid;gap:16px;max-width:420px">
+      <mm-progress [value]="42" label="Accent" tone="accent" />
+      <mm-progress [value]="58" label="Success" tone="success" />
+      <mm-progress [value]="71" label="Warning" tone="warning" />
+      <mm-progress [value]="33" label="Info" tone="info" />
+      <mm-progress [value]="90" label="Premiere" tone="premiere" />
+    </div>`,
+  }),
+  play: ({ canvasElement }) => {
+    const bars = canvasElement.querySelectorAll('[role="progressbar"]');
+    if (bars.length !== 5) throw new Error(`Expected 5 progress bars, found ${bars.length}`);
+    for (const tone of ['accent', 'success', 'warning', 'info', 'premiere']) {
+      if (!canvasElement.querySelector(`.mm-progress--${tone}`)) {
+        throw new Error(`Missing progress tone class: ${tone}`);
+      }
+    }
+  },
 };
 
 export const Values: Story = {

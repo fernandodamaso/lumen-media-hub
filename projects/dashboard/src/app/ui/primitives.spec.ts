@@ -2,7 +2,7 @@ import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { fixtureHost } from '../../testing/fixture-host';
-import { MmButton, MmCard, MmPoster, MmProgress, MmStateCard, MmStatus, MmThemePicker } from './index';
+import { MmButton, MmCard, MmIconButton, MmPoster, MmProgress, MmStateCard, MmStatus, MmThemePicker } from './index';
 
 @Component({
   standalone: true,
@@ -218,6 +218,53 @@ describe('app/ui primitives', () => {
     state.componentRef.setInput('tone', 'danger');
     state.detectChanges();
     expect(fixtureHost(state).querySelector('.mm-state-card--danger')).toBeTruthy();
+  });
+
+  it('normalizes progress values and applies tone classes', () => {
+    const low = TestBed.createComponent(MmProgress);
+    low.componentRef.setInput('value', -10);
+    low.componentRef.setInput('tone', 'warning');
+    low.detectChanges();
+    const lowRoot = fixtureHost(low);
+    expect(lowRoot.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('0');
+    expect(lowRoot.querySelector('.mm-progress--warning')).toBeTruthy();
+
+    const high = TestBed.createComponent(MmProgress);
+    high.componentRef.setInput('value', 110);
+    high.componentRef.setInput('tone', 'premiere');
+    high.detectChanges();
+    const highRoot = fixtureHost(high);
+    expect(highRoot.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('100');
+    expect(highRoot.querySelector('.mm-progress--premiere')).toBeTruthy();
+  });
+
+  it('renders icon buttons with a required accessible label', () => {
+    const fixture = TestBed.createComponent(MmIconButton);
+    fixture.componentRef.setInput('label', 'Pause download');
+    fixture.componentRef.setInput('busy', true);
+    fixture.detectChanges();
+    const button = fixtureHost(fixture).querySelector('button');
+
+    expect(button?.getAttribute('aria-label')).toBe('Pause download');
+    expect(button?.getAttribute('aria-busy')).toBe('true');
+    expect(button?.disabled).toBe(true);
+  });
+
+  it('keeps the theme picker selection aligned with the applied theme', () => {
+    const fixture = TestBed.createComponent(MmThemePicker);
+    const picker = fixture.componentInstance;
+    picker.themeService.setTheme('tokyo-night');
+    fixture.detectChanges();
+    const select = fixtureHost(fixture).querySelector('select') as HTMLSelectElement;
+
+    expect(document.documentElement.dataset['theme']).toBe('tokyo-night');
+    expect(select.value).toBe('tokyo-night');
+    expect([...select.options].find((option) => option.selected)?.value).toBe('tokyo-night');
+
+    picker.themeService.setTheme('github-dark-pro');
+    fixture.detectChanges();
+    expect(select.value).toBe('github-dark-pro');
+    expect([...select.options].find((option) => option.selected)?.value).toBe('github-dark-pro');
   });
 
   it('lets the primary button receive keyboard focus', () => {

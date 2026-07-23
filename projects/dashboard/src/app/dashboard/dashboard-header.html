@@ -10,15 +10,9 @@
         } @else {
           <span>Sync time unavailable</span>
         }
-        <button
-          type="button"
-          class="refresh-btn"
-          aria-label="Refresh dashboard data"
-          title="Refresh"
-          (click)="refresh.emit()"
-        >
+        <mm-icon-button label="Refresh dashboard data" (click)="refresh.emit()">
           <svg lucideRefreshCw [size]="14" aria-hidden="true"></svg>
-        </button>
+        </mm-icon-button>
       </span>
     </div>
   </div>

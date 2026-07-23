@@ -41,9 +41,12 @@
               <span class="storage-row__label">{{ volume.label }}</span>
               <span class="storage-row__percent">{{ percent(volume) }}%</span>
             </div>
-            <div class="storage-row__bar">
-              <span class="storage-row__bar-fill" [style.width.%]="percent(volume)" [style.background]="barColor(volume.kind)"></span>
-            </div>
+            <mm-progress
+              [value]="percent(volume)"
+              [tone]="barTone(volume.kind)"
+              [showLabel]="false"
+              [label]="volume.label + ' usage'"
+            />
             <span class="storage-row__meta">{{ formatBytes(volume.usedBytes) }} / {{ formatBytes(volume.totalBytes) }}</span>
           </div>
         </li>

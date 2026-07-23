@@ -6,7 +6,7 @@ import {
   runPolledRefresh,
 } from '../media-stack/polled-refresh';
 import { ScheduledPollController } from '../media-stack/scheduled-poll';
-import { StorageOverview, StorageVolume } from './storage.models';
+import { StorageOverview } from './storage.models';
 
 export type StorageStatus = 'loading' | 'ready' | 'empty' | 'error';
 
@@ -85,8 +85,3 @@ export class StorageFacade {
     });
   }
 }
-
-export const percentageUsed = (volume: StorageVolume): number => {
-  if (!volume.totalBytes) return 0;
-  return Math.min(100, Math.round((volume.usedBytes / volume.totalBytes) * 100));
-};

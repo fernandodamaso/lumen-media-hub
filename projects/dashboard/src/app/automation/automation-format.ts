@@ -5,7 +5,7 @@ import {
 } from './automation.models';
 import { MediaStackAutomationSummaryDto } from '../media-stack/wire/automation';
 
-export type AutomationStatusTone = 'success' | 'warning' | 'danger' | 'info';
+type AutomationStatusTone = 'success' | 'warning' | 'danger' | 'info';
 
 export interface AutomationStatusView {
   label: string;

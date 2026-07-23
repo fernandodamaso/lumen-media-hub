@@ -20,5 +20,3 @@ npm run hooks:install
 
 - `pre-commit` → `npm run quality:commit`
 - `pre-push` → `npm run quality`
-
-Bypass only when intentional: `git commit --no-verify` / `git push --no-verify`.

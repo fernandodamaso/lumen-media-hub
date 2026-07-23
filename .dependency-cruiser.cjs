@@ -1,4 +1,4 @@
-const recommended = require('dependency-cruiser/configs/recommended.cjs');
+const recommended = require('./node_modules/dependency-cruiser/configs/recommended.cjs');
 
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
@@ -9,9 +9,9 @@ module.exports = {
       comment:
         'Design-system primitives (app/ui) must not depend on feature folders or media-stack.',
       severity: 'error',
-      from: { path: '(^|/)ui/' },
+      from: { path: '(^|/)app/ui/' },
       to: {
-        path: '(^|/)(automation|calendar|dashboard|discover|downloads|library|reports|storage|media-stack)/',
+        path: '(^|/)app/(automation|calendar|dashboard|discover|downloads|library|reports|storage|media-stack)/',
       },
     },
     {
@@ -19,8 +19,8 @@ module.exports = {
       comment:
         'Transport/API boundary must not depend on UI primitives. Feature domain/format imports are allowed for wire mapping.',
       severity: 'error',
-      from: { path: '(^|/)media-stack/' },
-      to: { path: '(^|/)ui/' },
+      from: { path: '(^|/)app/media-stack/' },
+      to: { path: '(^|/)app/ui/' },
     },
     {
       name: 'features-not-to-dashboard',
@@ -28,9 +28,9 @@ module.exports = {
         'Dashboard is the home composition root; other features must not import it.',
       severity: 'error',
       from: {
-        path: '(^|/)(automation|calendar|discover|downloads|library|reports|storage)/',
+        path: '(^|/)app/(automation|calendar|discover|downloads|library|reports|storage)/',
       },
-      to: { path: '(^|/)dashboard/' },
+      to: { path: '(^|/)app/dashboard/' },
     },
     {
       name: 'not-to-specs-or-stories',
@@ -47,7 +47,7 @@ module.exports = {
   options: {
     ...recommended.options,
     tsConfig: {
-      fileName: 'projects/dashboard/tsconfig.app.json',
+      fileName: 'tsconfig.json',
     },
     enhancedResolveOptions: {
       exportsFields: ['exports'],

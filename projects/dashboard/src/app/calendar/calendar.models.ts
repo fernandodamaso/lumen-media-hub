@@ -28,17 +28,12 @@ export interface CalendarLinkBases {
 }
 
 /** Disabled by default; local Demo/live inject bases from environment. */
-export const DEFAULT_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
+const DEFAULT_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
   sonarrBase: '',
   radarrBase: '',
 };
 
 /** Explicit no-op bases for tests and link-disabled states. */
-export const DISABLED_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
-  sonarrBase: '',
-  radarrBase: '',
-};
-
 export const CALENDAR_LINK_BASES = new InjectionToken<CalendarLinkBases>('CALENDAR_LINK_BASES', {
   providedIn: 'root',
   factory: () => ({ ...DEFAULT_CALENDAR_LINK_BASES }),

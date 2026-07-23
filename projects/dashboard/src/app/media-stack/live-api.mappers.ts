@@ -17,23 +17,8 @@ import { MediaStackLibraryItemDto } from './wire/library';
 import { MediaStackStorageVolumeDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
 
-/** Raw qBittorrent payload from GET /qbt/torrents. */
-export interface LiveQbtTorrent {
-  hash?: string;
-  name?: string;
-  state?: string;
-  progress?: number;
-  size?: number;
-  total_size?: number;
-  amount_left?: number;
-  dlspeed?: number;
-  upspeed?: number;
-  eta?: number;
-  category?: string;
-}
-
 /** Validated live torrent member — required identity/state/progress fields are present. */
-export interface ValidatedLiveQbtTorrent {
+interface ValidatedLiveQbtTorrent {
   hash: string;
   name: string;
   state: string;
@@ -47,7 +32,7 @@ export interface ValidatedLiveQbtTorrent {
 }
 
 /** Jellyfin list item from GET /jellyfin/movies|series. */
-export interface LiveJellyfinItem {
+interface LiveJellyfinItem {
   name?: string;
   year?: number | null;
   id?: string;
@@ -56,7 +41,7 @@ export interface LiveJellyfinItem {
 }
 
 /** Validated Jellyfin list member — required identity fields are present. */
-export interface ValidatedLiveJellyfinItem {
+interface ValidatedLiveJellyfinItem {
   id: string;
   name: string;
   year?: number | null;
@@ -71,7 +56,7 @@ export interface LiveJellyfinListResponse {
   error?: string;
 }
 
-export interface LiveAutomationPreviewItem {
+interface LiveAutomationPreviewItem {
   label?: string;
   airDate?: string;
   status?: string;
@@ -83,7 +68,7 @@ export interface LiveAutomationPreviewItem {
   seriesId?: number;
 }
 
-export interface LiveAutomationServiceBlock {
+interface LiveAutomationServiceBlock {
   ok?: boolean;
   series?: number;
   movies?: number;
@@ -119,7 +104,7 @@ export interface LiveAutomationSummary {
  * Reject torrent array members that lack required identity/state/progress fields.
  * Call before mapLiveTorrent so missing values are never synthesized into plausible rows.
  */
-export function requireLiveTorrent(raw: unknown, index = 0): ValidatedLiveQbtTorrent {
+function requireLiveTorrent(raw: unknown, index = 0): ValidatedLiveQbtTorrent {
   if (!isRecord(raw)) {
     throw new Error(`Malformed torrents response: member ${index} is not an object`);
   }
@@ -192,7 +177,7 @@ export function requireLiveCalendarEvent(raw: unknown, index = 0): MediaStackCal
  * Reject Jellyfin list members lacking required identity (id/name).
  * Do not synthesize ids or titles for missing values.
  */
-export function requireLiveJellyfinItem(raw: unknown, index = 0): ValidatedLiveJellyfinItem {
+function requireLiveJellyfinItem(raw: unknown, index = 0): ValidatedLiveJellyfinItem {
   if (!isRecord(raw)) {
     throw new Error(`Malformed jellyfin items response: member ${index} is not an object`);
   }
@@ -553,15 +538,6 @@ function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutom
   return problems;
 }
 
-/** Raw system-resources disk shape from GET /system/resources. */
-export interface LiveSystemResourcesDisk {
-  path?: string;
-  total?: number;
-  used?: number;
-  free?: number;
-  percent?: number;
-}
-
 /**
  * Map the disk block from GET /system/resources into a stable storage volume.
  * Uses the backend mount path as the label and a fixed volume identity.
@@ -669,7 +645,7 @@ export function requireExternalDiscoverPayload(
  * Reject Hermes members lacking required identity/browse fields.
  * Call before mapHermesDiscover so missing values are never synthesized into plausible cards.
  */
-export function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDiscoverItemDto {
+function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDiscoverItemDto {
   if (!isRecord(raw)) {
     throw new Error(`Malformed Hermes response: member ${index} is not an object`);
   }
@@ -735,7 +711,7 @@ export function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaSta
 /**
  * Reject external discover members lacking required type/title/tmdb identity.
  */
-export function requireLiveExternalDiscoverItem(
+function requireLiveExternalDiscoverItem(
   raw: unknown,
   index = 0,
   resource: 'Jellyseerr' | 'Trakt' = 'Jellyseerr',

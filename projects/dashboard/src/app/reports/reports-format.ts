@@ -5,7 +5,7 @@ import {
   MediaStackCronLogsDto,
 } from '../media-stack/wire/cron';
 
-export type StatusTone = 'success' | 'warning' | 'danger' | 'info';
+type StatusTone = 'success' | 'warning' | 'danger' | 'info';
 
 export type CronStatusView = { label: string; tone: StatusTone };
 
@@ -72,7 +72,7 @@ export const mapCronRun = (
 };
 
 /** Build a triage row for jobs that have entry metadata but no nested runs. */
-export const synthesizeCronRunFromEntry = (job: MediaStackCronLogEntryDto): CronRun => {
+const synthesizeCronRunFromEntry = (job: MediaStackCronLogEntryDto): CronRun => {
   const status = job.lastStatus?.trim() || (job.exists ? 'unparsed' : 'missing');
   const detail = job.summary?.trim() || (job.exists ? 'No recent runs' : 'No log file yet');
   return mapCronRun(

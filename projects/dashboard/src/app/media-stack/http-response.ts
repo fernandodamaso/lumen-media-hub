@@ -83,7 +83,7 @@ export function requireNonEmptyString(
 }
 
 /** Require a parseable ISO / Date-parseable timestamp string from the backend. */
-export function requireIsoTimestamp(value: unknown, context: string): string {
+function requireIsoTimestamp(value: unknown, context: string): string {
   const text = requireNonEmptyString(value, context);
   if (Number.isNaN(Date.parse(text))) {
     throw new Error(context);

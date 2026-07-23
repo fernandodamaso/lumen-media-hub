@@ -3,7 +3,7 @@ const angular = require('angular-eslint');
 const sonarjs = require('eslint-plugin-sonarjs');
 
 /**
- * Strong commit / quality:commit profile.
+ * Strict default lint profile.
  * Type-aware typescript-eslint + Angular + smells as errors.
  */
 module.exports = tseslint.config(

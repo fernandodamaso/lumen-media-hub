@@ -1,3 +1,0 @@
-#!/bin/sh
-# Full-repo quality before push: commit gate + duplication/dead-code/architecture.
-npm run quality

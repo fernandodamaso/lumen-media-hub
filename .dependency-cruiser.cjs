@@ -3,7 +3,8 @@ const recommended = require('./node_modules/dependency-cruiser/configs/recommend
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
-    ...recommended.forbidden,
+    // Knip owns unused-code detection, so keep Dependency Cruiser focused on architecture.
+    ...recommended.forbidden.filter((r) => r.name !== 'no-orphans'),
     {
       name: 'ui-not-to-features-or-api',
       comment:

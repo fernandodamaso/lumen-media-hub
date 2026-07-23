@@ -3,9 +3,8 @@ const angular = require('angular-eslint');
 const sonarjs = require('eslint-plugin-sonarjs');
 
 /**
- * Fast day-to-day / agent / `ng lint` profile.
- * Type-aware strict rules and smell-as-error live in eslint.typed.config.js
- * (used by `lint:typed` / `quality:commit`).
+ * Fast day-to-day / agent profile.
+ * Strict typed lint lives in eslint.typed.config.js and powers `npm run lint`.
  */
 module.exports = tseslint.config(
   {

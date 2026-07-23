@@ -5,7 +5,7 @@ const config = {
     'projects/dashboard/src/app/app.routes.ts!',
     'projects/dashboard/src/environments/environment*.ts!',
   ],
-  project: ['projects/dashboard/src/**/*.ts'],
+  project: ['projects/dashboard/src/**/*.{ts,mdx}'],
   ignoreFiles: ['.storybook/test-runner-jest.config.js'],
   ignoreDependencies: [
     '@compodoc/compodoc',

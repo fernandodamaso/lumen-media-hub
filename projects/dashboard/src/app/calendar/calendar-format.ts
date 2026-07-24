@@ -20,28 +20,31 @@ export function groupCalendarEvents<T extends { airDate: string }>(events: T[], 
   const horizon = new Set([today, tomorrow, dayAfter]);
   const groups = new Map<string, CalendarDateGroup<T>>();
   for (const event of events) {
-    const match = event.airDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(event.airDate);
     if (!match) continue;
     const key = match[0];
     // Home Upcoming rail only shows today through the day after tomorrow.
     if (!horizon.has(key)) continue;
     let group = groups.get(key);
     if (!group) {
-      let label = 'DATE UNAVAILABLE';
-      const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
-      if (key === today) {
-        label = 'TODAY';
-      } else if (key === tomorrow) {
-        label = 'TOMORROW';
-      } else {
-        label = new Intl.DateTimeFormat('en', { weekday: 'long' }).format(date).toUpperCase();
-      }
-      group = { key, label, events: [] };
+      group = { key, label: horizonGroupLabel(key, today, tomorrow, match), events: [] };
       groups.set(key, group);
     }
     group.events.push(event);
   }
   return [...groups.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function horizonGroupLabel(
+  key: string,
+  today: string,
+  tomorrow: string,
+  match: RegExpExecArray,
+): string {
+  if (key === today) return 'TODAY';
+  if (key === tomorrow) return 'TOMORROW';
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
+  return new Intl.DateTimeFormat('en', { weekday: 'long' }).format(date).toUpperCase();
 }
 
 function localKey(date: Date): string {
@@ -86,7 +89,7 @@ function normalizeCalendarStatus(event: MediaStackCalendarEventDto): CalendarEve
   }
   if (event.hasFile) return 'available';
   if (event.monitored) return 'monitored';
-  if (event.premiere || /premiere/i.test(event.additional ?? '')) return 'premiere';
+  if (event.premiere || /premiere/i.test(event.additional)) return 'premiere';
   return 'pending';
 }
 
@@ -107,8 +110,8 @@ function stringHash(value: string): number {
 
 export const mapArrLibrary = (dto: MediaStackArrLibraryDto): ArrLibrary => ({
   ok: dto.ok,
-  series: dto.series ?? {},
-  movies: dto.movies ?? {},
+  series: dto.series,
+  movies: dto.movies,
   error: dto.error,
 });
 

@@ -1,6 +1,6 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { firstValueFrom, fromEvent, takeUntil } from 'rxjs';
+import { finalize, firstValueFrom, fromEvent, Observable, shareReplay, takeUntil } from 'rxjs';
 
 import { environment } from '../../environments/environment';
 import { ArrLibrary, CalendarEvent } from '../calendar/calendar.models';
@@ -52,6 +52,7 @@ import {
 } from './live-api.mappers';
 import {
   OkEnvelope,
+  OkEnvelopeRecord,
   isAbortError,
   isRecord,
   requireArrayField,
@@ -61,10 +62,21 @@ import {
   requireSoftEnvelope,
 } from './http-response';
 
+/** Narrow validated envelopes to Record so require* payload helpers accept them. */
+function requireEnvelopeRecord(data: OkEnvelope, fallback: string): OkEnvelopeRecord {
+  if (!isRecord(data)) {
+    throw new Error(fallback);
+  }
+  // OkEnvelope + Record index — same runtime object requireOkEnvelope already accepted.
+  return data;
+}
+
 @Injectable()
 export class HttpMediaStackApi implements MediaStackApi {
   private readonly http = inject(HttpClient);
   private readonly base = environment.apiBaseUrl.replace(/\/$/, '');
+  /** Share concurrent identical GETs so stats/calendar/probes do not fan out duplicate traffic. */
+  private readonly inFlightGets = new Map<string, Observable<unknown>>();
 
   listTorrents(signal?: AbortSignal): Promise<DownloadTorrent[]> {
     return this.getRaw<unknown>('/qbt/torrents', signal).then((data) => {
@@ -93,7 +105,11 @@ export class HttpMediaStackApi implements MediaStackApi {
     return this.getHardEnvelope<OkEnvelope & { events?: unknown[] }>(
       '/sonarr/calendar',
       (data) => {
-        requireArrayField(data as unknown as Record<string, unknown>, 'events', 'Malformed calendar response');
+        requireArrayField(
+          requireEnvelopeRecord(data, 'Malformed calendar response'),
+          'events',
+          'Malformed calendar response',
+        );
       },
       signal,
     ).then((data) => {
@@ -173,16 +189,15 @@ export class HttpMediaStackApi implements MediaStackApi {
         data,
         'Malformed automation summary response',
         (value) => {
+          const record = requireEnvelopeRecord(value, 'Malformed automation summary response');
           if (
-            !['sonarr', 'radarr', 'prowlarr', 'bazarr'].some(
-              (key) => isRecord((value as unknown as Record<string, unknown>)[key]),
-            )
+            !['sonarr', 'radarr', 'prowlarr', 'bazarr'].some((key) => isRecord(record[key]))
           ) {
             throw new Error('Malformed automation summary response');
           }
         },
       );
-      const summary = mapAutomationSummary(mapLiveAutomationSummary(envelope as LiveAutomationSummary));
+      const summary = mapAutomationSummary(mapLiveAutomationSummary(envelope));
       const extras = await probesPromise;
       return {
         ...summary,
@@ -247,13 +262,13 @@ export class HttpMediaStackApi implements MediaStackApi {
 
   async getLibraryStats(signal?: AbortSignal): Promise<LibraryStats> {
     const [movies, series] = await Promise.all([
-      this.fetchJellyfinKind('movies', signal),
-      this.fetchJellyfinKind('series', signal),
+      this.fetchJellyfinCount('movies', signal),
+      this.fetchJellyfinCount('series', signal),
     ]);
 
     return mapLibraryStats({
-      movies: movies.length,
-      series: series.length,
+      movies,
+      series,
     });
   }
 
@@ -261,7 +276,7 @@ export class HttpMediaStackApi implements MediaStackApi {
     return this.getSoftEnvelope<MediaStackCronLogsDto>(
       '/cron/logs',
       (data) => {
-        requireCronLogsPayload(data as unknown as Record<string, unknown>);
+        requireCronLogsPayload(requireEnvelopeRecord(data, 'Malformed cron logs response'));
       },
       signal,
     ).then(mapCronLogs);
@@ -269,7 +284,7 @@ export class HttpMediaStackApi implements MediaStackApi {
 
   listHermesRecommendations(): Promise<HermesDiscover> {
     return this.getSoftEnvelope<MediaStackHermesDiscoverDto>('/discover/hermes', (data) => {
-      requireHermesDiscoverPayload(data as unknown as Record<string, unknown>);
+      requireHermesDiscoverPayload(requireEnvelopeRecord(data, 'Malformed Hermes response'));
     }).then(mapHermesDiscover);
   }
 
@@ -292,14 +307,20 @@ export class HttpMediaStackApi implements MediaStackApi {
     return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(
       `/discover/jellyseerr?kind=${kind}`,
       (data) => {
-        requireExternalDiscoverPayload(data as unknown as Record<string, unknown>, 'Jellyseerr');
+        requireExternalDiscoverPayload(
+          requireEnvelopeRecord(data, 'Malformed Jellyseerr response'),
+          'Jellyseerr',
+        );
       },
     ).then(mapExternalDiscover);
   }
 
   listTraktDiscover(type: TraktDiscoverType): Promise<ExternalDiscover> {
     return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(`/discover/trakt?type=${type}`, (data) => {
-      requireExternalDiscoverPayload(data as unknown as Record<string, unknown>, 'Trakt');
+      requireExternalDiscoverPayload(
+        requireEnvelopeRecord(data, 'Malformed Trakt response'),
+        'Trakt',
+      );
     }).then(mapExternalDiscover);
   }
 
@@ -311,37 +332,82 @@ export class HttpMediaStackApi implements MediaStackApi {
     kind: 'movies' | 'series',
     signal?: AbortSignal,
   ): Promise<LibraryItem[]> {
+    const data = await this.fetchJellyfinList(kind, signal);
+    return this.mapJellyfinListItems(data, kind);
+  }
+
+  /** Prefer backend `total` when present so stats avoid mapping every library item. */
+  private async fetchJellyfinCount(
+    kind: 'movies' | 'series',
+    signal?: AbortSignal,
+  ): Promise<number> {
+    const data = await this.fetchJellyfinList(kind, signal);
+    const total = data.total;
+    if (typeof total === 'number' && Number.isFinite(total) && total >= 0) {
+      return Math.floor(total);
+    }
+    return this.mapJellyfinListItems(data, kind).length;
+  }
+
+  private mapJellyfinListItems(
+    data: LiveJellyfinListResponse,
+    kind: 'movies' | 'series',
+  ): LibraryItem[] {
+    const itemKind: LibraryItemKind = kind === 'movies' ? 'movie' : 'series';
+    return (data.items ?? [])
+      .map((item, index) => mapLibraryItem(mapLiveJellyfinItem(item, itemKind, index)))
+      .filter((item): item is LibraryItem => item !== null);
+  }
+
+  private async fetchJellyfinList(
+    kind: 'movies' | 'series',
+    signal?: AbortSignal,
+  ): Promise<LiveJellyfinListResponse> {
     const data = await this.getRaw<LiveJellyfinListResponse>(`/jellyfin/${kind}`, signal);
     const envelope = requireSoftEnvelope<OkEnvelope & { items?: unknown }>(
       data,
       `Failed to list jellyfin ${kind}`,
       (value) => {
         requireArrayField(
-          value as unknown as Record<string, unknown>,
+          requireEnvelopeRecord(value, `Malformed jellyfin ${kind} response`),
           'items',
           `Malformed jellyfin ${kind} response`,
         );
       },
     );
-    if (envelope.ok === false) {
+    if (!envelope.ok) {
       throw new Error(envelope.error || `Failed to list jellyfin ${kind}`);
     }
-    const itemKind: LibraryItemKind = kind === 'movies' ? 'movie' : 'series';
-    return ((data as LiveJellyfinListResponse).items ?? [])
-      .map((item, index) => mapLibraryItem(mapLiveJellyfinItem(item, itemKind, index)))
-      .filter((item): item is LibraryItem => item !== null);
+    return data;
   }
 
   private async getRaw<T>(path: string, signal?: AbortSignal): Promise<T> {
-    try {
-      if (signal?.aborted) {
-        throw new DOMException('The operation was aborted.', 'AbortError');
-      }
-      const request$ = this.http.get<T>(`${this.base}${path}`);
-      // Unsubscribe on abort so Angular tears down the in-flight XHR/fetch request.
-      return await firstValueFrom(
-        signal ? request$.pipe(takeUntil(fromEvent(signal, 'abort'))) : request$,
+    if (signal?.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    }
+
+    let shared$ = this.inFlightGets.get(path) as Observable<T> | undefined;
+    if (!shared$) {
+      // Concurrent callers share one in-flight GET per path (shareReplay + refCount).
+      // Aborting one waiter unsubscribes that waiter only; the shared XHR continues while
+      // other waiters remain. The last waiter's abort tears down the shared request.
+      // finalize before shareReplay so cleanup runs when the last waiter unsubscribes.
+      shared$ = this.http.get<T>(`${this.base}${path}`).pipe(
+        finalize(() => {
+          if (this.inFlightGets.get(path) === shared$) {
+            this.inFlightGets.delete(path);
+          }
+        }),
+        shareReplay({ bufferSize: 1, refCount: true }),
       );
+      this.inFlightGets.set(path, shared$);
+    }
+
+    try {
+      const request$ = signal
+        ? shared$.pipe(takeUntil(fromEvent(signal, 'abort')))
+        : shared$;
+      return await firstValueFrom(request$);
     } catch (error) {
       if (signal?.aborted) {
         throw new DOMException('The operation was aborted.', 'AbortError');
@@ -359,14 +425,10 @@ export class HttpMediaStackApi implements MediaStackApi {
       return data;
     }
     const envelope = requireOkEnvelope(data, 'Malformed torrents response');
-    if (envelope.ok === false) {
+    if (!envelope.ok) {
       throw new Error(envelope.error || 'Failed to list torrents');
     }
-    return requireArrayField(
-      data as Record<string, unknown>,
-      'torrents',
-      'Malformed torrents response',
-    );
+    return requireArrayField(envelope, 'torrents', 'Malformed torrents response');
   }
 
   /** Return envelope DTOs when valid so facades can read ok/error (mock parity). */
@@ -386,7 +448,7 @@ export class HttpMediaStackApi implements MediaStackApi {
     signal?: AbortSignal,
   ): Promise<T> {
     const data = await this.getRaw<unknown>(path, signal);
-    const envelope = requireHardEnvelope<T>(data, `GET ${path} failed`);
+    const envelope = requireHardEnvelope(data, `GET ${path} failed`) as T;
     validate?.(envelope);
     return envelope;
   }
@@ -396,7 +458,7 @@ export class HttpMediaStackApi implements MediaStackApi {
     try {
       const data = await firstValueFrom(this.http.post<unknown>(`${this.base}${path}`, body ?? null));
       const envelope = requireOkEnvelope(data, `Malformed response for POST ${path}`);
-      if (envelope.ok === false) {
+      if (!envelope.ok) {
         throw new Error(envelope.error || `POST ${path} failed`);
       }
     } catch (error) {
@@ -414,19 +476,17 @@ export class HttpMediaStackApi implements MediaStackApi {
     body?: unknown,
   ): Promise<DiscoverAction> {
     try {
-      const data =
+      const data = await firstValueFrom(
         method === 'PATCH'
-          ? await firstValueFrom(this.http.patch<unknown>(`${this.base}${path}`, body ?? null))
-          : await firstValueFrom(
-              body === undefined
-                ? this.http.post<unknown>(`${this.base}${path}`, null)
-                : this.http.post<unknown>(`${this.base}${path}`, body),
-            );
-      const envelope = requireOkEnvelope(
-        data,
-        `Malformed response for ${method} ${path}`,
-      ) as MediaStackDiscoverActionDto;
-      return mapDiscoverAction(envelope);
+          ? this.http.patch<unknown>(`${this.base}${path}`, body ?? null)
+          : this.http.post<unknown>(`${this.base}${path}`, body ?? null),
+      );
+      return mapDiscoverAction(
+        requireSoftEnvelope<MediaStackDiscoverActionDto>(
+          data,
+          `Malformed response for ${method} ${path}`,
+        ),
+      );
     } catch (error) {
       throw this.toError(error, `${method} ${path} failed`);
     }
@@ -434,9 +494,9 @@ export class HttpMediaStackApi implements MediaStackApi {
 
   private toError(error: unknown, fallback: string): Error {
     if (error instanceof HttpErrorResponse) {
-      const body = error.error as OkEnvelope | string | null;
-      if (body && typeof body === 'object' && body.error) {
-        return new Error(String(body.error));
+      const body: unknown = error.error;
+      if (isRecord(body) && typeof body['error'] === 'string' && body['error'].trim()) {
+        return new Error(body['error']);
       }
       if (typeof body === 'string' && body.trim()) {
         return new Error(body);

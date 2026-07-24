@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { computed, signal } from '@angular/core';
 import { groupCalendarEvents } from './calendar-format';
 import { vi } from 'vitest';
+import { fixtureHost } from '../../testing/fixture-host';
 import { CalendarBoard } from './calendar-board';
 import { CalendarFacade, CalendarRailEvent, CalendarStatus } from './calendar.facade';
 
@@ -20,16 +21,17 @@ describe('CalendarBoard', () => {
 
   it('renders loading, empty, and error states with retry recovery', async () => {
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelectorAll('.cal-skeleton__row').length).toBeGreaterThan(0);
+    const root = fixtureHost(fixture);
+    expect(root.querySelectorAll('.cal-skeleton__row').length).toBeGreaterThan(0);
 
     facade.status.set('empty');
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Nothing upcoming');
+    expect(root.textContent).toContain('Nothing upcoming');
 
     facade.status.set('error');
     facade.error.set('Offline');
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Offline');
+    expect(root.textContent).toContain('Offline');
     findButton('Try again').click();
     await fixture.whenStable();
     fixture.detectChanges();
@@ -82,24 +84,25 @@ describe('CalendarBoard', () => {
     ]);
     fixture.detectChanges();
 
-    const text = fixture.nativeElement.textContent as string;
+    const root = fixtureHost(fixture);
+    const text = root.textContent;
     expect(text).toContain('Cowboy Bebop');
     expect(text).toContain('Episode');
     expect(text).toContain('Movie');
     expect(text).toContain('TODAY');
     expect(text).toContain('TOMORROW');
 
-    const links = Array.from(fixture.nativeElement.querySelectorAll('a.cal-link')) as HTMLAnchorElement[];
+    const links: HTMLAnchorElement[] = Array.from(root.querySelectorAll('a.cal-link'));
     expect(links).toHaveLength(2);
     expect(links[0].getAttribute('href')).toBe('http://localhost:8989/series/cowboy-bebop');
     expect(links[0].getAttribute('target')).toBe('_blank');
     expect(links[0].getAttribute('rel')).toBe('noreferrer');
     expect(links[1].getAttribute('href')).toBe('http://localhost:7878/movie/dune-2021');
 
-    const unmatched = Array.from(fixture.nativeElement.querySelectorAll('.cal-title')) as HTMLElement[];
-    const night = unmatched.find((node) => node.textContent?.includes('Night Transit'));
+    const unmatched: HTMLElement[] = Array.from(root.querySelectorAll('.cal-title'));
+    const night = unmatched.find((node) => node.textContent.includes('Night Transit'));
     expect(night?.tagName.toLowerCase()).toBe('span');
-    expect(fixture.nativeElement.querySelector('.cal-list')?.getAttribute('aria-live')).toBe('polite');
+    expect(root.querySelector('.cal-list')?.getAttribute('aria-live')).toBe('polite');
   });
 
   it('declares container-query compact layout for narrow dashboard rail', () => {
@@ -110,9 +113,10 @@ describe('CalendarBoard', () => {
   });
 
   function findButton(label: string): HTMLButtonElement {
-    return (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find(
-      (button) => button.textContent?.includes(label),
-    ) as HTMLButtonElement;
+    const buttons: HTMLButtonElement[] = Array.from(fixtureHost(fixture).querySelectorAll('button'));
+    const match = buttons.find((button) => button.textContent.includes(label));
+    if (!match) throw new Error(`Button not found: ${label}`);
+    return match;
   }
 });
 
@@ -120,7 +124,7 @@ function createFacade() {
   const status = signal<CalendarStatus>('loading');
   const events = signal<CalendarRailEvent[]>([]);
   const error = signal('');
-  const refresh = vi.fn(async () => status.set('ready'));
+  const refresh = vi.fn(() => { status.set('ready'); return Promise.resolve(); });
   return {
     status,
     events,
@@ -133,6 +137,6 @@ function createFacade() {
 
 function componentStyles(): string {
   return Array.from(document.querySelectorAll('style'))
-    .map((node) => node.textContent ?? '')
+    .map((node) => node.textContent)
     .join('\n');
 }

@@ -5,16 +5,23 @@ export interface OkEnvelope {
   error?: string;
 }
 
+/** Ok envelope plus open string index — preserves extra wire fields after `ok` is checked. */
+export type OkEnvelopeRecord = OkEnvelope & Record<string, unknown>;
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isOkEnvelopeRecord(data: Record<string, unknown>): data is OkEnvelopeRecord {
+  return typeof data['ok'] === 'boolean';
+}
+
 /** Reject null, primitives, arrays, and objects that lack a boolean `ok`. */
-export function requireOkEnvelope(data: unknown, fallback: string): OkEnvelope {
-  if (!isRecord(data) || typeof data['ok'] !== 'boolean') {
+export function requireOkEnvelope(data: unknown, fallback: string): OkEnvelopeRecord {
+  if (!isRecord(data) || !isOkEnvelopeRecord(data)) {
     throw new Error(fallback);
   }
-  return data as unknown as OkEnvelope;
+  return data;
 }
 
 /** Soft envelopes keep `{ ok: false }` for facade handling but reject malformed shapes.
@@ -24,17 +31,19 @@ export function requireSoftEnvelope<T extends OkEnvelope>(
   fallback: string,
   validate?: (envelope: T) => void,
 ): T {
-  const envelope = requireOkEnvelope(data, fallback) as T;
-  if (envelope.ok === true) {
-    validate?.(envelope);
+  const envelope = requireOkEnvelope(data, fallback);
+  // Caller supplies T via validate / generic — wire extras remain on the same object.
+  const typed = envelope as T;
+  if (typed.ok) {
+    validate?.(typed);
   }
-  return envelope;
+  return typed;
 }
 
 /** Hard envelopes throw when `ok === false`. */
-export function requireHardEnvelope<T extends OkEnvelope>(data: unknown, fallback: string): T {
-  const envelope = requireOkEnvelope(data, fallback) as T;
-  if (envelope.ok === false) {
+export function requireHardEnvelope(data: unknown, fallback: string): OkEnvelopeRecord {
+  const envelope = requireOkEnvelope(data, fallback);
+  if (!envelope.ok) {
     throw new Error(envelope.error || fallback);
   }
   return envelope;
@@ -74,7 +83,7 @@ export function requireNonEmptyString(
 }
 
 /** Require a parseable ISO / Date-parseable timestamp string from the backend. */
-export function requireIsoTimestamp(value: unknown, context: string): string {
+function requireIsoTimestamp(value: unknown, context: string): string {
   const text = requireNonEmptyString(value, context);
   if (Number.isNaN(Date.parse(text))) {
     throw new Error(context);

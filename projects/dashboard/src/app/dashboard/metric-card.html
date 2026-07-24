@@ -1,5 +1,5 @@
-<a class="metric-card" [href]="href()" [attr.target]="external() ? '_blank' : null" [attr.rel]="external() ? 'noreferrer' : null">
-  <span class="metric-card__icon" [style.background]="iconBg()" [style.color]="iconColor()">
+<a [class]="'metric-card metric-card--' + tone()" [href]="href()" [attr.target]="external() ? '_blank' : null" [attr.rel]="external() ? 'noreferrer' : null">
+  <span class="metric-card__icon">
     @switch (iconName()) {
       @case ('folder') { <svg lucideFolder [size]="22" aria-hidden="true"></svg> }
       @case ('download') { <svg lucideDownload [size]="22" aria-hidden="true"></svg> }
@@ -14,9 +14,12 @@
       <span class="metric-card__meta">{{ meta() }}</span>
     }
     @if (progress() !== null) {
-      <span class="metric-card__progress">
-        <span class="metric-card__progress-bar" [style.width.%]="progress()"></span>
-      </span>
+      <mm-progress
+        [value]="progress()!"
+        [tone]="tone()"
+        [showLabel]="false"
+        [label]="label() + ' progress'"
+      />
     }
   </span>
   <svg lucideChevronRight [size]="20" aria-hidden="true"></svg>

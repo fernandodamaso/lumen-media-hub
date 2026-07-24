@@ -334,6 +334,32 @@ describe('CalendarFacade', () => {
   });
 });
 
+function abortablePromise<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    void pending.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', onAbort);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
 class MockApi implements MediaStackApi {
   events: CalendarEvent[] = [
     {
@@ -406,30 +432,7 @@ class MockApi implements MediaStackApi {
       return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
     }
     if (this.nextResponse) {
-      const pending = this.nextResponse;
-      return new Promise<CalendarEvent[]>((resolve, reject) => {
-        let settled = false;
-        const onAbort = () => {
-          if (settled) return;
-          settled = true;
-          reject(new DOMException('The operation was aborted.', 'AbortError'));
-        };
-        signal?.addEventListener('abort', onAbort, { once: true });
-        void pending.then(
-          (value) => {
-            if (settled) return;
-            settled = true;
-            signal?.removeEventListener('abort', onAbort);
-            resolve(value);
-          },
-          (error: unknown) => {
-            if (settled) return;
-            settled = true;
-            signal?.removeEventListener('abort', onAbort);
-            reject(error);
-          },
-        );
-      });
+      return abortablePromise(this.nextResponse, signal);
     }
     return this.failure
       ? Promise.reject(new Error('offline'))
@@ -440,30 +443,7 @@ class MockApi implements MediaStackApi {
       return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
     }
     if (this.nextLibrary) {
-      const pending = this.nextLibrary;
-      return new Promise<ArrLibrary>((resolve, reject) => {
-        let settled = false;
-        const onAbort = () => {
-          if (settled) return;
-          settled = true;
-          reject(new DOMException('The operation was aborted.', 'AbortError'));
-        };
-        signal?.addEventListener('abort', onAbort, { once: true });
-        void pending.then(
-          (value) => {
-            if (settled) return;
-            settled = true;
-            signal?.removeEventListener('abort', onAbort);
-            resolve(value);
-          },
-          (error: unknown) => {
-            if (settled) return;
-            settled = true;
-            signal?.removeEventListener('abort', onAbort);
-            reject(error);
-          },
-        );
-      });
+      return abortablePromise(this.nextLibrary, signal);
     }
     return this.libraryFailure || this.failure
       ? Promise.reject(new Error('offline'))

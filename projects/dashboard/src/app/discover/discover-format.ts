@@ -138,9 +138,9 @@ export function posterArtFor(item: Pick<DiscoverCardItem, 'title' | 'posterUrl'>
   return `linear-gradient(145deg, hsl(${hue} 42% 42%), var(--mm-component-card-bg) 70%)`;
 }
 
-export const mapDiscoverItem = (dto: MediaStackDiscoverItemDto): DiscoverItem => ({ ...dto });
+const mapDiscoverItem = (dto: MediaStackDiscoverItemDto): DiscoverItem => ({ ...dto });
 
-export const mapExternalDiscoverItem = (dto: MediaStackExternalDiscoverItemDto): ExternalDiscoverItem => ({
+const mapExternalDiscoverItem = (dto: MediaStackExternalDiscoverItemDto): ExternalDiscoverItem => ({
   ...dto,
 });
 

@@ -1,33 +1,13 @@
+@use '../ui/card-chrome' as chrome;
+
 :host { display: block; }
 
-.calendar h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  color: var(--mm-component-text-primary);
-  font-size: var(--mm-text-heading);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-.calendar h2 svg { color: var(--mm-component-accent); }
+.calendar h2 { @include chrome.title; }
+.calendar h2 svg { @include chrome.title-icon; }
 
-.notice { margin: 0 0 14px; }
+.notice { @include chrome.notice; }
 
-.header-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--mm-component-accent);
-  font-size: var(--mm-text-md);
-  font-weight: 700;
-  text-decoration: none;
-}
-.header-link:hover { text-decoration: underline; }
-.header-link:focus-visible {
-  outline: 3px solid var(--mm-component-focus-ring);
-  outline-offset: 2px;
-}
+.header-link { @include chrome.text-link; }
 
 .date-heading {
   margin: 18px 0 0;
@@ -134,20 +114,7 @@
   border-bottom: 1px solid var(--mm-component-border);
 }
 
-.footer-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--mm-component-accent);
-  font-size: var(--mm-text-md);
-  font-weight: 700;
-  text-decoration: none;
-}
-.footer-link:hover { text-decoration: underline; }
-.footer-link:focus-visible {
-  outline: 3px solid var(--mm-component-focus-ring);
-  outline-offset: 2px;
-}
+.footer-link { @include chrome.text-link; }
 
 @container (max-width: 420px) {
   .cal-row {

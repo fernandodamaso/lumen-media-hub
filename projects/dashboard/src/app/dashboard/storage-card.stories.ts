@@ -49,7 +49,7 @@ export const Loading: Story = {
   }),
 };
 
-export const Error: Story = {
+export const ErrorState: Story = {
   render: () => ({
     moduleMetadata: {
       providers: [{ provide: StorageFacade, useValue: createFacade('error', [], 'Storage is temporarily unavailable. Try again.') }],

@@ -8,6 +8,12 @@ import {
 } from './calendar.models';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 import { isAbortError } from '../media-stack/http-response';
+import {
+  applyPolledRefreshFailure,
+  isInitialRefresh,
+  runPolledRefresh,
+} from '../media-stack/polled-refresh';
+import { ScheduledPollController } from '../media-stack/scheduled-poll';
 
 export type CalendarStatus = 'loading' | 'ready' | 'empty' | 'error';
 
@@ -17,72 +23,78 @@ export interface CalendarRailEvent extends CalendarEvent {
 
 const REFRESH_ERROR = 'Could not refresh calendar. Showing last loaded schedule.';
 const LOAD_ERROR = 'Calendar is temporarily unavailable. Try again.';
-/** Bound scheduled polls so a hung calendar request cannot lock out later ticks. */
-export const SCHEDULED_REFRESH_TIMEOUT_MS = 15_000;
+/** Re-export for existing specs; canonical home is `media-stack/scheduled-poll`. */
+export { SCHEDULED_REFRESH_TIMEOUT_MS } from '../media-stack/scheduled-poll';
 
 @Injectable()
 export class CalendarFacade {
   private readonly api = inject(MEDIA_STACK_API);
   private readonly linkBases = inject(CALENDAR_LINK_BASES);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly poll = new ScheduledPollController();
   private readonly _status = signal<CalendarStatus>('loading');
   private readonly _events = signal<CalendarRailEvent[]>([]);
   private readonly _error = signal('');
   private readonly _refreshing = signal(false);
-  private requestId = 0;
-  private scheduledInFlight = false;
-  private pollHandle?: ReturnType<typeof setInterval>;
-  private refreshAbort?: AbortController;
-  private refreshTimeoutId?: ReturnType<typeof setTimeout>;
+  private readonly _lastFetchedAt = signal('');
 
   readonly status = this._status.asReadonly();
   readonly events = this._events.asReadonly();
   readonly groups = computed(() => groupCalendarEvents(this._events()));
   readonly error = this._error.asReadonly();
   readonly refreshing = this._refreshing.asReadonly();
+  readonly lastFetchedAt = this._lastFetchedAt.asReadonly();
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.stopPolling());
+    this.destroyRef.onDestroy(() => {
+      this.poll.stop();
+      this._refreshing.set(false);
+    });
   }
 
   startPolling(intervalMs = 60_000): void {
-    if (this.pollHandle) return;
-    void this.runScheduledRefresh(true);
-    this.pollHandle = setInterval(() => void this.runScheduledRefresh(false), intervalMs);
+    this.poll.startRefreshing(
+      intervalMs,
+      (options) => this.refresh(options),
+      (initial) => {
+        this.applyRefreshFailure(initial);
+        this._refreshing.set(false);
+      },
+    );
   }
 
   async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<void> {
-    const initial =
-      options.initial === true || this._status() === 'loading' || this._status() === 'error';
-    this._refreshing.set(true);
-    const requestId = ++this.requestId;
-    try {
-      const rawEvents = await this.api.listCalendarEvents(options.signal);
-      if (requestId !== this.requestId) return;
-      const [library, posters] = await Promise.all([
-        this.loadLibrary(options.signal),
-        this.loadPosterArtByTitle(options.signal),
-      ]);
-      if (requestId !== this.requestId) return;
-      const events = [...rawEvents]
-        .sort(compareCalendarEvents)
-        .map((event) => ({
-          ...event,
-          art: posters.get(event.title.trim().toLowerCase()) ?? event.art,
-          href: resolveCalendarLink(event.title, library, this.linkBases, event.kind),
-        }));
-      // Abort after enrichment must not commit, or the scheduled timeout path would wipe a false success.
-      if (requestId !== this.requestId || options.signal?.aborted) return;
-      this._events.set(events);
-      this._status.set(events.length ? 'ready' : 'empty');
-      this._error.set('');
-    } catch {
-      if (requestId !== this.requestId) return;
-      if (options.signal?.aborted) return;
-      this.applyRefreshFailure(initial);
-    } finally {
-      if (requestId === this.requestId) this._refreshing.set(false);
-    }
+    const initial = isInitialRefresh(this._status(), options.initial);
+    await runPolledRefresh({
+      poll: this.poll,
+      refreshing: this._refreshing,
+      signal: options.signal,
+      load: async (requestId) => {
+        const rawEvents = await this.api.listCalendarEvents(options.signal);
+        if (!this.poll.isCurrent(requestId)) return;
+        const [library, posters] = await Promise.all([
+          this.loadLibrary(options.signal),
+          this.loadPosterArtByTitle(options.signal),
+        ]);
+        if (!this.poll.isCurrent(requestId)) return;
+        const events = [...rawEvents]
+          .sort(compareCalendarEvents)
+          .map((event) => ({
+            ...event,
+            art: posters.get(event.title.trim().toLowerCase()) ?? event.art,
+            href: resolveCalendarLink(event.title, library, this.linkBases, event.kind),
+          }));
+        // Abort after enrichment must not commit, or the scheduled timeout path would wipe a false success.
+        if (!this.poll.isCurrent(requestId) || options.signal?.aborted) return;
+        this._events.set(events);
+        this._lastFetchedAt.set(new Date().toISOString());
+        this._status.set(events.length ? 'ready' : 'empty');
+        this._error.set('');
+      },
+      onFailure: () => {
+        this.applyRefreshFailure(initial);
+      },
+    });
   }
 
   private async loadLibrary(signal?: AbortSignal) {
@@ -103,7 +115,7 @@ export class CalendarFacade {
       const posters = new Map<string, string>();
       for (const item of result.items) {
         const key = item.title.trim().toLowerCase();
-        if (!key || !item.art?.trim()) continue;
+        if (!key || !item.art.trim()) continue;
         if (!posters.has(key)) posters.set(key, item.art);
       }
       return posters;
@@ -115,61 +127,16 @@ export class CalendarFacade {
     }
   }
 
-  private async runScheduledRefresh(initial: boolean): Promise<void> {
-    if (this.scheduledInFlight) return;
-    this.scheduledInFlight = true;
-    const abort = new AbortController();
-    this.refreshAbort = abort;
-    this.refreshTimeoutId = setTimeout(() => abort.abort(), SCHEDULED_REFRESH_TIMEOUT_MS);
-    const priorRequestId = this.requestId;
-    try {
-      await this.refresh({ initial, signal: abort.signal });
-      // Only the owning attempt may surface timeout failure after a superseded newer refresh.
-      const ownedRequestId = priorRequestId + 1;
-      if (
-        abort.signal.aborted &&
-        this.pollHandle !== undefined &&
-        this.requestId === ownedRequestId
-      ) {
-        this.applyRefreshFailure(initial);
-        this._refreshing.set(false);
-      }
-    } finally {
-      if (this.refreshTimeoutId !== undefined) {
-        clearTimeout(this.refreshTimeoutId);
-        this.refreshTimeoutId = undefined;
-      }
-      if (this.refreshAbort === abort) {
-        this.refreshAbort = undefined;
-      }
-      this.scheduledInFlight = false;
-    }
-  }
-
   private applyRefreshFailure(initial: boolean): void {
-    const hasPrior = this._status() === 'ready' || this._status() === 'empty';
-    if (!initial && hasPrior) {
-      this._error.set(REFRESH_ERROR);
-      return;
-    }
-    this._status.set('error');
-    this._error.set(LOAD_ERROR);
-    if (initial) {
-      this._events.set([]);
-    }
-  }
-
-  private stopPolling(): void {
-    if (this.pollHandle) clearInterval(this.pollHandle);
-    this.pollHandle = undefined;
-    if (this.refreshTimeoutId !== undefined) {
-      clearTimeout(this.refreshTimeoutId);
-      this.refreshTimeoutId = undefined;
-    }
-    this.requestId++;
-    this.refreshAbort?.abort();
-    this.refreshAbort = undefined;
-    this.scheduledInFlight = false;
-    this._refreshing.set(false);
+    applyPolledRefreshFailure({
+      initial,
+      status: this._status,
+      error: this._error,
+      refreshError: REFRESH_ERROR,
+      loadError: LOAD_ERROR,
+      clearPayload: () => {
+        this._events.set([]);
+      },
+    });
   }
 }

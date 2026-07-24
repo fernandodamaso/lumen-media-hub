@@ -5,6 +5,7 @@
   align-items: center;
   gap: var(--mm-space-md);
   min-height: 96px;
+  height: 100%;
   padding: 18px var(--mm-space-md);
   border: 1px solid var(--mm-component-border);
   border-radius: var(--mm-radius-lg);
@@ -22,6 +23,11 @@
   outline-offset: 2px;
 }
 
+.metric-card--premiere { --metric-tone: var(--mm-component-premiere); }
+.metric-card--info { --metric-tone: var(--mm-component-info); }
+.metric-card--success { --metric-tone: var(--mm-component-success); }
+.metric-card--warning { --metric-tone: var(--mm-component-warning); }
+
 .metric-card__icon {
   display: grid;
   place-items: center;
@@ -29,6 +35,8 @@
   width: 48px;
   height: 48px;
   border-radius: 10px;
+  color: var(--metric-tone);
+  background: color-mix(in srgb, var(--metric-tone) 16%, transparent);
 }
 
 .metric-card__body {
@@ -60,20 +68,10 @@
   font-weight: 500;
 }
 
-.metric-card__progress {
-  display: block;
-  width: 100%;
-  height: 6px;
+.metric-card__body mm-progress {
+  --mm-progress-height: 6px;
+
   margin-top: 4px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--mm-component-border);
-}
-.metric-card__progress-bar {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--mm-component-warning);
 }
 
 .metric-card > svg:last-child {

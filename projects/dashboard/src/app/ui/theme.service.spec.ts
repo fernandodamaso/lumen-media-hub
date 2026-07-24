@@ -5,7 +5,7 @@ describe('ThemeService', () => {
   beforeEach(() => {
     localStorage.clear();
     document.documentElement.dataset['theme'] = '';
-    let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+    let meta = document.querySelector('meta[name="theme-color"]');
     if (!meta) {
       meta = document.createElement('meta');
       meta.setAttribute('name', 'theme-color');
@@ -54,16 +54,20 @@ describe('ThemeService', () => {
   it('updates the theme-color meta tag when the theme changes', () => {
     const service = TestBed.inject(ThemeService);
     TestBed.tick();
-    const meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+    const meta = document.querySelector('meta[name="theme-color"]');
 
     expect(meta?.getAttribute('content')).toBe('#0d1117');
 
     service.setTheme('nocturne');
     TestBed.tick();
-    expect(meta?.getAttribute('content')).toBe('#0b0e14');
+    expect(meta?.getAttribute('content')).toBe('#080d17');
 
     service.setTheme('tokyo-night');
     TestBed.tick();
     expect(meta?.getAttribute('content')).toBe('#16161e');
+
+    service.setTheme('github-dark-pro');
+    TestBed.tick();
+    expect(meta?.getAttribute('content')).toBe('#0d1117');
   });
 });

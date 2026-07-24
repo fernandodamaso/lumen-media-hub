@@ -6,7 +6,7 @@ export type MediaUiTheme = (typeof MEDIA_UI_THEMES)[number];
 const STORAGE_KEY = 'media-ui-theme';
 
 const THEME_SURFACE_COLOR: Record<MediaUiTheme, string> = {
-  nocturne: '#0b0e14',
+  nocturne: '#080d17',
   'tokyo-night': '#16161e',
   'github-dark-pro': '#0d1117',
 };
@@ -17,7 +17,7 @@ export class ThemeService {
   readonly theme = signal<MediaUiTheme>(this.readInitialTheme());
 
   constructor() {
-    effect(() => this.applyTheme(this.theme()));
+    effect(() => { this.applyTheme(this.theme()); });
   }
 
   setTheme(theme: MediaUiTheme): void {
@@ -49,7 +49,7 @@ export class ThemeService {
   }
 
   private updateThemeColor(color: string): void {
-    const meta = this.document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+    const meta = this.document.querySelector('meta[name="theme-color"]');
     if (meta) {
       meta.setAttribute('content', color);
     }

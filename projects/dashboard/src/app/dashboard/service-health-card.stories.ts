@@ -74,7 +74,7 @@ export const Loading: Story = {
   }),
 };
 
-export const Error: Story = {
+export const ErrorState: Story = {
   render: () => ({
     moduleMetadata: {
       providers: [{ provide: ServiceHealthFacade, useValue: createFacade('error', [], 'Service health is temporarily unavailable. Try again.') }],

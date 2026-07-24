@@ -1,15 +1,28 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { LucideActivity, LucideChevronRight, LucideSettings } from '@lucide/angular';
 import { MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { AutomationService, AutomationServiceStatus } from '../automation/automation.models';
+import { resolveServiceHref } from '../automation/service-catalog';
 import { ServiceHealthFacade } from '../automation/service-health.facade';
-import { SERVICE_LINK_BASES, ServiceLinkBases } from '../media-stack/media-stack-api.providers';
+import { SERVICE_LINK_BASES } from '../media-stack/media-stack-api.providers';
 import { AUTOMATION_SERVICE_STATUS_VIEW } from '../automation/automation-format';
 
 @Component({
   selector: 'mm-service-health-card',
-  imports: [MmButton, MmCard, MmSkeleton, MmStateCard, MmStatus, RouterLink, LucideActivity, LucideChevronRight, LucideSettings],
+  imports: [
+    NgTemplateOutlet,
+    MmButton,
+    MmCard,
+    MmSkeleton,
+    MmStateCard,
+    MmStatus,
+    RouterLink,
+    LucideActivity,
+    LucideChevronRight,
+    LucideSettings,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './service-health-card.html',
   styleUrl: './service-health-card.scss',
@@ -33,13 +46,11 @@ export class ServiceHealthCard {
       return service.detail || 'Healthy';
     }
     if (service.status === 'degraded') return service.detail || 'Needs attention';
-    if (service.status === 'down' || service.status === 'unknown') return service.detail || 'Unavailable';
-    return service.detail || 'Healthy';
+    return service.detail || 'Unavailable';
   }
 
   serviceHref(id: string): string | null {
-    const base = (this.linkBases as ServiceLinkBases)[id as keyof ServiceLinkBases]?.replace(/\/$/, '');
-    return base ? `${base}/` : null;
+    return resolveServiceHref(id, this.linkBases);
   }
 
   retry(): void {

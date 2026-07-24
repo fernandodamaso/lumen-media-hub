@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import {
-  LucideAlertCircle,
+  LucideCircleAlert,
   LucideCircleCheck,
   LucideInfo,
   LucideTriangleAlert,
@@ -8,13 +8,13 @@ import {
 
 @Component({
   selector: 'mm-status',
-  imports: [LucideCircleCheck, LucideInfo, LucideAlertCircle, LucideTriangleAlert],
+  imports: [LucideCircleCheck, LucideInfo, LucideCircleAlert, LucideTriangleAlert],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<span [attr.role]="announce() ? 'status' : null" [class]="'mm-status mm-status--' + tone()">
     @if (tone() === 'success') {
       <svg lucideCircleCheck [size]="15" aria-hidden="true"></svg>
     } @else if (tone() === 'danger') {
-      <svg lucideAlertCircle [size]="15" aria-hidden="true"></svg>
+      <svg lucideCircleAlert [size]="15" aria-hidden="true"></svg>
     } @else if (tone() === 'warning') {
       <svg lucideTriangleAlert [size]="15" aria-hidden="true"></svg>
     } @else {

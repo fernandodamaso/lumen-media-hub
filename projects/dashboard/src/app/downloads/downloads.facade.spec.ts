@@ -255,8 +255,10 @@ describe('DownloadsFacade', () => {
   });
 
   it('prevents conflicting actions and refreshes after success', async () => {
-    const { promise: actionPromise, resolve } = Promise.withResolvers<void>();
-    const release = resolve;
+    const { promise: actionPromise, resolve } = Promise.withResolvers<undefined>();
+    const release = () => {
+      resolve(undefined);
+    };
     api.action = actionPromise;
     const first = facade.runAction('pause');
     expect(facade.pendingAction()).toBe('pause');
@@ -287,13 +289,13 @@ describe('DownloadsFacade', () => {
   });
 
   it('guards repeated per-torrent activation', async () => {
-    const { promise: actionPromise, resolve } = Promise.withResolvers<void>();
+    const { promise: actionPromise, resolve } = Promise.withResolvers<undefined>();
     api.torrentAction = actionPromise;
     const first = facade.runTorrentAction('a', 'pause');
     expect(facade.pendingTorrentId()).toBe('a');
     await facade.runTorrentAction('a', 'resume');
     expect(api.torrentActions).toEqual(['pause:a']);
-    resolve();
+    resolve(undefined);
     await first;
     expect(facade.pendingTorrentId()).toBeNull();
   });
@@ -372,7 +374,7 @@ class MockApi implements MediaStackApi {
             if (settled) return;
             settled = true;
             signal?.removeEventListener('abort', onAbort);
-            reject(error);
+            reject(error instanceof Error ? error : new Error(String(error)));
           },
         );
       });

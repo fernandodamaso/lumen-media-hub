@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { vi } from 'vitest';
+import { fixtureHost } from '../../testing/fixture-host';
 import { CronHealthSummary, CronRun } from './reports.models';
 import { ReportsFacade, ReportsStatus } from './reports.facade';
 import { ReportsPage } from './reports-page';
@@ -24,18 +25,19 @@ describe('ReportsPage', () => {
 
   it('renders loading, empty, and hard-error states', () => {
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Loading reports');
+    const root = fixtureHost(fixture);
+    expect(root.textContent).toContain('Loading reports');
 
     facade.status.set('empty');
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('No cron history yet');
+    expect(root.textContent).toContain('No cron history yet');
 
     facade.status.set('error');
     facade.error.set('Offline');
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Offline');
-    expect(fixture.nativeElement.textContent).toContain('Reports unavailable');
-    expect(fixture.nativeElement.querySelector('.mm-state-card--danger')).toBeTruthy();
+    expect(root.textContent).toContain('Offline');
+    expect(root.textContent).toContain('Reports unavailable');
+    expect(root.querySelector('.mm-state-card--danger')).toBeTruthy();
   });
 
   it('prioritizes actionable runs and keeps quiet runs collapsed', () => {
@@ -49,17 +51,18 @@ describe('ReportsPage', () => {
     ]);
     fixture.detectChanges();
 
-    const text = fixture.nativeElement.textContent as string;
+    const root = fixtureHost(fixture);
+    const text = root.textContent;
     expect(text).toContain('actionable run');
     expect(text).toContain('Watchdog');
     expect(text).toContain('2 quiet runs');
 
-    const actionableList = fixture.nativeElement.querySelector('[aria-label="Actionable runs"]');
-    const quietSection = fixture.nativeElement.querySelector('.quiet-section') as HTMLDetailsElement;
+    const actionableList = root.querySelector('[aria-label="Actionable runs"]');
+    const quietSection = root.querySelector('.quiet-section') as HTMLDetailsElement;
     expect(actionableList?.textContent).toContain('Watchdog');
     expect(quietSection.open).toBe(false);
 
-    const firstActionable = actionableList?.querySelector('.run') as HTMLElement;
+    const firstActionable = actionableList?.querySelector('.run') as HTMLElement | null;
     expect(firstActionable?.textContent).toContain('Watchdog');
   });
 
@@ -71,7 +74,7 @@ describe('ReportsPage', () => {
     ]);
     fixture.detectChanges();
 
-    const details = fixture.nativeElement.querySelector('.run-list .run') as HTMLDetailsElement;
+    const details = fixtureHost(fixture).querySelector('.run-list .run') as HTMLDetailsElement;
     const summary = details.querySelector('summary') as HTMLElement;
     expect(details.open).toBe(false);
 
@@ -94,9 +97,10 @@ describe('ReportsPage', () => {
     ]);
     fixture.detectChanges();
 
-    const text = fixture.nativeElement.textContent as string;
+    const root = fixtureHost(fixture);
+    const text = root.textContent;
     expect(text).toContain('All clear');
-    expect(fixture.nativeElement.querySelector('mm-state-card[tone="danger"]')).toBeNull();
+    expect(root.querySelector('mm-state-card[tone="danger"]')).toBeNull();
     expect(text).not.toContain('Reports unavailable');
   });
 
@@ -109,8 +113,9 @@ describe('ReportsPage', () => {
     ]);
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('Showing last loaded history');
-    expect(fixture.nativeElement.textContent).toContain('Watchdog');
+    const root = fixtureHost(fixture);
+    expect(root.textContent).toContain('Showing last loaded history');
+    expect(root.textContent).toContain('Watchdog');
   });
 
   it('calls facade refresh from the Refresh button', async () => {
@@ -152,8 +157,8 @@ function createFacade() {
 }
 
 function findButton(label: string): HTMLButtonElement {
-  const buttons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
-  const match = buttons.find((button) => button.textContent?.includes(label));
+  const buttons = Array.from(document.querySelectorAll('button'));
+  const match = buttons.find((button) => button.textContent.includes(label));
   if (!match) throw new Error(`Button not found: ${label}`);
   return match;
 }

@@ -1,5 +1,5 @@
 export type DiscoverFeedback = 'liked' | 'disliked' | 'watched' | 'skipped';
-export type DiscoverMediaType = 'movie' | 'tv';
+type DiscoverMediaType = 'movie' | 'tv';
 export type DiscoverSourceTab = 'hermes' | 'jellyseerr' | 'trakt';
 export type JellyseerrDiscoverKind = 'trending' | 'movies' | 'tv';
 export type TraktDiscoverType = 'movies' | 'shows';

@@ -9,24 +9,26 @@ export interface AutomationService {
   latencyMs?: number | null;
 }
 
-export interface AutomationPreviewItem {
+interface AutomationPreviewItem {
   id: string;
   title: string;
   when: string;
   kind: string;
 }
 
-export interface AutomationProblem {
+interface AutomationProblem {
   id: string;
   summary: string;
   serviceId: string | null;
   severity: AutomationProblemSeverity;
 }
 
-export interface AutomationSectionAvailability {
-  services: 'present' | 'empty' | 'unavailable';
-  preview: 'present' | 'empty' | 'unavailable';
-  problems: 'present' | 'empty' | 'unavailable';
+type AutomationSectionState = 'present' | 'empty' | 'unavailable';
+
+interface AutomationSectionAvailability {
+  services: AutomationSectionState;
+  preview: AutomationSectionState;
+  problems: AutomationSectionState;
 }
 
 export interface AutomationSummary {

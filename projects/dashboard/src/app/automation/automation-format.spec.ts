@@ -34,7 +34,7 @@ describe('automation format / automation mapping', () => {
   it('defaults missing problem severity to info', () => {
     const summary = mapAutomationSummary({
       generatedAt: '',
-      problems: [{ id: 'x', summary: 'X', severity: undefined as unknown as string }],
+      problems: [{ id: 'x', summary: 'X', severity: undefined }],
     });
     expect(summary.problems[0].severity).toBe('info');
   });

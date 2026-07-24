@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { vi } from 'vitest';
+import { fixtureHost } from '../../testing/fixture-host';
 import { DownloadsBoard } from './downloads-board';
 import { DownloadsAction, DownloadsFacade, DownloadsStatus } from './downloads.facade';
 import { DownloadTorrent } from './downloads.models';
@@ -20,16 +21,17 @@ describe('DownloadsBoard', () => {
 
   it('renders loading, empty, and error states with retry recovery', async () => {
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelectorAll('.download-skeleton').length).toBeGreaterThan(0);
+    const root = fixtureHost(fixture);
+    expect(root.querySelectorAll('.download-skeleton').length).toBeGreaterThan(0);
 
     facade.status.set('empty');
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('No active downloads');
+    expect(root.textContent).toContain('No active downloads');
 
     facade.status.set('error');
     facade.error.set('Offline');
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Offline');
+    expect(root.textContent).toContain('Offline');
     findButton('Try again').click();
     await fixture.whenStable();
     fixture.detectChanges();
@@ -42,7 +44,7 @@ describe('DownloadsBoard', () => {
     facade.torrents.set([downloadingTorrent()]);
     facade.nextAction.set('pause');
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('30s left');
+    expect(fixtureHost(fixture).textContent).toContain('30s left');
 
     findButton('Pause all').click();
     expect(facade.runAction).toHaveBeenCalledWith('pause');
@@ -71,7 +73,7 @@ describe('DownloadsBoard', () => {
     facade.nextAction.set('pause');
     fixture.detectChanges();
 
-    const pauseButton = fixture.nativeElement.querySelector('.torrent-action') as HTMLButtonElement;
+    const pauseButton = fixtureHost(fixture).querySelector('mm-icon-button button') as HTMLButtonElement;
     expect(pauseButton).toBeTruthy();
     pauseButton.click();
     expect(facade.runTorrentAction).toHaveBeenCalledWith('a', 'pause');
@@ -81,8 +83,9 @@ describe('DownloadsBoard', () => {
     facade.status.set('ready');
     facade.torrents.set([{ id: 'b', name: 'Seeded', state: 'seeding', progress: 100, size: 100, downloaded: 100, downloadRate: 0, uploadRate: 5, eta: 0, category: 'Movies' }]);
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Seeding');
-    expect(fixture.nativeElement.textContent).toContain('Complete');
+    const root = fixtureHost(fixture);
+    expect(root.textContent).toContain('Seeding');
+    expect(root.textContent).toContain('Complete');
   });
 
   it('keeps rows visible with a refresh notice after a background failure', () => {
@@ -90,9 +93,10 @@ describe('DownloadsBoard', () => {
     facade.torrents.set([downloadingTorrent()]);
     facade.error.set('Could not refresh downloads. Showing last loaded queue.');
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Showing last loaded queue');
-    expect(fixture.nativeElement.textContent).toContain('A');
-    expect(fixture.nativeElement.querySelector('mm-state-card')).toBeNull();
+    const root = fixtureHost(fixture);
+    expect(root.textContent).toContain('Showing last loaded queue');
+    expect(root.textContent).toContain('A');
+    expect(root.querySelector('mm-state-card')).toBeNull();
   });
 
   it('declares container-query compact layout for narrow dashboard tracks', () => {
@@ -103,7 +107,10 @@ describe('DownloadsBoard', () => {
   });
 
   function findButton(label: string): HTMLButtonElement {
-    return (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find((button) => button.textContent?.includes(label)) as HTMLButtonElement;
+    const buttons: HTMLButtonElement[] = Array.from(fixtureHost(fixture).querySelectorAll('button'));
+    const match = buttons.find((button) => button.textContent.includes(label));
+    if (!match) throw new Error(`Button not found: ${label}`);
+    return match;
   }
 });
 
@@ -123,7 +130,7 @@ function createFacade() {
     canPauseAll: signal(false),
     canResumeAll: signal(false),
     startPolling: vi.fn(),
-    refresh: vi.fn(async () => status.set('ready')),
+    refresh: vi.fn(() => { status.set('ready'); return Promise.resolve(); }),
     runAction: vi.fn(),
     runTorrentAction: vi.fn(),
   };
@@ -135,6 +142,6 @@ function downloadingTorrent(): DownloadTorrent {
 
 function componentStyles(): string {
   return Array.from(document.querySelectorAll('style'))
-    .map((node) => node.textContent ?? '')
+    .map((node) => node.textContent)
     .join('\n');
 }

@@ -3,36 +3,67 @@ import { provideLocationMocks, SpyLocation } from '@angular/common/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { fixtureHost } from '../testing/fixture-host';
 import { App } from './app';
 import { routes } from './app.routes';
 import { ServiceHealthFacade } from './automation/service-health.facade';
 import { MEDIA_STACK_API } from './media-stack/media-stack-api';
+import { provideOperationalLinkBases } from './media-stack/media-stack-api.providers';
 import { MockMediaStackApi } from './media-stack/mock-media-stack-api';
 
 describe('App shell', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideRouter(routes), provideLocationMocks(), { provide: MEDIA_STACK_API, useClass: MockMediaStackApi }],
+      providers: [
+        provideRouter(routes),
+        provideLocationMocks(),
+        { provide: MEDIA_STACK_API, useClass: MockMediaStackApi },
+        ...provideOperationalLinkBases(),
+      ],
     });
   });
 
   it('renders the shell and its primary navigation', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
+    const root = fixtureHost(fixture);
 
-    expect(fixture.nativeElement.querySelector('.brand')?.textContent).toContain('Media Manager');
-    expect(fixture.nativeElement.querySelector('.demo-badge')?.textContent).toContain('Demo');
-    expect(fixture.nativeElement.querySelectorAll('.sidebar__nav a')).toHaveLength(3);
-    expect(fixture.nativeElement.querySelectorAll('.service-link')).toHaveLength(7);
-    expect(fixture.nativeElement.querySelector('router-outlet')).toBeTruthy();
+    expect(root.querySelector('.brand')?.textContent).toContain('Media Manager');
+    expect(root.querySelector('.demo-badge')?.textContent).toContain('Demo');
+    expect(root.querySelectorAll('.sidebar__nav a')).toHaveLength(3);
+    expect(root.querySelectorAll('.service-link')).toHaveLength(7);
+    expect(root.querySelector('router-outlet')).toBeTruthy();
+  });
+
+  it('wires SERVICE_LINK_BASES into sidebar anchors and keeps SABnzbd inert', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const root = fixtureHost(fixture);
+
+    const byName = new Map(fixture.componentInstance.services().map((service) => [service.name, service]));
+    expect(byName.get('Jellyfin')?.href).toBe('http://localhost:8096/');
+    expect(byName.get('Sonarr')?.href).toBe('http://localhost:8989/');
+    expect(byName.get('SABnzbd')?.href).toBeNull();
+
+    const jellyfin = [...root.querySelectorAll('.service-link')].find((el: Element) =>
+      el.textContent.includes('Jellyfin'),
+    ) as HTMLAnchorElement | undefined;
+    expect(jellyfin?.tagName).toBe('A');
+    expect(jellyfin?.getAttribute('href')).toBe('http://localhost:8096/');
+
+    const sabnzbd = [...root.querySelectorAll('.service-link')].find((el: Element) =>
+      el.textContent.includes('SABnzbd'),
+    ) as HTMLElement | undefined;
+    expect(sabnzbd?.tagName).toBe('SPAN');
+    expect(sabnzbd?.classList.contains('service-link--inert')).toBe(true);
   });
 
   it('overlays sidebar service status from live health and leaves untracked services unknown', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     expect(fixture.componentInstance.services().every((service) => service.status === 'unknown')).toBe(true);
-    expect(fixture.nativeElement.querySelector('.service-dot--unknown')).toBeTruthy();
+    expect(fixtureHost(fixture).querySelector('.service-dot--unknown')).toBeTruthy();
 
     const health = TestBed.inject(ServiceHealthFacade);
     await health.refresh({ initial: true });
@@ -48,16 +79,9 @@ describe('App shell', () => {
 
   it('conditionally includes SABnzbd based on environment.useLiveApi', () => {
     const fixture = TestBed.createComponent(App);
-    // The App component's services array is built at class-load time:
-    // SABnzbd is spliced in only when !environment.useLiveApi (Demo).
-    // When useLiveApi is true (Live), it is excluded.
-    // This test verifies the conditional exists and fires correctly
-    // in the default (Demo) configuration.
+    // SABnzbd is catalogued as demoOnly and filtered when useLiveApi is true.
     const names = fixture.componentInstance.services().map((s) => s.name);
     expect(names).toContain('SABnzbd');
-    // Live-mode exclusion is compile-time verified by the build:live
-    // configuration which file-replaces environment.ts with
-    // environment.live.ts (useLiveApi: true).
   });
 
   it.each([

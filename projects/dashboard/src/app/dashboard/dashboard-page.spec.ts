@@ -3,6 +3,7 @@ import { computed, signal } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { groupCalendarEvents } from '../calendar/calendar-format';
 import { vi } from 'vitest';
+import { formatRelativeTime } from '../automation/automation-format';
 import { AutomationFacade, AutomationStatus } from '../automation/automation.facade';
 import { ServiceHealthFacade, ServiceHealthStatus } from '../automation/service-health.facade';
 import { CalendarFacade, CalendarRailEvent, CalendarStatus } from '../calendar/calendar.facade';
@@ -14,6 +15,7 @@ import { StorageFacade, StorageStatus } from '../storage/storage.facade';
 import { StorageOverview } from '../storage/storage.models';
 import { CronRun } from '../reports/reports.models';
 import { AutomationSummary, summarizeAutomationHealth } from '../automation/automation.models';
+import { fixtureHost } from '../../testing/fixture-host';
 import { DashboardPage } from './dashboard-page';
 
 describe('DashboardPage composition', () => {
@@ -58,7 +60,7 @@ describe('DashboardPage composition', () => {
     setReady();
     fixture.detectChanges();
 
-    const root = fixture.nativeElement as HTMLElement;
+    const root = fixtureHost(fixture);
     expect(root.querySelector('mm-dashboard-header')).toBeTruthy();
     expect(root.querySelector('.metrics-row')).toBeTruthy();
     expect(root.querySelector('mm-attention-banner')).toBeTruthy();
@@ -91,8 +93,9 @@ describe('DashboardPage composition', () => {
   it('collapses the grid to a single column on smaller viewports', () => {
     fixture.detectChanges();
     const styles = dashboardStyles();
-    expect(styles).toContain('@media (max-width: 1279px)');
-    expect(styles).toMatch(/@media \(max-width: 1279px\)[\s\S]*grid-template-columns:\s*1fr;/);
+    expect(styles).toContain('@container (max-width: 1279px)');
+    expect(styles).toMatch(/@container \(max-width: 1279px\)[\s\S]*grid-template-columns:\s*1fr;/);
+    expect(styles).toContain('@container (max-width: 639px)');
   });
 
   it('keeps other regions usable when one feature fails', () => {
@@ -106,7 +109,7 @@ describe('DashboardPage composition', () => {
     storage.overview.set(storageOverview());
     fixture.detectChanges();
 
-    const root = fixture.nativeElement as HTMLElement;
+    const root = fixtureHost(fixture);
     expect(root.querySelector('.metrics-row')?.textContent).toContain('Library');
     expect(root.querySelector('.metrics-row')?.textContent).toContain('—');
     expect(root.querySelector('[data-region="downloads"]')?.textContent).toContain('Signal Drift');
@@ -121,7 +124,7 @@ describe('DashboardPage composition', () => {
     const styles = dashboardStyles();
     expect(styles).not.toMatch(/@keyframes[\s\S]*region-enter/);
     expect(styles).not.toContain('animation: region-enter');
-    expect(fixture.nativeElement.querySelectorAll('.region').length).toBeGreaterThanOrEqual(5);
+    expect(fixtureHost(fixture).querySelectorAll('.region').length).toBeGreaterThanOrEqual(5);
   });
 
   it('aligns attention headline with actionable problems and surfaces problem summaries', () => {
@@ -145,7 +148,7 @@ describe('DashboardPage composition', () => {
     });
     fixture.detectChanges();
 
-    const banner = fixture.nativeElement.querySelector('mm-attention-banner') as HTMLElement;
+    const banner = fixtureHost(fixture).querySelector('mm-attention-banner') as HTMLElement;
     expect(banner.textContent).toContain('2 items need attention');
     expect(banner.textContent).toContain('Indexer A · disabled');
     expect(banner.textContent).toContain('+2 more');
@@ -161,11 +164,80 @@ describe('DashboardPage composition', () => {
       preview: [],
       availability: { services: 'present', preview: 'empty', problems: 'empty' },
     });
+    storage.overview.set({
+      generatedAt: '',
+      volumes: storageOverview().volumes,
+    });
     health.lastFetchedAt.set('2026-07-22T11:00:00Z');
+    library.lastFetchedAt.set('');
+    downloads.lastFetchedAt.set('');
+    storage.lastFetchedAt.set('');
+    calendar.lastFetchedAt.set('');
+    automation.lastFetchedAt.set('');
     fixture.detectChanges();
 
-    expect(fixture.componentInstance.syncedAt()).toBeTruthy();
-    expect(fixture.nativeElement.textContent).not.toContain('Sync time unavailable');
+    expect(fixture.componentInstance.syncedAt()).toBe(formatRelativeTime('2026-07-22T11:00:00Z'));
+    expect(fixtureHost(fixture).textContent).not.toContain('Sync time unavailable');
+  });
+
+  it('refreshes all dashboard facades from the header action', () => {
+    setReady();
+    fixture.detectChanges();
+    fixture.componentInstance.onRefresh();
+    expect(health.refresh).toHaveBeenCalled();
+    expect(library.refresh).toHaveBeenCalled();
+    expect(downloads.refresh).toHaveBeenCalled();
+    expect(storage.refresh).toHaveBeenCalled();
+    expect(calendar.refresh).toHaveBeenCalled();
+    expect(automation.refresh).toHaveBeenCalled();
+  });
+
+  it('prefers health generatedAt over a newer health lastFetchedAt', () => {
+    setReady();
+    health.summary.set({
+      generatedAt: '2026-07-22T12:00:00Z',
+      services: [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: '', latencyMs: 10 }],
+      problems: [],
+      preview: [],
+      availability: { services: 'present', preview: 'empty', problems: 'empty' },
+    });
+    storage.overview.set({
+      generatedAt: '2026-07-22T09:00:00Z',
+      volumes: storageOverview().volumes,
+    });
+    health.lastFetchedAt.set('2026-07-22T12:30:00Z');
+    library.lastFetchedAt.set('2026-07-22T11:00:00Z');
+    downloads.lastFetchedAt.set('2026-07-22T11:15:00Z');
+    storage.lastFetchedAt.set('2026-07-22T09:30:00Z');
+    automation.lastFetchedAt.set('2026-07-22T11:30:00Z');
+    calendar.lastFetchedAt.set('2026-07-22T11:45:00Z');
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.syncedAt()).toBe(formatRelativeTime('2026-07-22T12:00:00Z'));
+  });
+
+  it('prefers the newest freshness timestamp across dashboard facades', () => {
+    setReady();
+    health.summary.set({
+      generatedAt: '2026-07-22T10:00:00Z',
+      services: [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: '', latencyMs: 10 }],
+      problems: [],
+      preview: [],
+      availability: { services: 'present', preview: 'empty', problems: 'empty' },
+    });
+    storage.overview.set({
+      generatedAt: '2026-07-22T09:00:00Z',
+      volumes: storageOverview().volumes,
+    });
+    health.lastFetchedAt.set('2026-07-22T10:30:00Z');
+    library.lastFetchedAt.set('2026-07-22T11:00:00Z');
+    downloads.lastFetchedAt.set('2026-07-22T11:15:00Z');
+    storage.lastFetchedAt.set('2026-07-22T09:30:00Z');
+    automation.lastFetchedAt.set('2026-07-22T11:30:00Z');
+    calendar.lastFetchedAt.set('2026-07-22T12:00:00Z');
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.syncedAt()).toBe(formatRelativeTime('2026-07-22T12:00:00Z'));
   });
 
   function setReady(): void {
@@ -196,7 +268,7 @@ describe('DashboardPage composition', () => {
 
 function dashboardStyles(): string {
   return Array.from(document.querySelectorAll('style'))
-    .map((node) => node.textContent ?? '')
+    .map((node) => node.textContent)
     .join('\n');
 }
 
@@ -284,6 +356,7 @@ function createLibraryStatsFacade() {
     error: signal(''),
     availability: signal<'complete' | 'partial'>('complete'),
     refreshing: signal(false),
+    lastFetchedAt: signal(''),
     refresh: vi.fn(),
   };
 }
@@ -300,6 +373,7 @@ function createDownloadsFacade() {
     nextAction: signal<DownloadsAction | null>(null),
     canPauseAll: signal(false),
     canResumeAll: signal(false),
+    lastFetchedAt: signal(''),
     startPolling: vi.fn(),
     refresh: vi.fn(),
     runAction: vi.fn(),
@@ -315,6 +389,7 @@ function createAutomationFacade() {
     health: signal({ overall: 'unknown' as const, actionableCount: 0 }),
     tasks: signal<CronRun[]>([]),
     latestRuns: signal<CronRun[]>([]),
+    lastFetchedAt: signal(''),
     startPolling: vi.fn(),
     refresh: vi.fn(),
   };
@@ -327,6 +402,7 @@ function createCalendarFacade() {
     events,
     groups: computed(() => groupCalendarEvents(events())),
     error: signal(''),
+    lastFetchedAt: signal(''),
     startPolling: vi.fn(),
     refresh: vi.fn(),
   };
@@ -338,7 +414,9 @@ function createStorageFacade() {
     status: signal<StorageStatus>('loading'),
     overview,
     volumes: computed(() => overview()?.volumes ?? []),
+    generatedAt: computed(() => overview()?.generatedAt ?? ''),
     error: signal(''),
+    lastFetchedAt: signal(''),
     startPolling: vi.fn(),
     refresh: vi.fn(),
   };

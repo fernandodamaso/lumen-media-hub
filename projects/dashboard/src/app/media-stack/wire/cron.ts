@@ -33,7 +33,7 @@ export interface MediaStackCronLogsDto {
   ok: boolean;
   generatedAt?: string;
   tmpDir?: string;
-  logs: MediaStackCronLogEntryDto[];
+  logs?: MediaStackCronLogEntryDto[];
   note?: string;
   error?: string;
 }

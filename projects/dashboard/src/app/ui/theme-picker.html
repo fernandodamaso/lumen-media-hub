@@ -3,7 +3,7 @@
   <div class="picker__control">
     <select [value]="themeService.theme()" (change)="select($event)" aria-label="Choose theme">
       @for (theme of themes; track theme) {
-        <option [value]="theme">{{ labels[theme] }}</option>
+        <option [value]="theme" [selected]="themeService.theme() === theme">{{ labels[theme] }}</option>
       }
     </select>
     @if (justSaved()) {

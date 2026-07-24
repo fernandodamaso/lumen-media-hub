@@ -112,7 +112,7 @@ export class DiscoverFacade {
   });
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.stopPolling());
+    this.destroyRef.onDestroy(() => { this.stopPolling(); });
   }
 
   async setTab(tab: DiscoverSourceTab): Promise<void> {
@@ -303,7 +303,7 @@ export class DiscoverFacade {
       const response = await this.api.listHermesRecommendations();
       if (!response.ok) {
         // Failures only apply when still current — a stale failure must not clobber newer work.
-        if (requestId !== this.hermesRequestId || this._tab() !== 'hermes') return;
+        if (!this.isCurrentHermesRequest(requestId)) return;
         this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
         return;
       }
@@ -314,90 +314,113 @@ export class DiscoverFacade {
       this.hermesAppliedId = requestId;
       this.hermesLoaded = true;
       if (this._tab() !== 'hermes') return;
-      const isCurrent = requestId === this.hermesRequestId;
-      if (!isCurrent && this._status() !== 'error') return;
-      const visible = this.visibleItems();
-      this._status.set(visible.length ? 'ready' : 'empty');
-      this._error.set('');
-      if (this._notice() === REFRESH_NOTICE) this._notice.set('');
+      this.commitBrowseSuccessCount(this.visibleItems().length, requestId, this.hermesRequestId);
     } catch {
-      if (requestId !== this.hermesRequestId || this._tab() !== 'hermes') return;
+      if (!this.isCurrentHermesRequest(requestId)) return;
       this.applyBrowseFailure(isInitial, LOAD_ERROR);
     }
+  }
+
+  private isCurrentHermesRequest(requestId: number): boolean {
+    return requestId === this.hermesRequestId && this._tab() === 'hermes';
   }
 
   private async loadJellyseerr(kind: JellyseerrDiscoverKind): Promise<void> {
-    const requestId = ++this.jellyseerrRequestId;
-    const cached = this._jellyseerrCache()[kind];
-    const isInitial = !cached;
-    if (cached) {
-      if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
-        this._status.set(cached.length ? 'ready' : 'empty');
-        this._error.set('');
-      }
-    } else if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
-      this._status.set('loading');
-    }
+    await this.loadExternalBrowse({
+      nextRequestId: () => ++this.jellyseerrRequestId,
+      currentRequestId: () => this.jellyseerrRequestId,
+      appliedId: () => this.jellyseerrAppliedId,
+      setAppliedId: (id) => {
+        this.jellyseerrAppliedId = id;
+      },
+      isActive: () => this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind,
+      cached: () => this._jellyseerrCache()[kind],
+      writeCache: (items) => {
+        this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: items }));
+      },
+      fetch: () => this.api.listJellyseerrDiscover(kind),
+    });
+  }
+
+  private async loadTrakt(type: TraktDiscoverType): Promise<void> {
+    await this.loadExternalBrowse({
+      nextRequestId: () => ++this.traktRequestId,
+      currentRequestId: () => this.traktRequestId,
+      appliedId: () => this.traktAppliedId,
+      setAppliedId: (id) => {
+        this.traktAppliedId = id;
+      },
+      isActive: () => this._tab() === 'trakt' && this._traktType() === type,
+      cached: () => this._traktCache()[type],
+      writeCache: (items) => {
+        this._traktCache.update((cache) => ({ ...cache, [type]: items }));
+      },
+      fetch: () => this.api.listTraktDiscover(type),
+    });
+  }
+
+  /** Shared Jellyseerr/Trakt browse load: cache prime, generation guard, soft failure. */
+  private async loadExternalBrowse(opts: {
+    nextRequestId: () => number;
+    currentRequestId: () => number;
+    appliedId: () => number;
+    setAppliedId: (id: number) => void;
+    isActive: () => boolean;
+    cached: () => ExternalDiscoverItem[] | undefined;
+    writeCache: (items: ExternalDiscoverItem[]) => void;
+    fetch: () => Promise<{ ok: boolean; items: ExternalDiscoverItem[]; error?: string }>;
+  }): Promise<void> {
+    const requestId = opts.nextRequestId();
+    const isActive = opts.isActive();
+    const isInitial = this.primeBrowseCache(isActive, opts.cached());
     try {
-      const response = await this.api.listJellyseerrDiscover(kind);
+      const response = await opts.fetch();
       if (!response.ok) {
-        if (requestId !== this.jellyseerrRequestId) return;
-        if (this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind) {
-          this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
-        }
+        if (requestId !== opts.currentRequestId()) return;
+        if (opts.isActive()) this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
         return;
       }
-      if (requestId < this.jellyseerrAppliedId) return;
-      this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: response.items }));
-      this.jellyseerrAppliedId = requestId;
-      if (this._tab() !== 'jellyseerr' || this._jellyseerrKind() !== kind) return;
-      const isCurrent = requestId === this.jellyseerrRequestId;
-      if (!isCurrent && this._status() !== 'error') return;
-      this._status.set(response.items.length ? 'ready' : 'empty');
-      this._error.set('');
-      if (this._notice() === REFRESH_NOTICE) this._notice.set('');
+      if (requestId < opts.appliedId()) return;
+      opts.writeCache(response.items);
+      opts.setAppliedId(requestId);
+      if (!opts.isActive()) return;
+      this.commitBrowseSuccess(response.items, requestId, opts.currentRequestId());
     } catch {
-      if (requestId !== this.jellyseerrRequestId) return;
-      if (this._tab() !== 'jellyseerr' || this._jellyseerrKind() !== kind) return;
+      if (requestId !== opts.currentRequestId() || !opts.isActive()) return;
       this.applyBrowseFailure(isInitial, LOAD_ERROR);
     }
   }
 
-  private async loadTrakt(type: TraktDiscoverType): Promise<void> {
-    const requestId = ++this.traktRequestId;
-    const cached = this._traktCache()[type];
-    const isInitial = !cached;
+  /** Surface cached items immediately, or mark loading when the active browse has no cache. */
+  private primeBrowseCache(isActive: boolean, cached: ExternalDiscoverItem[] | undefined): boolean {
+    if (!isActive) return !cached;
     if (cached) {
-      if (this._tab() === 'trakt' && this._traktType() === type) {
-        this._status.set(cached.length ? 'ready' : 'empty');
-        this._error.set('');
-      }
-    } else if (this._tab() === 'trakt' && this._traktType() === type) {
+      this._status.set(cached.length ? 'ready' : 'empty');
+      this._error.set('');
+    } else {
       this._status.set('loading');
     }
-    try {
-      const response = await this.api.listTraktDiscover(type);
-      if (!response.ok) {
-        if (requestId !== this.traktRequestId) return;
-        if (this._tab() === 'trakt' && this._traktType() === type) {
-          this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
-        }
-        return;
-      }
-      if (requestId < this.traktAppliedId) return;
-      this._traktCache.update((cache) => ({ ...cache, [type]: response.items }));
-      this.traktAppliedId = requestId;
-      if (this._tab() !== 'trakt' || this._traktType() !== type) return;
-      const isCurrent = requestId === this.traktRequestId;
-      if (!isCurrent && this._status() !== 'error') return;
-      this._status.set(response.items.length ? 'ready' : 'empty');
-      this._error.set('');
-      if (this._notice() === REFRESH_NOTICE) this._notice.set('');
-    } catch {
-      if (requestId !== this.traktRequestId) return;
-      if (this._tab() !== 'trakt' || this._traktType() !== type) return;
-      this.applyBrowseFailure(isInitial, LOAD_ERROR);
-    }
+    return !cached;
+  }
+
+  private commitBrowseSuccess(
+    items: ExternalDiscoverItem[],
+    requestId: number,
+    currentRequestId: number,
+  ): void {
+    this.commitBrowseSuccessCount(items.length, requestId, currentRequestId);
+  }
+
+  private commitBrowseSuccessCount(
+    itemCount: number,
+    requestId: number,
+    currentRequestId: number,
+  ): void {
+    const isCurrent = requestId === currentRequestId;
+    if (!isCurrent && this._status() !== 'error') return;
+    this._status.set(itemCount ? 'ready' : 'empty');
+    this._error.set('');
+    if (this._notice() === REFRESH_NOTICE) this._notice.set('');
   }
 
   /**

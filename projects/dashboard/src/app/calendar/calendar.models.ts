@@ -28,17 +28,12 @@ export interface CalendarLinkBases {
 }
 
 /** Disabled by default; local Demo/live inject bases from environment. */
-export const DEFAULT_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
+const DEFAULT_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
   sonarrBase: '',
   radarrBase: '',
 };
 
 /** Explicit no-op bases for tests and link-disabled states. */
-export const DISABLED_CALENDAR_LINK_BASES: Required<CalendarLinkBases> = {
-  sonarrBase: '',
-  radarrBase: '',
-};
-
 export const CALENDAR_LINK_BASES = new InjectionToken<CalendarLinkBases>('CALENDAR_LINK_BASES', {
   providedIn: 'root',
   factory: () => ({ ...DEFAULT_CALENDAR_LINK_BASES }),
@@ -66,9 +61,9 @@ export const resolveCalendarLink = (
   const radarrBase = (bases.radarrBase ?? DEFAULT_CALENDAR_LINK_BASES.radarrBase).replace(/\/$/, '');
   // Empty bases must not emit relative /series/... or /movie/... URLs.
   const seriesHref =
-    sonarrBase && library.series?.[key] ? `${sonarrBase}/series/${library.series[key]}` : null;
+    sonarrBase && library.series[key] ? `${sonarrBase}/series/${library.series[key]}` : null;
   const movieHref =
-    radarrBase && library.movies?.[key] ? `${radarrBase}/movie/${library.movies[key]}` : null;
+    radarrBase && library.movies[key] ? `${radarrBase}/movie/${library.movies[key]}` : null;
   if (kind === 'movie') return movieHref ?? seriesHref;
   if (kind === 'episode') return seriesHref ?? movieHref;
   return seriesHref ?? movieHref;

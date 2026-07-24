@@ -1,0 +1,3 @@
+#!/bin/sh
+# Full quality gate: lint + typecheck + styles + duplicates + dead-code + architecture.
+npm run quality

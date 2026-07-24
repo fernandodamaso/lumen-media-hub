@@ -1,16 +1,9 @@
+@use '../ui/card-chrome' as chrome;
+
 :host { display: block; }
 
-.downloads h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  color: var(--mm-component-text-primary);
-  font-size: var(--mm-text-heading);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-.downloads h2 svg { color: var(--mm-component-accent); }
+.downloads h2 { @include chrome.title; }
+.downloads h2 svg { @include chrome.title-icon; }
 
 .header-tools {
   display: flex;
@@ -19,7 +12,7 @@
   gap: 14px;
 }
 
-.notice { margin: 0 0 14px; }
+.notice { @include chrome.notice; }
 
 .torrent-list {
   display: grid;
@@ -109,10 +102,6 @@
   flex-shrink: 0;
 }
 
-.torrent-status mm-button {
-  --mm-button-min-height: 28px;
-}
-
 .torrent-percent {
   min-width: 42px;
   color: var(--mm-component-text-primary);
@@ -168,33 +157,6 @@
 .meta-up { color: var(--mm-component-text-muted); }
 .meta-eta { color: var(--mm-component-text-muted); }
 
-.torrent-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--mm-component-border);
-  border-radius: 6px;
-  padding: 0;
-  background: var(--mm-component-control-bg);
-  color: var(--mm-component-text-secondary);
-  cursor: pointer;
-  transition: background var(--mm-transition-fast), color var(--mm-transition-fast);
-}
-.torrent-action:hover:not(:disabled) {
-  background: var(--mm-component-muted-bg);
-  color: var(--mm-component-text-primary);
-}
-.torrent-action:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-.torrent-action:focus-visible {
-  outline: 3px solid var(--mm-component-focus-ring);
-  outline-offset: 2px;
-}
-
 .seeding-divider {
   display: flex;
   align-items: center;
@@ -214,20 +176,7 @@
   background: var(--mm-component-success);
 }
 
-.footer-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--mm-component-accent);
-  font-size: var(--mm-text-md);
-  font-weight: 700;
-  text-decoration: none;
-}
-.footer-link:hover { text-decoration: underline; }
-.footer-link:focus-visible {
-  outline: 3px solid var(--mm-component-focus-ring);
-  outline-offset: 2px;
-}
+.footer-link { @include chrome.text-link; }
 
 @container (max-width: 420px) {
   .torrent {

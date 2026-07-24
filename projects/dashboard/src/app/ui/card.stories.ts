@@ -34,14 +34,14 @@ export default meta;
 type Story = StoryObj<CardArgs>;
 
 export const Default: Story = {
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const card = canvasElement.querySelector('.mm-card');
     if (!card) throw new Error('Card was not rendered');
     if (card.getAttribute('aria-labelledby') !== 'card-heading') {
       throw new Error('Card is missing its labelledBy association');
     }
     const refresh = canvasElement.querySelector<HTMLButtonElement>('button');
-    if (!refresh || refresh.textContent?.trim() !== 'Refresh') {
+    if (!refresh || refresh.textContent.trim() !== 'Refresh') {
       throw new Error('Card header action was not rendered');
     }
     refresh.focus({ focusVisible: true });
@@ -63,16 +63,16 @@ export const BodyOnly: Story = {
       </mm-card>
     </div>`,
   }),
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const body = canvasElement.querySelector('.mm-card__body');
-    if (!body?.textContent?.includes('minimal card')) {
+    if (!body || !body.textContent.includes('minimal card')) {
       throw new Error('Body-only card content was not rendered');
     }
     if (canvasElement.querySelector('[mm-card-header], [mm-card-footer]')) {
       throw new Error('Body-only card should not project header or footer content');
     }
-    const header = canvasElement.querySelector('.mm-card__header') as HTMLElement | null;
-    const footer = canvasElement.querySelector('.mm-card__footer') as HTMLElement | null;
+    const header = canvasElement.querySelector('.mm-card__header');
+    const footer = canvasElement.querySelector('.mm-card__footer');
     if (!header || !footer) throw new Error('Card chrome slots missing from DOM');
     if (header.hasAttribute('hidden') || footer.hasAttribute('hidden')) {
       throw new Error('Empty card regions must not rely on runtime hidden attributes');
@@ -94,7 +94,7 @@ export const HeadingOnly: Story = {
       </mm-card>
     </div>`,
   }),
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const header = canvasElement.querySelector('.mm-card__header') as HTMLElement;
     const footer = canvasElement.querySelector('.mm-card__footer') as HTMLElement;
     if (getComputedStyle(header).display === 'none') throw new Error('Heading-only header should be visible');
@@ -112,10 +112,10 @@ export const HeaderActionsOnly: Story = {
       </mm-card>
     </div>`,
   }),
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const header = canvasElement.querySelector('.mm-card__header') as HTMLElement;
     if (getComputedStyle(header).display === 'none') throw new Error('Header-actions-only header should be visible');
-    if (!canvasElement.textContent?.includes('Actions only')) throw new Error('Header action missing');
+    if (!canvasElement.textContent.includes('Actions only')) throw new Error('Header action missing');
   },
 };
 
@@ -129,10 +129,10 @@ export const FooterContentOnly: Story = {
       </mm-card>
     </div>`,
   }),
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const footer = canvasElement.querySelector('.mm-card__footer') as HTMLElement;
     if (getComputedStyle(footer).display === 'none') throw new Error('Footer content should be visible');
-    if (!footer.textContent?.includes('Footer content only')) throw new Error('Footer content missing');
+    if (!footer.textContent.includes('Footer content only')) throw new Error('Footer content missing');
   },
 };
 
@@ -146,9 +146,9 @@ export const FooterActionsOnly: Story = {
       </mm-card>
     </div>`,
   }),
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const footer = canvasElement.querySelector('.mm-card__footer') as HTMLElement;
     if (getComputedStyle(footer).display === 'none') throw new Error('Footer actions should be visible');
-    if (!footer.textContent?.includes('Footer action')) throw new Error('Footer action missing');
+    if (!footer.textContent.includes('Footer action')) throw new Error('Footer action missing');
   },
 };

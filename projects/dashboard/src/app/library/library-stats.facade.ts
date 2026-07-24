@@ -15,12 +15,14 @@ export class LibraryStatsFacade {
   private readonly _stats = signal<LibraryStats | null>(null);
   private readonly _error = signal('');
   private readonly _refreshing = signal(false);
+  private readonly _lastFetchedAt = signal('');
   private requestId = 0;
 
   readonly status = this._status.asReadonly();
   readonly stats = this._stats.asReadonly();
   readonly error = this._error.asReadonly();
   readonly refreshing = this._refreshing.asReadonly();
+  readonly lastFetchedAt = this._lastFetchedAt.asReadonly();
   readonly availability = computed(() => this._stats()?.availability ?? 'complete');
 
   constructor() {
@@ -39,6 +41,7 @@ export class LibraryStatsFacade {
       const stats = await this.api.getLibraryStats(options.signal);
       if (requestId !== this.requestId) return;
       this._stats.set(stats);
+      this._lastFetchedAt.set(new Date().toISOString());
       this._error.set('');
       this._status.set('ready');
     } catch {

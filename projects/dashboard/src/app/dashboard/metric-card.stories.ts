@@ -3,8 +3,7 @@ import { MetricCard } from './metric-card';
 
 type MetricCardArgs = {
   iconName: 'folder' | 'download' | 'activity' | 'hard-drive';
-  iconBg: string;
-  iconColor: string;
+  tone: 'premiere' | 'info' | 'success' | 'warning';
   label: string;
   value: string;
   meta: string | null;
@@ -19,8 +18,7 @@ const meta: Meta<MetricCardArgs> = {
   tags: ['autodocs'],
   argTypes: {
     iconName: { control: 'select', options: ['folder', 'download', 'activity', 'hard-drive'] },
-    iconBg: { control: 'color' },
-    iconColor: { control: 'color' },
+    tone: { control: 'select', options: ['premiere', 'info', 'success', 'warning'] },
     label: { control: 'text' },
     value: { control: 'text' },
     meta: { control: 'text' },
@@ -30,8 +28,7 @@ const meta: Meta<MetricCardArgs> = {
   },
   args: {
     iconName: 'folder',
-    iconBg: 'rgba(104, 87, 245, 0.16)',
-    iconColor: '#9b78ff',
+    tone: 'premiere',
     label: 'Library',
     value: '504',
     meta: '428 movies · 76 series',
@@ -53,8 +50,7 @@ export const Library: Story = {};
 export const Downloads: Story = {
   args: {
     iconName: 'download',
-    iconBg: 'rgba(94, 160, 255, 0.16)',
-    iconColor: '#5ea0ff',
+    tone: 'info',
     label: 'Downloads',
     value: '2',
     meta: 'Active downloads',
@@ -64,8 +60,7 @@ export const Downloads: Story = {
 export const Services: Story = {
   args: {
     iconName: 'activity',
-    iconBg: 'rgba(77, 220, 145, 0.16)',
-    iconColor: '#4ddc91',
+    tone: 'success',
     label: 'Services',
     value: '6 / 8',
     meta: 'Healthy',
@@ -75,8 +70,7 @@ export const Services: Story = {
 export const Storage: Story = {
   args: {
     iconName: 'hard-drive',
-    iconBg: 'rgba(244, 187, 67, 0.16)',
-    iconColor: '#f4bb43',
+    tone: 'warning',
     label: 'Storage',
     value: '78%',
     meta: '7.2 TB used · 1.8 TB free',

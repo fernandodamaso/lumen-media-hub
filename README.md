@@ -71,7 +71,11 @@ Live mode is **local-only**. Do not point a static host at the live configuratio
 |--------|---------|
 | `npm start` | Demo serve (`:4200`) |
 | `npm run start:live` | Live serve with API proxy |
-| `npm run lint` | ESLint |
+| `npm run lint` | Rigorous ESLint (typed + strict, used by `quality` gate) |
+| `npm run lint:fast` | Fast ESLint (day-to-day editing, used by `lint:agent`) |
+| `npm run lint:fix` | Rigorous ESLint with auto-fix |
+| `npm run lint:styles:fix` | Stylelint with auto-fix |
+| `npm run quality` | **Full gate** — lint + typecheck + styles + duplicates + dead-code + architecture in parallel |
 | `npm test -- --watch=false` | Vitest unit / facade / page specs |
 | `npm run test:smoke` | Playwright direct-route and assembled-app smoke checks (auto-starts dev server) |
 | `npm run build` | Canonical production (Demo mode) build |
@@ -79,6 +83,29 @@ Live mode is **local-only**. Do not point a static host at the live configuratio
 | `npm run storybook` | Interactive Storybook (includes a11y addon / play functions) |
 | `npm run build:storybook` | Compile Storybook static output |
 | `npm run test:storybook` | Serve `storybook-static` and run interaction/a11y checks (`@storybook/test-runner`) |
+
+## Quality gate
+
+`npm run quality` runs all six checks in parallel via `concurrently`:
+
+| Tool | Command | Exit | Expected |
+|------|---------|------|----------|
+| **ESLint** (typed + strict) | `npm run lint` | **FAIL** on errors | Auto-fix with `npm run lint:fix` |
+| **TypeScript** | `npm run typecheck` | **FAIL** on errors | Fix type errors |
+| **Stylelint** | `npm run lint:styles` | **FAIL** on errors | Auto-fix with `npm run lint:styles:fix` |
+| **jscpd** (duplication) | `npm run quality:duplicates` | **FAIL** ≥3% | Refactor — do not add ignores |
+| **Knip** (dead code) | `npm run quality:dead-code` | **FAIL** on unused | Remove or justify exports |
+| **Dependency Cruiser** | `npm run quality:architecture` | **FAIL** on violations | Respect module boundaries |
+
+**PASS** = zero exit. **WARN / INFO** = tool-specific warnings that do not block. **FAIL** = non-zero exit.
+
+**Rules:**
+- Do not add ignore comments or abstractions solely to silence the gate.
+- Ponytail (lazy/simplification mindset) remains a review principle for agents, not a lint rule.
+- `no-orphans` is removed from Dependency Cruiser; Knip owns unused-code detection.
+- jscpd clones below 3% are informational — address during refactors.
+
+All six checks run independently: one failure does not kill the others. Commit hook and CI both enforce `npm run quality`. Tests and build run after quality in CI.
 
 ## Themes
 
@@ -128,7 +155,7 @@ The Home dashboard was rebuilt to the Nocturne ops-console spec (fixed 285px sid
 npm ci
 npm start
 # in another shell:
-npm run lint
+npm run quality
 npm test -- --watch=false
 npm run test:smoke
 npm run build

@@ -1,18 +1,11 @@
+@use '../ui/card-chrome' as chrome;
+
 :host { display: block; }
 
-.runs h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  color: var(--mm-component-text-primary);
-  font-size: var(--mm-text-heading);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-.runs h2 svg { color: var(--mm-component-accent); }
+.runs h2 { @include chrome.title; }
+.runs h2 svg { @include chrome.title-icon; }
 
-.runs-notice { margin: 0 0 14px; }
+.runs-notice { @include chrome.notice; }
 
 .runs-table {
   display: grid;
@@ -87,20 +80,7 @@
   justify-content: space-between;
 }
 
-.footer-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--mm-component-accent);
-  font-size: var(--mm-text-md);
-  font-weight: 700;
-  text-decoration: none;
-}
-.footer-link:hover { text-decoration: underline; }
-.footer-link:focus-visible {
-  outline: 3px solid var(--mm-component-focus-ring);
-  outline-offset: 2px;
-}
+.footer-link { @include chrome.text-link; }
 
 @media (max-width: 520px) {
   .run-row {

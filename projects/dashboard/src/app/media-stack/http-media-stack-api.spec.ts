@@ -150,14 +150,14 @@ describe('live-api.mappers', () => {
     expect(
       mapLiveSystemResourcesDisk({ path: '/data', total: 100, used: 30, free: 70, percent: 30 }),
     ).toEqual({ id: 'media-volume', label: 'Media volume (/data)', kind: 'library', usedBytes: 30, totalBytes: 100 });
-    expect(mapLiveSystemResourcesDisk({ path: '/data', used: 5, total: 50, free: 45, percent: 10 })).toEqual({
+    expect(mapLiveSystemResourcesDisk({ path: '/data', used: 5, total: 50 })).toEqual({
       id: 'media-volume',
       label: 'Media volume (/data)',
       kind: 'library',
       usedBytes: 5,
       totalBytes: 50,
     });
-    expect(mapLiveSystemResourcesDisk({ path: '/data', used: 0, total: 0, free: 0, percent: 0 })).toEqual({
+    expect(mapLiveSystemResourcesDisk({ path: '/data', used: 0, total: 0 })).toEqual({
       id: 'media-volume',
       label: 'Media volume (/data)',
       kind: 'library',
@@ -167,34 +167,20 @@ describe('live-api.mappers', () => {
   });
 
   it('rejects system resources disk that lack required fields', () => {
-    expect(() => mapLiveSystemResourcesDisk({ total: 20, used: 10, free: 10, percent: 50 })).toThrow(/missing disk.path/);
-    expect(() => mapLiveSystemResourcesDisk({ path: '/data', total: 20, free: 10, percent: 50 })).toThrow(/missing disk.used/);
-    expect(() => mapLiveSystemResourcesDisk({ path: '/data', used: 10, free: 10, percent: 50 })).toThrow(/missing disk.total/);
-    expect(() => mapLiveSystemResourcesDisk({ path: '/data', used: 10, total: 20, percent: 50 })).toThrow(/missing disk.free/);
-    expect(() => mapLiveSystemResourcesDisk({ path: '/data', used: 10, total: 20, free: 10 })).toThrow(/missing disk.percent/);
+    expect(() => mapLiveSystemResourcesDisk({ total: 20, used: 10 })).toThrow(/missing disk.path/);
+    expect(() => mapLiveSystemResourcesDisk({ path: '/data', total: 20 })).toThrow(/missing disk.used/);
+    expect(() => mapLiveSystemResourcesDisk({ path: '/data', used: 10 })).toThrow(/missing disk.total/);
   });
 
   it('rejects system resources disk with used exceeding total', () => {
     expect(() =>
-      mapLiveSystemResourcesDisk({ path: '/data', total: 100, used: 150, free: 10, percent: 50 }),
+      mapLiveSystemResourcesDisk({ path: '/data', total: 100, used: 150 }),
     ).toThrow(/used exceeds/);
-  });
-
-  it('rejects system resources disk with free exceeding total', () => {
-    expect(() =>
-      mapLiveSystemResourcesDisk({ path: '/data', total: 100, used: 10, free: 500, percent: 50 }),
-    ).toThrow(/free exceeds/);
-  });
-
-  it('rejects system resources disk with percent out of range', () => {
-    expect(() =>
-      mapLiveSystemResourcesDisk({ path: '/data', total: 100, used: 50, free: 50, percent: 500 }),
-    ).toThrow(/percent out of range/);
   });
 
   it('rejects system resources disk with negative capacities', () => {
     expect(() =>
-      mapLiveSystemResourcesDisk({ path: '/data', total: 100, used: -1, free: 101, percent: -1 }),
+      mapLiveSystemResourcesDisk({ path: '/data', total: 100, used: -1 }),
     ).toThrow(/negative disk capacity/);
   });
 
@@ -266,10 +252,10 @@ describe('HttpMediaStackApi', () => {
     }
   }
 
-  async function flushAutomationSummary(
+  function flushAutomationSummary(
     body: object,
     probeOptions?: { jellyfinOk?: boolean; qbitOk?: boolean },
-  ): Promise<void> {
+  ): void {
     // Summary + sidebar probes are requested in parallel.
     http.expectOne('/api/automation/summary').flush(body);
     flushSidebarProbes(probeOptions);
@@ -510,17 +496,21 @@ describe('HttpMediaStackApi', () => {
     });
     await expect(missingPath).rejects.toThrow(/missing disk.path/);
 
-    const missingPercent = api.getStorageOverview();
+    const withoutOptionalFields = api.getStorageOverview();
     http.expectOne('/api/system/resources').flush({
       ok: true,
-      disk: { path: '/data', total: 100, used: 30, free: 70 },
+      disk: { path: '/data', total: 100, used: 30 },
     });
-    await expect(missingPercent).rejects.toThrow(/missing disk.percent/);
+    await expect(withoutOptionalFields).resolves.toEqual(
+      expect.objectContaining({
+        volumes: [{ id: 'media-volume', label: 'Media volume (/data)', kind: 'library', usedBytes: 30, totalBytes: 100 }],
+      }),
+    );
 
     const usedExceeds = api.getStorageOverview();
     http.expectOne('/api/system/resources').flush({
       ok: true,
-      disk: { path: '/data', total: 100, used: 150, free: 10, percent: 150 },
+      disk: { path: '/data', total: 100, used: 150 },
     });
     await expect(usedExceeds).rejects.toThrow(/used exceeds/);
   });
@@ -537,6 +527,64 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/jellyfin/movies').flush({ ok: true, items: [] });
     http.expectOne('/api/jellyfin/series').flush({ ok: true, items: [] });
     await expect(zeros).resolves.toEqual({ movies: 0, series: 0, availability: 'complete' });
+  });
+
+  it('prefers jellyfin list total over mapped item length for library stats', async () => {
+    const pending = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/movies').flush({
+      ok: true,
+      total: 428,
+      items: [{ id: 'm1', name: 'Movie 1' }],
+    });
+    http.expectOne('/api/jellyfin/series').flush({
+      ok: true,
+      total: 76,
+      items: [],
+    });
+    await expect(pending).resolves.toEqual({ movies: 428, series: 76, availability: 'complete' });
+  });
+
+  it('falls back to mapped jellyfin counts when total is absent or invalid', async () => {
+    const pending = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/movies').flush({
+      ok: true,
+      items: [
+        { id: 'm1', name: 'Movie 1' },
+        { id: 'm2', name: 'Movie 2' },
+      ],
+    });
+    http.expectOne('/api/jellyfin/series').flush({
+      ok: true,
+      total: -1,
+      items: [{ id: 's1', name: 'Series 1' }],
+    });
+    await expect(pending).resolves.toEqual({ movies: 2, series: 1, availability: 'complete' });
+  });
+
+  it('rejects jellyfin stats fallback when blank items cannot be mapped', async () => {
+    // Raw `items.length` would return 3; mapping matches listLibraryItems and fails closed.
+    const pending = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/movies').flush({
+      ok: true,
+      items: [
+        { id: 'm1', name: 'Movie 1' },
+        { id: 'blank', name: '   ' },
+        { id: 'm2', name: 'Movie 2' },
+      ],
+    });
+    http.expectOne('/api/jellyfin/series').flush({ ok: true, items: [] });
+    await expect(pending).rejects.toThrow(/missing name/);
+  });
+
+  it('dedupes concurrent identical GETs into one HTTP request', async () => {
+    const first = api.listLibraryItems({ kind: 'movie' });
+    const second = api.listLibraryItems({ kind: 'movie' });
+    const req = http.expectOne('/api/jellyfin/movies');
+    req.flush({ ok: true, items: [{ id: 'm1', name: 'Movie 1' }] });
+    http.expectNone('/api/jellyfin/movies');
+    const [a, b] = await Promise.all([first, second]);
+    expect(a.items).toHaveLength(1);
+    expect(b.items).toHaveLength(1);
   });
 
   it('rejects library stats when movies request fails', async () => {
@@ -636,7 +684,7 @@ describe('HttpMediaStackApi', () => {
 
   it('maps automation summary from nested live payload and probes sidebar services', async () => {
     const pending = api.getAutomationSummary();
-    await flushAutomationSummary({
+    flushAutomationSummary({
       ok: true,
       generatedAt: '2026-07-13T12:00:00Z',
       sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
@@ -712,7 +760,7 @@ describe('HttpMediaStackApi', () => {
 
   it('maps automation ok:false when nested service blocks are present', async () => {
     const pending = api.getAutomationSummary();
-    await flushAutomationSummary(
+    flushAutomationSummary(
       {
         ok: false,
         error: 'partial outage',
@@ -726,10 +774,10 @@ describe('HttpMediaStackApi', () => {
     );
     const summary = await pending;
     expect(summary.generatedAt).toBe('2026-07-13T12:00:00Z');
-    expect(summary.services?.find((s) => s.id === 'radarr')).toMatchObject({ status: 'down' });
-    expect(summary.services?.find((s) => s.id === 'jellyfin')).toMatchObject({ status: 'down' });
-    expect(summary.services?.find((s) => s.id === 'qbittorrent')).toMatchObject({ status: 'healthy' });
-    expect(summary.problems?.some((p) => p.id === 'automation-global')).toBe(true);
+    expect(summary.services.find((s) => s.id === 'radarr')).toMatchObject({ status: 'down' });
+    expect(summary.services.find((s) => s.id === 'jellyfin')).toMatchObject({ status: 'down' });
+    expect(summary.services.find((s) => s.id === 'qbittorrent')).toMatchObject({ status: 'healthy' });
+    expect(summary.problems.some((p) => p.id === 'automation-global')).toBe(true);
   });
 
   it('keeps jellyfin movies when series fails and labels the list partial', async () => {
@@ -1004,15 +1052,15 @@ describe('HttpMediaStackApi', () => {
 
   it('accepts partial automation summaries when ok:true and some service blocks are present', async () => {
     const pending = api.getAutomationSummary();
-    await flushAutomationSummary({
+    flushAutomationSummary({
       ok: true,
       generatedAt: '2026-07-13T12:00:00Z',
       sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
     });
     const summary = await pending;
-    const sonarr = summary.services?.find((s) => s.id === 'sonarr');
+    const sonarr = summary.services.find((s) => s.id === 'sonarr');
     expect(sonarr).toMatchObject({ status: 'healthy' });
-    expect(summary.services?.find((s) => s.id === 'jellyfin')).toMatchObject({ status: 'healthy' });
+    expect(summary.services.find((s) => s.id === 'jellyfin')).toMatchObject({ status: 'healthy' });
     expect(summary.generatedAt).toBe('2026-07-13T12:00:00Z');
   });
 

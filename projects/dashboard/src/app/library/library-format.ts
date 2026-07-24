@@ -18,8 +18,8 @@ export const LIBRARY_KIND_LABEL: Record<LibraryItemKind, string> = {
 export const mapLibraryItem = (dto: MediaStackLibraryItemDto): LibraryItem | null => {
   const kind = normalizeLibraryKind(dto.kind);
   if (!kind) return null;
-  const id = dto.id?.trim();
-  const title = dto.title?.trim();
+  const id = dto.id.trim();
+  const title = dto.title.trim();
   if (!id || !title) return null;
   const artworkState = normalizeArtworkState(dto.artworkState, dto.posterUrl);
   return {

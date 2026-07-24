@@ -30,9 +30,9 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 20% 30%, rgb(255 255 255 / 0.06) 0px, rgb(255 255 255 / 0.06) 1px, transparent 1px),
-    radial-gradient(circle at 70% 60%, rgb(255 255 255 / 0.05) 0px, rgb(255 255 255 / 0.05) 2px, transparent 2px),
-    radial-gradient(circle at 40% 80%, rgb(255 255 255 / 0.04) 0px, rgb(255 255 255 / 0.04) 1px, transparent 1px);
+    radial-gradient(circle at 20% 30%, rgb(255 255 255 / 6%) 0, rgb(255 255 255 / 6%) 1px, transparent 1px),
+    radial-gradient(circle at 70% 60%, rgb(255 255 255 / 5%) 0, rgb(255 255 255 / 5%) 2px, transparent 2px),
+    radial-gradient(circle at 40% 80%, rgb(255 255 255 / 4%) 0, rgb(255 255 255 / 4%) 1px, transparent 1px);
   pointer-events: none;
 }
 

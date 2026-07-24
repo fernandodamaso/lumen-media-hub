@@ -221,7 +221,7 @@ class MockApi implements MediaStackApi {
             if (settled) return;
             settled = true;
             signal?.removeEventListener('abort', onAbort);
-            reject(error);
+            reject(error instanceof Error ? error : new Error(String(error)));
           },
         );
       });

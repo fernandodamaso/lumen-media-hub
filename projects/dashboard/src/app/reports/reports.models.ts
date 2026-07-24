@@ -1,5 +1,5 @@
-export type CronRunTriage = 'actionable' | 'quiet';
-export type CronHealthKind = 'empty' | 'allClear' | 'mixed';
+type CronRunTriage = 'actionable' | 'quiet';
+type CronHealthKind = 'empty' | 'allClear' | 'mixed';
 
 /** Flattened triage row for Reports. Contract `status` is preserved as-is. */
 export interface CronRun {
@@ -66,8 +66,6 @@ export const isQuietRun = (run: CronTriageInput): boolean => {
   if (/^(?:dry-run\s*[-–—:]\s*)?no .+\.?$/i.test(detail) && !/error|fail|warn/i.test(detail)) return true;
   return false;
 };
-
-export const isActionableRun = (run: CronTriageInput): boolean => !isQuietRun(run);
 
 const triageRank = (triage: CronRunTriage): number => (triage === 'actionable' ? 0 : 1);
 

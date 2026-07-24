@@ -1,5 +1,6 @@
 :host {
   display: block;
+  container-type: inline-size;
 }
 
 .sr-only {
@@ -9,7 +10,7 @@
   padding: 0;
   margin: -1px;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
 }
@@ -59,7 +60,7 @@
   height: 100%;
 }
 
-@media (max-width: 1279px) {
+@container (max-width: 1279px) {
   .metrics-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -68,7 +69,7 @@
   }
 }
 
-@media (max-width: 640px) {
+@container (max-width: 639px) {
   .metrics-row {
     grid-template-columns: 1fr;
   }

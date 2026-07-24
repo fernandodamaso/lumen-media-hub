@@ -17,7 +17,7 @@ export interface LibraryItem {
 }
 
 /** Unfiltered movies+series aggregation can be complete or one-source partial. */
-export type LibraryAvailability = 'complete' | 'partial';
+type LibraryAvailability = 'complete' | 'partial';
 
 export interface LibraryStats {
   movies: number;
@@ -32,20 +32,16 @@ export interface LibraryListResult {
   availability: LibraryAvailability;
 }
 
-export interface JellyfinLinkBases {
+interface JellyfinLinkBases {
   jellyfinBase?: string;
 }
 
 /** Disabled by default; local Demo/live inject bases from environment. */
-export const DEFAULT_JELLYFIN_LINK_BASES: Required<JellyfinLinkBases> = {
+const DEFAULT_JELLYFIN_LINK_BASES: Required<JellyfinLinkBases> = {
   jellyfinBase: '',
 };
 
 /** Explicit no-op bases for tests and link-disabled states. */
-export const DISABLED_JELLYFIN_LINK_BASES: Required<JellyfinLinkBases> = {
-  jellyfinBase: '',
-};
-
 export const JELLYFIN_LINK_BASES = new InjectionToken<JellyfinLinkBases>('JELLYFIN_LINK_BASES', {
   providedIn: 'root',
   factory: () => ({ ...DEFAULT_JELLYFIN_LINK_BASES }),
@@ -53,15 +49,6 @@ export const JELLYFIN_LINK_BASES = new InjectionToken<JellyfinLinkBases>('JELLYF
 
 export const DEFAULT_LIBRARY_ART =
   'linear-gradient(145deg, color-mix(in srgb, var(--mm-component-accent) 28%, var(--mm-component-card-bg)), var(--mm-component-card-bg) 72%)';
-
-export const resolveJellyfinLibraryLink = (
-  kind: LibraryItemKind,
-  bases: JellyfinLinkBases = {},
-): string | null => {
-  const base = (bases.jellyfinBase ?? DEFAULT_JELLYFIN_LINK_BASES.jellyfinBase).replace(/\/$/, '');
-  if (!base) return null;
-  return `${base}/web/index.html#!/${kind === 'movie' ? 'movies' : 'tv'}.html`;
-};
 
 export const resolveJellyfinItemLink = (
   item: Pick<LibraryItem, 'id' | 'playable'>,

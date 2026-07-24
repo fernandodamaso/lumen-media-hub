@@ -1,9 +1,3 @@
-export type MediaStackAutomationServiceStatusDto =
-  | 'healthy'
-  | 'degraded'
-  | 'down'
-  | 'unknown';
-
 export interface MediaStackAutomationServiceDto {
   id: string;
   name: string;

@@ -4,8 +4,8 @@ import { AutomationFacade } from '../automation/automation.facade';
 import { ServiceHealthFacade } from '../automation/service-health.facade';
 import { CalendarFacade } from '../calendar/calendar.facade';
 import { DownloadsFacade } from '../downloads/downloads.facade';
-import { JELLYFIN_LINK_BASES, JellyfinLinkBases } from '../library/library.models';
-import { SERVICE_LINK_BASES, ServiceLinkBases } from '../media-stack/media-stack-api.providers';
+import { JELLYFIN_LINK_BASES } from '../library/library.models';
+import { SERVICE_LINK_BASES } from '../media-stack/media-stack-api.providers';
 import { LibraryStatsFacade } from '../library/library-stats.facade';
 import { StorageFacade } from '../storage/storage.facade';
 import { AttentionBanner } from './attention-banner';
@@ -50,26 +50,33 @@ export class DashboardPage {
   readonly library = inject(LibraryStatsFacade);
   readonly downloads = inject(DownloadsFacade);
   readonly storage = inject(StorageFacade);
+  private readonly calendar = inject(CalendarFacade);
+  private readonly automation = inject(AutomationFacade);
 
   readonly syncedAt = computed(() => {
-    const generatedAt = this.health.generatedAt();
-    // Prefer backend freshness; fall back to last successful client fetch.
-    if (generatedAt) return formatRelativeTime(generatedAt);
-    const lastFetchedAt = this.health.lastFetchedAt();
-    return lastFetchedAt ? formatRelativeTime(lastFetchedAt) : '';
+    // Health/storage prefer backend generatedAt when present so client clocks do not mask it.
+    const candidates = [
+      this.health.generatedAt() || this.health.lastFetchedAt(),
+      this.storage.generatedAt() || this.storage.lastFetchedAt(),
+      this.library.lastFetchedAt(),
+      this.downloads.lastFetchedAt(),
+      this.calendar.lastFetchedAt(),
+      this.automation.lastFetchedAt(),
+    ];
+    const newest = newestIsoTimestamp(candidates);
+    return newest ? formatRelativeTime(newest) : '';
   });
 
   readonly libraryTotal = computed(() => {
     const stats = this.library.stats();
     if (!stats) return '—';
-    return stats.movies + stats.series;
+    return String(stats.movies + stats.series);
   });
 
   readonly libraryMeta = computed(() => {
     const stats = this.library.stats();
     if (!stats) return null;
-    // Home totals come from /jellyfin/stats (always complete). Partial availability is only for
-    // unfiltered listLibraryItems aggregation, not this metric.
+    // Home totals are derived from Jellyfin movie/series list responses (always complete counts).
     return `${stats.movies} movies · ${stats.series} series`;
   });
 
@@ -87,7 +94,9 @@ export class DashboardPage {
 
   readonly servicesStatus = computed(() => {
     const overall = this.health.health().overall;
-    return overall === 'healthy' ? 'Healthy' : overall === 'degraded' ? 'Degraded' : 'Issues';
+    if (overall === 'healthy') return 'Healthy';
+    if (overall === 'degraded') return 'Degraded';
+    return 'Issues';
   });
 
   readonly servicesValue = computed(() => {
@@ -144,12 +153,12 @@ export class DashboardPage {
   readonly hasAttention = computed(() => this.health.problems().length > 0 || this.health.health().overall === 'down' || this.health.health().overall === 'degraded');
 
   jellyfinLibraryHref(): string | null {
-    const base = (this.jellyfinBases as JellyfinLinkBases).jellyfinBase?.replace(/\/$/, '');
+    const base = (this.jellyfinBases).jellyfinBase?.replace(/\/$/, '');
     return base ? `${base}/web/index.html#!/movies.html` : null;
   }
 
   jellyfinSearchHref(query: string): string | null {
-    const base = (this.jellyfinBases as JellyfinLinkBases).jellyfinBase?.replace(/\/$/, '');
+    const base = (this.jellyfinBases).jellyfinBase?.replace(/\/$/, '');
     return base ? `${base}/web/index.html#!/search.html?q=${encodeURIComponent(query)}` : null;
   }
 
@@ -158,7 +167,7 @@ export class DashboardPage {
   }
 
   onOpenJellyfin(): void {
-    const href = (this.jellyfinBases as JellyfinLinkBases).jellyfinBase;
+    const href = (this.jellyfinBases).jellyfinBase;
     if (href) window.open(href, '_blank', 'noreferrer');
   }
 
@@ -172,10 +181,28 @@ export class DashboardPage {
     void this.library.refresh();
     void this.downloads.refresh();
     void this.storage.refresh();
+    void this.calendar.refresh();
+    void this.automation.refresh();
   }
 
   qbittorrentHref(): string | null {
-    const base = (this.serviceBases as ServiceLinkBases).qbittorrent?.replace(/\/$/, '');
+    const base = (this.serviceBases).qbittorrent?.replace(/\/$/, '');
     return base ? `${base}/` : null;
   }
+}
+
+/** Pick the latest parseable ISO timestamp from candidates (empty strings ignored). */
+function newestIsoTimestamp(candidates: readonly string[]): string {
+  let newest = '';
+  let newestMs = Number.NEGATIVE_INFINITY;
+  for (const value of candidates) {
+    if (!value) continue;
+    const ms = Date.parse(value);
+    if (Number.isNaN(ms)) continue;
+    if (ms >= newestMs) {
+      newestMs = ms;
+      newest = value;
+    }
+  }
+  return newest;
 }

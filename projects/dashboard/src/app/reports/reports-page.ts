@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { MmButton, MmStateCard, MmStatus } from '@app/ui';
 import { cronStatusView, formatGeneratedAt, formatRunTimestamp } from './reports-format';
@@ -5,7 +6,7 @@ import { ReportsFacade } from './reports.facade';
 
 @Component({
   selector: 'mm-reports-page',
-  imports: [MmButton, MmStateCard, MmStatus],
+  imports: [NgTemplateOutlet, MmButton, MmStateCard, MmStatus],
   providers: [ReportsFacade],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './reports-page.html',

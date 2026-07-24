@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { fixtureHost } from '../../testing/fixture-host';
 import { DiscoverCard } from './discover-card';
 import { DiscoverCardItem } from './discover-format';
 
@@ -36,25 +37,29 @@ describe('DiscoverCard', () => {
     fixture.detectChanges();
 
     const feedback: string[] = [];
-    const requests: void[] = [];
+    let requestCount = 0;
     fixture.componentInstance.feedback.subscribe((value) => feedback.push(value));
-    fixture.componentInstance.request.subscribe(() => requests.push());
+    fixture.componentInstance.request.subscribe(() => {
+      requestCount += 1;
+    });
 
-    const liked = (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find(
+    const liked = Array.from(fixtureHost(fixture).querySelectorAll('button')).find(
       (button) => button.getAttribute('aria-label') === 'Liked',
-    )!;
+    );
+    if (!liked) throw new Error('Liked button not found');
     liked.click();
     expect(feedback).toEqual(['liked']);
-    expect(requests).toEqual([]);
+    expect(requestCount).toBe(0);
   });
 
   it('exposes aria-pressed on the active feedback option', () => {
     setItem({ tmdbId: 1, title: 'Liked title', feedback: 'liked' });
     fixture.componentRef.setInput('showFeedback', true);
     fixture.detectChanges();
-    const liked = (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find(
+    const liked = Array.from(fixtureHost(fixture).querySelectorAll('button')).find(
       (button) => button.getAttribute('aria-label') === 'Liked',
-    )!;
+    );
+    if (!liked) throw new Error('Liked button not found');
     expect(liked.getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -75,9 +80,11 @@ describe('DiscoverCard', () => {
   }
 
   function requestButton(): HTMLButtonElement {
-    return (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find((button) =>
-      /Request|Requested|In library|No TMDB|sync failed/i.test(button.textContent ?? ''),
-    )!;
+    const button = Array.from(fixtureHost(fixture).querySelectorAll('button')).find((candidate) =>
+      /Request|Requested|In library|No TMDB|sync failed/i.test(candidate.textContent),
+    );
+    if (!button) throw new Error('Request button not found');
+    return button;
   }
 
   function requestWrapper(): HTMLElement {

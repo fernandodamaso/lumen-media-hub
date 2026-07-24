@@ -15,4 +15,5 @@ export class MmStateCard {
   readonly title = input('Nothing here yet');
   readonly message = input('There is no content to show right now.');
   readonly tone = input<'default' | 'danger'>('default');
+  readonly centered = input(false);
 }

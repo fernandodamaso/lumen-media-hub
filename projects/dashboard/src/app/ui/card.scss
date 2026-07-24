@@ -49,7 +49,10 @@
 .mm-card__actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--mm-space-sm);
+  margin-inline-start: auto;
+  flex-shrink: 0;
 }
 
 .mm-card__body {
@@ -70,6 +73,8 @@
   }
 
   .mm-card__actions {
-    justify-content: flex-start;
+    justify-content: flex-end;
+    align-self: flex-end;
+    margin-inline-start: 0;
   }
 }

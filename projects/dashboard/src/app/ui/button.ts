@@ -37,10 +37,10 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareAr
       border: 0;
       border-radius: var(--mm-radius-sm);
       padding: 8px 14px;
-      background: var(--mm-component-accent-strong);
+      background: var(--mm-component-accent);
       color: var(--mm-component-on-accent);
       cursor: pointer;
-      font: 700 var(--mm-text-md)/1 var(--mm-font-body);
+      font: 600 13px/1 var(--mm-font-body);
       white-space: nowrap;
       transition:
         background var(--mm-transition-fast),
@@ -49,7 +49,7 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareAr
         transform var(--mm-transition-fast);
     }
     .mm-button:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--mm-component-accent-strong) 86%, var(--mm-component-on-accent));
+      background: var(--mm-component-accent-strong);
     }
     .mm-button:active:not(:disabled) {
       transform: scale(0.98);

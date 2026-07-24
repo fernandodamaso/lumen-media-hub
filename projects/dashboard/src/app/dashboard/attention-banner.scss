@@ -57,18 +57,22 @@
   flex-shrink: 0;
   min-height: 38px;
   padding: 8px 14px;
-  border: 1px solid color-mix(in srgb, var(--mm-component-danger) 35%, var(--mm-component-border));
+  border: 1px solid color-mix(in srgb, var(--mm-component-danger) 50%, var(--mm-component-border));
   border-radius: var(--mm-radius-sm);
-  background: var(--mm-component-card-bg);
-  color: var(--mm-component-text-primary);
+  background: color-mix(in srgb, var(--mm-component-danger) 12%, var(--mm-component-card-bg));
+  color: var(--mm-component-danger);
   font-size: var(--mm-text-md);
   font-weight: 700;
   text-decoration: none;
-  transition: background var(--mm-transition-fast), border-color var(--mm-transition-fast);
+  transition:
+    background var(--mm-transition-fast),
+    border-color var(--mm-transition-fast),
+    color var(--mm-transition-fast);
 }
 .attention-banner__action:hover {
-  background: color-mix(in srgb, var(--mm-component-danger) 8%, var(--mm-component-card-bg));
-  border-color: color-mix(in srgb, var(--mm-component-danger) 50%, var(--mm-component-border));
+  background: color-mix(in srgb, var(--mm-component-danger) 22%, var(--mm-component-card-bg));
+  border-color: color-mix(in srgb, var(--mm-component-danger) 70%, var(--mm-component-border));
+  color: color-mix(in srgb, var(--mm-component-danger) 82%, #000);
 }
 .attention-banner__action:focus-visible {
   outline: 3px solid var(--mm-component-focus-ring);

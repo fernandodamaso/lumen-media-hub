@@ -56,8 +56,9 @@
 
 .metric-card__value {
   color: var(--mm-component-text-primary);
-  font-size: 28px;
-  font-weight: 700;
+  font-family: var(--mm-font-mono);
+  font-size: 24px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
 }

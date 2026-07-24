@@ -6,7 +6,7 @@ export type MediaUiTheme = (typeof MEDIA_UI_THEMES)[number];
 const STORAGE_KEY = 'media-ui-theme';
 
 const THEME_SURFACE_COLOR: Record<MediaUiTheme, string> = {
-  nocturne: '#080d17',
+  nocturne: '#0d0e13',
   'tokyo-night': '#16161e',
   'github-dark-pro': '#0d1117',
 };

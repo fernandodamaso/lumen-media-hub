@@ -19,7 +19,7 @@
 .page-intro h1 {
   margin: 0;
   color: var(--mm-component-text-primary);
-  font-size: 30px;
+  font-size: var(--mm-text-xl);
   font-weight: 700;
   letter-spacing: -0.02em;
 }
@@ -33,8 +33,8 @@
 
 .subtitle {
   margin: 0;
-  color: var(--mm-component-text-secondary);
-  font-size: var(--mm-text-lg);
+  color: var(--mm-component-text-muted);
+  font-size: 13px;
   font-weight: 400;
 }
 
@@ -43,7 +43,7 @@
   align-items: center;
   gap: 8px;
   color: var(--mm-component-text-muted);
-  font-size: var(--mm-text-md);
+  font-size: 13px;
   font-weight: 500;
 }
 

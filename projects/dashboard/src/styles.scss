@@ -7,12 +7,15 @@
 html,
 body {
   margin: 0;
-  font-family: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--mm-font-body);
 }
 
 body {
   background: var(--mm-semantic-surface-page);
   color: var(--mm-semantic-text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
 h1,
@@ -42,15 +45,16 @@ p, li, dd, blockquote {
 }
 
 h1 {
-  font-size: 42px;
-  line-height: 1.1;
-  letter-spacing: -0.03em;
+  font-size: var(--mm-text-xl);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 .lede {
   margin-top: 12px;
-  color: var(--mm-semantic-text-secondary);
-  font-size: 17px;
+  color: var(--mm-semantic-text-muted);
+  font-size: 13px;
 }
 
 @media (max-width: 560px) {

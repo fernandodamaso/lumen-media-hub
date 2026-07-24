@@ -250,6 +250,18 @@ describe('app/ui primitives', () => {
     expect(button?.disabled).toBe(true);
   });
 
+  it('disables icon buttons when disabled without busy', () => {
+    const fixture = TestBed.createComponent(MmIconButton);
+    fixture.componentRef.setInput('label', 'Pause download');
+    fixture.componentRef.setInput('disabled', true);
+    fixture.componentRef.setInput('busy', false);
+    fixture.detectChanges();
+    const button = fixtureHost(fixture).querySelector('button');
+
+    expect(button?.disabled).toBe(true);
+    expect(button?.getAttribute('aria-busy')).toBeNull();
+  });
+
   it('keeps the theme picker selection aligned with the applied theme', () => {
     const fixture = TestBed.createComponent(MmThemePicker);
     const picker = fixture.componentInstance;

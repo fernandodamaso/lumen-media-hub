@@ -333,10 +333,7 @@ export class HttpMediaStackApi implements MediaStackApi {
     signal?: AbortSignal,
   ): Promise<LibraryItem[]> {
     const data = await this.fetchJellyfinList(kind, signal);
-    const itemKind: LibraryItemKind = kind === 'movies' ? 'movie' : 'series';
-    return (data.items ?? [])
-      .map((item, index) => mapLibraryItem(mapLiveJellyfinItem(item, itemKind, index)))
-      .filter((item): item is LibraryItem => item !== null);
+    return this.mapJellyfinListItems(data, kind);
   }
 
   /** Prefer backend `total` when present so stats avoid mapping every library item. */
@@ -349,7 +346,17 @@ export class HttpMediaStackApi implements MediaStackApi {
     if (typeof total === 'number' && Number.isFinite(total) && total >= 0) {
       return Math.floor(total);
     }
-    return data.items?.length ?? 0;
+    return this.mapJellyfinListItems(data, kind).length;
+  }
+
+  private mapJellyfinListItems(
+    data: LiveJellyfinListResponse,
+    kind: 'movies' | 'series',
+  ): LibraryItem[] {
+    const itemKind: LibraryItemKind = kind === 'movies' ? 'movie' : 'series';
+    return (data.items ?? [])
+      .map((item, index) => mapLibraryItem(mapLiveJellyfinItem(item, itemKind, index)))
+      .filter((item): item is LibraryItem => item !== null);
   }
 
   private async fetchJellyfinList(

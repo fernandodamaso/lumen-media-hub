@@ -377,7 +377,7 @@ export class DiscoverFacade {
       const response = await opts.fetch();
       if (!response.ok) {
         if (requestId !== opts.currentRequestId()) return;
-        if (isActive) this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
+        if (opts.isActive()) this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
         return;
       }
       if (requestId < opts.appliedId()) return;

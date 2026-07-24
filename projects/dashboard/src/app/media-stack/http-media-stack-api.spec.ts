@@ -544,6 +544,38 @@ describe('HttpMediaStackApi', () => {
     await expect(pending).resolves.toEqual({ movies: 428, series: 76, availability: 'complete' });
   });
 
+  it('falls back to mapped jellyfin counts when total is absent or invalid', async () => {
+    const pending = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/movies').flush({
+      ok: true,
+      items: [
+        { id: 'm1', name: 'Movie 1' },
+        { id: 'm2', name: 'Movie 2' },
+      ],
+    });
+    http.expectOne('/api/jellyfin/series').flush({
+      ok: true,
+      total: -1,
+      items: [{ id: 's1', name: 'Series 1' }],
+    });
+    await expect(pending).resolves.toEqual({ movies: 2, series: 1, availability: 'complete' });
+  });
+
+  it('rejects jellyfin stats fallback when blank items cannot be mapped', async () => {
+    // Raw `items.length` would return 3; mapping matches listLibraryItems and fails closed.
+    const pending = api.getLibraryStats();
+    http.expectOne('/api/jellyfin/movies').flush({
+      ok: true,
+      items: [
+        { id: 'm1', name: 'Movie 1' },
+        { id: 'blank', name: '   ' },
+        { id: 'm2', name: 'Movie 2' },
+      ],
+    });
+    http.expectOne('/api/jellyfin/series').flush({ ok: true, items: [] });
+    await expect(pending).rejects.toThrow(/missing name/);
+  });
+
   it('dedupes concurrent identical GETs into one HTTP request', async () => {
     const first = api.listLibraryItems({ kind: 'movie' });
     const second = api.listLibraryItems({ kind: 'movie' });

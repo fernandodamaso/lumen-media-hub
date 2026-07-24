@@ -255,6 +255,28 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trending Ember']);
   });
 
+  it('ignores stale Jellyseerr failures after switching to Trakt', async () => {
+    const { promise: jellyseerrGate, resolve: releaseJellyseerr } = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      error?: string;
+    }>();
+    api.jellyseerrGate = jellyseerrGate;
+    const pending = facade.setTab('jellyseerr');
+    await facade.setTab('trakt');
+    await flush();
+    expect(facade.tab()).toBe('trakt');
+    expect(facade.status()).toBe('ready');
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trakt Horizon']);
+
+    releaseJellyseerr({ ok: false, items: [], error: 'Jellyseerr offline' });
+    await pending;
+    expect(facade.tab()).toBe('trakt');
+    expect(facade.status()).toBe('ready');
+    expect(facade.error()).toBe('');
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trakt Horizon']);
+  });
+
   it('ignores a superseded Hermes response for the same filter', async () => {
     await facade.setTab('hermes');
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);

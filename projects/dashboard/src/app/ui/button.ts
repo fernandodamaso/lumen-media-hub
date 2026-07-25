@@ -70,9 +70,22 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareAr
       background: var(--mm-component-success);
       color: var(--mm-component-on-success);
     }
+    .mm-button--success:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--mm-component-success) 82%, #000);
+    }
     .mm-button--warning {
       background: var(--mm-component-warning);
       color: var(--mm-component-on-warning);
+    }
+    .mm-button--warning:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--mm-component-warning) 82%, #000);
+    }
+    .mm-button--danger {
+      background: var(--mm-component-danger);
+      color: var(--mm-component-on-danger);
+    }
+    .mm-button--danger:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--mm-component-danger) 82%, #000);
     }
     .mm-button:disabled {
       cursor: not-allowed;
@@ -86,7 +99,7 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareAr
 })
 export class MmButton {
   readonly label = input('Continue');
-  readonly variant = input<'primary' | 'quiet' | 'success' | 'warning'>('primary');
+  readonly variant = input<'primary' | 'quiet' | 'success' | 'warning' | 'danger'>('primary');
   readonly icon = input<'pause' | 'play' | 'plus' | 'external-link' | ''>('');
   readonly disabled = input(false);
   readonly busy = input(false);

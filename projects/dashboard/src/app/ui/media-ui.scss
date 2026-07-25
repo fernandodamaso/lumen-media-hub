@@ -17,6 +17,7 @@
   --mm-color-premiere: #939dff;
   --mm-color-on-success: #0d0e13;
   --mm-color-on-warning: #0d0e13;
+  --mm-color-on-danger: #0d0e13;
   --mm-focus-ring: #b5c0ff;
 }
 
@@ -39,6 +40,7 @@
   --mm-color-premiere: #bb9af7;
   --mm-color-on-success: #111321;
   --mm-color-on-warning: #111321;
+  --mm-color-on-danger: #111321;
   --mm-focus-ring: #c0caf5;
 }
 
@@ -61,6 +63,7 @@
   --mm-color-premiere: #d2a8ff;
   --mm-color-on-success: #0d1117;
   --mm-color-on-warning: #0d1117;
+  --mm-color-on-danger: #0d1117;
   --mm-focus-ring: #79c0ff;
 }
 
@@ -103,6 +106,7 @@
   --mm-semantic-premiere: var(--mm-color-premiere);
   --mm-semantic-on-success: var(--mm-color-on-success);
   --mm-semantic-on-warning: var(--mm-color-on-warning);
+  --mm-semantic-on-danger: var(--mm-color-on-danger);
   --mm-semantic-focus: var(--mm-focus-ring);
   --mm-component-text-primary: var(--mm-semantic-text-primary);
   --mm-component-text-secondary: var(--mm-semantic-text-secondary);
@@ -124,6 +128,7 @@
   --mm-component-on-accent: var(--mm-semantic-on-accent);
   --mm-component-on-success: var(--mm-semantic-on-success);
   --mm-component-on-warning: var(--mm-semantic-on-warning);
+  --mm-component-on-danger: var(--mm-semantic-on-danger);
   --mm-component-focus-ring: var(--mm-semantic-focus);
 }
 

@@ -1,5 +1,6 @@
 export * from './button';
 export * from './card';
+export * from './dialog';
 export * from './icon-button';
 export * from './poster';
 export * from './progress';
@@ -8,3 +9,4 @@ export * from './state-card';
 export * from './status';
 export * from './theme-picker';
 export * from './theme.service';
+export * from './tooltip';

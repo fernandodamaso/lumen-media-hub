@@ -3,7 +3,7 @@ import { MmButton } from './index';
 
 type ButtonArgs = {
   label: string;
-  variant: 'primary' | 'quiet' | 'success' | 'warning';
+  variant: 'primary' | 'quiet' | 'success' | 'warning' | 'danger';
   disabled: boolean;
   busy: boolean;
   type: 'button' | 'submit';
@@ -17,7 +17,7 @@ const meta: Meta<ButtonArgs> = {
     label: { control: 'text' },
     variant: {
       control: 'select',
-      options: ['primary', 'quiet', 'success', 'warning'],
+      options: ['primary', 'quiet', 'success', 'warning', 'danger'],
     },
     disabled: { control: 'boolean' },
     busy: { control: 'boolean' },
@@ -51,6 +51,24 @@ export const Success: Story = {
 
 export const Warning: Story = {
   args: { label: 'Retry', variant: 'warning' },
+};
+
+export const Danger: Story = {
+  args: { label: 'View issues', variant: 'danger' },
+};
+
+export const AllVariants: Story = {
+  render: () => ({
+    template: `
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+        <mm-button label="Continue" variant="primary" />
+        <mm-button label="Cancel" variant="quiet" />
+        <mm-button label="Saved" variant="success" />
+        <mm-button label="Retry" variant="warning" />
+        <mm-button label="View issues" variant="danger" />
+      </div>
+    `,
+  }),
 };
 
 export const Disabled: Story = {

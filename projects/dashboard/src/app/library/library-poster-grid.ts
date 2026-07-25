@@ -54,6 +54,7 @@ export class LibraryPosterGrid {
     effect(() => {
       this.items();
       this.page.set(0);
+      this.failedArt.set(new Set());
     });
   }
 
@@ -68,7 +69,7 @@ export class LibraryPosterGrid {
   posterImageSrc(item: LibraryItem): string | null {
     if (item.artworkState !== 'ok' || this.failedArt().has(item.id)) return null;
     const art = item.art.trim();
-    const urlMatch = /^url\("([^"]+)"\)/.exec(art);
+    const urlMatch = /^url\(["']?([^"')]+)["']?\)/.exec(art);
     if (urlMatch?.[1]) return urlMatch[1];
     if (art.startsWith('http://') || art.startsWith('https://')) return art;
     return null;

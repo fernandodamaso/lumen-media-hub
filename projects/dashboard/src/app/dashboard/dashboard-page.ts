@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { MmButton } from '@app/ui';
 import { AutomationFacade } from '../automation/automation.facade';
@@ -34,6 +34,7 @@ import { MetricCard } from './metric-card';
 })
 export class DashboardPage {
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly jellyfinBases = inject(JELLYFIN_LINK_BASES);
   readonly health = inject(ServiceHealthFacade);
   readonly library = inject(LibraryStatsFacade);
@@ -42,6 +43,16 @@ export class DashboardPage {
   readonly storage = inject(StorageFacade);
   private readonly calendar = inject(CalendarFacade);
   private readonly automation = inject(AutomationFacade);
+
+  constructor() {
+    // App-scoped facades keep polling after cards mount; stop when leaving Dashboard.
+    this.destroyRef.onDestroy(() => {
+      this.downloads.stopPolling();
+      this.storage.stopPolling();
+      this.calendar.stopPolling();
+      this.automation.stopPolling();
+    });
+  }
 
   readonly syncedAt = computed(() => {
     const candidates = [

@@ -64,6 +64,11 @@ export class CalendarFacade {
     );
   }
 
+  stopPolling(): void {
+    this.poll.stop();
+    this._refreshing.set(false);
+  }
+
   async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<void> {
     const initial = isInitialRefresh(this._status(), options.initial);
     await runPolledRefresh({

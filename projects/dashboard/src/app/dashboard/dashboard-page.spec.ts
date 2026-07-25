@@ -367,6 +367,7 @@ function createDownloadsFacade() {
     canResumeAll: signal(false),
     lastFetchedAt: signal(''),
     startPolling: vi.fn(),
+    stopPolling: vi.fn(),
     refresh: vi.fn(),
     runAction: vi.fn(),
     runTorrentAction: vi.fn(),
@@ -383,6 +384,7 @@ function createAutomationFacade() {
     latestRuns: signal<CronRun[]>([]),
     lastFetchedAt: signal(''),
     startPolling: vi.fn(),
+    stopPolling: vi.fn(),
     refresh: vi.fn(),
   };
 }
@@ -396,6 +398,7 @@ function createCalendarFacade() {
     error: signal(''),
     lastFetchedAt: signal(''),
     startPolling: vi.fn(),
+    stopPolling: vi.fn(),
     refresh: vi.fn(),
   };
 }
@@ -410,6 +413,7 @@ function createStorageFacade() {
     error: signal(''),
     lastFetchedAt: signal(''),
     startPolling: vi.fn(),
+    stopPolling: vi.fn(),
     refresh: vi.fn(),
   };
 }

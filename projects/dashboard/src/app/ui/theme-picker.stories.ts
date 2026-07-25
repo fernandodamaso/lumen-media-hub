@@ -14,13 +14,10 @@ const meta: Meta = {
 export default meta;
 type Story = StoryObj;
 
-export const Default: Story = {};
-
-async function waitForThemeApplied(select: HTMLSelectElement): Promise<void> {
+async function waitForThemeApplied(): Promise<void> {
   const deadline = Date.now() + 1000;
   while (Date.now() < deadline) {
     if (
-      select.value === 'tokyo-night' &&
       document.documentElement.dataset['theme'] === 'tokyo-night' &&
       localStorage.getItem('media-ui-theme') === 'tokyo-night'
     ) {
@@ -32,7 +29,6 @@ async function waitForThemeApplied(select: HTMLSelectElement): Promise<void> {
     }, 10);
     await promise;
   }
-  if (select.value !== 'tokyo-night') throw new Error('Theme selection did not update');
   if (document.documentElement.dataset['theme'] !== 'tokyo-night') {
     throw new Error('Theme was not applied to documentElement');
   }
@@ -41,12 +37,17 @@ async function waitForThemeApplied(select: HTMLSelectElement): Promise<void> {
   }
 }
 
+export const Default: Story = {};
+
 export const ChangesTheme: Story = {
   play: async ({ canvasElement }) => {
-    const select = canvasElement.querySelector<HTMLSelectElement>('select[aria-label="Choose theme"]');
-    if (!select) throw new Error('Theme picker select was not rendered');
-    select.value = 'tokyo-night';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    await waitForThemeApplied(select);
+    const group = canvasElement.querySelector<HTMLElement>('[role="group"][aria-label="Choose theme"]');
+    if (!group) throw new Error('Theme picker was not rendered');
+    const tokyo = [...group.querySelectorAll('button')].find(
+      (button) => button.getAttribute('title') === 'Tokyo Night' || button.textContent.includes('Tokyo Night'),
+    );
+    if (!tokyo) throw new Error('Tokyo Night theme button was not rendered');
+    tokyo.click();
+    await waitForThemeApplied();
   },
 };

@@ -56,6 +56,13 @@ describe('MmDialog', () => {
     expect(fixtureHost(fixture).querySelector('dialog')?.open).toBe(true);
   });
 
+  it('does not call showModal again when the dialog is already open', () => {
+    const open = fixtureHost(fixture).querySelector<HTMLButtonElement>('[data-testid="open"]');
+    open?.click();
+    open?.click();
+    expect(showModal).toHaveBeenCalledTimes(1);
+  });
+
   it('closes when the backdrop (dialog element) is clicked', () => {
     const dialog = fixtureHost(fixture).querySelector<HTMLDialogElement>('dialog');
     if (!dialog) throw new Error('dialog missing');

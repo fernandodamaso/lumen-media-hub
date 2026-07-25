@@ -130,6 +130,20 @@ describe('LibraryItemsFacade', () => {
     expect(facade.status()).toBe('error');
     expect(facade.items()).toEqual([]);
   });
+
+  it('prefers authoritative API totals over returned item length', async () => {
+    api.result = {
+      items: [movie('m1', 'Moonrise'), series('s1', 'Night Watch')],
+      availability: 'complete',
+      movieCount: 428,
+      seriesCount: 76,
+    };
+    await facade.refresh({ initial: true });
+    expect(facade.movieCount()).toBe(428);
+    expect(facade.seriesCount()).toBe(76);
+    expect(facade.totalCount()).toBe(504);
+    expect(facade.items()).toHaveLength(2);
+  });
 });
 
 class MockApi implements MediaStackApi {

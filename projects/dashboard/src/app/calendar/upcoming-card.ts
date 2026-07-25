@@ -34,8 +34,13 @@ export class UpcomingCard {
   }
 
   formatTime(airDate: string): string {
-    const match = /T(\d{2}):(\d{2})/.exec(airDate);
-    return match ? `${match[1]}:${match[2]}` : '—';
+    const date = new Date(airDate);
+    if (Number.isNaN(date.getTime())) return '—';
+    return new Intl.DateTimeFormat(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(date);
   }
 
   kindLabel(kind: CalendarMediaKind): string {

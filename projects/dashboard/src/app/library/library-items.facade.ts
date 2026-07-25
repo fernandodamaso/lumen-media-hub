@@ -20,6 +20,8 @@ export class LibraryItemsFacade {
   private readonly _error = signal('');
   private readonly _refreshing = signal(false);
   private readonly _lastFetchedAt = signal('');
+  private readonly _movieCount = signal(0);
+  private readonly _seriesCount = signal(0);
   private requestId = 0;
 
   readonly status = this._status.asReadonly();
@@ -28,9 +30,9 @@ export class LibraryItemsFacade {
   readonly error = this._error.asReadonly();
   readonly refreshing = this._refreshing.asReadonly();
   readonly lastFetchedAt = this._lastFetchedAt.asReadonly();
-  readonly movieCount = computed(() => this._items().filter((item) => item.kind === 'movie').length);
-  readonly seriesCount = computed(() => this._items().filter((item) => item.kind === 'series').length);
-  readonly totalCount = computed(() => this._items().length);
+  readonly movieCount = this._movieCount.asReadonly();
+  readonly seriesCount = this._seriesCount.asReadonly();
+  readonly totalCount = computed(() => this._movieCount() + this._seriesCount());
 
   constructor() {
     this.destroyRef.onDestroy(() => {
@@ -50,6 +52,7 @@ export class LibraryItemsFacade {
       this._items.set(result.items);
       this._availability.set(result.availability);
       this._lastFetchedAt.set(new Date().toISOString());
+      this.applyCounts(result);
       if (result.availability === 'partial') {
         this._error.set(PARTIAL_LOAD_ERROR);
         this._status.set(result.items.length ? 'ready' : 'error');
@@ -69,10 +72,31 @@ export class LibraryItemsFacade {
         loadError: LOAD_ERROR,
         clearOnInitial: () => {
           this._items.set([]);
+          this._movieCount.set(0);
+          this._seriesCount.set(0);
         },
       });
     } finally {
       if (requestId === this.requestId) this._refreshing.set(false);
     }
+  }
+
+  private applyCounts(result: {
+    items: LibraryItem[];
+    movieCount?: number;
+    seriesCount?: number;
+  }): void {
+    const moviesFromItems = result.items.filter((item) => item.kind === 'movie').length;
+    const seriesFromItems = result.items.filter((item) => item.kind === 'series').length;
+    this._movieCount.set(
+      typeof result.movieCount === 'number' && Number.isFinite(result.movieCount)
+        ? Math.max(moviesFromItems, Math.floor(result.movieCount))
+        : moviesFromItems,
+    );
+    this._seriesCount.set(
+      typeof result.seriesCount === 'number' && Number.isFinite(result.seriesCount)
+        ? Math.max(seriesFromItems, Math.floor(result.seriesCount))
+        : seriesFromItems,
+    );
   }
 }

@@ -29,7 +29,9 @@ export class MmDialog {
   readonly closed = output();
 
   open(): void {
-    this.dialogRef().nativeElement.showModal();
+    const dialog = this.dialogRef().nativeElement;
+    if (dialog.open) return;
+    dialog.showModal();
   }
 
   close(): void {

@@ -49,12 +49,16 @@ export class App {
   );
 
   readonly attentionLabel = computed(() => {
-    const actionable = this.health.health().actionableCount;
-    const troubled = this.health
-      .services()
-      .filter((service) => service.status === 'down' || service.status === 'degraded').length;
-    const problems = this.health.problems().length;
-    const count = actionable || troubled || problems;
+    const attentionServiceIds = new Set(
+      this.health
+        .services()
+        .filter((service) => service.status === 'down' || service.status === 'degraded')
+        .map((service) => service.id),
+    );
+    for (const problem of this.health.problems()) {
+      if (problem.serviceId) attentionServiceIds.add(problem.serviceId);
+    }
+    const count = attentionServiceIds.size;
     return `${count} service${count === 1 ? '' : 's'} need attention`;
   });
 

@@ -63,7 +63,7 @@ describe('CommandPalette', () => {
     const root = fixtureHost(fixture);
     expect(root.querySelector('[data-testid="command-palette"]')).toBeTruthy();
     expect(root.textContent).toContain('Dashboard');
-    expect(root.textContent).toContain('Moonrise');
+    expect(root.textContent).not.toContain('Moonrise');
 
     const input = root.querySelector('input') as HTMLInputElement;
     input.value = 'pause';
@@ -79,6 +79,56 @@ describe('CommandPalette', () => {
     pause.click();
     await fixture.whenStable();
     expect(downloads.runAction).toHaveBeenCalledWith('pause');
+  });
+
+  it('requires two characters before searching library titles and caps matches', () => {
+    const items = Array.from({ length: 60 }, (_, index) => ({
+      id: `m${index}`,
+      title: `Moonrise ${index}`,
+      kind: 'movie' as const,
+      meta: '2024 · Movie',
+      art: 'linear-gradient(#000, #111)',
+      overview: '',
+      href: null,
+      artworkState: 'ok' as const,
+      playable: true,
+    }));
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [CommandPalette],
+      providers: [
+        provideRouter([{ path: '**', children: [] }]),
+        {
+          provide: LibraryItemsFacade,
+          useValue: { items: signal(items), refresh: vi.fn() },
+        },
+        { provide: ServiceHealthFacade, useValue: { refresh: vi.fn() } },
+        { provide: LibraryStatsFacade, useValue: { refresh: vi.fn() } },
+        { provide: DownloadsFacade, useValue: { runAction: vi.fn(() => Promise.resolve()) } },
+        { provide: StorageFacade, useValue: { refresh: vi.fn() } },
+        { provide: CalendarFacade, useValue: { refresh: vi.fn() } },
+        { provide: AutomationFacade, useValue: { refresh: vi.fn() } },
+      ],
+    });
+    fixture = TestBed.createComponent(CommandPalette);
+    fixture.componentRef.setInput('open', true);
+    fixture.detectChanges();
+
+    const input = fixtureHost(fixture).querySelector('input') as HTMLInputElement;
+    input.value = 'm';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).textContent).not.toContain('Moonrise 0');
+
+    input.value = 'moon';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    const libraryButtons = [...fixtureHost(fixture).querySelectorAll('.palette__item')].filter((node) =>
+      node.textContent.includes('Library'),
+    );
+    expect(libraryButtons).toHaveLength(40);
+    expect(fixtureHost(fixture).textContent).toContain('Moonrise 0');
+    expect(fixtureHost(fixture).textContent).not.toContain('Moonrise 40');
   });
 
   it('resets query when opened via the open input', () => {

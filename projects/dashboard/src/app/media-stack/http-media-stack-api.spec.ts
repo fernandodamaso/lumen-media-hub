@@ -129,6 +129,9 @@ describe('live-api.mappers', () => {
     expect(dto.preview?.[0]?.title).toBe('Stuck episode');
     expect(dto.problems?.some((p) => p.serviceId === 'bazarr')).toBe(true);
     expect(dto.problems?.some((p) => p.id.includes('disabled'))).toBe(true);
+    const sonarrMissing = dto.problems?.find((p) => p.id === 'sonarr-missing');
+    expect(sonarrMissing?.items).toEqual([{ title: 'Show S01E01', when: 'Tonight' }]);
+    expect(sonarrMissing?.itemCount).toBe(2);
   });
 
   it('rejects a failed automation envelope with no service blocks', () => {

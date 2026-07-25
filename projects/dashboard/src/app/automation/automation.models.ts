@@ -16,11 +16,18 @@ interface AutomationPreviewItem {
   kind: string;
 }
 
-interface AutomationProblem {
+export interface AutomationProblemItem {
+  title: string;
+  when: string;
+}
+
+export interface AutomationProblem {
   id: string;
   summary: string;
   serviceId: string | null;
   severity: AutomationProblemSeverity;
+  items?: AutomationProblemItem[];
+  itemCount?: number | null;
 }
 
 type AutomationSectionState = 'present' | 'empty' | 'unavailable';
@@ -51,10 +58,11 @@ const STATUS_RANK: Record<AutomationServiceStatus, number> = {
   healthy: 3,
 };
 
+export const compareAutomationServices = (a: AutomationService, b: AutomationService): number =>
+  STATUS_RANK[a.status] - STATUS_RANK[b.status];
+
 export const summarizeAutomationHealth = (summary: AutomationSummary): AutomationHealthSummary => {
-  const sortedServices = [...summary.services].sort(
-    (left, right) => STATUS_RANK[left.status] - STATUS_RANK[right.status],
-  );
+  const sortedServices = [...summary.services].sort(compareAutomationServices);
   const overall = sortedServices[0]?.status ?? 'unknown';
   const actionableCount = summary.problems.filter((problem) => problem.severity === 'actionable').length;
   return { overall, actionableCount };

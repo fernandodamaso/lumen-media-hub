@@ -70,7 +70,14 @@ describe('automation format / automation mapping', () => {
     expect(summary.generatedAt).toBe('');
     expect(summary.services[0]).toEqual({ id: '', name: '', status: 'down', detail: '', latencyMs: null });
     expect(summary.preview[0]).toEqual({ id: '', title: '', when: '', kind: '' });
-    expect(summary.problems[0]).toEqual({ id: '', summary: '', serviceId: null, severity: 'info' });
+    expect(summary.problems[0]).toEqual({
+      id: '',
+      summary: '',
+      serviceId: null,
+      severity: 'info',
+      items: [],
+      itemCount: null,
+    });
   });
 
   it('passes through service latencyMs and normalizes invalid values to null', () => {

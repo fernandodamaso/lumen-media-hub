@@ -10,7 +10,8 @@ import { CalendarFacade, CalendarRailEvent, CalendarStatus } from '../calendar/c
 import { DownloadsAction, DownloadsFacade, DownloadsStatus } from '../downloads/downloads.facade';
 import { DownloadTorrent } from '../downloads/downloads.models';
 import { LibraryStatsFacade, LibraryStatsStatus } from '../library/library-stats.facade';
-import { LibraryStats } from '../library/library.models';
+import { LibraryItemsFacade, LibraryItemsStatus } from '../library/library-items.facade';
+import { LibraryItem, LibraryStats } from '../library/library.models';
 import { StorageFacade, StorageStatus } from '../storage/storage.facade';
 import { StorageOverview } from '../storage/storage.models';
 import { CronRun } from '../reports/reports.models';
@@ -22,6 +23,7 @@ describe('DashboardPage composition', () => {
   let fixture: ComponentFixture<DashboardPage>;
   let health: ReturnType<typeof createServiceHealthFacade>;
   let library: ReturnType<typeof createLibraryStatsFacade>;
+  let libraryItems: ReturnType<typeof createLibraryItemsFacade>;
   let downloads: ReturnType<typeof createDownloadsFacade>;
   let automation: ReturnType<typeof createAutomationFacade>;
   let calendar: ReturnType<typeof createCalendarFacade>;
@@ -30,6 +32,7 @@ describe('DashboardPage composition', () => {
   beforeEach(() => {
     health = createServiceHealthFacade();
     library = createLibraryStatsFacade();
+    libraryItems = createLibraryItemsFacade();
     downloads = createDownloadsFacade();
     automation = createAutomationFacade();
     calendar = createCalendarFacade();
@@ -41,6 +44,7 @@ describe('DashboardPage composition', () => {
         provideRouter([]),
         { provide: ServiceHealthFacade, useValue: health },
         { provide: LibraryStatsFacade, useValue: library },
+        { provide: LibraryItemsFacade, useValue: libraryItems },
       ],
     });
     TestBed.overrideComponent(DashboardPage, {
@@ -56,45 +60,48 @@ describe('DashboardPage composition', () => {
     fixture = TestBed.createComponent(DashboardPage);
   });
 
-  it('composes header, metrics, banner, and dashboard cards', () => {
+  it('composes pagehead, metrics, and dashboard cards', () => {
     setReady();
     fixture.detectChanges();
 
     const root = fixtureHost(fixture);
-    expect(root.querySelector('mm-dashboard-header')).toBeTruthy();
+    expect(root.querySelector('.pagehead h1')?.textContent).toContain('Dashboard');
+    expect(root.querySelector('.pagehead')?.textContent).toMatch(/download.? active/);
     expect(root.querySelector('.metrics-row')).toBeTruthy();
-    expect(root.querySelector('mm-attention-banner')).toBeTruthy();
+    expect(root.querySelector('mm-attention-banner')).toBeNull();
 
-    const grid = root.querySelector('[data-testid="home-grid"]');
+    const grid = root.querySelector('[data-testid="dashboard-grid"]');
     expect(grid).toBeTruthy();
 
     const regions = Array.from(root.querySelectorAll('[data-region]')).map(
       (node) => node.getAttribute('data-region'),
     );
-    expect(regions).toEqual(['downloads', 'runs', 'service-health', 'storage', 'calendar']);
+    expect(regions).toEqual(['library', 'upcoming', 'downloads', 'automation']);
 
-    expect(root.querySelector('#downloads-heading')?.textContent).toContain('Active downloads');
-    expect(root.querySelector('#runs-heading')?.textContent).toContain('Recent automation runs');
-    expect(root.querySelector('#calendar-heading')?.textContent).toContain('Upcoming');
-    expect(root.querySelector('#service-health-heading')?.textContent).toContain('Service health');
-    expect(root.querySelector('#storage-heading')?.textContent).toContain('Storage overview');
+    expect(root.querySelector('#library-heading')?.textContent).toContain('Library');
+    expect(root.querySelector('#upcoming-heading')?.textContent).toContain('Upcoming');
+    expect(root.querySelector('#downloads-heading')?.textContent).toContain('Downloads');
+    expect(root.querySelector('#automation-heading')?.textContent).toContain('Connected services');
   });
 
-  it('declares a three-column stacked home grid with container queries', () => {
+  it('declares a twelve-column dashboard grid with card spans', () => {
     fixture.detectChanges();
     const styles = dashboardStyles();
 
-    expect(styles).toContain('grid-template-columns: minmax(0, 5fr) minmax(0, 3fr) minmax(0, 4fr)');
-    expect(styles).toContain('flex-direction: column');
+    expect(styles).toContain('grid-template-columns: repeat(12, minmax(0, 1fr))');
+    expect(styles).toContain('grid-column: span 8');
+    expect(styles).toContain('grid-column: span 4');
+    expect(styles).toContain('grid-column: span 7');
+    expect(styles).toContain('grid-column: span 5');
     expect(styles).toContain('container-type: inline-size');
-    expect(styles).toContain('gap: 20px');
+    expect(styles).toContain('gap: 18px');
   });
 
-  it('collapses the grid to a single column on smaller viewports', () => {
+  it('collapses the grid to full-width cards on smaller viewports', () => {
     fixture.detectChanges();
     const styles = dashboardStyles();
-    expect(styles).toContain('@container (max-width: 1279px)');
-    expect(styles).toMatch(/@container \(max-width: 1279px\)[\s\S]*grid-template-columns:\s*1fr;/);
+    expect(styles).toContain('@container (max-width: 959px)');
+    expect(styles).toMatch(/@container \(max-width: 959px\)[\s\S]*grid-column:\s*span 12;/);
     expect(styles).toContain('@container (max-width: 639px)');
   });
 
@@ -112,11 +119,10 @@ describe('DashboardPage composition', () => {
     const root = fixtureHost(fixture);
     expect(root.querySelector('.metrics-row')?.textContent).toContain('Library');
     expect(root.querySelector('.metrics-row')?.textContent).toContain('—');
-    expect(root.querySelector('[data-region="downloads"]')?.textContent).toContain('Signal Drift');
-    expect(root.querySelector('[data-region="runs"]')?.textContent).toContain('Recent automation runs');
-    expect(root.querySelector('[data-region="calendar"]')?.textContent).toContain('Nothing upcoming');
-    expect(root.querySelector('[data-region="service-health"]')?.textContent).toContain('Service health');
-    expect(root.querySelector('[data-testid="home-grid"]')).toBeTruthy();
+    expect(root.querySelector('[data-region="downloads"]')).toBeTruthy();
+    expect(root.querySelector('[data-region="upcoming"]')).toBeTruthy();
+    expect(root.querySelector('[data-region="automation"]')).toBeTruthy();
+    expect(root.querySelector('[data-testid="dashboard-grid"]')).toBeTruthy();
   });
 
   it('renders regions immediately without an entrance animation', () => {
@@ -124,35 +130,7 @@ describe('DashboardPage composition', () => {
     const styles = dashboardStyles();
     expect(styles).not.toMatch(/@keyframes[\s\S]*region-enter/);
     expect(styles).not.toContain('animation: region-enter');
-    expect(fixtureHost(fixture).querySelectorAll('.region').length).toBeGreaterThanOrEqual(5);
-  });
-
-  it('aligns attention headline with actionable problems and surfaces problem summaries', () => {
-    setReady();
-    health.summary.set({
-      generatedAt: '',
-      services: [
-        { id: 'sonarr', name: 'Sonarr', status: 'degraded', detail: 'missing', latencyMs: null },
-        { id: 'radarr', name: 'Radarr', status: 'degraded', detail: 'missing', latencyMs: null },
-        { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: 'indexers', latencyMs: null },
-      ],
-      problems: [
-        { id: 'p1', summary: 'Indexer A · disabled', serviceId: 'prowlarr', severity: 'warning' },
-        { id: 'p2', summary: 'Indexer B · cooldown', serviceId: 'prowlarr', severity: 'warning' },
-        { id: 'p3', summary: 'Sonarr missing episodes', serviceId: 'sonarr', severity: 'actionable' },
-        { id: 'p4', summary: 'Radarr missing movies', serviceId: 'radarr', severity: 'actionable' },
-        { id: 'p5', summary: 'Extra noise', serviceId: 'prowlarr', severity: 'info' },
-      ],
-      preview: [],
-      availability: { services: 'present', preview: 'empty', problems: 'present' },
-    });
-    fixture.detectChanges();
-
-    const banner = fixtureHost(fixture).querySelector('mm-attention-banner') as HTMLElement;
-    expect(banner.textContent).toContain('2 items need attention');
-    expect(banner.textContent).toContain('Indexer A · disabled');
-    expect(banner.textContent).toContain('+2 more');
-    expect(banner.textContent).not.toContain('Sonarr, Radarr, Prowlarr are degraded');
+    expect(fixtureHost(fixture).querySelectorAll('.region')).toHaveLength(4);
   });
 
   it('falls back syncedAt to lastFetchedAt when generatedAt is empty', () => {
@@ -177,10 +155,9 @@ describe('DashboardPage composition', () => {
     fixture.detectChanges();
 
     expect(fixture.componentInstance.syncedAt()).toBe(formatRelativeTime('2026-07-22T11:00:00Z'));
-    expect(fixtureHost(fixture).textContent).not.toContain('Sync time unavailable');
   });
 
-  it('refreshes all dashboard facades from the header action', () => {
+  it('refreshes all dashboard facades from onRefresh', () => {
     setReady();
     fixture.detectChanges();
     fixture.componentInstance.onRefresh();
@@ -357,6 +334,21 @@ function createLibraryStatsFacade() {
     availability: signal<'complete' | 'partial'>('complete'),
     refreshing: signal(false),
     lastFetchedAt: signal(''),
+    refresh: vi.fn(),
+  };
+}
+
+function createLibraryItemsFacade() {
+  return {
+    status: signal<LibraryItemsStatus>('ready'),
+    items: signal<LibraryItem[]>([]),
+    error: signal(''),
+    availability: signal<'complete' | 'partial'>('complete'),
+    refreshing: signal(false),
+    lastFetchedAt: signal(''),
+    movieCount: signal(0),
+    seriesCount: signal(0),
+    totalCount: signal(0),
     refresh: vi.fn(),
   };
 }

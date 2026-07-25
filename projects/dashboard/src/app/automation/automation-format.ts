@@ -1,4 +1,6 @@
 import {
+  AutomationProblem,
+  AutomationProblemItem,
   AutomationProblemSeverity,
   AutomationServiceStatus,
   AutomationSummary,
@@ -40,12 +42,23 @@ export const mapAutomationSummary = (dto: MediaStackAutomationSummaryDto): Autom
     when: wireText(item.when),
     kind: wireText(item.kind),
   })),
-  problems: (dto.problems ?? []).map((problem) => ({
-    id: wireText(problem.id),
-    summary: wireText(problem.summary),
-    serviceId: problem.serviceId ?? null,
-    severity: normalizeAutomationSeverity(problem.severity),
-  })),
+  problems: (dto.problems ?? []).map(
+    (problem): AutomationProblem => ({
+      id: wireText(problem.id),
+      summary: wireText(problem.summary),
+      serviceId: problem.serviceId ?? null,
+      severity: normalizeAutomationSeverity(problem.severity),
+      items: (problem.items ?? [])
+        .filter((item) => wireText(item.title))
+        .map(
+          (item): AutomationProblemItem => ({
+            title: wireText(item.title),
+            when: wireText(item.when),
+          }),
+        ),
+      itemCount: normalizeItemCount(problem.itemCount),
+    }),
+  ),
   availability: {
     services: deriveSectionAvailability(dto.services, dto.unavailable?.services),
     preview: deriveSectionAvailability(dto.preview, dto.unavailable?.preview),
@@ -69,6 +82,10 @@ function normalizeLatencyMs(latencyMs: number | null | undefined): number | null
   return typeof latencyMs === 'number' && Number.isFinite(latencyMs) && latencyMs >= 0
     ? Math.round(latencyMs)
     : null;
+}
+
+function normalizeItemCount(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
 }
 
 function normalizeAutomationSeverity(severity: string | null | undefined): AutomationProblemSeverity {

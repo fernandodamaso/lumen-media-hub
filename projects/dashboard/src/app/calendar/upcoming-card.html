@@ -1,0 +1,80 @@
+<article class="card card--upcoming" data-testid="upcoming-card" aria-labelledby="upcoming-heading">
+  <header class="card__head">
+    <h2 id="upcoming-heading">Upcoming</h2>
+    @if (calendarHref(); as href) {
+      <a class="link-arrow link-arrow--sm" [href]="href" target="_blank" rel="noreferrer">
+        Calendar
+        <svg lucideChevronRight [size]="14" aria-hidden="true"></svg>
+      </a>
+    }
+  </header>
+
+  @if (facade.error() && facade.status() !== 'error') {
+    <mm-status tone="warning" [announce]="true">{{ facade.error() }}</mm-status>
+  }
+
+  @switch (facade.status()) {
+    @case ('loading') {
+      <div class="upcoming-skeleton" aria-busy="true">
+        @for (slot of rowSkeletons; track slot) {
+          <div class="upcoming-skeleton__row">
+            <mm-skeleton variant="rect" width="40px" height="56px" />
+            <div class="upcoming-skeleton__copy">
+              <mm-skeleton variant="text" width="70%" height="14px" />
+              <mm-skeleton variant="text" width="50%" height="12px" />
+            </div>
+          </div>
+        }
+      </div>
+    }
+    @case ('error') {
+      <mm-state-card kind="error" tone="danger" title="Calendar unavailable" [message]="facade.error()">
+        <mm-button label="Try again" (click)="retry()" />
+      </mm-state-card>
+    }
+    @case ('empty') {
+      <mm-state-card kind="empty" title="Nothing upcoming" message="No episodes or movies are scheduled yet." />
+    }
+    @default {
+      <div class="upcoming" aria-live="polite">
+        @for (group of facade.groups(); track group.key) {
+          <p class="day-label">{{ dayLabel(group.label) }}</p>
+          @for (event of group.events; track event.id) {
+            <div class="up-next">
+              @if (event.href) {
+                <a
+                  class="up-next__thumb"
+                  [href]="event.href"
+                  target="_blank"
+                  rel="noreferrer"
+                  [attr.aria-label]="'Open ' + event.title"
+                  [style.background]="event.art"
+                ></a>
+              } @else {
+                <span class="up-next__thumb" aria-hidden="true" [style.background]="event.art"></span>
+              }
+              <div class="up-next__body">
+                @if (event.href) {
+                  <a
+                    class="up-next__title"
+                    [href]="event.href"
+                    target="_blank"
+                    rel="noreferrer"
+                    [attr.title]="event.title"
+                  >
+                    {{ event.title }}
+                  </a>
+                } @else {
+                  <p class="up-next__title" [attr.title]="event.title">{{ event.title }}</p>
+                }
+                <p class="up-next__meta">
+                  {{ event.subtitle }} · {{ formatTime(event.airDate) }} · {{ kindLabel(event.kind) }}
+                </p>
+              </div>
+            </div>
+          }
+        }
+      </div>
+    }
+  }
+</article>

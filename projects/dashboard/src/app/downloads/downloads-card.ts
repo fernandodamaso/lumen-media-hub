@@ -1,18 +1,30 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { LucideArrowDown, LucideArrowUp, LucideDownload, LucideExternalLink, LucidePause, LucidePlay } from '@lucide/angular';
-import { MmButton, MmCard, MmIconButton, MmProgress, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
+import { LucideArrowDown, LucideArrowUp, LucidePause, LucidePlay } from '@lucide/angular';
+import { MmButton, MmIconButton, MmProgress, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { SERVICE_LINK_BASES } from '../media-stack/media-stack-api.providers';
-import { formatBytes, formatEta, formatRate, groupTorrents, torrentArt } from './downloads-format';
+import { formatBytes, formatEta, formatRate, groupTorrents, torrentArt, TORRENT_STATE_VIEW } from './downloads-format';
 import { DownloadsAction, DownloadsFacade } from './downloads.facade';
+import { TorrentState } from './downloads.models';
 
 @Component({
-  selector: 'mm-downloads-board',
-  imports: [MmButton, MmCard, MmIconButton, MmProgress, MmSkeleton, MmStateCard, MmStatus, LucideArrowDown, LucideArrowUp, LucideDownload, LucideExternalLink, LucidePause, LucidePlay],
+  selector: 'mm-downloads-card',
+  imports: [
+    MmButton,
+    MmIconButton,
+    MmProgress,
+    MmSkeleton,
+    MmStateCard,
+    MmStatus,
+    LucideArrowDown,
+    LucideArrowUp,
+    LucidePause,
+    LucidePlay,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  templateUrl: './downloads-board.html',
-  styleUrl: './downloads-board.scss',
+  templateUrl: './downloads-card.html',
+  styleUrl: './downloads-card.scss',
 })
-export class DownloadsBoard {
+export class DownloadsCard {
   readonly facade = inject(DownloadsFacade);
   private readonly linkBases = inject(SERVICE_LINK_BASES);
   readonly torrentSkeletons = [0, 1];
@@ -27,8 +39,12 @@ export class DownloadsBoard {
   }
 
   qbittorrentHref(): string | null {
-    const base = (this.linkBases).qbittorrent?.replace(/\/$/, '');
+    const base = this.linkBases.qbittorrent?.replace(/\/$/, '');
     return base ? `${base}/` : null;
+  }
+
+  stateLabel(state: TorrentState): string {
+    return TORRENT_STATE_VIEW[state].label;
   }
 
   runAction(action: DownloadsAction): void {

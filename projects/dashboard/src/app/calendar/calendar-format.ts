@@ -78,8 +78,13 @@ export const mapCalendarEvent = (event: MediaStackCalendarEventDto): CalendarEve
     status: normalizeCalendarStatus(event),
     airDate,
     art: event.art || defaultEventArt(title),
+    seriesId: normalizeSeriesId(event.seriesId),
   };
 };
+
+function normalizeSeriesId(value: number | undefined): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
 
 /** Known statuses pass through; missing/unknown derive from file, monitored, and premiere flags. */
 function normalizeCalendarStatus(event: MediaStackCalendarEventDto): CalendarEventStatus {

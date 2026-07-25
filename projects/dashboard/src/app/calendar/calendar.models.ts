@@ -13,6 +13,8 @@ export interface CalendarEvent {
   airDate: string;
   /** Optional gradient thumbnail, same style as library item art. */
   art?: string;
+  /** Sonarr series id when known — used for MediaCover poster fallback. */
+  seriesId?: number;
 }
 
 export interface ArrLibrary {
@@ -67,4 +69,18 @@ export const resolveCalendarLink = (
   if (kind === 'movie') return movieHref ?? seriesHref;
   if (kind === 'episode') return seriesHref ?? movieHref;
   return seriesHref ?? movieHref;
+};
+
+/** Sonarr serves posters at /MediaCover/{id}/poster-250.jpg without an API key. */
+export const resolveArrPosterArt = (
+  event: Pick<CalendarEvent, 'seriesId' | 'kind'>,
+  bases: CalendarLinkBases = {},
+): string | null => {
+  const seriesId = event.seriesId;
+  if (event.kind === 'movie' || seriesId == null || !Number.isFinite(seriesId) || seriesId <= 0) {
+    return null;
+  }
+  const sonarrBase = (bases.sonarrBase ?? DEFAULT_CALENDAR_LINK_BASES.sonarrBase).replace(/\/$/, '');
+  if (!sonarrBase) return null;
+  return `url("${sonarrBase}/MediaCover/${seriesId}/poster-250.jpg") center / cover no-repeat`;
 };

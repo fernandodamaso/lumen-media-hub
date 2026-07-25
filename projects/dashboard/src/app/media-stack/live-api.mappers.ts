@@ -3,6 +3,7 @@ import { isRecord, requireArrayField, requireNonEmptyString } from './http-respo
 import {
   MediaStackAutomationPreviewItemDto,
   MediaStackAutomationProblemDto,
+  MediaStackAutomationProblemItemDto,
   MediaStackAutomationServiceDto,
   MediaStackAutomationSummaryDto,
 } from './wire/automation';
@@ -371,6 +372,17 @@ function mapGeneratedAt(value: unknown, context: string): string {
   return value;
 }
 
+function mapProblemDetailItems(
+  items: LiveAutomationPreviewItem[] | undefined,
+): MediaStackAutomationProblemItemDto[] {
+  return (items ?? [])
+    .filter((item) => typeof item.label === 'string' && item.label.trim())
+    .map((item) => ({
+      title: String(item.label).trim(),
+      when: item.airDate || item.timeleft || item.status || undefined,
+    }));
+}
+
 function mapPreviewItems(
   items: LiveAutomationPreviewItem[] | undefined,
   kind: string,
@@ -510,20 +522,26 @@ function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutom
   }
 
   if ((sonarr?.missing ?? 0) > 0) {
+    const items = mapProblemDetailItems(sonarr?.missingItems);
     problems.push({
       id: 'sonarr-missing',
       summary: `${sonarr?.missing} Sonarr episode(s) missing`,
       serviceId: 'sonarr',
       severity: 'warning',
+      items,
+      itemCount: sonarr?.missing ?? items.length,
     });
   }
 
   if ((radarr?.missing ?? 0) > 0) {
+    const items = mapProblemDetailItems(radarr?.missingItems);
     problems.push({
       id: 'radarr-missing',
       summary: `${radarr?.missing} Radarr movie(s) missing`,
       serviceId: 'radarr',
       severity: 'warning',
+      items,
+      itemCount: radarr?.missing ?? items.length,
     });
   }
 

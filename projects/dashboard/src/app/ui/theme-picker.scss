@@ -1,43 +1,56 @@
-.picker {
+:host {
+  display: block;
+  width: 100%;
+}
+
+.theme-switch {
   display: grid;
-  gap: 10px;
-  color: var(--mm-component-text-secondary);
-  font: 700 12px/1 var(--mm-font-body);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-.picker__control {
-  position: relative;
-  display: flex;
-  align-items: center;
-  width: 100%;
-}
-select {
-  appearance: none;
-  width: 100%;
-  min-width: 0;
-  min-height: 40px;
-  padding: 10px 34px 10px 12px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  padding: 3px;
   border: 1px solid var(--mm-component-border);
   border-radius: var(--mm-radius-sm);
+  background: var(--mm-component-card-bg);
+}
+
+.theme-switch button {
+  min-height: 32px;
+  padding: 5px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mm-component-text-muted);
+  font: 500 11px/1.2 var(--mm-font-body);
+  cursor: pointer;
+  transition: background var(--mm-transition-fast), color var(--mm-transition-fast);
+}
+
+.theme-switch button:hover {
+  color: var(--mm-component-text-secondary);
+}
+
+.theme-switch button.is-active {
   background: var(--mm-component-control-bg);
   color: var(--mm-component-text-primary);
-  font: inherit;
-  text-transform: none;
 }
-.picker__caret {
+
+.theme-switch button:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
+}
+
+.sr-only {
   position: absolute;
-  right: 11px;
-  pointer-events: none;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
-.picker__saved {
-  position: absolute;
-  right: 32px;
-  display: inline-flex;
-  align-items: center;
-  color: var(--mm-component-success);
-  pointer-events: none;
-}
+
 @media (max-width: 900px), (pointer: coarse) {
-  select { min-height: 44px; }
+  .theme-switch button { min-height: 44px; }
 }

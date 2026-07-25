@@ -1,39 +1,33 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { LucideCompass, LucideFileText, LucideLayoutDashboard } from '@lucide/angular';
+import {
+  LucideCompass,
+  LucideFileText,
+  LucideLayoutDashboard,
+  LucideLibrary,
+  LucideSearch,
+} from '@lucide/angular';
 import { MmThemePicker, ThemeService } from '@app/ui';
 
-import { AutomationServiceStatus } from './automation/automation.models';
-import {
-  resolveServiceHref,
-  visibleServiceCatalog,
-} from './automation/service-catalog';
 import { ServiceHealthFacade } from './automation/service-health.facade';
-import { SERVICE_LINK_BASES } from './media-stack/media-stack-api.providers';
+import { CommandPalette } from './command-palette/command-palette';
+import { LibraryItemsFacade } from './library/library-items.facade';
 import { environment } from '../environments/environment';
-
-type ServiceStatus = 'healthy' | 'degraded' | 'offline' | 'unknown';
-
-interface ServiceNavItem {
-  id: string;
-  name: string;
-  initial: string;
-  href: string | null;
-  status: ServiceStatus;
-  statusLabel: string;
-}
-
-const STATUS_LABEL: Record<ServiceStatus, string> = {
-  healthy: 'Healthy',
-  degraded: 'Degraded',
-  offline: 'Offline',
-  unknown: 'Unknown',
-};
 
 @Component({
   selector: 'app-root',
-  imports: [NgTemplateOutlet, RouterLink, RouterLinkActive, RouterOutlet, MmThemePicker, LucideLayoutDashboard, LucideFileText, LucideCompass],
+  imports: [
+    RouterLink,
+    RouterLinkActive,
+    RouterOutlet,
+    MmThemePicker,
+    CommandPalette,
+    LucideLayoutDashboard,
+    LucideLibrary,
+    LucideFileText,
+    LucideCompass,
+    LucideSearch,
+  ],
   templateUrl: './app.html',
   styleUrl: './app.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -41,38 +35,38 @@ const STATUS_LABEL: Record<ServiceStatus, string> = {
 export class App {
   readonly themeService = inject(ThemeService);
   private readonly health = inject(ServiceHealthFacade);
-  private readonly linkBases = inject(SERVICE_LINK_BASES);
+  private readonly libraryItems = inject(LibraryItemsFacade);
   readonly modeLabel = environment.modeLabel;
+  readonly shortcutLabel = navigator.platform.toLowerCase().includes('mac') ? '⌘K' : 'Ctrl+K';
+  readonly libraryCount = computed(() => this.libraryItems.totalCount());
+  readonly commandPaletteOpen = signal(false);
 
-  private readonly serviceCatalog: Omit<ServiceNavItem, 'status' | 'statusLabel'>[] =
-    visibleServiceCatalog(environment.useLiveApi).map((entry) => ({
-      id: entry.id,
-      name: entry.name,
-      initial: entry.initial,
-      href: resolveServiceHref(entry.id, this.linkBases),
-    }));
+  readonly hasAttention = computed(
+    () =>
+      this.health.problems().length > 0 ||
+      this.health.health().overall === 'down' ||
+      this.health.health().overall === 'degraded',
+  );
 
-  readonly services = computed(() => {
-    const liveById = new Map(this.health.services().map((service) => [service.id, service]));
-    return this.serviceCatalog.map((item) => {
-      const live = liveById.get(item.id);
-      const status = live ? mapLiveStatus(live.status) : 'unknown';
-      return {
-        ...item,
-        status,
-        statusLabel: STATUS_LABEL[status],
-      };
-    });
+  readonly attentionLabel = computed(() => {
+    const actionable = this.health.health().actionableCount;
+    const troubled = this.health
+      .services()
+      .filter((service) => service.status === 'down' || service.status === 'degraded').length;
+    const problems = this.health.problems().length;
+    const count = actionable || troubled || problems;
+    return `${count} service${count === 1 ? '' : 's'} need attention`;
   });
 
   constructor() {
     this.health.startPolling();
   }
-}
 
-function mapLiveStatus(status: AutomationServiceStatus): ServiceStatus {
-  if (status === 'healthy') return 'healthy';
-  if (status === 'degraded') return 'degraded';
-  if (status === 'down') return 'offline';
-  return 'unknown';
+  openCommandPalette(): void {
+    // Force false→true so the palette resets query/focus even when already open.
+    this.commandPaletteOpen.set(false);
+    queueMicrotask(() => {
+      this.commandPaletteOpen.set(true);
+    });
+  }
 }

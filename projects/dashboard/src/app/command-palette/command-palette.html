@@ -1,0 +1,49 @@
+@if (open()) {
+  <div class="palette" data-testid="command-palette">
+    <button type="button" class="palette__backdrop" aria-label="Close command palette" (click)="setOpen(false)"></button>
+    <div
+      class="palette__panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Command palette"
+      (keydown)="onListKeydown($event)"
+    >
+      <div class="palette__input-row">
+        <input
+          #paletteInput
+          type="search"
+          [value]="query()"
+          placeholder="Search media, routes, actions…"
+          aria-label="Search commands"
+          (input)="onQueryInput($event)"
+        />
+        <kbd>esc</kbd>
+      </div>
+      <div class="palette__results" role="listbox">
+        @for (group of grouped(); track group.name; let groupIndex = $index) {
+          <div class="palette__group">
+            <p class="palette__group-label">{{ group.name }}</p>
+            @for (item of group.items; track item.id; let itemIndex = $index) {
+              <button
+                type="button"
+                class="palette__item"
+                role="option"
+                [class.is-active]="activeIndex() === flatIndex(groupIndex, itemIndex)"
+                [attr.aria-selected]="activeIndex() === flatIndex(groupIndex, itemIndex)"
+                (mouseenter)="activeIndex.set(flatIndex(groupIndex, itemIndex))"
+                (click)="selectItem(item)"
+              >
+                <span class="palette__item-title">{{ item.title }}</span>
+                <span class="palette__item-meta">{{ item.meta }}</span>
+                <span class="palette__item-kind">{{ item.group }}</span>
+              </button>
+            }
+          </div>
+        } @empty {
+          <p class="palette__empty">No matches</p>
+        }
+      </div>
+      <div class="palette__foot">↑↓ navigate · ↵ select</div>
+    </div>
+  </div>
+}

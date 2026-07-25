@@ -1,14 +1,16 @@
-<label class="picker">
-  <span>Theme</span>
-  <div class="picker__control">
-    <select [value]="themeService.theme()" (change)="select($event)" aria-label="Choose theme">
-      @for (theme of themes; track theme) {
-        <option [value]="theme" [selected]="themeService.theme() === theme">{{ labels[theme] }}</option>
-      }
-    </select>
-    @if (justSaved()) {
-      <span class="picker__saved" aria-hidden="true"><svg lucideCheck [size]="13"></svg></span>
-    }
-    <svg class="picker__caret" lucideChevronDown [size]="16" aria-hidden="true"></svg>
-  </div>
-</label>
+<div class="theme-switch" role="group" aria-label="Choose theme">
+  @for (theme of themes; track theme) {
+    <button
+      type="button"
+      [class.is-active]="themeService.theme() === theme"
+      [attr.aria-pressed]="themeService.theme() === theme"
+      [attr.title]="labels[theme]"
+      (click)="select(theme)"
+    >
+      {{ shortLabels[theme] }}
+    </button>
+  }
+</div>
+@if (justSaved()) {
+  <span class="theme-switch__saved sr-only" aria-live="polite">Theme saved</span>
+}

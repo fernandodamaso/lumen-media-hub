@@ -9,11 +9,27 @@
         </a>
         <span class="demo-badge" [attr.aria-label]="modeLabel + ' mode'">{{ modeLabel }}</span>
       </div>
+
+      <button
+        type="button"
+        class="search-trigger"
+        data-testid="search-trigger"
+        (click)="openCommandPalette()"
+      >
+        <svg lucideSearch [size]="15" aria-hidden="true"></svg>
+        <span>Search or command…</span>
+        <kbd>{{ shortcutLabel }}</kbd>
+      </button>
+
       <div class="sidebar__nav">
-        <span class="nav-label">Workspace</span>
         <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
           <svg lucideLayoutDashboard [size]="18" aria-hidden="true"></svg>
           <span>Dashboard</span>
+        </a>
+        <a routerLink="/library" routerLinkActive="active">
+          <svg lucideLibrary [size]="18" aria-hidden="true"></svg>
+          <span>Library</span>
+          <span class="nav-badge" aria-label="{{ libraryCount() }} library items">{{ libraryCount() }}</span>
         </a>
         <a routerLink="/reports" routerLinkActive="active">
           <svg lucideFileText [size]="18" aria-hidden="true"></svg>
@@ -25,42 +41,18 @@
         </a>
       </div>
 
-      <div class="sidebar__services">
-        <span class="nav-label nav-label-spaced">Services</span>
-        @for (service of services(); track service.id) {
-          @if (service.href) {
-            <a
-              class="service-link"
-              [href]="service.href"
-              target="_blank"
-              rel="noreferrer"
-              [attr.aria-label]="service.name + ', ' + service.statusLabel"
-            >
-              <ng-container *ngTemplateOutlet="serviceNavInner; context: { $implicit: service }" />
-            </a>
-          } @else {
-            <span
-              class="service-link service-link--inert"
-              [attr.aria-label]="service.name + ', ' + service.statusLabel"
-            >
-              <ng-container *ngTemplateOutlet="serviceNavInner; context: { $implicit: service }" />
-            </span>
-          }
-        }
-      </div>
-      <ng-template #serviceNavInner let-service>
-        <span class="service-mark" aria-hidden="true">{{ service.initial }}</span>
-        <span>{{ service.name }}</span>
-        <span
-          class="service-dot"
-          [class.service-dot--healthy]="service.status === 'healthy'"
-          [class.service-dot--degraded]="service.status === 'degraded'"
-          [class.service-dot--offline]="service.status === 'offline'"
-          [class.service-dot--unknown]="service.status === 'unknown'"
-          aria-hidden="true"
-        ></span>
-      </ng-template>
       <div class="sidebar__footer">
+        @if (hasAttention()) {
+          <a
+            class="status-pill"
+            routerLink="/reports"
+            data-testid="status-pill"
+            [attr.aria-label]="attentionLabel()"
+          >
+            <span class="status-pill__dot" aria-hidden="true"></span>
+            <span>{{ attentionLabel() }}</span>
+          </a>
+        }
         <mm-theme-picker />
       </div>
     </nav>
@@ -70,3 +62,5 @@
     </main>
   </div>
 </div>
+
+<mm-command-palette [open]="commandPaletteOpen()" (openChange)="commandPaletteOpen.set($event)" />

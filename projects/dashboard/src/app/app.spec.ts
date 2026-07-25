@@ -1,15 +1,35 @@
 import { Location } from '@angular/common';
 import { provideLocationMocks, SpyLocation } from '@angular/common/testing';
+import { computed, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { vi } from 'vitest';
 import { fixtureHost } from '../testing/fixture-host';
 import { App } from './app';
 import { routes } from './app.routes';
+import { provideHttpClient } from '@angular/common/http';
+import { AutomationFacade } from './automation/automation.facade';
+import { summarizeAutomationHealth } from './automation/automation.models';
 import { ServiceHealthFacade } from './automation/service-health.facade';
+import { CalendarFacade } from './calendar/calendar.facade';
+import { DownloadsFacade } from './downloads/downloads.facade';
+import { LibraryStatsFacade } from './library/library-stats.facade';
 import { MEDIA_STACK_API } from './media-stack/media-stack-api';
 import { provideOperationalLinkBases } from './media-stack/media-stack-api.providers';
 import { MockMediaStackApi } from './media-stack/mock-media-stack-api';
+import { StorageFacade } from './storage/storage.facade';
+
+function provideCommandPaletteFacadeMocks() {
+  return [
+    provideHttpClient(),
+    CalendarFacade,
+    DownloadsFacade,
+    LibraryStatsFacade,
+    StorageFacade,
+    AutomationFacade,
+  ];
+}
 
 describe('App shell', () => {
   beforeEach(() => {
@@ -20,6 +40,7 @@ describe('App shell', () => {
         provideLocationMocks(),
         { provide: MEDIA_STACK_API, useClass: MockMediaStackApi },
         ...provideOperationalLinkBases(),
+        ...provideCommandPaletteFacadeMocks(),
       ],
     });
   });
@@ -31,62 +52,89 @@ describe('App shell', () => {
 
     expect(root.querySelector('.brand')?.textContent).toContain('Media Manager');
     expect(root.querySelector('.demo-badge')?.textContent).toContain('Demo');
-    expect(root.querySelectorAll('.sidebar__nav a')).toHaveLength(3);
-    expect(root.querySelectorAll('.service-link')).toHaveLength(7);
+    expect(root.querySelectorAll('.sidebar__nav a')).toHaveLength(4);
+    expect(root.querySelector('[data-testid="search-trigger"]')).toBeTruthy();
+    expect(root.querySelectorAll('.service-link')).toHaveLength(0);
     expect(root.querySelector('router-outlet')).toBeTruthy();
   });
 
-  it('wires SERVICE_LINK_BASES into sidebar anchors and keeps SABnzbd inert', () => {
+  it('shows a status pill when services need attention', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
-    const root = fixtureHost(fixture);
-
-    const byName = new Map(fixture.componentInstance.services().map((service) => [service.name, service]));
-    expect(byName.get('Jellyfin')?.href).toBe('http://localhost:8096/');
-    expect(byName.get('Sonarr')?.href).toBe('http://localhost:8989/');
-    expect(byName.get('SABnzbd')?.href).toBeNull();
-
-    const jellyfin = [...root.querySelectorAll('.service-link')].find((el: Element) =>
-      el.textContent.includes('Jellyfin'),
-    ) as HTMLAnchorElement | undefined;
-    expect(jellyfin?.tagName).toBe('A');
-    expect(jellyfin?.getAttribute('href')).toBe('http://localhost:8096/');
-
-    const sabnzbd = [...root.querySelectorAll('.service-link')].find((el: Element) =>
-      el.textContent.includes('SABnzbd'),
-    ) as HTMLElement | undefined;
-    expect(sabnzbd?.tagName).toBe('SPAN');
-    expect(sabnzbd?.classList.contains('service-link--inert')).toBe(true);
-  });
-
-  it('overlays sidebar service status from live health and leaves untracked services unknown', async () => {
-    const fixture = TestBed.createComponent(App);
-    fixture.detectChanges();
-    expect(fixture.componentInstance.services().every((service) => service.status === 'unknown')).toBe(true);
-    expect(fixtureHost(fixture).querySelector('.service-dot--unknown')).toBeTruthy();
+    expect(fixtureHost(fixture).querySelector('[data-testid="status-pill"]')).toBeNull();
 
     const health = TestBed.inject(ServiceHealthFacade);
     await health.refresh({ initial: true });
     fixture.detectChanges();
 
-    const byName = new Map(fixture.componentInstance.services().map((service) => [service.name, service]));
-    expect(byName.get('Sonarr')?.status).toBe('healthy');
-    expect(byName.get('Prowlarr')?.status).toBe('degraded');
-    expect(byName.get('SABnzbd')?.status).toBe('offline');
-    expect(byName.get('Jellyfin')?.status).toBe('healthy');
-    expect(byName.get('qBittorrent')?.status).toBe('healthy');
+    const pill = fixtureHost(fixture).querySelector('[data-testid="status-pill"]');
+    expect(pill).toBeTruthy();
+    expect(pill?.getAttribute('href') ?? pill?.getAttribute('ng-reflect-router-link')).toBeTruthy();
+    expect(pill?.textContent).toMatch(/need attention/);
   });
 
-  it('conditionally includes SABnzbd based on environment.useLiveApi', () => {
+  it('opens the command palette signal from the search trigger', async () => {
     const fixture = TestBed.createComponent(App);
-    // SABnzbd is catalogued as demoOnly and filtered when useLiveApi is true.
-    const names = fixture.componentInstance.services().map((s) => s.name);
-    expect(names).toContain('SABnzbd');
+    fixture.detectChanges();
+    expect(fixture.componentInstance.commandPaletteOpen()).toBe(false);
+
+    const trigger = fixtureHost(fixture).querySelector('[data-testid="search-trigger"]') as HTMLButtonElement;
+    trigger.click();
+    await Promise.resolve();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.commandPaletteOpen()).toBe(true);
+  });
+
+  it('labels the status pill from problem count when services are otherwise healthy', () => {
+    TestBed.resetTestingModule();
+    const summary = signal({
+      generatedAt: '',
+      services: [{ id: 'jellyfin', name: 'Jellyfin', status: 'healthy' as const, detail: '', latencyMs: 10 }],
+      problems: [
+        { id: 'p1', summary: 'Indexer cooldown', serviceId: 'prowlarr', severity: 'info' as const },
+      ],
+      preview: [],
+      availability: {
+        services: 'present' as const,
+        preview: 'empty' as const,
+        problems: 'present' as const,
+      },
+    });
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [
+        provideRouter(routes),
+        provideLocationMocks(),
+        { provide: MEDIA_STACK_API, useClass: MockMediaStackApi },
+        ...provideOperationalLinkBases(),
+        {
+          provide: ServiceHealthFacade,
+          useValue: {
+            status: signal('ready'),
+            summary,
+            services: computed(() => summary().services),
+            problems: computed(() => summary().problems),
+            health: computed(() => summarizeAutomationHealth(summary())),
+            error: signal(''),
+            startPolling: vi.fn(),
+            refresh: vi.fn(),
+          },
+        },
+        ...provideCommandPaletteFacadeMocks(),
+      ],
+    });
+
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const pill = fixtureHost(fixture).querySelector('[data-testid="status-pill"]');
+    expect(pill?.textContent).toMatch(/1 service need attention/);
+    expect(pill?.textContent).not.toContain('0 services');
   });
 
   it.each([
     ['/', 'Dashboard', null],
     ['/dashboard', 'Dashboard', null],
+    ['/library', 'Library', null],
     ['/reports', 'Reports', 'Failed and actionable automation runs first'],
     ['/discover', 'Discover', 'Browse Hermes, Jellyseerr, and Trakt recommendations'],
   ])('recognizes %s as %s and renders its destination', async (url, heading, lede) => {
@@ -94,7 +142,9 @@ describe('App shell', () => {
     const router = TestBed.inject(Router);
     await harness.navigateByUrl(url);
     expect(router.url).toBe(url === '/dashboard' ? '/' : url);
-    expect(router.routerState.snapshot.root.firstChild?.routeConfig?.path).toBe(url === '/' || url === '/dashboard' ? '' : url.slice(1));
+    expect(router.routerState.snapshot.root.firstChild?.routeConfig?.path).toBe(
+      url === '/' || url === '/dashboard' ? '' : url.slice(1),
+    );
     expect(harness.routeNativeElement?.textContent).toContain(heading);
     if (lede) {
       expect(harness.routeNativeElement?.textContent).toContain(lede);

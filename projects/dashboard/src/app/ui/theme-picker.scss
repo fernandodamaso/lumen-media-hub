@@ -19,14 +19,14 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--mm-component-text-muted);
+  color: var(--mm-component-text-secondary);
   font: 500 11px/1.2 var(--mm-font-body);
   cursor: pointer;
   transition: background var(--mm-transition-fast), color var(--mm-transition-fast);
 }
 
 .theme-switch button:hover {
-  color: var(--mm-component-text-secondary);
+  color: var(--mm-component-text-primary);
 }
 
 .theme-switch button.is-active {

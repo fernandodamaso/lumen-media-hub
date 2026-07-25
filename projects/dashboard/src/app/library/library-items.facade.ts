@@ -1,30 +1,36 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
-import { LibraryStats } from './library.models';
+import { LibraryItem } from './library.models';
 import { applyLibraryLoadFailure } from './library-refresh';
 
-export type LibraryStatsStatus = 'loading' | 'ready' | 'error';
+export type LibraryItemsStatus = 'loading' | 'ready' | 'empty' | 'error';
 
-const REFRESH_ERROR = 'Could not refresh library totals. Showing last loaded counts.';
-const LOAD_ERROR = 'Library stats are temporarily unavailable. Try again.';
+const REFRESH_ERROR = 'Could not refresh library items. Showing last loaded titles.';
+const LOAD_ERROR = 'Library items are temporarily unavailable. Try again.';
+const PARTIAL_LOAD_ERROR =
+  'One library source failed to load. Counts and titles may be incomplete.';
 
-@Injectable()
-export class LibraryStatsFacade {
+@Injectable({ providedIn: 'root' })
+export class LibraryItemsFacade {
   private readonly api = inject(MEDIA_STACK_API);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly _status = signal<LibraryStatsStatus>('loading');
-  private readonly _stats = signal<LibraryStats | null>(null);
+  private readonly _status = signal<LibraryItemsStatus>('loading');
+  private readonly _items = signal<LibraryItem[]>([]);
+  private readonly _availability = signal<'complete' | 'partial'>('complete');
   private readonly _error = signal('');
   private readonly _refreshing = signal(false);
   private readonly _lastFetchedAt = signal('');
   private requestId = 0;
 
   readonly status = this._status.asReadonly();
-  readonly stats = this._stats.asReadonly();
+  readonly items = this._items.asReadonly();
+  readonly availability = this._availability.asReadonly();
   readonly error = this._error.asReadonly();
   readonly refreshing = this._refreshing.asReadonly();
   readonly lastFetchedAt = this._lastFetchedAt.asReadonly();
-  readonly availability = computed(() => this._stats()?.availability ?? 'complete');
+  readonly movieCount = computed(() => this._items().filter((item) => item.kind === 'movie').length);
+  readonly seriesCount = computed(() => this._items().filter((item) => item.kind === 'series').length);
+  readonly totalCount = computed(() => this._items().length);
 
   constructor() {
     this.destroyRef.onDestroy(() => {
@@ -39,12 +45,18 @@ export class LibraryStatsFacade {
     this._refreshing.set(true);
     const requestId = ++this.requestId;
     try {
-      const stats = await this.api.getLibraryStats(options.signal);
+      const result = await this.api.listLibraryItems(undefined, options.signal);
       if (requestId !== this.requestId) return;
-      this._stats.set(stats);
+      this._items.set(result.items);
+      this._availability.set(result.availability);
       this._lastFetchedAt.set(new Date().toISOString());
+      if (result.availability === 'partial') {
+        this._error.set(PARTIAL_LOAD_ERROR);
+        this._status.set(result.items.length ? 'ready' : 'error');
+        return;
+      }
       this._error.set('');
-      this._status.set('ready');
+      this._status.set(result.items.length ? 'ready' : 'empty');
     } catch {
       if (requestId !== this.requestId) return;
       if (options.signal?.aborted) return;
@@ -52,11 +64,11 @@ export class LibraryStatsFacade {
         initial,
         status: this._status,
         error: this._error,
-        hasPriorData: this._status() === 'ready' && this._stats() !== null,
+        hasPriorData: this._status() === 'ready' || this._status() === 'empty',
         refreshError: REFRESH_ERROR,
         loadError: LOAD_ERROR,
         clearOnInitial: () => {
-          this._stats.set(null);
+          this._items.set([]);
         },
       });
     } finally {

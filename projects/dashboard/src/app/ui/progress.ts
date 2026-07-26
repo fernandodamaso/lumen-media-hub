@@ -13,7 +13,7 @@ export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premie
       aria-valuemin="0"
       aria-valuemax="100"
     >
-      <div class="mm-progress__bar" [style.width.%]="normalized()"></div>
+      <div class="mm-progress__bar" [class.mm-progress__bar--live]="live()" [style.width.%]="normalized()"></div>
     </div>
     @if (showLabel()) {
       <span class="mm-progress__label">{{ normalized() }}%</span>
@@ -35,7 +35,8 @@ export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premie
     .mm-progress__bar {
       height: 100%;
       border-radius: inherit;
-      background: var(--mm-progress-tone, var(--mm-component-accent));
+      position: relative;
+      background: linear-gradient(90deg, color-mix(in srgb, var(--mm-progress-tone, var(--mm-component-accent)) 70%, transparent), var(--mm-progress-tone, var(--mm-component-accent)));
       transition: width var(--mm-transition-normal);
     }
     .mm-progress--accent { --mm-progress-tone: var(--mm-component-accent); }
@@ -43,6 +44,18 @@ export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premie
     .mm-progress--warning { --mm-progress-tone: var(--mm-component-warning); }
     .mm-progress--info { --mm-progress-tone: var(--mm-component-info); }
     .mm-progress--premiere { --mm-progress-tone: var(--mm-component-premiere); }
+    @keyframes shimmer {
+      from { background-position: 180% 0; }
+      to { background-position: -80% 0; }
+    }
+    .mm-progress__bar--live::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.35) 50%, transparent 80%);
+      background-size: 200% 100%;
+      animation: shimmer 1.6s linear infinite;
+    }
     .mm-progress__label {
       min-width: 38px;
       color: var(--mm-component-text-secondary);
@@ -52,6 +65,7 @@ export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premie
     }
     @media (prefers-reduced-motion: reduce) {
       .mm-progress__bar { transition: none; }
+      .mm-progress__bar--live::after { animation: none; }
     }
   `,
 })
@@ -59,6 +73,7 @@ export class MmProgress {
   readonly value = input(0);
   readonly label = input('Progress');
   readonly showLabel = input(true);
+  readonly live = input(false);
   readonly tone = input<MmProgressTone>('accent');
   readonly normalized = computed(() => {
     const raw = this.value();

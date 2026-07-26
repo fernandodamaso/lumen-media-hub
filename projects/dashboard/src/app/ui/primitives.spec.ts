@@ -92,6 +92,18 @@ describe('app/ui primitives', () => {
     expect(button?.getAttribute('aria-busy')).toBe('true');
   });
 
+  it('does not transition button text color (avoids load-time ink flash)', () => {
+    const fixture = TestBed.createComponent(MmButton);
+    fixture.detectChanges();
+    const css = Array.from(document.head.querySelectorAll('style'))
+      .map((style) => style.textContent)
+      .join('\n');
+    expect(css).toMatch(/\.mm-button[^{]*\{[^}]*transition:[^}]*\}/);
+    const transitionBlock = css.match(/\.mm-button(?:\[_[^\]]*\])?\s*\{[^}]*transition:[^}]+\}/)?.[0] ?? '';
+    expect(transitionBlock).not.toMatch(/transition:[^;]*\bcolor\b/);
+    expect(css).toContain('mm-button--primary');
+  });
+
   it('exposes the danger button variant for error actions', () => {
     const fixture = TestBed.createComponent(MmButton);
     fixture.componentRef.setInput('variant', 'danger');
@@ -259,6 +271,23 @@ describe('app/ui primitives', () => {
     const highRoot = fixtureHost(high);
     expect(highRoot.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('100');
     expect(highRoot.querySelector('.mm-progress--premiere')).toBeTruthy();
+  });
+
+  it('reflects the live input as a class modifier and preserves label rendering', () => {
+    const live = TestBed.createComponent(MmProgress);
+    live.componentRef.setInput('live', true);
+    live.componentRef.setInput('value', 75);
+    live.detectChanges();
+    const liveRoot = fixtureHost(live);
+    expect(liveRoot.querySelector('.mm-progress__bar--live')).toBeTruthy();
+    expect(liveRoot.querySelector('.mm-progress__label')?.textContent).toContain('75');
+
+    const plain = TestBed.createComponent(MmProgress);
+    plain.componentRef.setInput('value', 30);
+    plain.detectChanges();
+    const plainRoot = fixtureHost(plain);
+    expect(plainRoot.querySelector('.mm-progress__bar--live')).toBeNull();
+    expect(plainRoot.querySelector('.mm-progress__label')?.textContent).toContain('30');
   });
 
   it('renders icon buttons with a required accessible label', () => {

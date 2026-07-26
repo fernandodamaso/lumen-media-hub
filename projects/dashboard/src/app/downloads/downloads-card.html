@@ -12,16 +12,18 @@
     <div class="card__chrome card__chrome--head card__chrome--head-split">
       <h2 id="downloads-heading">Downloads</h2>
       @if (facade.status() !== 'empty') {
+        @let downRate = formatRateParts(facade.summary().downloadRate);
+        @let upRate = formatRateParts(facade.summary().uploadRate);
         <div class="dl-stats">
           <span class="dl-stat">
             <span class="dl-stat__label">Down</span>
-            <span class="num">{{ formatRateParts(facade.summary().downloadRate).value }}</span>
-            <span class="dl-stat__unit">{{ formatRateParts(facade.summary().downloadRate).unit }}</span>
+            <span class="num">{{ downRate.value }}</span>
+            <span class="dl-stat__unit">{{ downRate.unit }}</span>
           </span>
           <span class="dl-stat">
             <span class="dl-stat__label">Up</span>
-            <span class="num">{{ formatRateParts(facade.summary().uploadRate).value }}</span>
-            <span class="dl-stat__unit">{{ formatRateParts(facade.summary().uploadRate).unit }}</span>
+            <span class="num">{{ upRate.value }}</span>
+            <span class="dl-stat__unit">{{ upRate.unit }}</span>
           </span>
           <div class="dl-actions">
             <mm-button

@@ -1,36 +1,49 @@
 <article class="card card--downloads" data-testid="downloads-card" aria-labelledby="downloads-heading">
   <header class="card__head card__head--split">
-    <h2 id="downloads-heading">Downloads</h2>
-    @if (facade.status() !== 'empty') {
-      <div class="dl-stats">
-        <span class="dl-stat">
-          <span class="dl-stat__label">Down</span>
-          <span class="num">{{ formatRate(facade.summary().downloadRate) }}</span>
-        </span>
-        <span class="dl-stat">
-          <span class="dl-stat__label">Up</span>
-          <span class="num">{{ formatRate(facade.summary().uploadRate) }}</span>
-        </span>
-        <div class="dl-actions">
-          <mm-button
-            label="Pause all"
-            variant="quiet"
-            icon="pause"
-            [disabled]="!facade.canPauseAll() || facade.pendingAction() !== null"
-            [busy]="facade.pendingAction() === 'pause'"
-            (click)="runAction('pause')"
-          />
-          <mm-button
-            label="Resume all"
-            variant="primary"
-            icon="play"
-            [disabled]="!facade.canResumeAll() || facade.pendingAction() !== null"
-            [busy]="facade.pendingAction() === 'resume'"
-            (click)="runAction('resume')"
-          />
-        </div>
+    <div class="card__chrome-skeleton card__chrome-skeleton--downloads" aria-hidden="true">
+      <mm-skeleton variant="text" width="96px" height="18px" />
+      <div class="card__chrome-skeleton-cluster">
+        <mm-skeleton variant="text" width="52px" height="12px" />
+        <mm-skeleton variant="text" width="52px" height="12px" />
+        <mm-skeleton variant="rect" width="88px" height="32px" />
+        <mm-skeleton variant="rect" width="96px" height="32px" />
       </div>
-    }
+    </div>
+    <div class="card__chrome card__chrome--head card__chrome--head-split">
+      <h2 id="downloads-heading">Downloads</h2>
+      @if (facade.status() !== 'empty') {
+        <div class="dl-stats">
+          <span class="dl-stat">
+            <span class="dl-stat__label">Down</span>
+            <span class="num">{{ formatRateParts(facade.summary().downloadRate).value }}</span>
+            <span class="dl-stat__unit">{{ formatRateParts(facade.summary().downloadRate).unit }}</span>
+          </span>
+          <span class="dl-stat">
+            <span class="dl-stat__label">Up</span>
+            <span class="num">{{ formatRateParts(facade.summary().uploadRate).value }}</span>
+            <span class="dl-stat__unit">{{ formatRateParts(facade.summary().uploadRate).unit }}</span>
+          </span>
+          <div class="dl-actions">
+            <mm-button
+              label="Pause all"
+              variant="quiet"
+              icon="pause"
+              [disabled]="!facade.canPauseAll() || facade.pendingAction() !== null"
+              [busy]="facade.pendingAction() === 'pause'"
+              (click)="runAction('pause')"
+            />
+            <mm-button
+              label="Resume all"
+              variant="primary"
+              icon="play"
+              [disabled]="!facade.canResumeAll() || facade.pendingAction() !== null"
+              [busy]="facade.pendingAction() === 'resume'"
+              (click)="runAction('resume')"
+            />
+          </div>
+        </div>
+      }
+    </div>
   </header>
 
   @if (facade.notice()) {
@@ -40,9 +53,9 @@
     <mm-status tone="warning" [announce]="true">{{ facade.error() }}</mm-status>
   }
 
-  @switch (facade.status()) {
-    @case ('loading') {
-      <div class="torrent-list download-skeleton" aria-busy="true">
+  <div class="card__body card__body--downloads" [attr.aria-busy]="facade.status() === 'loading'">
+    <div class="card__skeleton" aria-hidden="true">
+      <div class="card__skeleton-main torrent-list download-skeleton">
         @for (i of torrentSkeletons; track i) {
           <div class="dl-item dl-item--skeleton">
             <mm-skeleton variant="text" width="60%" height="14px" />
@@ -51,80 +64,92 @@
           </div>
         }
       </div>
-    }
-    @case ('error') {
-      <mm-state-card kind="error" tone="danger" title="Downloads unavailable" [message]="facade.error()">
-        <mm-button label="Try again" (click)="retry()" />
-      </mm-state-card>
-    }
-    @case ('empty') {
-      <mm-state-card kind="empty" [centered]="true" title="No active downloads" message="Your queue is clear. New downloads will appear here." />
-    }
-    @default {
-      <div class="torrent-list" aria-live="polite">
-        @for (group of groups(); track group.state) {
-          <p class="section-label">
-            {{ group.label }} · <span>{{ group.torrents.length }}</span>
-          </p>
-          @for (torrent of group.torrents; track torrent.id) {
-            <div
-              class="dl-item"
-              [class.dl-item--seeding]="torrent.state === 'seeding'"
-              [class.dl-item--paused]="torrent.state === 'paused'"
-            >
-              <div class="dl-item__top">
-                <span class="dl-item__name">
-                  {{ torrent.name }}
-                  <span class="tag">{{ torrent.category }}</span>
-                </span>
-                <span class="dl-item__state">
-                  @if (torrent.state !== 'seeding') {
-                    <mm-icon-button
-                      [label]="(torrent.state === 'paused' ? 'Resume' : 'Pause') + ' ' + torrent.name"
-                      [disabled]="facade.pendingTorrentId() === torrent.id"
-                      [busy]="facade.pendingTorrentId() === torrent.id"
-                      (click)="runTorrentAction(torrent.id, torrent.state === 'paused' ? 'resume' : 'pause')"
-                    >
-                      @if (torrent.state === 'paused') {
-                        <svg lucidePlay [size]="14" aria-hidden="true"></svg>
-                      } @else {
-                        <svg lucidePause [size]="14" aria-hidden="true"></svg>
-                      }
-                    </mm-icon-button>
-                  }
-                  <span
-                    class="pill"
-                    [class.pill--accent]="torrent.state === 'downloading'"
-                    [class.pill--green]="torrent.state === 'seeding'"
-                    [class.pill--amber]="torrent.state === 'paused'"
-                  >
-                    {{ stateLabel(torrent.state) }}
-                  </span>
-                  <span class="num num--pct">{{ torrent.progress }}%</span>
-                </span>
-              </div>
-              <mm-progress
-                [value]="torrent.progress"
-                [showLabel]="false"
-                [label]="torrent.name + ' progress'"
-                [tone]="torrent.state === 'seeding' ? 'success' : 'info'"
-              />
-              <div class="dl-item__meta">
-                <span>{{ formatBytes(torrent.downloaded) }} / {{ formatBytes(torrent.size) }}</span>
-                <span class="meta-rates">
-                  <span><svg lucideArrowDown [size]="12" aria-hidden="true"></svg> {{ formatRate(torrent.downloadRate) }}</span>
-                  <span><svg lucideArrowUp [size]="12" aria-hidden="true"></svg> {{ formatRate(torrent.uploadRate) }}</span>
-                </span>
-                <span>{{ torrent.eta ? formatEta(torrent.eta) + ' left' : 'Complete' }}</span>
-              </div>
-            </div>
-          }
-        }
+      <div class="card__foot-skeleton card__foot-skeleton--end">
+        <mm-skeleton variant="text" width="34%" height="13px" />
       </div>
-    }
-  }
+    </div>
+    <div class="card__inner">
+      @switch (facade.status()) {
+        @case ('loading') {
+          <div class="card__inner-spacer" aria-hidden="true"></div>
+        }
+        @case ('error') {
+          <mm-state-card kind="error" tone="danger" title="Downloads unavailable" [message]="facade.error()">
+            <mm-button label="Try again" (click)="retry()" />
+          </mm-state-card>
+        }
+        @case ('empty') {
+          <mm-state-card kind="empty" [centered]="true" title="No active downloads" message="Your queue is clear. New downloads will appear here." />
+        }
+        @default {
+          <div class="torrent-list" aria-live="polite">
+            @for (group of groups(); track group.state) {
+              <p class="section-label">
+                {{ group.label }} · <span>{{ group.torrents.length }}</span>
+              </p>
+              @for (torrent of group.torrents; track torrent.id) {
+                  <div
+                    class="dl-item"
+                    [class.dl-item--seeding]="torrent.state === 'seeding'"
+                    [class.dl-item--paused]="torrent.state === 'paused'"
+                    [class.dl-item--queued]="torrent.state === 'queued'"
+                    [class.dl-item--checking]="torrent.state === 'checking'"
+                    [class.dl-item--error]="torrent.state === 'error'"
+                  >
+                    <div class="dl-item__top">
+                      <span class="dl-item__name">
+                        {{ torrent.name }}
+                        <span class="tag">{{ torrent.category }}</span>
+                      </span>
+                      <span class="dl-item__state">
+                        @if (torrent.state !== 'seeding') {
+                          <mm-icon-button
+                            [label]="(torrent.state === 'paused' ? 'Resume' : 'Pause') + ' ' + torrent.name"
+                            [disabled]="facade.pendingTorrentId() === torrent.id"
+                            [busy]="facade.pendingTorrentId() === torrent.id"
+                            (click)="runTorrentAction(torrent.id, torrent.state === 'paused' ? 'resume' : 'pause')"
+                          >
+                            @if (torrent.state === 'paused') {
+                              <svg lucidePlay [size]="14" aria-hidden="true"></svg>
+                            } @else {
+                              <svg lucidePause [size]="14" aria-hidden="true"></svg>
+                            }
+                          </mm-icon-button>
+                        }
+                        <span
+                          class="pill"
+                          [class]="statePillClass(torrent.state)"
+                        >
+                          {{ stateLabel(torrent.state) }}
+                        </span>
+                        <span class="num num--pct">{{ torrent.progress }}%</span>
+                      </span>
+                    </div>
+                    <mm-progress
+                      [value]="torrent.progress"
+                      [showLabel]="false"
+                      [label]="torrent.name + ' progress'"
+                      [tone]="torrent.state === 'seeding' ? 'success' : 'info'"
+                      [live]="torrent.state === 'downloading'"
+                    />
+                    <div class="dl-item__meta">
+                      <span>{{ formatBytes(torrent.downloaded) }} / {{ formatBytes(torrent.size) }}</span>
+                      <span class="meta-rates">
+                        <span><svg lucideArrowDown [size]="12" aria-hidden="true"></svg> {{ formatRate(torrent.downloadRate) }}</span>
+                        <span><svg lucideArrowUp [size]="12" aria-hidden="true"></svg> {{ formatRate(torrent.uploadRate) }}</span>
+                        <span>{{ torrent.eta ? formatEta(torrent.eta) + ' left' : 'Complete' }}</span>
+                      </span>
+                    </div>
+                  </div>
+              }
+            }
+          </div>
+        }
+      }
 
-  <footer class="card__foot">
-    <a class="link-arrow" [href]="qbittorrentHref()" target="_blank" rel="noreferrer">Open qBittorrent</a>
-  </footer>
+      <footer class="card__foot">
+        <a class="link-arrow" [href]="qbittorrentHref()" target="_blank" rel="noreferrer">Open qBittorrent →</a>
+      </footer>
+    </div>
+  </div>
 </article>

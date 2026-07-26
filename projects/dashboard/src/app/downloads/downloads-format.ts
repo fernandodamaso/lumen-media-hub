@@ -67,6 +67,15 @@ export function formatRate(bytes: number): string {
   return `${formatBytes(bytes)}/s`;
 }
 
+export function formatRateParts(bytes: number): { value: string; unit: string } {
+  const formatted = formatRate(bytes);
+  const idx = formatted.lastIndexOf(' ');
+  return {
+    value: formatted.slice(0, idx),
+    unit: formatted.slice(idx + 1),
+  };
+}
+
 export function formatEta(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { LucideArrowDown, LucideArrowUp, LucidePause, LucidePlay } from '@lucide/angular';
 import { MmButton, MmIconButton, MmProgress, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { SERVICE_LINK_BASES } from '../media-stack/media-stack-api.providers';
-import { formatBytes, formatEta, formatRate, groupTorrents, torrentArt, TORRENT_STATE_VIEW } from './downloads-format';
+import { formatBytes, formatEta, formatRate, formatRateParts, groupTorrents, torrentArt, TORRENT_STATE_VIEW, StatusTone } from './downloads-format';
 import { DownloadsAction, DownloadsFacade } from './downloads.facade';
 import { TorrentState } from './downloads.models';
 
@@ -31,6 +31,7 @@ export class DownloadsCard {
   readonly groups = computed(() => groupTorrents(this.facade.torrents()));
   readonly formatBytes = formatBytes;
   readonly formatRate = formatRate;
+  readonly formatRateParts = formatRateParts;
   readonly formatEta = formatEta;
   readonly torrentArt = torrentArt;
 
@@ -45,6 +46,17 @@ export class DownloadsCard {
 
   stateLabel(state: TorrentState): string {
     return TORRENT_STATE_VIEW[state].label;
+  }
+
+  statePillClass(state: TorrentState): string {
+    const tone = TORRENT_STATE_VIEW[state].tone;
+    const map: Record<StatusTone, string> = {
+      info: 'pill--accent',
+      success: 'pill--green',
+      warning: 'pill--amber',
+      danger: 'pill--danger',
+    };
+    return map[tone];
   }
 
   runAction(action: DownloadsAction): void {

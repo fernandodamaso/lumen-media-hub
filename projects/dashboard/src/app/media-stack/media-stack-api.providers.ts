@@ -20,8 +20,7 @@ export function provideMediaStackApi(): Provider[] {
       provide: MEDIA_STACK_API,
       useFactory: () => {
         const mock = new MockMediaStackApi();
-        const search = globalThis?.location?.search ?? '';
-        const scenario = new URLSearchParams(search).get('scenario');
+        const scenario = new URLSearchParams(globalThis.location.search).get('scenario');
         if (scenario?.startsWith('downloads-')) {
           const name = scenario.slice('downloads-'.length) as DownloadsScenario;
           switch (name) {

@@ -93,8 +93,8 @@ describe('DownloadsCard', () => {
   });
 
   it('shows dl-stats during loading and ready, hides on empty', () => {
-    const root = fixtureHost(fixture);
     fixture.detectChanges();
+    const root = fixtureHost(fixture);
     expect(root.querySelector('.dl-stats')).toBeTruthy();
 
     facade.status.set('empty');
@@ -159,6 +159,7 @@ describe('DownloadsCard', () => {
   });
 
   it.each([
+    ['seeding', 'dl-item--seeding'],
     ['paused', 'dl-item--paused'],
     ['queued', 'dl-item--queued'],
     ['checking', 'dl-item--checking'],
@@ -177,21 +178,17 @@ describe('DownloadsCard', () => {
     const root = fixtureHost(fixture);
     const meta = root.querySelector('.dl-item__meta');
     expect(meta).not.toBeNull();
-    if (!meta) return;
+    expect((meta as Element).children).toHaveLength(2);
 
-    expect(meta.children).toHaveLength(2);
-
-    const firstSpan = meta.children[0] as HTMLElement;
+    const firstSpan = (meta as Element).children[0] as HTMLElement;
     expect(firstSpan.textContent).toMatch(/50\s*B/);
     expect(firstSpan.textContent).toMatch(/100\s*B/);
 
-    const metaRates = meta.querySelector('.meta-rates');
+    const metaRates = (meta as Element).querySelector('.meta-rates');
     expect(metaRates).not.toBeNull();
-    if (!metaRates) return;
-
-    expect(metaRates.textContent).toMatch(/10\s*B\/s/);
-    expect(metaRates.textContent).toMatch(/2\s*B\/s/);
-    expect(metaRates.textContent).toContain('30s left');
+    expect((metaRates as Element).textContent).toMatch(/10\s*B\/s/);
+    expect((metaRates as Element).textContent).toMatch(/2\s*B\/s/);
+    expect((metaRates as Element).textContent).toContain('30s left');
 
     facade.torrents.set([{ ...downloadingTorrent(), id: 'b', eta: 0 }]);
     fixture.detectChanges();
@@ -217,7 +214,7 @@ function createFacade() {
     pendingAction: signal<DownloadsAction | null>(null),
     pendingTorrentId: signal<string | null>(null),
     refreshing: signal(false),
-    summary: signal({ active: 0, total: 0, downloaded: 0, size: 0, downloadRate: 0, uploadRate: 0 }),
+    summary: signal({ active: 0, total: 0, downloaded: 0, size: 0, downloadRate: 0, uploadRate: 0 }), // ponytail: mock doesn't derive summary from torrents; component specs verify rendering, facade specs verify derivation
     nextAction: signal<DownloadsAction | null>(null),
     canPauseAll: signal(false),
     canResumeAll: signal(false),

@@ -52,8 +52,10 @@ export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premie
       content: '';
       position: absolute;
       inset: 0;
+      border-radius: inherit;
       background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.35) 50%, transparent 80%);
       background-size: 200% 100%;
+      will-change: background-position;
       animation: shimmer 1.6s linear infinite;
     }
     .mm-progress__label {

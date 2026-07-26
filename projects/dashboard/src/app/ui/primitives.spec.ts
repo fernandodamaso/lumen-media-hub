@@ -273,6 +273,17 @@ describe('app/ui primitives', () => {
     expect(highRoot.querySelector('.mm-progress--premiere')).toBeTruthy();
   });
 
+  it('disables the shimmer animation when the user prefers reduced motion', () => {
+    const fixture = TestBed.createComponent(MmProgress);
+    fixture.componentRef.setInput('live', true);
+    fixture.detectChanges();
+    const css = Array.from(document.head.querySelectorAll('style'))
+      .map((style) => style.textContent)
+      .join('\n');
+    expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
+    expect(css).toMatch(/\.mm-progress__bar--live(?:\[[^\]]*\])?::after\s*\{[^}]*animation\s*:\s*none/);
+  });
+
   it('reflects the live input as a class modifier and preserves label rendering', () => {
     const live = TestBed.createComponent(MmProgress);
     live.componentRef.setInput('live', true);

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
-export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premiere';
+export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premiere' | 'muted';
 
 @Component({
   selector: 'mm-progress',
@@ -44,6 +44,7 @@ export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premie
     .mm-progress--warning { --mm-progress-tone: var(--mm-component-warning); }
     .mm-progress--info { --mm-progress-tone: var(--mm-component-info); }
     .mm-progress--premiere { --mm-progress-tone: var(--mm-component-premiere); }
+    .mm-progress--muted { --mm-progress-tone: var(--mm-component-border); }
     @keyframes shimmer {
       from { background-position: 180% 0; }
       to { background-position: -80% 0; }

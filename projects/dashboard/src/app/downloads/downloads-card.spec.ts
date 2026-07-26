@@ -171,6 +171,20 @@ describe('DownloadsCard', () => {
     expect(fixtureHost(fixture).querySelector(`.${expectedClass}`)).toBeTruthy();
   });
 
+  it.each([
+    ['seeding', 'mm-progress--success'],
+    ['downloading', 'mm-progress--info'],
+    ['paused', 'mm-progress--muted'],
+    ['queued', 'mm-progress--muted'],
+    ['checking', 'mm-progress--muted'],
+    ['error', 'mm-progress--muted'],
+  ])('renders .%s progress tone for %s state', (state, expectedClass) => {
+    facade.status.set('ready');
+    facade.torrents.set([{ ...downloadingTorrent(), id: state, state: state as TorrentState }]);
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelector(`.${expectedClass}`)).toBeTruthy();
+  });
+
   it('renders meta with size text and rates grouped in meta-rates', () => {
     facade.status.set('ready');
     facade.torrents.set([downloadingTorrent()]);

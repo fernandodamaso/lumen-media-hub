@@ -131,7 +131,7 @@
                       [value]="torrent.progress"
                       [showLabel]="false"
                       [label]="torrent.name + ' progress'"
-                      [tone]="torrent.state === 'seeding' ? 'success' : 'info'"
+                      [tone]="torrent.state === 'seeding' ? 'success' : (torrent.state === 'downloading' ? 'info' : 'muted')"
                       [live]="torrent.state === 'downloading'"
                     />
                     <div class="dl-item__meta">

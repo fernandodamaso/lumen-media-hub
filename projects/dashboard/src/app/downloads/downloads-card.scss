@@ -227,15 +227,6 @@ mm-status {
 
 .dl-item--paused,
 .dl-item--queued,
-.dl-item--checking,
-.dl-item--error {
-  mm-progress {
-    --mm-progress-tone: var(--mm-component-border);
-  }
-}
-
-.dl-item--paused,
-.dl-item--queued,
 .dl-item--checking {
   .dl-item__name {
     color: var(--mm-component-text-muted);

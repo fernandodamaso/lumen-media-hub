@@ -6,6 +6,7 @@ type StateCardArgs = {
   tone: 'default' | 'danger';
   title: string;
   message: string;
+  centered: boolean;
 };
 
 const meta: Meta<StateCardArgs> = {
@@ -23,12 +24,14 @@ const meta: Meta<StateCardArgs> = {
     },
     title: { control: 'text' },
     message: { control: 'text' },
+    centered: { control: 'boolean' },
   },
   args: {
     kind: 'empty',
     tone: 'default',
     title: 'Nothing here yet',
     message: 'There is no content to show right now.',
+    centered: false,
   },
   render: (args) => ({
     props: args,
@@ -40,6 +43,15 @@ export default meta;
 type Story = StoryObj<StateCardArgs>;
 
 export const Empty: Story = {};
+
+export const CenteredEmpty: Story = {
+  args: {
+    kind: 'empty',
+    centered: true,
+    title: 'No active downloads',
+    message: 'Your queue is clear. New downloads will appear here.',
+  },
+};
 
 export const Loading: Story = {
   args: {

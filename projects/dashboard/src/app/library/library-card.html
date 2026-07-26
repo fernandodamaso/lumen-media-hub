@@ -1,0 +1,78 @@
+<article class="card card--library" data-testid="library-card" aria-labelledby="library-heading">
+  <header class="card__head">
+    <h2 id="library-heading">Library</h2>
+    <div class="segmented" role="tablist" aria-label="Library kind">
+      <button
+        type="button"
+        class="segmented__btn"
+        role="tab"
+        [class.is-active]="tab() === 'movie'"
+        [attr.aria-selected]="tab() === 'movie'"
+        (click)="setTab('movie')"
+      >
+        Movies
+        <span class="segmented__count">{{ movieCount() }}</span>
+      </button>
+      <button
+        type="button"
+        class="segmented__btn"
+        role="tab"
+        [class.is-active]="tab() === 'series'"
+        [attr.aria-selected]="tab() === 'series'"
+        (click)="setTab('series')"
+      >
+        Series
+        <span class="segmented__count">{{ seriesCount() }}</span>
+      </button>
+    </div>
+  </header>
+
+  @if (facade.error() && facade.status() === 'ready') {
+    <mm-status tone="warning" [announce]="true">{{ facade.error() }}</mm-status>
+  }
+
+  @switch (facade.status()) {
+    @case ('loading') {
+      <div class="posters posters--skeleton" aria-busy="true">
+        @for (slot of skeletons; track slot) {
+          <mm-skeleton variant="rect" width="100%" height="180px" />
+        }
+      </div>
+    }
+    @case ('error') {
+      <mm-state-card
+        kind="error"
+        tone="danger"
+        title="Library unavailable"
+        [message]="facade.error()"
+      >
+        <mm-button label="Retry" (click)="retry()" />
+      </mm-state-card>
+    }
+    @case ('empty') {
+      <mm-state-card
+        kind="empty"
+        title="Library is empty"
+        message="No movies or series are available yet."
+      />
+    }
+    @default {
+      @if (filteredItems().length === 0) {
+        <mm-state-card
+          kind="empty"
+          title="Nothing in this tab"
+          [message]="tab() === 'movie' ? 'No movies to show.' : 'No series to show.'"
+        />
+      } @else {
+        <mm-library-poster-grid [items]="filteredItems()" [compact]="true" />
+      }
+      <footer class="card__foot">
+        <span class="text-muted">{{ facade.totalCount() }} titles in library</span>
+        <a class="link-arrow" routerLink="/library">
+          View all
+          <svg lucideChevronRight [size]="14" aria-hidden="true"></svg>
+        </a>
+      </footer>
+    }
+  }
+</article>

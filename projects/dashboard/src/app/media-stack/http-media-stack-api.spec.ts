@@ -129,6 +129,9 @@ describe('live-api.mappers', () => {
     expect(dto.preview?.[0]?.title).toBe('Stuck episode');
     expect(dto.problems?.some((p) => p.serviceId === 'bazarr')).toBe(true);
     expect(dto.problems?.some((p) => p.id.includes('disabled'))).toBe(true);
+    const sonarrMissing = dto.problems?.find((p) => p.id === 'sonarr-missing');
+    expect(sonarrMissing?.items).toEqual([{ title: 'Show S01E01', when: 'Tonight' }]);
+    expect(sonarrMissing?.itemCount).toBe(2);
   });
 
   it('rejects a failed automation envelope with no service blocks', () => {
@@ -651,6 +654,8 @@ describe('HttpMediaStackApi', () => {
     seriesReq.flush({ ok: true, items: [{ id: 's1', name: 'Series' }] });
     await expect(pending).resolves.toEqual({
       availability: 'complete',
+      movieCount: 1,
+      seriesCount: 1,
       items: [
         expect.objectContaining({ id: 'm1', kind: 'movie', title: 'Movie' }),
         expect.objectContaining({ id: 's1', kind: 'series', title: 'Series', artworkState: 'missing' }),
@@ -658,16 +663,46 @@ describe('HttpMediaStackApi', () => {
     });
   });
 
+  it('carries jellyfin list totals when larger than returned items', async () => {
+    const pending = api.listLibraryItems();
+    http.expectOne('/api/jellyfin/movies').flush({
+      ok: true,
+      total: 428,
+      items: [{ id: 'm1', name: 'Movie', year: 2020, image: '/m' }],
+    });
+    http.expectOne('/api/jellyfin/series').flush({
+      ok: true,
+      total: 76,
+      items: [{ id: 's1', name: 'Series' }],
+    });
+    await expect(pending).resolves.toMatchObject({
+      availability: 'complete',
+      movieCount: 428,
+      seriesCount: 76,
+      items: [expect.objectContaining({ id: 'm1' }), expect.objectContaining({ id: 's1' })],
+    });
+  });
+
   it('filters jellyfin requests by kind', async () => {
     const moviesOnly = api.listLibraryItems({ kind: 'movie' });
     http.expectOne('/api/jellyfin/movies').flush({ ok: true, items: [{ id: 'm1', name: 'Movie' }] });
     http.expectNone('/api/jellyfin/series');
-    await expect(moviesOnly).resolves.toMatchObject({ availability: 'complete', items: [{ id: 'm1' }] });
+    await expect(moviesOnly).resolves.toMatchObject({
+      availability: 'complete',
+      items: [{ id: 'm1' }],
+      movieCount: 1,
+      seriesCount: 0,
+    });
 
     const seriesOnly = api.listLibraryItems({ kind: 'series' });
     http.expectOne('/api/jellyfin/series').flush({ ok: true, items: [{ id: 's1', name: 'Series' }] });
     http.expectNone('/api/jellyfin/movies');
-    await expect(seriesOnly).resolves.toMatchObject({ availability: 'complete', items: [{ id: 's1' }] });
+    await expect(seriesOnly).resolves.toMatchObject({
+      availability: 'complete',
+      items: [{ id: 's1' }],
+      movieCount: 0,
+      seriesCount: 1,
+    });
   });
 
   it('rejects filtered jellyfin loads when the requested kind fails', async () => {
@@ -788,6 +823,8 @@ describe('HttpMediaStackApi', () => {
     seriesReq.flush({ ok: false, error: 'series offline' });
     await expect(pending).resolves.toEqual({
       availability: 'partial',
+      movieCount: 1,
+      seriesCount: undefined,
       items: [expect.objectContaining({ id: 'm1', kind: 'movie' })],
     });
   });

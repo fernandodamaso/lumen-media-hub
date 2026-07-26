@@ -135,38 +135,40 @@ export class HttpMediaStackApi implements MediaStackApi {
     signal?: AbortSignal,
   ): Promise<LibraryListResult> {
     const kind = filter?.kind;
-
-    // Filtered loads: surface the requested kind's failure instead of masking as empty.
-    if (kind === 'movie') {
-      const items = await this.fetchJellyfinKind('movies', signal);
-      return { items, availability: 'complete' };
+    if (kind === 'movie' || kind === 'series') {
+      return this.listLibraryItemsByKind(kind, signal);
     }
-    if (kind === 'series') {
-      const items = await this.fetchJellyfinKind('series', signal);
-      return { items, availability: 'complete' };
-    }
+    return this.listLibraryItemsMerged(signal);
+  }
 
+  private async listLibraryItemsByKind(
+    kind: LibraryItemKind,
+    signal?: AbortSignal,
+  ): Promise<LibraryListResult> {
+    const jellyfinKind = kind === 'movie' ? 'movies' : 'series';
+    const data = await this.fetchJellyfinList(jellyfinKind, signal);
+    const items = this.mapJellyfinListItems(data, jellyfinKind);
+    const total = jellyfinListTotal(data, items.length);
+    return {
+      items,
+      availability: 'complete',
+      movieCount: kind === 'movie' ? total : 0,
+      seriesCount: kind === 'series' ? total : 0,
+    };
+  }
+
+  private async listLibraryItemsMerged(signal?: AbortSignal): Promise<LibraryListResult> {
     const [moviesResult, seriesResult] = await Promise.allSettled([
-      this.fetchJellyfinKind('movies', signal),
-      this.fetchJellyfinKind('series', signal),
+      this.fetchJellyfinList('movies', signal),
+      this.fetchJellyfinList('series', signal),
     ]);
 
-    // Cancellation must not look like one-source partial availability.
-    if (signal?.aborted) {
-      throw new DOMException('The operation was aborted.', 'AbortError');
-    }
-    const abortedResult = [moviesResult, seriesResult].find(
-      (result): result is PromiseRejectedResult =>
-        result.status === 'rejected' && isAbortError(result.reason),
-    );
-    if (abortedResult) {
-      throw abortedResult.reason instanceof Error
-        ? abortedResult.reason
-        : new DOMException('The operation was aborted.', 'AbortError');
-    }
+    this.throwIfLibraryListAborted(signal, moviesResult, seriesResult);
 
-    const movies = moviesResult.status === 'fulfilled' ? moviesResult.value : [];
-    const series = seriesResult.status === 'fulfilled' ? seriesResult.value : [];
+    const moviesData = moviesResult.status === 'fulfilled' ? moviesResult.value : null;
+    const seriesData = seriesResult.status === 'fulfilled' ? seriesResult.value : null;
+    const movies = moviesData ? this.mapJellyfinListItems(moviesData, 'movies') : [];
+    const series = seriesData ? this.mapJellyfinListItems(seriesData, 'series') : [];
 
     if (moviesResult.status === 'rejected' && seriesResult.status === 'rejected') {
       throw moviesResult.reason instanceof Error
@@ -174,11 +176,33 @@ export class HttpMediaStackApi implements MediaStackApi {
         : new Error('Failed to list library items');
     }
 
-    const availability =
-      moviesResult.status === 'fulfilled' && seriesResult.status === 'fulfilled'
-        ? 'complete'
-        : 'partial';
-    return { items: [...movies, ...series], availability };
+    return {
+      items: [...movies, ...series],
+      availability:
+        moviesResult.status === 'fulfilled' && seriesResult.status === 'fulfilled'
+          ? 'complete'
+          : 'partial',
+      movieCount: moviesData !== null ? jellyfinListTotal(moviesData, movies.length) : undefined,
+      seriesCount: seriesData !== null ? jellyfinListTotal(seriesData, series.length) : undefined,
+    };
+  }
+
+  private throwIfLibraryListAborted(
+    signal: AbortSignal | undefined,
+    moviesResult: PromiseSettledResult<LiveJellyfinListResponse>,
+    seriesResult: PromiseSettledResult<LiveJellyfinListResponse>,
+  ): void {
+    if (signal?.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    }
+    const abortedResult = [moviesResult, seriesResult].find(
+      (result): result is PromiseRejectedResult =>
+        result.status === 'rejected' && isAbortError(result.reason),
+    );
+    if (!abortedResult) return;
+    throw abortedResult.reason instanceof Error
+      ? abortedResult.reason
+      : new DOMException('The operation was aborted.', 'AbortError');
   }
 
   async getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary> {
@@ -328,27 +352,6 @@ export class HttpMediaStackApi implements MediaStackApi {
     return this.mutateSoft('/discover/request', 'POST', toDiscoverRequestPayloadDto(payload));
   }
 
-  private async fetchJellyfinKind(
-    kind: 'movies' | 'series',
-    signal?: AbortSignal,
-  ): Promise<LibraryItem[]> {
-    const data = await this.fetchJellyfinList(kind, signal);
-    return this.mapJellyfinListItems(data, kind);
-  }
-
-  /** Prefer backend `total` when present so stats avoid mapping every library item. */
-  private async fetchJellyfinCount(
-    kind: 'movies' | 'series',
-    signal?: AbortSignal,
-  ): Promise<number> {
-    const data = await this.fetchJellyfinList(kind, signal);
-    const total = data.total;
-    if (typeof total === 'number' && Number.isFinite(total) && total >= 0) {
-      return Math.floor(total);
-    }
-    return this.mapJellyfinListItems(data, kind).length;
-  }
-
   private mapJellyfinListItems(
     data: LiveJellyfinListResponse,
     kind: 'movies' | 'series',
@@ -357,6 +360,15 @@ export class HttpMediaStackApi implements MediaStackApi {
     return (data.items ?? [])
       .map((item, index) => mapLibraryItem(mapLiveJellyfinItem(item, itemKind, index)))
       .filter((item): item is LibraryItem => item !== null);
+  }
+
+  /** Prefer backend `total` when present so stats avoid mapping every library item. */
+  private async fetchJellyfinCount(
+    kind: 'movies' | 'series',
+    signal?: AbortSignal,
+  ): Promise<number> {
+    const data = await this.fetchJellyfinList(kind, signal);
+    return jellyfinListTotal(data, this.mapJellyfinListItems(data, kind).length);
   }
 
   private async fetchJellyfinList(
@@ -508,4 +520,12 @@ export class HttpMediaStackApi implements MediaStackApi {
     }
     return new Error(fallback);
   }
+}
+
+function jellyfinListTotal(data: LiveJellyfinListResponse, mappedLength: number): number {
+  const total = data.total;
+  if (typeof total === 'number' && Number.isFinite(total) && total >= 0) {
+    return Math.floor(total);
+  }
+  return mappedLength;
 }

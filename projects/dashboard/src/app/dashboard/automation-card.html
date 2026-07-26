@@ -1,0 +1,210 @@
+<article class="card card--automation" data-testid="automation-card" aria-labelledby="automation-heading">
+  <header class="card__head">
+    <h2 id="automation-heading">Connected services</h2>
+  </header>
+
+  @if (health.error() && health.status() !== 'error') {
+    <mm-status tone="warning" [announce]="true">{{ health.error() }}</mm-status>
+  }
+
+  @switch (health.status()) {
+        @case ('loading') {
+          <ul class="svc-list svc-list--skeleton" aria-busy="true">
+            @for (slot of skeletonRows; track slot) {
+              <li><mm-skeleton variant="text" width="100%" height="14px" /></li>
+            }
+          </ul>
+        }
+        @case ('error') {
+          <mm-state-card kind="error" tone="danger" title="Services unavailable" [message]="health.error()">
+            <mm-button label="Try again" (click)="retryHealth()" />
+          </mm-state-card>
+        }
+        @default {
+          @if (health.services().length === 0) {
+            <mm-state-card kind="empty" title="No services reported" message="Service status will appear once available." />
+          } @else if (flaggedServices().length > 0) {
+            <ul class="svc-list" aria-live="polite">
+              @for (service of flaggedServices(); track service.id) {
+                <li class="svc svc--flagged">
+                  <button
+                    type="button"
+                    class="svc__trigger"
+                    (click)="openService(service)"
+                    aria-haspopup="dialog"
+                    [attr.aria-controls]="serviceDialog.dialogId"
+                  >
+                    <span class="svc__row">
+                      <span class="svc__name">{{ service.name }}</span>
+                      <span
+                        class="svc__status"
+                        [class.svc__status--degraded]="service.status === 'degraded'"
+                        [class.svc__status--down]="service.status === 'down'"
+                      >
+                        <span class="dot" aria-hidden="true"></span>
+                        {{ statusLabel(service.status) }}
+                      </span>
+                    </span>
+                    @if (service.detail) {
+                      <p
+                        class="svc__detail"
+                        [class.svc__detail--degraded]="service.status === 'degraded'"
+                        [class.svc__detail--down]="service.status === 'down'"
+                      >
+                        {{ service.detail }}
+                      </p>
+                    }
+                  </button>
+                </li>
+              }
+            </ul>
+            @if (healthyServices().length > 0) {
+              <details class="healthy-fold">
+                <summary>
+                  <svg class="chev" lucideChevronRight [size]="14" [strokeWidth]="2.2" aria-hidden="true"></svg>
+                  <span class="dot svc__status--ok" aria-hidden="true"></span>
+                  {{ healthyServices().length }} healthy
+                </summary>
+                <ul class="svc-list">
+                  @for (service of healthyServices(); track service.id) {
+                    <li class="svc">
+                      @if (serviceHref(service.id); as href) {
+                        <a class="svc__name" [href]="href" target="_blank" rel="noreferrer">{{ service.name }}</a>
+                      } @else {
+                        <span class="svc__name">{{ service.name }}</span>
+                      }
+                      <span class="svc__status svc__status--ok">
+                        <span class="dot" aria-hidden="true"></span>
+                        {{ statusLabel(service.status) }}
+                      </span>
+                    </li>
+                  }
+                </ul>
+              </details>
+            }
+          } @else {
+            <ul class="svc-list" aria-live="polite">
+              @for (service of health.services(); track service.id) {
+                <li class="svc">
+                  @if (serviceHref(service.id); as href) {
+                    <a class="svc__name" [href]="href" target="_blank" rel="noreferrer">{{ service.name }}</a>
+                  } @else {
+                    <span class="svc__name">{{ service.name }}</span>
+                  }
+                  <span class="svc__status svc__status--ok">
+                    <span class="dot" aria-hidden="true"></span>
+                    {{ statusLabel(service.status) }}
+                  </span>
+                </li>
+              }
+            </ul>
+          }
+        }
+      }
+
+  <footer class="card__foot">
+    @if (storage.error() && storage.status() !== 'error') {
+      <mm-status tone="warning" [announce]="true">{{ storage.error() }}</mm-status>
+    }
+    @if (storage.status() === 'error') {
+      <mm-state-card kind="error" tone="danger" title="Storage unavailable" [message]="storage.error()">
+        <mm-button label="Try again" (click)="retryStorage()" />
+      </mm-state-card>
+    } @else if (libraryVolume(); as volume) {
+      <div class="storage-foot">
+        <div class="storage-foot__copy">
+          <span class="storage-foot__label">{{ volume.label }}</span>
+          <span class="storage-foot__meta">
+            {{ formatBytes(volume.usedBytes) }} / {{ formatBytes(volume.totalBytes) }} · {{ percent(volume) }}%
+          </span>
+        </div>
+        <mm-progress
+          [value]="percent(volume)"
+          [tone]="barTone(volume)"
+          [showLabel]="false"
+          [label]="volume.label + ' usage'"
+        />
+      </div>
+    } @else if (storage.status() === 'loading') {
+      <mm-skeleton variant="text" width="100%" height="14px" />
+    } @else {
+      <span class="text-muted">Storage data unavailable</span>
+    }
+    <a class="link-arrow link-arrow--sm" routerLink="/reports">
+      View reports
+      <svg lucideChevronRight [size]="14" aria-hidden="true"></svg>
+    </a>
+  </footer>
+</article>
+
+<mm-dialog
+  #serviceDialog
+  [title]="selectedService()?.name ?? 'Service'"
+  [tone]="dialogTone(selectedService()?.status)"
+  (closed)="onDialogClosed()"
+>
+  @if (selectedService(); as service) {
+    <div class="svc-detail">
+      <p class="svc-detail__status">
+        <span
+          class="svc__status"
+          [class.svc__status--ok]="service.status === 'healthy'"
+          [class.svc__status--degraded]="service.status === 'degraded'"
+          [class.svc__status--down]="service.status === 'down'"
+        >
+          <span class="dot" aria-hidden="true"></span>
+          {{ statusLabel(service.status) }}
+        </span>
+      </p>
+      @if (service.detail) {
+        <p class="svc-detail__copy">{{ service.detail }}</p>
+      }
+      @if (selectedProblemGroups().length > 0) {
+        @for (group of selectedProblemGroups(); track group.severity) {
+          <section class="problem-group">
+            <h3
+              class="problem-group__label"
+              [class.problem-group__label--actionable]="group.severity === 'actionable'"
+              [class.problem-group__label--warning]="group.severity === 'warning'"
+            >
+              {{ group.label }}
+            </h3>
+            <ul class="problem-list">
+              @for (problem of group.problems; track problem.id) {
+                <li class="problem-list__item">
+                  @if (!problem.items?.length) {
+                    {{ problem.summary }}
+                  } @else {
+                    <span class="problem-list__summary">{{ problem.summary }}</span>
+                    <ul class="problem-detail-list">
+                      @for (item of problem.items; track item.title) {
+                        <li class="problem-detail-list__row">
+                          <span class="problem-detail-list__title">{{ item.title }}</span>
+                          @if (item.when) {
+                            <span class="problem-detail-list__meta">{{ item.when }}</span>
+                          }
+                        </li>
+                      }
+                    </ul>
+                    @if (problem.itemCount && problem.items && problem.itemCount > problem.items.length) {
+                      <p class="problem-detail-list__more">
+                        and {{ problem.itemCount - problem.items.length }} more not shown
+                      </p>
+                    }
+                  }
+                </li>
+              }
+            </ul>
+          </section>
+        }
+      } @else {
+        <p class="svc-detail__empty">No specific problems reported</p>
+      }
+    </div>
+    @if (serviceHref(service.id); as href) {
+      <a mmDialogFooter class="svc-dialog__open" [href]="href" target="_blank" rel="noreferrer">
+        Open {{ service.name }}
+      </a>
+    }
+  }
+</mm-dialog>

@@ -1,42 +1,32 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
 import { Router } from '@angular/router';
+import { MmButton } from '@app/ui';
 import { AutomationFacade } from '../automation/automation.facade';
 import { ServiceHealthFacade } from '../automation/service-health.facade';
 import { CalendarFacade } from '../calendar/calendar.facade';
+import { UpcomingCard } from '../calendar/upcoming-card';
 import { DownloadsFacade } from '../downloads/downloads.facade';
+import { DownloadsCard } from '../downloads/downloads-card';
 import { JELLYFIN_LINK_BASES } from '../library/library.models';
-import { SERVICE_LINK_BASES } from '../media-stack/media-stack-api.providers';
+import { LibraryCard } from '../library/library-card';
+import { LibraryItemsFacade } from '../library/library-items.facade';
 import { LibraryStatsFacade } from '../library/library-stats.facade';
 import { StorageFacade } from '../storage/storage.facade';
-import { AttentionBanner } from './attention-banner';
-import { AutomationRunsCard } from './automation-runs-card';
-import { DashboardHeader } from './dashboard-header';
-import { MetricCard } from './metric-card';
-import { ServiceHealthCard } from './service-health-card';
-import { StorageCard } from './storage-card';
-import { DownloadsBoard } from '../downloads/downloads-board';
-import { CalendarBoard } from '../calendar/calendar-board';
 import { formatRelativeTime } from '../automation/automation-format';
 import { formatStorageBytes } from '../storage/storage-format';
+import { AutomationCard } from './automation-card';
+import { refreshDashboardData } from './dashboard-refresh';
+import { MetricCard } from './metric-card';
 
 @Component({
   selector: 'mm-dashboard-page',
   imports: [
-    AttentionBanner,
-    AutomationRunsCard,
-    CalendarBoard,
-    DashboardHeader,
-    DownloadsBoard,
+    AutomationCard,
+    DownloadsCard,
+    LibraryCard,
     MetricCard,
-    ServiceHealthCard,
-    StorageCard,
-  ],
-  providers: [
-    CalendarFacade,
-    DownloadsFacade,
-    LibraryStatsFacade,
-    StorageFacade,
-    AutomationFacade,
+    MmButton,
+    UpcomingCard,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './dashboard-page.html',
@@ -44,17 +34,27 @@ import { formatStorageBytes } from '../storage/storage-format';
 })
 export class DashboardPage {
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly jellyfinBases = inject(JELLYFIN_LINK_BASES);
-  private readonly serviceBases = inject(SERVICE_LINK_BASES);
   readonly health = inject(ServiceHealthFacade);
   readonly library = inject(LibraryStatsFacade);
+  private readonly libraryItems = inject(LibraryItemsFacade);
   readonly downloads = inject(DownloadsFacade);
   readonly storage = inject(StorageFacade);
   private readonly calendar = inject(CalendarFacade);
   private readonly automation = inject(AutomationFacade);
 
+  constructor() {
+    // App-scoped facades keep polling after cards mount; stop when leaving Dashboard.
+    this.destroyRef.onDestroy(() => {
+      this.downloads.stopPolling();
+      this.storage.stopPolling();
+      this.calendar.stopPolling();
+      this.automation.stopPolling();
+    });
+  }
+
   readonly syncedAt = computed(() => {
-    // Health/storage prefer backend generatedAt when present so client clocks do not mask it.
     const candidates = [
       this.health.generatedAt() || this.health.lastFetchedAt(),
       this.storage.generatedAt() || this.storage.lastFetchedAt(),
@@ -67,6 +67,15 @@ export class DashboardPage {
     return newest ? formatRelativeTime(newest) : '';
   });
 
+  readonly pageheadDate = computed(() => {
+    const now = new Date();
+    return now.toLocaleDateString(undefined, {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    });
+  });
+
   readonly libraryTotal = computed(() => {
     const stats = this.library.stats();
     if (!stats) return '—';
@@ -76,7 +85,6 @@ export class DashboardPage {
   readonly libraryMeta = computed(() => {
     const stats = this.library.stats();
     if (!stats) return null;
-    // Home totals are derived from Jellyfin movie/series list responses (always complete counts).
     return `${stats.movies} movies · ${stats.series} series`;
   });
 
@@ -89,7 +97,7 @@ export class DashboardPage {
 
   readonly downloadsMeta = computed(() => {
     const active = this.downloads.summary().active;
-    return active === 1 ? '1 active download' : `${active} active downloads`;
+    return active === 1 ? '1 download active' : `${active} downloads active`;
   });
 
   readonly servicesStatus = computed(() => {
@@ -120,78 +128,28 @@ export class DashboardPage {
     return Math.min(100, Math.round((library.usedBytes / library.totalBytes) * 100));
   });
 
-  readonly attentionHeadline = computed(() => {
-    const actionable = this.health.health().actionableCount;
-    if (actionable > 0) {
-      return `${actionable} item${actionable === 1 ? '' : 's'} need attention`;
-    }
-    const troubled = this.health
-      .services()
-      .filter((service) => service.status === 'down' || service.status === 'degraded').length;
-    return `${troubled} item${troubled === 1 ? '' : 's'} need attention`;
-  });
-
-  readonly attentionMessage = computed(() => {
-    const problems = this.health.problems();
-    if (problems.length) {
-      const top = problems.slice(0, 3).map((problem) => problem.summary);
-      const remaining = problems.length - top.length;
-      return remaining > 0 ? `${top.join(' · ')} · +${remaining} more` : top.join(' · ');
-    }
-    const down = this.health.services()
-      .filter((service) => service.status === 'down')
-      .map((service) => service.name);
-    const degraded = this.health.services()
-      .filter((service) => service.status === 'degraded')
-      .map((service) => service.name);
-    const parts: string[] = [];
-    if (down.length) parts.push(`${down.join(', ')} ${down.length === 1 ? 'is' : 'are'} offline`);
-    if (degraded.length) parts.push(`${degraded.join(', ')} ${degraded.length === 1 ? 'is' : 'are'} degraded`);
-    return parts.join(' · ') || 'Some services need attention';
-  });
-
-  readonly hasAttention = computed(() => this.health.problems().length > 0 || this.health.health().overall === 'down' || this.health.health().overall === 'degraded');
-
   jellyfinLibraryHref(): string | null {
-    const base = (this.jellyfinBases).jellyfinBase?.replace(/\/$/, '');
+    const base = this.jellyfinBases.jellyfinBase?.replace(/\/$/, '');
     return base ? `${base}/web/index.html#!/movies.html` : null;
   }
 
-  jellyfinSearchHref(query: string): string | null {
-    const base = (this.jellyfinBases).jellyfinBase?.replace(/\/$/, '');
-    return base ? `${base}/web/index.html#!/search.html?q=${encodeURIComponent(query)}` : null;
-  }
-
-  onRequestMedia(): void {
+  onAddMedia(): void {
     void this.router.navigate(['/discover']);
   }
 
-  onOpenJellyfin(): void {
-    const href = (this.jellyfinBases).jellyfinBase;
-    if (href) window.open(href, '_blank', 'noreferrer');
-  }
-
-  onSearch(query: string): void {
-    const href = this.jellyfinSearchHref(query);
-    if (href) window.open(href, '_blank', 'noreferrer');
-  }
-
   onRefresh(): void {
-    void this.health.refresh();
-    void this.library.refresh();
-    void this.downloads.refresh();
-    void this.storage.refresh();
-    void this.calendar.refresh();
-    void this.automation.refresh();
-  }
-
-  qbittorrentHref(): string | null {
-    const base = (this.serviceBases).qbittorrent?.replace(/\/$/, '');
-    return base ? `${base}/` : null;
+    void refreshDashboardData({
+      health: this.health,
+      libraryItems: this.libraryItems,
+      libraryStats: this.library,
+      downloads: this.downloads,
+      storage: this.storage,
+      calendar: this.calendar,
+      automation: this.automation,
+    });
   }
 }
 
-/** Pick the latest parseable ISO timestamp from candidates (empty strings ignored). */
 function newestIsoTimestamp(candidates: readonly string[]): string {
   let newest = '';
   let newestMs = Number.NEGATIVE_INFINITY;

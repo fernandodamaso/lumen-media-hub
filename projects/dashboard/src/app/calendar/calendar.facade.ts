@@ -4,6 +4,7 @@ import {
   CALENDAR_LINK_BASES,
   CalendarEvent,
   compareCalendarEvents,
+  resolveArrPosterArt,
   resolveCalendarLink,
 } from './calendar.models';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
@@ -63,6 +64,11 @@ export class CalendarFacade {
     );
   }
 
+  stopPolling(): void {
+    this.poll.stop();
+    this._refreshing.set(false);
+  }
+
   async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<void> {
     const initial = isInitialRefresh(this._status(), options.initial);
     await runPolledRefresh({
@@ -81,7 +87,10 @@ export class CalendarFacade {
           .sort(compareCalendarEvents)
           .map((event) => ({
             ...event,
-            art: posters.get(event.title.trim().toLowerCase()) ?? event.art,
+            art:
+              posters.get(event.title.trim().toLowerCase()) ??
+              resolveArrPosterArt(event, this.linkBases) ??
+              event.art,
             href: resolveCalendarLink(event.title, library, this.linkBases, event.kind),
           }));
         // Abort after enrichment must not commit, or the scheduled timeout path would wipe a false success.
@@ -115,7 +124,7 @@ export class CalendarFacade {
       const posters = new Map<string, string>();
       for (const item of result.items) {
         const key = item.title.trim().toLowerCase();
-        if (!key || !item.art.trim()) continue;
+        if (!key || item.artworkState !== 'ok' || !item.art.trim()) continue;
         if (!posters.has(key)) posters.set(key, item.art);
       }
       return posters;

@@ -41,6 +41,11 @@ export class StorageFacade {
     });
   }
 
+  stopPolling(): void {
+    this.poll.stop();
+    this._refreshing.set(false);
+  }
+
   startPolling(intervalMs = 60_000): void {
     this.poll.startRefreshing(
       intervalMs,

@@ -37,3 +37,9 @@ p {
   font-size: var(--mm-text-sm);
   line-height: 1.5;
 }
+
+.mm-state-card--centered {
+  justify-items: center;
+  padding: 28px 18px;
+  text-align: center;
+}

@@ -60,7 +60,7 @@ describe('ThemeService', () => {
 
     service.setTheme('nocturne');
     TestBed.tick();
-    expect(meta?.getAttribute('content')).toBe('#080d17');
+    expect(meta?.getAttribute('content')).toBe('#0d0e13');
 
     service.setTheme('tokyo-night');
     TestBed.tick();

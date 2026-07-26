@@ -1,12 +1,15 @@
-<h1 class="sr-only">Dashboard</h1>
-
-<mm-dashboard-header
-  [syncedAt]="syncedAt()"
-  (requestMedia)="onRequestMedia()"
-  (openJellyfin)="onOpenJellyfin()"
-  (refresh)="onRefresh()"
-  (searchQuery)="onSearch($event)"
-/>
+<header class="pagehead">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="pagehead__sub">
+      {{ pageheadDate() }} ·
+      <span class="pagehead__accent">{{ downloadsMeta() }}</span>
+    </p>
+  </div>
+  <div class="pagehead__actions">
+    <mm-button label="Add media" icon="plus" (click)="onAddMedia()" />
+  </div>
+</header>
 
 <div class="metrics-row">
   <mm-metric-card
@@ -32,7 +35,7 @@
     label="Services"
     [value]="servicesValue()"
     [meta]="servicesStatus()"
-    href="#service-health-region"
+    href="#automation-region"
   />
   <mm-metric-card
     iconName="hard-drive"
@@ -41,7 +44,7 @@
     [value]="storagePercent() + '%'"
     [meta]="storageMeta()"
     [progress]="storagePercent()"
-    href="#storage-region"
+    href="#automation-region"
   />
 </div>
 
@@ -49,33 +52,17 @@
   <p class="metrics-notice" role="status" aria-live="polite">{{ libraryNotice() }}</p>
 }
 
-@if (hasAttention()) {
-  <mm-attention-banner
-    [headline]="attentionHeadline()"
-    [message]="attentionMessage()"
-  />
-}
-
-<div class="home-grid" data-testid="home-grid">
-  <div class="home-grid__col home-grid__col--main">
-    <div class="home-grid__downloads region" id="downloads-region" data-region="downloads">
-      <mm-downloads-board />
-    </div>
-    <div class="home-grid__runs region" id="runs-region" data-region="runs">
-      <mm-automation-runs-card />
-    </div>
+<div class="dashboard-grid" data-testid="dashboard-grid">
+  <div class="dashboard-grid__cell dashboard-grid__cell--library region" data-region="library">
+    <mm-library-card />
   </div>
-  <div class="home-grid__col home-grid__col--side">
-    <div class="home-grid__health region" id="service-health-region" data-region="service-health">
-      <mm-service-health-card />
-    </div>
-    <div class="home-grid__storage region" id="storage-region" data-region="storage">
-      <mm-storage-card />
-    </div>
+  <div class="dashboard-grid__cell dashboard-grid__cell--upcoming region" id="upcoming-region" data-region="upcoming">
+    <mm-upcoming-card />
   </div>
-  <div class="home-grid__col home-grid__col--calendar">
-    <div class="home-grid__calendar region" id="calendar-region" data-region="calendar">
-      <mm-calendar-board />
-    </div>
+  <div class="dashboard-grid__cell dashboard-grid__cell--downloads region" id="downloads-region" data-region="downloads">
+    <mm-downloads-card />
+  </div>
+  <div class="dashboard-grid__cell dashboard-grid__cell--automation region" id="automation-region" data-region="automation">
+    <mm-automation-card />
   </div>
 </div>

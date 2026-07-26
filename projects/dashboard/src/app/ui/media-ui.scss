@@ -1,23 +1,24 @@
 :root[data-theme="nocturne"] {
   color-scheme: dark;
-  --mm-color-ink-0: #f4f7fc;
-  --mm-color-ink-1: #a9b4c8;
-  --mm-color-ink-2: #748199;
-  --mm-color-surface-0: #080d17;
-  --mm-color-surface-1: #101827;
-  --mm-color-surface-2: #172133;
-  --mm-color-line: #263247;
-  --mm-color-accent: #7586ff;
-  --mm-color-accent-strong: #6857f5;
-  --mm-color-accent-ink: #f4f7fc;
-  --mm-color-success: #4ddc91;
-  --mm-color-warning: #f4bb43;
-  --mm-color-danger: #ff5964;
-  --mm-color-info: #5ea0ff;
-  --mm-color-premiere: #9b78ff;
-  --mm-color-on-success: #080d17;
-  --mm-color-on-warning: #080d17;
-  --mm-focus-ring: #b5c4ff;
+  --mm-color-ink-0: #e8eaf2;
+  --mm-color-ink-1: #9aa0b6;
+  --mm-color-ink-2: #60647a;
+  --mm-color-surface-0: #0d0e13;
+  --mm-color-surface-1: #16171f;
+  --mm-color-surface-2: #1c1e28;
+  --mm-color-line: rgb(255 255 255 / 5.5%);
+  --mm-color-accent: #7c8aff;
+  --mm-color-accent-strong: #93a1ff;
+  --mm-color-accent-ink: #0d0e13;
+  --mm-color-success: #4ade80;
+  --mm-color-warning: #fbbf24;
+  --mm-color-danger: #f87171;
+  --mm-color-info: #7c8aff;
+  --mm-color-premiere: #939dff;
+  --mm-color-on-success: #0d0e13;
+  --mm-color-on-warning: #0d0e13;
+  --mm-color-on-danger: #0d0e13;
+  --mm-focus-ring: #b5c0ff;
 }
 
 :root[data-theme="tokyo-night"] {
@@ -39,6 +40,7 @@
   --mm-color-premiere: #bb9af7;
   --mm-color-on-success: #111321;
   --mm-color-on-warning: #111321;
+  --mm-color-on-danger: #111321;
   --mm-focus-ring: #c0caf5;
 }
 
@@ -61,11 +63,13 @@
   --mm-color-premiere: #d2a8ff;
   --mm-color-on-success: #0d1117;
   --mm-color-on-warning: #0d1117;
+  --mm-color-on-danger: #0d1117;
   --mm-focus-ring: #79c0ff;
 }
 
 :root {
-  --mm-font-body: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mm-font-body: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mm-font-mono: 'JetBrains Mono', ui-monospace, monospace;
   --mm-radius-sm: 6px;
   --mm-radius-md: 10px;
   --mm-radius-lg: 12px;
@@ -77,11 +81,11 @@
   --mm-space-lg: 24px;
   --mm-space-xl: 36px;
   --mm-text-xs: 11px;
-  --mm-text-sm: 12px;
-  --mm-text-md: 13px;
+  --mm-text-sm: 12.5px;
+  --mm-text-md: 13.5px;
   --mm-text-lg: 15px;
-  --mm-text-xl: 24px;
-  --mm-text-heading: 17px;
+  --mm-text-xl: 21px;
+  --mm-text-heading: 15px;
   --mm-transition-fast: 0.15s ease;
   --mm-transition-normal: 0.2s ease;
   --mm-semantic-text-primary: var(--mm-color-ink-0);
@@ -102,6 +106,7 @@
   --mm-semantic-premiere: var(--mm-color-premiere);
   --mm-semantic-on-success: var(--mm-color-on-success);
   --mm-semantic-on-warning: var(--mm-color-on-warning);
+  --mm-semantic-on-danger: var(--mm-color-on-danger);
   --mm-semantic-focus: var(--mm-focus-ring);
   --mm-component-text-primary: var(--mm-semantic-text-primary);
   --mm-component-text-secondary: var(--mm-semantic-text-secondary);
@@ -123,6 +128,7 @@
   --mm-component-on-accent: var(--mm-semantic-on-accent);
   --mm-component-on-success: var(--mm-semantic-on-success);
   --mm-component-on-warning: var(--mm-semantic-on-warning);
+  --mm-component-on-danger: var(--mm-semantic-on-danger);
   --mm-component-focus-ring: var(--mm-semantic-focus);
 }
 

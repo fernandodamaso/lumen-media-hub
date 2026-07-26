@@ -1,4 +1,4 @@
-<section [class]="'mm-state-card mm-state-card--' + tone()">
+<section [class]="'mm-state-card mm-state-card--' + tone() + (centered() ? ' mm-state-card--centered' : '')">
   <div class="mm-state-card__icon" aria-hidden="true">
     @if (kind() === 'loading') {
       <svg lucideLoaderCircle [size]="18" [strokeWidth]="2.2"></svg>

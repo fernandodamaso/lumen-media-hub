@@ -30,6 +30,10 @@ export interface LibraryStats {
 export interface LibraryListResult {
   items: LibraryItem[];
   availability: LibraryAvailability;
+  /** Authoritative movie total when the API reports more than the returned page. */
+  movieCount?: number;
+  /** Authoritative series total when the API reports more than the returned page. */
+  seriesCount?: number;
 }
 
 interface JellyfinLinkBases {

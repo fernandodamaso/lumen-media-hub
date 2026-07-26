@@ -1,5 +1,5 @@
 import { mapCalendarEvent } from './calendar-format';
-import { resolveCalendarLink, compareCalendarEvents } from './calendar.models';
+import { resolveArrPosterArt, resolveCalendarLink, compareCalendarEvents } from './calendar.models';
 
 describe('calendar API boundary', () => {
   it('normalizes episode and movie events with status and stable ids', () => {
@@ -10,6 +10,7 @@ describe('calendar API boundary', () => {
       airDate: '2026-07-12T18:00:00Z',
       hasFile: false,
       kind: 'episode',
+      seriesId: 42,
     });
     expect(episode).toMatchObject({
       id: 'Cowboy Bebop-S1 E5-2026-07-12T18:00:00Z',
@@ -19,6 +20,7 @@ describe('calendar API boundary', () => {
       subtitle: 'S1 E5',
       status: 'pending',
       airDate: '2026-07-12T18:00:00Z',
+      seriesId: 42,
     });
     expect(episode.art).toContain('linear-gradient');
 
@@ -32,6 +34,17 @@ describe('calendar API boundary', () => {
     });
     expect(movie.kind).toBe('movie');
     expect(movie.status).toBe('available');
+  });
+
+  it('builds Sonarr MediaCover art from seriesId', () => {
+    expect(
+      resolveArrPosterArt(
+        { kind: 'episode', seriesId: 1 },
+        { sonarrBase: 'http://localhost:8989/' },
+      ),
+    ).toBe('url("http://localhost:8989/MediaCover/1/poster-250.jpg") center / cover no-repeat');
+    expect(resolveArrPosterArt({ kind: 'episode', seriesId: 1 }, { sonarrBase: '' })).toBeNull();
+    expect(resolveArrPosterArt({ kind: 'movie', seriesId: 1 }, { sonarrBase: 'http://localhost:8989' })).toBeNull();
   });
 
   it('infers episode kind from SxxExx subtitle when kind is omitted', () => {

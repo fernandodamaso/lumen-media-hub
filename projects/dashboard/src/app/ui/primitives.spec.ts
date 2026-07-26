@@ -2,7 +2,7 @@ import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { fixtureHost } from '../../testing/fixture-host';
-import { MmButton, MmCard, MmIconButton, MmPoster, MmProgress, MmStateCard, MmStatus, MmThemePicker } from './index';
+import { MmButton, MmCard, MmIconButton, MmPoster, MmProgress, MmStateCard, MmStatus, MmThemePicker, MmTooltip } from './index';
 
 @Component({
   standalone: true,
@@ -90,6 +90,17 @@ describe('app/ui primitives', () => {
     expect(button?.className).toContain('mm-button');
     expect(button?.className).toContain('mm-button--quiet');
     expect(button?.getAttribute('aria-busy')).toBe('true');
+  });
+
+  it('exposes the danger button variant for error actions', () => {
+    const fixture = TestBed.createComponent(MmButton);
+    fixture.componentRef.setInput('variant', 'danger');
+    fixture.componentRef.setInput('label', 'View issues');
+    fixture.detectChanges();
+    const button = fixtureHost(fixture).querySelector('button');
+
+    expect(button?.className).toContain('mm-button--danger');
+    expect(button?.textContent).toContain('View issues');
   });
 
   it('keeps the status base class alongside its tone class without a live region by default', () => {
@@ -184,10 +195,11 @@ describe('app/ui primitives', () => {
       const fixture = TestBed.createComponent(MmThemePicker);
       fixture.detectChanges();
       const picker = fixture.componentInstance;
-      const select = fixtureHost(fixture).querySelector('select') as HTMLSelectElement;
+      const tokyo = [...fixtureHost(fixture).querySelectorAll('button')].find((button) =>
+        button.textContent.includes('Tokyo Night'),
+      ) as HTMLButtonElement;
 
-      select.value = 'tokyo-night';
-      select.dispatchEvent(new Event('change'));
+      tokyo.click();
       fixture.detectChanges();
       expect(picker.justSaved()).toBe(true);
 
@@ -218,6 +230,17 @@ describe('app/ui primitives', () => {
     state.componentRef.setInput('tone', 'danger');
     state.detectChanges();
     expect(fixtureHost(state).querySelector('.mm-state-card--danger')).toBeTruthy();
+  });
+
+  it('applies a centered layout modifier when centered is set', () => {
+    const state = TestBed.createComponent(MmStateCard);
+    state.componentRef.setInput('centered', true);
+    state.detectChanges();
+    expect(fixtureHost(state).querySelector('.mm-state-card--centered')).toBeTruthy();
+
+    const plain = TestBed.createComponent(MmStateCard);
+    plain.detectChanges();
+    expect(fixtureHost(plain).querySelector('.mm-state-card--centered')).toBeNull();
   });
 
   it('normalizes progress values and applies tone classes', () => {
@@ -267,16 +290,18 @@ describe('app/ui primitives', () => {
     const picker = fixture.componentInstance;
     picker.themeService.setTheme('tokyo-night');
     fixture.detectChanges();
-    const select = fixtureHost(fixture).querySelector('select') as HTMLSelectElement;
+    const buttons = () => [...fixtureHost(fixture).querySelectorAll('button')];
 
     expect(document.documentElement.dataset['theme']).toBe('tokyo-night');
-    expect(select.value).toBe('tokyo-night');
-    expect([...select.options].find((option) => option.selected)?.value).toBe('tokyo-night');
+    expect(buttons().find((button) => button.textContent.includes('Tokyo Night'))?.classList.contains('is-active')).toBe(
+      true,
+    );
 
     picker.themeService.setTheme('github-dark-pro');
     fixture.detectChanges();
-    expect(select.value).toBe('github-dark-pro');
-    expect([...select.options].find((option) => option.selected)?.value).toBe('github-dark-pro');
+    expect(buttons().find((button) => button.textContent.includes('GitHub Dark'))?.classList.contains('is-active')).toBe(
+      true,
+    );
   });
 
   it('lets the primary button receive keyboard focus', () => {
@@ -286,5 +311,33 @@ describe('app/ui primitives', () => {
     const button = fixtureHost(fixture).querySelector('button') as HTMLButtonElement;
     button.focus();
     expect(document.activeElement).toBe(button);
+  });
+
+  it('renders default and accent tooltips around a trigger', () => {
+    @Component({
+      standalone: true,
+      imports: [MmTooltip],
+      template: `
+        <mm-tooltip text="Refresh">
+          <button type="button">Refresh</button>
+        </mm-tooltip>
+        <mm-tooltip text="Play" tone="accent" placement="bottom">
+          <button type="button">Play</button>
+        </mm-tooltip>
+      `,
+    })
+    class TooltipHost {}
+
+    const fixture = TestBed.createComponent(TooltipHost);
+    fixture.detectChanges();
+    const root = fixtureHost(fixture);
+    const tips = root.querySelectorAll('mm-tooltip');
+
+    expect(tips).toHaveLength(2);
+    expect(tips[0].classList.contains('mm-tooltip--accent')).toBe(false);
+    expect(tips[1].classList.contains('mm-tooltip--accent')).toBe(true);
+    expect(tips[1].classList.contains('mm-tooltip--bottom')).toBe(true);
+    expect(root.querySelectorAll('[role="tooltip"]')[0].textContent.trim()).toBe('Refresh');
+    expect(root.querySelectorAll('[role="tooltip"]')[1].textContent.trim()).toBe('Play');
   });
 });

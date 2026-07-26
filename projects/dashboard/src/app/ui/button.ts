@@ -37,10 +37,10 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareAr
       border: 0;
       border-radius: var(--mm-radius-sm);
       padding: 8px 14px;
-      background: var(--mm-component-accent-strong);
+      background: var(--mm-component-accent);
       color: var(--mm-component-on-accent);
       cursor: pointer;
-      font: 700 var(--mm-text-md)/1 var(--mm-font-body);
+      font: 600 13px/1 var(--mm-font-body);
       white-space: nowrap;
       transition:
         background var(--mm-transition-fast),
@@ -49,7 +49,7 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareAr
         transform var(--mm-transition-fast);
     }
     .mm-button:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--mm-component-accent-strong) 86%, var(--mm-component-on-accent));
+      background: var(--mm-component-accent-strong);
     }
     .mm-button:active:not(:disabled) {
       transform: scale(0.98);
@@ -70,9 +70,22 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareAr
       background: var(--mm-component-success);
       color: var(--mm-component-on-success);
     }
+    .mm-button--success:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--mm-component-success) 82%, #000);
+    }
     .mm-button--warning {
       background: var(--mm-component-warning);
       color: var(--mm-component-on-warning);
+    }
+    .mm-button--warning:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--mm-component-warning) 82%, #000);
+    }
+    .mm-button--danger {
+      background: var(--mm-component-danger);
+      color: var(--mm-component-on-danger);
+    }
+    .mm-button--danger:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--mm-component-danger) 82%, #000);
     }
     .mm-button:disabled {
       cursor: not-allowed;
@@ -86,7 +99,7 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareAr
 })
 export class MmButton {
   readonly label = input('Continue');
-  readonly variant = input<'primary' | 'quiet' | 'success' | 'warning'>('primary');
+  readonly variant = input<'primary' | 'quiet' | 'success' | 'warning' | 'danger'>('primary');
   readonly icon = input<'pause' | 'play' | 'plus' | 'external-link' | ''>('');
   readonly disabled = input(false);
   readonly busy = input(false);

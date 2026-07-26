@@ -1,6 +1,7 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 import { LibraryStats } from './library.models';
+import { applyLibraryLoadFailure } from './library-refresh';
 
 export type LibraryStatsStatus = 'loading' | 'ready' | 'error';
 
@@ -47,22 +48,19 @@ export class LibraryStatsFacade {
     } catch {
       if (requestId !== this.requestId) return;
       if (options.signal?.aborted) return;
-      this.applyRefreshFailure(initial);
+      applyLibraryLoadFailure({
+        initial,
+        status: this._status,
+        error: this._error,
+        hasPriorData: this._status() === 'ready' && this._stats() !== null,
+        refreshError: REFRESH_ERROR,
+        loadError: LOAD_ERROR,
+        clearOnInitial: () => {
+          this._stats.set(null);
+        },
+      });
     } finally {
       if (requestId === this.requestId) this._refreshing.set(false);
-    }
-  }
-
-  private applyRefreshFailure(initial: boolean): void {
-    const hasPrior = this._status() === 'ready' && this._stats() !== null;
-    if (!initial && hasPrior) {
-      this._error.set(REFRESH_ERROR);
-      return;
-    }
-    this._status.set('error');
-    this._error.set(LOAD_ERROR);
-    if (initial) {
-      this._stats.set(null);
     }
   }
 }

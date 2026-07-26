@@ -301,6 +301,27 @@ describe('CalendarFacade', () => {
     expect(byTitle.get('Dune')).toContain('linear-gradient');
   });
 
+  it('falls back to Sonarr MediaCover when library has no poster but seriesId is known', async () => {
+    api.libraryItems = [];
+    api.events = [
+      {
+        id: 'Mushoku-S3 E5-2026-07-26T15:00:00Z',
+        time: '15:00',
+        kind: 'episode',
+        title: 'Mushoku Tensei: Jobless Reincarnation',
+        subtitle: 'S3 E5',
+        status: 'pending',
+        airDate: '2026-07-26T15:00:00Z',
+        art: 'linear-gradient(145deg, #111, #000 70%)',
+        seriesId: 1,
+      },
+    ];
+    await facade.refresh({ initial: true });
+    expect(facade.events()[0]?.art).toBe(
+      'url("https://sonarr.example/MediaCover/1/poster-250.jpg") center / cover no-repeat',
+    );
+  });
+
   it('keeps gradient art when library item load fails without aborting', async () => {
     api.libraryItemsFailure = true;
     api.events = [

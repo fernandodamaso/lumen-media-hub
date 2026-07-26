@@ -605,7 +605,9 @@ export class MockMediaStackApi implements MediaStackApi {
       .filter((item) => !filter?.kind || item.kind === filter.kind)
       .map((item) => mapLibraryItem({ ...item }))
       .filter((item): item is LibraryItem => item !== null);
-    return Promise.resolve({ items, availability: 'complete' });
+    const movieCount = items.filter((item) => item.kind === 'movie').length;
+    const seriesCount = items.filter((item) => item.kind === 'series').length;
+    return Promise.resolve({ items, availability: 'complete', movieCount, seriesCount });
   }
 
   getLibraryStats(_signal?: AbortSignal): Promise<LibraryStats> {

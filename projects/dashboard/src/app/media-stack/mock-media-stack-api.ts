@@ -49,6 +49,15 @@ const DEMO_TORRENTS: MediaStackTorrentDto[] = [
   { hash: 'demo-orbit', name: 'Orbit Station', state: 'stoppedUP', progress: 1, size: Math.round(5.4 * GIB), downloaded: Math.round(5.4 * GIB), dlspeed: 0, upspeed: 117 * KIB, eta: 0, category: 'Movies' },
 ];
 
+const MIXED_TORRENTS: MediaStackTorrentDto[] = [
+  { hash: 'demo-afterlight', name: 'Afterlight', state: 'downloading', progress: 0.68, size: Math.round(6.9 * GIB), downloaded: Math.round(4.7 * GIB), dlspeed: Math.round(4.0 * MIB), upspeed: 312 * KIB, eta: 9 * 60, category: 'Movies' },
+  { hash: 'demo-orbit', name: 'Orbit Station', state: 'stoppedUP', progress: 1, size: Math.round(5.4 * GIB), downloaded: Math.round(5.4 * GIB), dlspeed: 0, upspeed: 117 * KIB, eta: 0, category: 'Movies' },
+  { hash: 'demo-silent-wave', name: 'Silent Wave', state: 'pausedDL', progress: 0.45, size: Math.round(3.2 * GIB), downloaded: Math.round(1.44 * GIB), dlspeed: 0, upspeed: 0, eta: 0, category: 'TV · S1E6' },
+  { hash: 'demo-dust-road', name: 'Dust Road', state: 'queuedDL', progress: 0, size: Math.round(4.1 * GIB), downloaded: 0, dlspeed: 0, upspeed: 0, eta: 0, category: 'Movies' },
+  { hash: 'demo-echo-point', name: 'Echo Point', state: 'checkingDL', progress: 0.92, size: Math.round(2.8 * GIB), downloaded: Math.round(2.8 * GIB), dlspeed: 0, upspeed: 0, eta: 0, category: 'TV · S3E1' },
+  { hash: 'demo-broken-link', name: 'Broken Link', state: 'error', progress: 0.12, size: Math.round(6.1 * GIB), downloaded: Math.round(0.73 * GIB), dlspeed: 0, upspeed: 0, eta: 0, category: 'Movies' },
+];
+
 const DEMO_LIBRARY_STATS: MediaStackLibraryStatsDto = { ok: true, movies: 428, series: 76 };
 
 function demoStorageOverview(): MediaStackStorageOverviewDto {
@@ -228,6 +237,19 @@ function demoAutomationSummary(): MediaStackAutomationSummaryDto {
       { id: 'problem-1', summary: 'SABnzbd unreachable', serviceId: 'sabnzbd', severity: 'actionable' },
       { id: 'problem-2', summary: 'Prowlarr indexer response slow', serviceId: 'prowlarr', severity: 'warning' },
       { id: 'problem-3', summary: 'Prowlarr indexer in cooldown', serviceId: 'prowlarr', severity: 'warning' },
+      {
+        id: 'sonarr-missing',
+        summary: '4 Sonarr episode(s) missing',
+        serviceId: 'sonarr',
+        severity: 'warning',
+        items: [
+          { title: 'The Apothecary Diaries S1E24', when: '2026-03-24T14:00:00Z', href: 'http://localhost:8989/series/the-apothecary-diaries' },
+          { title: 'The Apothecary Diaries S1E23', when: '2026-03-17T14:00:00Z', href: 'http://localhost:8989/series/the-apothecary-diaries' },
+          { title: 'Sparks of Tomorrow S1E4', when: '2026-07-26T14:00:00Z', href: 'http://localhost:8989/series/sparks-of-tomorrow' },
+          { title: 'Sparks of Tomorrow S1E2', when: '2026-07-12T14:00:00Z', href: 'http://localhost:8989/series/sparks-of-tomorrow' },
+        ],
+        itemCount: 4,
+      },
     ],
   };
 }
@@ -333,6 +355,7 @@ function copyCronLogs(source: MediaStackCronLogsDto): MediaStackCronLogsDto {
 }
 
 export type AutomationScenario = 'default' | 'partial' | 'empty';
+export type DownloadsScenario = 'default' | 'empty' | 'error' | 'paused' | 'mixed';
 
 const DEMO_HERMES: MediaStackDiscoverItemDto[] = [
   {
@@ -540,13 +563,54 @@ export class MockMediaStackApi implements MediaStackApi {
   private requestedKeys = new Set<string>();
   private libraryItems = DEMO_LIBRARY_ITEMS.map((item) => ({ ...item }));
   private automationScenario: AutomationScenario = 'default';
+  private downloadsScenario: DownloadsScenario = 'default';
+
+  /**
+   * Artificial Demo-mode latency in ms so skeleton loading states are visible.
+   * Each read resolves after latencyMs * (0.6..1.4). Set to 0 in specs.
+   */
+  latencyMs = 700;
+
+  protected withLatency<T>(value: T): Promise<T> {
+    if (this.latencyMs <= 0) {
+      return Promise.resolve(value);
+    }
+    // Jitter is intentional for staggered demo skeleton reveals (not security-sensitive).
+    // eslint-disable-next-line sonarjs/pseudo-random -- demo UI timing only
+    const delay = this.latencyMs * (0.6 + Math.random() * 0.8);
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve(value);
+      }, delay);
+    });
+  }
 
   setAutomationScenario(scenario: AutomationScenario): void {
     this.automationScenario = scenario;
   }
 
+  setDownloadsScenario(scenario: DownloadsScenario): void {
+    this.downloadsScenario = scenario;
+    switch (scenario) {
+      case 'empty':
+        this.torrents = [];
+        break;
+      case 'paused':
+        this.torrents = DEMO_TORRENTS.map((torrent) => ({ ...torrent, state: 'paused', dlspeed: 0, upspeed: 0 }));
+        break;
+      case 'mixed':
+        this.torrents = MIXED_TORRENTS.map((torrent) => ({ ...torrent }));
+        break;
+      default:
+        this.torrents = DEMO_TORRENTS.map((torrent) => ({ ...torrent }));
+    }
+  }
+
   listTorrents(_signal?: AbortSignal): Promise<DownloadTorrent[]> {
-    return Promise.resolve(this.torrents.map((torrent) => mapTorrent({ ...torrent })));
+    if (this.downloadsScenario === 'error') {
+      return Promise.reject(new Error('qBittorrent unavailable'));
+    }
+    return this.withLatency(this.torrents.map((torrent) => mapTorrent({ ...torrent })));
   }
 
   pauseAll(): Promise<void> {
@@ -587,11 +651,11 @@ export class MockMediaStackApi implements MediaStackApi {
     const events = demoCalendar()
       .sort((left, right) => (left.airDate ?? '').localeCompare(right.airDate ?? ''))
       .map(mapCalendarEvent);
-    return Promise.resolve(events);
+    return this.withLatency(events);
   }
 
   getArrLibrary(_signal?: AbortSignal): Promise<ArrLibrary> {
-    return Promise.resolve(
+    return this.withLatency(
       mapArrLibrary({
         ok: this.library.ok,
         series: { ...this.library.series },
@@ -607,15 +671,15 @@ export class MockMediaStackApi implements MediaStackApi {
       .filter((item): item is LibraryItem => item !== null);
     const movieCount = items.filter((item) => item.kind === 'movie').length;
     const seriesCount = items.filter((item) => item.kind === 'series').length;
-    return Promise.resolve({ items, availability: 'complete', movieCount, seriesCount });
+    return this.withLatency({ items, availability: 'complete', movieCount, seriesCount });
   }
 
   getLibraryStats(_signal?: AbortSignal): Promise<LibraryStats> {
-    return Promise.resolve(mapLibraryStats({ ...DEMO_LIBRARY_STATS }));
+    return this.withLatency(mapLibraryStats({ ...DEMO_LIBRARY_STATS }));
   }
 
   getStorageOverview(_signal?: AbortSignal): Promise<StorageOverview> {
-    return Promise.resolve(mapStorageOverview(demoStorageOverview()));
+    return this.withLatency(mapStorageOverview(demoStorageOverview()));
   }
 
   getAutomationSummary(_signal?: AbortSignal): Promise<AutomationSummary> {
@@ -627,18 +691,18 @@ export class MockMediaStackApi implements MediaStackApi {
     } else {
       summary = demoAutomationSummary();
     }
-    return Promise.resolve(mapAutomationSummary(structuredClone(summary)));
+    return this.withLatency(mapAutomationSummary(structuredClone(summary)));
   }
 
   listCronLogs(_signal?: AbortSignal): Promise<CronLogs> {
-    return Promise.resolve(mapCronLogs(copyCronLogs(demoCronLogs())));
+    return this.withLatency(mapCronLogs(copyCronLogs(demoCronLogs())));
   }
 
   listHermesRecommendations(): Promise<HermesDiscover> {
     const pending_request_sync = this.hermesItems
       .filter((item) => item.id === MOCK_SYNC_FAILED_HERMES_ID && item.jellyseerr_request_id && item.request_state == null)
       .map((item) => ({ id: item.id, jellyseerr_request_id: item.jellyseerr_request_id as number }));
-    return Promise.resolve(
+    return this.withLatency(
       mapHermesDiscover({
         ok: true,
         items: this.hermesItems.map((item) => ({ ...item })),
@@ -690,7 +754,7 @@ export class MockMediaStackApi implements MediaStackApi {
   }
 
   listJellyseerrDiscover(kind: JellyseerrDiscoverKind): Promise<ExternalDiscover> {
-    return Promise.resolve(
+    return this.withLatency(
       mapExternalDiscover({
         ok: true,
         items: DEMO_JELLYSEERR[kind].map((item) => ({ ...item })),
@@ -699,7 +763,7 @@ export class MockMediaStackApi implements MediaStackApi {
   }
 
   listTraktDiscover(type: TraktDiscoverType): Promise<ExternalDiscover> {
-    return Promise.resolve(
+    return this.withLatency(
       mapExternalDiscover({
         ok: true,
         items: DEMO_TRAKT[type].map((item) => ({ ...item })),

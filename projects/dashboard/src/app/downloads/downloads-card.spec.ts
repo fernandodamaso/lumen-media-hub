@@ -190,9 +190,14 @@ describe('DownloadsCard', () => {
     expect((metaRates as Element).textContent).toMatch(/2\s*B\/s/);
     expect((metaRates as Element).textContent).toContain('30s left');
 
-    facade.torrents.set([{ ...downloadingTorrent(), id: 'b', eta: 0 }]);
+    facade.torrents.set([{ ...downloadingTorrent(), id: 'b', eta: 0, progress: 100 }]);
     fixture.detectChanges();
     expect(root.querySelector('.meta-rates')?.textContent).toContain('Complete');
+
+    facade.torrents.set([{ ...downloadingTorrent(), id: 'c', eta: 0 }]);
+    fixture.detectChanges();
+    expect(root.querySelector('.meta-rates')?.textContent).toContain('—');
+    expect(root.querySelector('.meta-rates')?.textContent).not.toContain('Complete');
   });
 
   function findButton(label: string): HTMLButtonElement {

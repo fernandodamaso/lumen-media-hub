@@ -137,8 +137,8 @@
                     <div class="dl-item__meta">
                       <span>{{ formatBytes(torrent.downloaded) }} / {{ formatBytes(torrent.size) }}</span>
                       <span class="meta-rates">
-                        <span><svg lucideArrowDown [size]="12" aria-hidden="true"></svg> {{ formatRate(torrent.downloadRate) }}</span>
-                        <span><svg lucideArrowUp [size]="12" aria-hidden="true"></svg> {{ formatRate(torrent.uploadRate) }}</span>
+                        <span class="meta-rate"><svg lucideArrowDown [size]="12" aria-hidden="true"></svg> {{ formatRate(torrent.downloadRate) }}</span>
+                        <span class="meta-rate"><svg lucideArrowUp [size]="12" aria-hidden="true"></svg> {{ formatRate(torrent.uploadRate) }}</span>
                         <span>{{ torrent.eta ? formatEta(torrent.eta) + ' left' : (torrent.progress >= 100 ? 'Complete' : '—') }}</span>
                       </span>
                     </div>

@@ -99,7 +99,7 @@ describe('app/ui primitives', () => {
       .map((style) => style.textContent)
       .join('\n');
     expect(css).toMatch(/\.mm-button[^{]*\{[^}]*transition:[^}]*\}/);
-    const transitionBlock = css.match(/\.mm-button(?:\[_[^\]]*\])?\s*\{[^}]*transition:[^}]+\}/)?.[0] ?? '';
+    const transitionBlock = (/\.mm-button(?:\[_[^\]]*\])?\s*\{[^}]*transition:[^}]+\}/).exec(css)?.[0] ?? '';
     expect(transitionBlock).not.toMatch(/transition:[^;]*\bcolor\b/);
     expect(css).toContain('mm-button--primary');
   });

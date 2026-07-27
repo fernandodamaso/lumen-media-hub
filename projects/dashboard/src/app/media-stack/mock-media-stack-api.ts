@@ -567,9 +567,10 @@ export class MockMediaStackApi implements MediaStackApi {
 
   /**
    * Artificial Demo-mode latency in ms so skeleton loading states are visible.
-   * Each read resolves after latencyMs * (0.6..1.4). Set to 0 in specs.
+   * Default is 0 (deterministic, fast tests/dev). Demos opt in via ?latency=<ms> URL param.
+   * Each read resolves after latencyMs * (0.6..1.4).
    */
-  latencyMs = 700;
+  latencyMs = 0;
 
   protected withLatency<T>(value: T): Promise<T> {
     if (this.latencyMs <= 0) {

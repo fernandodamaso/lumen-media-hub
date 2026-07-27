@@ -20,12 +20,20 @@ export function provideMediaStackApi(): Provider[] {
       provide: MEDIA_STACK_API,
       useFactory: () => {
         const mock = new MockMediaStackApi();
-        const scenario = new URLSearchParams(globalThis.location.search).get('scenario');
+        const params = new URLSearchParams(globalThis.location.search);
+        const scenario = params.get('scenario');
         if (scenario?.startsWith('downloads-')) {
           const name = scenario.slice('downloads-'.length) as DownloadsScenario;
           switch (name) {
             case 'default': case 'empty': case 'error': case 'paused': case 'mixed':
               mock.setDownloadsScenario(name);
+          }
+        }
+        const latency = params.get('latency');
+        if (latency !== null) {
+          const n = Number(latency);
+          if (Number.isFinite(n) && n >= 0) {
+            mock.latencyMs = n;
           }
         }
         return mock;

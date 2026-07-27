@@ -53,6 +53,46 @@ describe('provideMediaStackApi', () => {
     }
   });
 
+  describe('latency URL param (demo mode)', () => {
+    it('defaults to 0 when param is missing', () => {
+      TestBed.configureTestingModule({
+        providers: [...provideMediaStackApi()],
+      });
+      const api = TestBed.inject(MEDIA_STACK_API) as MockMediaStackApi;
+      expect(api.latencyMs).toBe(0);
+    });
+
+    it('applies latency from URL param', async () => {
+      await withMockLocation('?latency=500', () => {
+        TestBed.configureTestingModule({
+          providers: [...provideMediaStackApi()],
+        });
+        const api = TestBed.inject(MEDIA_STACK_API) as MockMediaStackApi;
+        expect(api.latencyMs).toBe(500);
+      });
+    });
+
+    it('ignores invalid latency values silently', async () => {
+      await withMockLocation('?latency=abc', () => {
+        TestBed.configureTestingModule({
+          providers: [...provideMediaStackApi()],
+        });
+        const api = TestBed.inject(MEDIA_STACK_API) as MockMediaStackApi;
+        expect(api.latencyMs).toBe(0);
+      });
+    });
+
+    it('ignores negative latency values silently', async () => {
+      await withMockLocation('?latency=-100', () => {
+        TestBed.configureTestingModule({
+          providers: [...provideMediaStackApi()],
+        });
+        const api = TestBed.inject(MEDIA_STACK_API) as MockMediaStackApi;
+        expect(api.latencyMs).toBe(0);
+      });
+    });
+  });
+
   describe('scenario URL param (demo mode)', () => {
     it('ignores missing param', () => {
       TestBed.configureTestingModule({

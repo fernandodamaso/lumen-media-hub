@@ -5,15 +5,39 @@ import { CALENDAR_LINK_BASES } from '../calendar/calendar.models';
 import { JELLYFIN_LINK_BASES } from '../library/library.models';
 import { MEDIA_STACK_API } from './media-stack-api';
 import { HttpMediaStackApi } from './http-media-stack-api';
-import { MockMediaStackApi } from './mock-media-stack-api';
+import { MockMediaStackApi, DownloadsScenario } from './mock-media-stack-api';
 
 
 /** Bind MediaStackApi to mock (default) or HTTP adapter when live env is selected. */
 export function provideMediaStackApi(): Provider[] {
+  if (environment.useLiveApi) {
+    return [
+      { provide: MEDIA_STACK_API, useClass: HttpMediaStackApi },
+    ];
+  }
   return [
     {
       provide: MEDIA_STACK_API,
-      useClass: environment.useLiveApi ? HttpMediaStackApi : MockMediaStackApi,
+      useFactory: () => {
+        const mock = new MockMediaStackApi();
+        const params = new URLSearchParams(globalThis.location.search);
+        const scenario = params.get('scenario');
+        if (scenario?.startsWith('downloads-')) {
+          const name = scenario.slice('downloads-'.length) as DownloadsScenario;
+          switch (name) {
+            case 'default': case 'empty': case 'error': case 'paused': case 'mixed':
+              mock.setDownloadsScenario(name);
+          }
+        }
+        const latency = params.get('latency');
+        if (latency !== null) {
+          const n = Number(latency);
+          if (Number.isFinite(n) && n >= 0) {
+            mock.latencyMs = n;
+          }
+        }
+        return mock;
+      },
     },
   ];
 }

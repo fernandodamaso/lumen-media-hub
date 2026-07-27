@@ -130,8 +130,60 @@ describe('live-api.mappers', () => {
     expect(dto.problems?.some((p) => p.serviceId === 'bazarr')).toBe(true);
     expect(dto.problems?.some((p) => p.id.includes('disabled'))).toBe(true);
     const sonarrMissing = dto.problems?.find((p) => p.id === 'sonarr-missing');
-    expect(sonarrMissing?.items).toEqual([{ title: 'Show S01E01', when: 'Tonight' }]);
+    expect(sonarrMissing?.items).toEqual([{ title: 'Show S01E01', when: 'Tonight', href: null, posterUrl: null }]);
     expect(sonarrMissing?.itemCount).toBe(2);
+  });
+
+  it('passes through posterUrl on problem detail items and normalizes blank/null/undefined to null', () => {
+    const dto = mapLiveAutomationSummary({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      sonarr: {
+        ok: true,
+        missing: 2,
+        monitored: 10,
+        queued: 1,
+        missingItems: [
+          { label: 'With Poster', airDate: 'Tonight', posterUrl: 'http://localhost:8989/MediaCover/13/poster-250.jpg' },
+          { label: 'No Poster', airDate: 'Tomorrow' },
+          { label: 'Blank Poster', airDate: 'Later', posterUrl: '' },
+          { label: 'Whitespace Poster', airDate: 'Soon', posterUrl: '   ' },
+        ],
+      },
+      radarr: { ok: true, movies: 5, missing: 0, queued: 0 },
+    });
+    const sonarrMissing = dto.problems?.find((p) => p.id === 'sonarr-missing');
+    expect(sonarrMissing?.items).toEqual([
+      { title: 'With Poster', when: 'Tonight', href: null, posterUrl: 'http://localhost:8989/MediaCover/13/poster-250.jpg' },
+      { title: 'No Poster', when: 'Tomorrow', href: null, posterUrl: null },
+      { title: 'Blank Poster', when: 'Later', href: null, posterUrl: null },
+      { title: 'Whitespace Poster', when: 'Soon', href: null, posterUrl: null },
+    ]);
+  });
+
+  it('passes through backend href on problem detail items and maps missing/blank to null', () => {
+    const dto = mapLiveAutomationSummary({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      sonarr: {
+        ok: true,
+        missing: 2,
+        monitored: 10,
+        queued: 1,
+        missingItems: [
+          { label: 'With Link', airDate: 'Tonight', href: 'http://sonarr/series/1' },
+          { label: 'No Link', airDate: 'Tomorrow' },
+          { label: 'Blank Link', airDate: 'Later', href: '' },
+        ],
+      },
+      radarr: { ok: true, movies: 5, missing: 0, queued: 0 },
+    });
+    const sonarrMissing = dto.problems?.find((p) => p.id === 'sonarr-missing');
+    expect(sonarrMissing?.items).toEqual([
+      { title: 'With Link', when: 'Tonight', href: 'http://sonarr/series/1', posterUrl: null },
+      { title: 'No Link', when: 'Tomorrow', href: null, posterUrl: null },
+      { title: 'Blank Link', when: 'Later', href: null, posterUrl: null },
+    ]);
   });
 
   it('rejects a failed automation envelope with no service blocks', () => {
@@ -190,6 +242,28 @@ describe('live-api.mappers', () => {
   it('rejects jellyfin items that lack required identity', () => {
     expect(() => mapLiveJellyfinItem({ name: 'Dune' }, 'movie')).toThrow(/missing id/);
     expect(() => mapLiveJellyfinItem({ id: '1' }, 'movie')).toThrow(/missing name/);
+  });
+
+  it('maps queue-only Sonarr degradation into queue problems when nothing is missing', () => {
+    const dto = mapLiveAutomationSummary({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      sonarr: {
+        ok: true,
+        missing: 0,
+        monitored: 10,
+        queued: 1,
+        queueItems: [{ label: 'Stuck episode', warning: true, status: 'warning' }],
+      },
+      radarr: { ok: true, movies: 5, missing: 0, queued: 0 },
+    });
+
+    expect(dto.services?.find((s) => s.id === 'sonarr')?.status).toBe('degraded');
+    expect(dto.problems?.find((p) => p.id === 'sonarr-missing')).toBeUndefined();
+    expect(dto.problems?.find((p) => p.id === 'sonarr-queue')).toMatchObject({
+      serviceId: 'sonarr',
+      items: [{ title: 'Stuck episode', when: 'warning', href: null, posterUrl: null }],
+    });
   });
 
   it('maps automation ok:false when nested service blocks remain', () => {

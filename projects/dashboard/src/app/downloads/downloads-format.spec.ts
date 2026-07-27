@@ -1,4 +1,4 @@
-import { formatEta, mapTorrent, TORRENT_STATE_VIEW } from './downloads-format';
+import { formatEta, formatRate, formatRateParts, mapTorrent, TORRENT_STATE_VIEW } from './downloads-format';
 
 describe('downloads format / torrent mapping', () => {
   it('maps qBittorrent DTO state and progress without leaking raw fields', () => {
@@ -71,5 +71,16 @@ describe('downloads format / torrent mapping', () => {
     expect(TORRENT_STATE_VIEW.error).toEqual({ label: 'Error', tone: 'danger' });
     expect(TORRENT_STATE_VIEW.downloading.tone).toBe('info');
     expect(TORRENT_STATE_VIEW.seeding.tone).toBe('success');
+  });
+
+  it.each([
+    [0, '0', 'B/s'],
+    [500 * 1024, '500.0', 'KB/s'],
+    [10 * 1024 * 1024, '10.0', 'MB/s'],
+    [5 * 1024 * 1024 * 1024, '5.0', 'GB/s'],
+  ])('formatRateParts(%d) returns { value: %s, unit: %s } consistent with formatRate', (bytes, value, unit) => {
+    const parts = formatRateParts(bytes);
+    expect(parts).toEqual({ value, unit });
+    expect(formatRate(bytes)).toBe(`${value} ${unit}`);
   });
 });

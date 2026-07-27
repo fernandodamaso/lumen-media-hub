@@ -44,6 +44,16 @@ export class DashboardPage {
   private readonly calendar = inject(CalendarFacade);
   private readonly automation = inject(AutomationFacade);
 
+  readonly isLoading = computed(
+    () =>
+      this.libraryItems.status() === 'loading' ||
+      this.library.status() === 'loading' ||
+      this.downloads.status() === 'loading' ||
+      this.calendar.status() === 'loading' ||
+      this.health.status() === 'loading' ||
+      this.storage.status() === 'loading',
+  );
+
   constructor() {
     // App-scoped facades keep polling after cards mount; stop when leaving Dashboard.
     this.destroyRef.onDestroy(() => {

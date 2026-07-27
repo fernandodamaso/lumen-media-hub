@@ -44,9 +44,12 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareAr
       white-space: nowrap;
       transition:
         background var(--mm-transition-fast),
-        color var(--mm-transition-fast),
         opacity var(--mm-transition-fast),
         transform var(--mm-transition-fast);
+    }
+    .mm-button--primary {
+      background: var(--mm-component-accent);
+      color: var(--mm-component-on-accent);
     }
     .mm-button:hover:not(:disabled) {
       background: var(--mm-component-accent-strong);

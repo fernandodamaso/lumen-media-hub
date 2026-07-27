@@ -57,7 +57,7 @@ export class WatchNextFacade {
         initial,
         status: this._status,
         error: this._error,
-        hasPriorData: this._status() === 'ready' || this._status() === 'empty',
+        hasPriorData: this._status() === 'ready',
         refreshError: REFRESH_ERROR,
         loadError: LOAD_ERROR,
         clearOnInitial: () => {

@@ -9,6 +9,8 @@ import { CalendarFacade } from '../calendar/calendar.facade';
 import { DownloadsFacade } from '../downloads/downloads.facade';
 import { LibraryItem } from '../library/library.models';
 import { LibraryItemsFacade } from '../library/library-items.facade';
+import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
+import { WatchNextFacade } from '../library/watch-next.facade';
 import { LibraryStatsFacade } from '../library/library-stats.facade';
 import { StorageFacade } from '../storage/storage.facade';
 import { CommandPalette } from './command-palette';
@@ -20,10 +22,16 @@ describe('CommandPalette', () => {
 
   beforeEach(() => {
     downloads = { runAction: vi.fn(() => Promise.resolve()) };
+    const watchNextFacade = { items: signal([]), refresh: vi.fn() };
     TestBed.configureTestingModule({
       imports: [CommandPalette],
       providers: [
         provideRouter([{ path: '**', children: [] }]),
+        { provide: WatchNextFacade, useValue: watchNextFacade },
+        {
+          provide: MEDIA_STACK_API,
+          useValue: { listWatchNext: vi.fn(() => Promise.resolve({ items: [] })) },
+        },
         {
           provide: LibraryItemsFacade,
           useValue: {
@@ -98,6 +106,11 @@ describe('CommandPalette', () => {
       imports: [CommandPalette],
       providers: [
         provideRouter([{ path: '**', children: [] }]),
+        { provide: WatchNextFacade, useValue: { items: signal([]), refresh: vi.fn() } },
+        {
+          provide: MEDIA_STACK_API,
+          useValue: { listWatchNext: vi.fn(() => Promise.resolve({ items: [] })) },
+        },
         {
           provide: LibraryItemsFacade,
           useValue: { items: signal(items), refresh: vi.fn() },

@@ -39,7 +39,7 @@
 
   <div class="card__body card__body--library" [attr.aria-busy]="facade.status() === 'loading'">
     <div class="card__skeleton" aria-hidden="true">
-      <div class="card__skeleton-main posters posters--compact posters--skeleton">
+      <div class="poster-rail posters posters--compact posters--skeleton card__skeleton-main">
         @for (slot of skeletons; track slot) {
           <mm-skeleton variant="rect" width="100%" height="180px" />
         }

@@ -1,29 +1,6 @@
 :host {
   display: block;
   min-width: 0;
-  container-type: inline-size;
-  --poster-rail-gap: 18px;
-  --poster-rail-columns: 5;
-}
-
-@container (max-width: 900px) {
-  :host {
-    --poster-rail-columns: 4;
-  }
-}
-
-@container (max-width: 720px) {
-  :host {
-    --poster-rail-columns: 3;
-    --poster-rail-gap: 14px;
-  }
-}
-
-@container (max-width: 520px) {
-  :host {
-    --poster-rail-columns: 2;
-    --poster-rail-gap: 12px;
-  }
 }
 
 :host .poster__meta {

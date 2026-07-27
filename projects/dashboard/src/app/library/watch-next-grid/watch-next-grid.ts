@@ -1,21 +1,20 @@
 import {
-  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
-  DestroyRef,
   effect,
   ElementRef,
   inject,
   input,
   signal,
+  viewChild,
 } from '@angular/core';
 import { LucideChevronLeft, LucideChevronRight, LucidePlay } from '@lucide/angular';
 import { MmProgress } from '@app/ui';
 import {
   DEFAULT_LIBRARY_ART,
   JELLYFIN_LINK_BASES,
-  resolveJellyfinItemLink,
+  resolveJellyfinPlaybackLink,
 } from '../library.models';
 import { WatchNextItem } from '../watch-next.models';
 import { resolveWatchNextPageSize } from './watch-next-grid.page-size';
@@ -31,14 +30,13 @@ const DEFAULT_PAGE_SIZE = 5;
 })
 export class WatchNextGrid {
   private readonly jellyfinBases = inject(JELLYFIN_LINK_BASES);
-  private readonly host = inject(ElementRef<HTMLElement>);
-  private readonly destroyRef = inject(DestroyRef);
 
   readonly items = input.required<WatchNextItem[]>();
   readonly compact = input(true);
   readonly failedArt = signal(new Set<string>());
   readonly page = signal(0);
   readonly pageSize = signal(DEFAULT_PAGE_SIZE);
+  private readonly posterRail = viewChild<ElementRef<HTMLElement>>('posterRail');
 
   readonly canCarousel = computed(
     () => this.compact() && this.items().length > this.pageSize(),
@@ -58,19 +56,20 @@ export class WatchNextGrid {
   });
 
   constructor() {
-    afterNextRender(() => {
-      const el = this.host.nativeElement as HTMLElement;
+    effect((onCleanup) => {
+      const el = this.posterRail()?.nativeElement;
+      if (!el) return;
       const syncPageSize = (width: number) => {
         this.pageSize.set(resolveWatchNextPageSize(width));
       };
       syncPageSize(el.getBoundingClientRect().width);
-
+      if (typeof ResizeObserver === 'undefined') return;
       const observer = new ResizeObserver((entries) => {
         const width = entries[0]?.contentRect.width ?? el.getBoundingClientRect().width;
         syncPageSize(width);
       });
       observer.observe(el);
-      this.destroyRef.onDestroy(() => {
+      onCleanup(() => {
         observer.disconnect();
       });
     });
@@ -123,7 +122,7 @@ export class WatchNextGrid {
   }
 
   playHref(item: WatchNextItem): string | null {
-    return item.href ?? resolveJellyfinItemLink(item, this.jellyfinBases);
+    return item.href ?? resolveJellyfinPlaybackLink(item, this.jellyfinBases);
   }
 
   progressLabel(item: WatchNextItem): string {

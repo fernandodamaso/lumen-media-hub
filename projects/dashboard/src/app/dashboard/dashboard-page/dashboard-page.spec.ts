@@ -11,6 +11,8 @@ import { DownloadsAction, DownloadsFacade, DownloadsStatus } from '../../downloa
 import { DownloadTorrent } from '../../downloads/downloads.models';
 import { LibraryStatsFacade, LibraryStatsStatus } from '../../library/library-stats.facade';
 import { LibraryItemsFacade, LibraryItemsStatus } from '../../library/library-items.facade';
+import { WatchNextFacade, WatchNextStatus } from '../../library/watch-next.facade';
+import { WatchNextItem } from '../../library/watch-next.models';
 import { LibraryItem, LibraryStats } from '../../library/library.models';
 import { StorageFacade, StorageStatus } from '../../storage/storage.facade';
 import { StorageOverview } from '../../storage/storage.models';
@@ -24,6 +26,7 @@ describe('DashboardPage composition', () => {
   let health: ReturnType<typeof createServiceHealthFacade>;
   let library: ReturnType<typeof createLibraryStatsFacade>;
   let libraryItems: ReturnType<typeof createLibraryItemsFacade>;
+  let watchNext: ReturnType<typeof createWatchNextFacade>;
   let downloads: ReturnType<typeof createDownloadsFacade>;
   let automation: ReturnType<typeof createAutomationFacade>;
   let calendar: ReturnType<typeof createCalendarFacade>;
@@ -33,6 +36,7 @@ describe('DashboardPage composition', () => {
     health = createServiceHealthFacade();
     library = createLibraryStatsFacade();
     libraryItems = createLibraryItemsFacade();
+    watchNext = createWatchNextFacade();
     downloads = createDownloadsFacade();
     automation = createAutomationFacade();
     calendar = createCalendarFacade();
@@ -45,6 +49,7 @@ describe('DashboardPage composition', () => {
         { provide: ServiceHealthFacade, useValue: health },
         { provide: LibraryStatsFacade, useValue: library },
         { provide: LibraryItemsFacade, useValue: libraryItems },
+        { provide: WatchNextFacade, useValue: watchNext },
       ],
     });
     TestBed.overrideComponent(DashboardPage, {
@@ -121,6 +126,7 @@ describe('DashboardPage composition', () => {
     downloads.torrents.set([torrent()]);
     automation.status.set('ready');
     calendar.status.set('empty');
+    watchNext.status.set('ready');
     storage.status.set('ready');
     storage.overview.set(storageOverview());
     fixture.detectChanges();
@@ -137,6 +143,7 @@ describe('DashboardPage composition', () => {
   it('shows shimmer skeletons in the metrics row while the dashboard gate is active', () => {
     library.status.set('loading');
     libraryItems.status.set('loading');
+    watchNext.status.set('loading');
     downloads.status.set('loading');
     health.status.set('loading');
     storage.status.set('loading');
@@ -166,6 +173,7 @@ describe('DashboardPage composition', () => {
     storage.status.set('ready');
     storage.overview.set(storageOverview());
     calendar.status.set('ready');
+    watchNext.status.set('ready');
     downloads.status.set('loading');
     fixture.detectChanges();
 
@@ -177,6 +185,7 @@ describe('DashboardPage composition', () => {
   it('exposes coordinated card reveal markup while the dashboard gate is active', () => {
     library.status.set('loading');
     libraryItems.status.set('loading');
+    watchNext.status.set('loading');
     downloads.status.set('loading');
     health.status.set('loading');
     storage.status.set('loading');
@@ -194,6 +203,7 @@ describe('DashboardPage composition', () => {
     library.status.set('loading');
     library.stats.set(null);
     libraryItems.status.set('loading');
+    watchNext.status.set('loading');
     // Health is ready with data
     health.status.set('ready');
     health.summary.set({
@@ -209,6 +219,7 @@ describe('DashboardPage composition', () => {
     automation.status.set('ready');
     automation.tasks.set([cronRun()]);
     calendar.status.set('empty');
+    watchNext.status.set('loading');
     storage.status.set('ready');
     storage.overview.set(storageOverview());
     fixture.detectChanges();
@@ -231,6 +242,7 @@ describe('DashboardPage composition', () => {
   it('shows error state in one card while another card is still loading (D2)', () => {
     library.status.set('loading');
     libraryItems.status.set('loading');
+    watchNext.status.set('loading');
     // Downloads hits error while library loads
     downloads.status.set('error');
     downloads.error.set('Connection lost');
@@ -245,6 +257,7 @@ describe('DashboardPage composition', () => {
     automation.status.set('ready');
     automation.tasks.set([cronRun()]);
     calendar.status.set('empty');
+    watchNext.status.set('loading');
     storage.status.set('ready');
     storage.overview.set(storageOverview());
     fixture.detectChanges();
@@ -260,6 +273,7 @@ describe('DashboardPage composition', () => {
     library.status.set('loading');
     library.stats.set(null);
     libraryItems.status.set('loading');
+    watchNext.status.set('loading');
     // Other facades ready so the class-based loader is irrelevant
     health.status.set('loading');
     downloads.status.set('loading');
@@ -323,6 +337,8 @@ describe('DashboardPage composition', () => {
     fixture.componentInstance.onRefresh();
     expect(health.refresh).toHaveBeenCalled();
     expect(library.refresh).toHaveBeenCalled();
+    expect(libraryItems.refresh).toHaveBeenCalled();
+    expect(watchNext.refresh).toHaveBeenCalled();
     expect(downloads.refresh).toHaveBeenCalled();
     expect(storage.refresh).toHaveBeenCalled();
     expect(calendar.refresh).toHaveBeenCalled();
@@ -380,6 +396,21 @@ describe('DashboardPage composition', () => {
   function setReady(): void {
     health.status.set('ready');
     libraryItems.status.set('ready');
+    watchNext.status.set('ready');
+    watchNext.items.set([
+      {
+        id: 'e1',
+        parentId: 's1',
+        title: 'Night Watch',
+        subtitle: 'S01E01 · Pilot',
+        kind: 'episode',
+        art: 'linear-gradient(#000, #111)',
+        artworkState: 'ok',
+        href: null,
+        playable: true,
+        progressPercent: 0,
+      },
+    ]);
     health.summary.set({
       generatedAt: new Date().toISOString(),
       services: [
@@ -495,6 +526,22 @@ function createLibraryStatsFacade() {
     availability: signal<'complete' | 'partial'>('complete'),
     refreshing: signal(false),
     lastFetchedAt: signal(''),
+    refresh: vi.fn(),
+  };
+}
+
+function createWatchNextFacade() {
+  return {
+    status: signal<WatchNextStatus>('loading'),
+    items: signal<WatchNextItem[]>([]),
+    error: signal(''),
+    refreshing: signal(false),
+    lastFetchedAt: signal(''),
+    movies: signal<WatchNextItem[]>([]),
+    series: signal<WatchNextItem[]>([]),
+    movieCount: signal(0),
+    seriesCount: signal(0),
+    totalCount: signal(0),
     refresh: vi.fn(),
   };
 }

@@ -83,6 +83,17 @@ describe('WatchNextFacade', () => {
     expect(failingFacade.error()).toContain('temporarily unavailable');
   });
 
+  it('enters error when a refresh fails after an empty load', async () => {
+    api.result = { items: [] };
+    await facade.refresh({ initial: true });
+    expect(facade.status()).toBe('empty');
+
+    api.failure = true;
+    await facade.refresh();
+    expect(facade.status()).toBe('error');
+    expect(facade.error()).toContain('temporarily unavailable');
+  });
+
   it('ignores stale responses', async () => {
     let resolveSlow: ((value: WatchNextResult) => void) | undefined;
     const slow = new Promise<WatchNextResult>((resolve) => {

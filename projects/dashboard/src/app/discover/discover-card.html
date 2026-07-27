@@ -3,7 +3,6 @@
     <mm-poster
       [title]="item().title"
       [meta]="meta()"
-      [rating]="item().rating ?? null"
       [imageUrl]="item().posterUrl"
       [art]="fallbackArt()"
       [framed]="false"
@@ -38,6 +37,7 @@
         @for (option of feedbackOptions; track option.value) {
           <mm-icon-button
             [label]="option.label"
+            [toggle]="true"
             [pressed]="isFeedbackPressed(option.value)"
             [disabled]="busy()"
             [busy]="busy()"

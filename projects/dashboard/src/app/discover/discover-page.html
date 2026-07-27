@@ -111,7 +111,7 @@
     </div>
 
     @if (facade.status() === 'ready') {
-      <p class="discover-count">{{ resultCountLabel() }}</p>
+      <p class="discover-count" role="status" aria-live="polite">{{ resultCountLabel() }}</p>
     }
   </div>
 </section>
@@ -128,6 +128,7 @@
   [attr.aria-busy]="facade.status() === 'loading' ? true : null"
 >
   @if (facade.status() === 'loading') {
+    <p class="discover-results__loading-status" role="status">Loading recommendations…</p>
     <div class="grid grid--skeleton" aria-hidden="true">
       @for (slot of skeletonSlots; track slot) {
         <article class="discover-card discover-card--skeleton">
@@ -171,7 +172,7 @@
     </div>
     @if (remainingCount() > 0) {
       <div class="load-more">
-        <mm-button [label]="'Load ' + DISCOVER_BATCH_SIZE + ' more'" variant="quiet" (click)="loadMore()" />
+        <mm-button [label]="loadMoreLabel()" variant="quiet" (click)="loadMore()" />
       </div>
     }
   }

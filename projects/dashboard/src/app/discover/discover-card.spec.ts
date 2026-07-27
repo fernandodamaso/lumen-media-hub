@@ -67,6 +67,19 @@ describe('DiscoverCard', () => {
     );
     if (!watched) throw new Error('Watched button not found');
     expect(watched.getAttribute('aria-pressed')).toBe('true');
+
+    const disliked = Array.from(fixtureHost(fixture).querySelectorAll('button')).find(
+      (button) => button.getAttribute('aria-label') === 'Disliked',
+    );
+    if (!disliked) throw new Error('Disliked button not found');
+    expect(disliked.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('shows rating only in poster meta, not as a separate badge', () => {
+    setItem({ tmdbId: 1, title: 'Rated', rating: 8.33 });
+    const root = fixtureHost(fixture);
+    expect(root.textContent).toContain('8.3★');
+    expect(root.querySelectorAll('.mm-poster__rating')).toHaveLength(0);
   });
 
   it('uses lazy-loaded poster images with decorative alt text', () => {

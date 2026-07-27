@@ -99,6 +99,7 @@ describe('DiscoverPage', () => {
     setSearchInput('alpha');
     fixture.detectChanges();
     expect(fixtureHost(fixture).textContent).toContain('1 match');
+    expect(fixtureHost(fixture).querySelector('.discover-count')?.getAttribute('aria-live')).toBe('polite');
     expect(fixtureHost(fixture).querySelectorAll('mm-discover-card')).toHaveLength(1);
 
     setSearchInput('');
@@ -117,6 +118,18 @@ describe('DiscoverPage', () => {
     clickLoadMore();
     fixture.detectChanges();
     expect(fixtureHost(fixture).querySelectorAll('mm-discover-card')).toHaveLength(30);
+  });
+
+  it('labels load more with the remaining batch size', () => {
+    facade.status.set('ready');
+    facade.visibleItems.set(
+      Array.from({ length: 25 }, (_, index) => card({ id: `item-${index}`, title: `Title ${index}` })),
+    );
+    fixture.detectChanges();
+    const loadMore = Array.from(document.querySelectorAll('button')).find((button) =>
+      button.textContent.includes('Load'),
+    );
+    expect(loadMore?.textContent).toContain('Load 1 more');
   });
 
   it('resets the visible limit when the source tab changes', () => {
@@ -208,6 +221,9 @@ describe('DiscoverPage', () => {
     fixture.detectChanges();
     const root = fixtureHost(fixture);
     expect(root.querySelector('.discover-controls')).toBeTruthy();
+    expect(root.querySelector('.discover-results__loading-status')?.textContent).toContain(
+      'Loading recommendations',
+    );
     expect(root.querySelector('.discover-card--skeleton')).toBeTruthy();
     expect(root.querySelector('mm-state-card')).toBeNull();
   });

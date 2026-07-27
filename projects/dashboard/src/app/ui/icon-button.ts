@@ -11,7 +11,7 @@ import { LucideLoaderCircle } from '@lucide/angular';
     [class.mm-icon-button--pressed]="pressed()"
     [disabled]="disabled() || busy()"
     [attr.aria-label]="label()"
-    [attr.aria-pressed]="pressed() ? true : null"
+    [attr.aria-pressed]="toggle() ? pressed() : null"
     [attr.aria-busy]="busy() || null"
     [attr.title]="label()"
   >
@@ -28,4 +28,6 @@ export class MmIconButton {
   readonly disabled = input(false);
   readonly busy = input(false);
   readonly pressed = input(false);
+  /** When true, exposes `aria-pressed` as true/false for toggle buttons. */
+  readonly toggle = input(false);
 }

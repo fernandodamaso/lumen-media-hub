@@ -44,6 +44,11 @@ export class DiscoverPage {
 
   readonly hasSearchQuery = computed(() => this.searchQuery().trim().length > 0);
 
+  readonly loadMoreLabel = computed(() => {
+    const count = Math.min(DISCOVER_BATCH_SIZE, this.remainingCount());
+    return `Load ${count} more`;
+  });
+
   readonly skeletonSlots = Array.from({ length: 12 }, (_, index) => index);
 
   readonly tabs: { id: DiscoverSourceTab; label: string }[] = [

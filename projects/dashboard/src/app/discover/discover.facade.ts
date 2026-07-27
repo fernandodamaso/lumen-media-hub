@@ -161,6 +161,9 @@ export class DiscoverFacade {
       }
       this._noticeTone.set('success');
       this._notice.set(result.message ?? 'Feedback saved.');
+      // Drop in-flight Hermes loads started before this feedback so stale polls cannot undo the archive.
+      this.hermesRequestId++;
+      this.hermesAppliedId = this.hermesRequestId;
       // Archive immediately so liked/watched leave Active even before reload settles.
       this._hermesItems.update((items) =>
         items.map((item) =>

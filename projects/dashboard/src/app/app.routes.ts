@@ -1,12 +1,12 @@
 import { Routes } from '@angular/router';
-import { DashboardPage } from './dashboard/dashboard-page';
+import { DashboardPage } from './dashboard/dashboard-page/dashboard-page';
 
 export const routes: Routes = [
   { path: '', component: DashboardPage, title: 'Dashboard | Media Manager' },
   { path: 'dashboard', redirectTo: '', pathMatch: 'full' },
   {
     path: 'library',
-    loadComponent: () => import('./library/library-page').then((m) => m.LibraryPage),
+    loadComponent: () => import('./library/library-page/library-page').then((m) => m.LibraryPage),
     title: 'Library | Media Manager',
   },
   {

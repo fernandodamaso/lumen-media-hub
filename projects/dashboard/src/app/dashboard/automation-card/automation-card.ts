@@ -25,18 +25,18 @@ import {
   AutomationService,
   AutomationServiceStatus,
   compareAutomationServices,
-} from '../automation/automation.models';
+} from '../../automation/automation.models';
 import {
   AUTOMATION_PROBLEM_SEVERITY_VIEW,
   AUTOMATION_SERVICE_STATUS_VIEW,
   formatShortDate,
-} from '../automation/automation-format';
-import { resolveServiceHref } from '../automation/service-catalog';
-import { ServiceHealthFacade } from '../automation/service-health.facade';
-import { SERVICE_LINK_BASES } from '../media-stack/media-stack-api.providers';
-import { StorageFacade } from '../storage/storage.facade';
-import { formatStorageBytes, STORAGE_VOLUME_TONE } from '../storage/storage-format';
-import { StorageVolume } from '../storage/storage.models';
+} from '../../automation/automation-format';
+import { resolveServiceHref } from '../../automation/service-catalog';
+import { ServiceHealthFacade } from '../../automation/service-health.facade';
+import { SERVICE_LINK_BASES } from '../../media-stack/media-stack-api.providers';
+import { StorageFacade } from '../../storage/storage.facade';
+import { formatStorageBytes, STORAGE_VOLUME_TONE } from '../../storage/storage-format';
+import { StorageVolume } from '../../storage/storage.models';
 
 const PROBLEM_SEVERITY_RANK: Record<AutomationProblemSeverity, number> = {
   actionable: 0,

@@ -1,22 +1,22 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { MmButton } from '@app/ui';
-import { AutomationFacade } from '../automation/automation.facade';
-import { ServiceHealthFacade } from '../automation/service-health.facade';
-import { CalendarFacade } from '../calendar/calendar.facade';
-import { UpcomingCard } from '../calendar/upcoming-card';
-import { DownloadsFacade } from '../downloads/downloads.facade';
-import { DownloadsCard } from '../downloads/downloads-card';
-import { JELLYFIN_LINK_BASES } from '../library/library.models';
-import { LibraryCard } from '../library/library-card';
-import { LibraryItemsFacade } from '../library/library-items.facade';
-import { LibraryStatsFacade } from '../library/library-stats.facade';
-import { StorageFacade } from '../storage/storage.facade';
-import { formatRelativeTime } from '../automation/automation-format';
-import { formatStorageBytes } from '../storage/storage-format';
-import { AutomationCard } from './automation-card';
-import { refreshDashboardData } from './dashboard-refresh';
-import { MetricCard } from './metric-card';
+import { AutomationFacade } from '../../automation/automation.facade';
+import { ServiceHealthFacade } from '../../automation/service-health.facade';
+import { CalendarFacade } from '../../calendar/calendar.facade';
+import { UpcomingCard } from '../../calendar/upcoming-card';
+import { DownloadsFacade } from '../../downloads/downloads.facade';
+import { DownloadsCard } from '../../downloads/downloads-card';
+import { JELLYFIN_LINK_BASES } from '../../library/library.models';
+import { LibraryCard } from '../../library/library-card/library-card';
+import { LibraryItemsFacade } from '../../library/library-items.facade';
+import { LibraryStatsFacade } from '../../library/library-stats.facade';
+import { StorageFacade } from '../../storage/storage.facade';
+import { formatRelativeTime } from '../../automation/automation-format';
+import { formatStorageBytes } from '../../storage/storage-format';
+import { AutomationCard } from '../automation-card/automation-card';
+import { refreshDashboardData } from '../dashboard-refresh';
+import { MetricCard } from '../metric-card/metric-card';
 
 @Component({
   selector: 'mm-dashboard-page',

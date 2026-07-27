@@ -2,11 +2,11 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { computed, signal } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { vi } from 'vitest';
-import { fixtureHost } from '../../testing/fixture-host';
-import { AutomationSummary, summarizeAutomationHealth } from '../automation/automation.models';
-import { ServiceHealthFacade, ServiceHealthStatus } from '../automation/service-health.facade';
-import { StorageFacade, StorageStatus } from '../storage/storage.facade';
-import { StorageOverview } from '../storage/storage.models';
+import { fixtureHost } from '../../../testing/fixture-host';
+import { AutomationSummary, summarizeAutomationHealth } from '../../automation/automation.models';
+import { ServiceHealthFacade, ServiceHealthStatus } from '../../automation/service-health.facade';
+import { StorageFacade, StorageStatus } from '../../storage/storage.facade';
+import { StorageOverview } from '../../storage/storage.models';
 import { AutomationCard } from './automation-card';
 
 describe('AutomationCard', () => {

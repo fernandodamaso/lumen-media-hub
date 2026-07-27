@@ -2,9 +2,9 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
 import { vi } from 'vitest';
-import { fixtureHost } from '../../testing/fixture-host';
-import { LibraryItem } from './library.models';
-import { LibraryItemsFacade, LibraryItemsStatus } from './library-items.facade';
+import { fixtureHost } from '../../../testing/fixture-host';
+import { LibraryItem } from '../library.models';
+import { LibraryItemsFacade, LibraryItemsStatus } from '../library-items.facade';
 import { LibraryPage } from './library-page';
 
 describe('LibraryPage', () => {

@@ -15,7 +15,7 @@ import {
   LibraryItem,
   LibraryItemKind,
   resolveJellyfinItemLink,
-} from './library.models';
+} from '../library.models';
 
 const COMPACT_PAGE_SIZE = 5;
 

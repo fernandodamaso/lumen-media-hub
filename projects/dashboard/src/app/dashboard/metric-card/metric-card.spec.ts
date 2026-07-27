@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { fixtureHost } from '../../testing/fixture-host';
+import { fixtureHost } from '../../../testing/fixture-host';
 import { MetricCard } from './metric-card';
 
 describe('MetricCard', () => {

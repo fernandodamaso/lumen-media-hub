@@ -2,9 +2,9 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { RouterLink } from '@angular/router';
 import { LucideChevronRight } from '@lucide/angular';
 import { MmButton, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
-import { LibraryItemKind } from './library.models';
-import { LibraryItemsFacade } from './library-items.facade';
-import { LibraryPosterGrid } from './library-poster-grid';
+import { LibraryItemKind } from '../library.models';
+import { LibraryItemsFacade } from '../library-items.facade';
+import { LibraryPosterGrid } from '../library-poster-grid/library-poster-grid';
 
 @Component({
   selector: 'mm-library-card',

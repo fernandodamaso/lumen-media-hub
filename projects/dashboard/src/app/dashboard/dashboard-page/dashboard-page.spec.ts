@@ -1,22 +1,22 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { computed, signal } from '@angular/core';
 import { provideRouter } from '@angular/router';
-import { groupCalendarEvents } from '../calendar/calendar-format';
+import { groupCalendarEvents } from '../../calendar/calendar-format';
 import { vi } from 'vitest';
-import { formatRelativeTime } from '../automation/automation-format';
-import { AutomationFacade, AutomationStatus } from '../automation/automation.facade';
-import { ServiceHealthFacade, ServiceHealthStatus } from '../automation/service-health.facade';
-import { CalendarFacade, CalendarRailEvent, CalendarStatus } from '../calendar/calendar.facade';
-import { DownloadsAction, DownloadsFacade, DownloadsStatus } from '../downloads/downloads.facade';
-import { DownloadTorrent } from '../downloads/downloads.models';
-import { LibraryStatsFacade, LibraryStatsStatus } from '../library/library-stats.facade';
-import { LibraryItemsFacade, LibraryItemsStatus } from '../library/library-items.facade';
-import { LibraryItem, LibraryStats } from '../library/library.models';
-import { StorageFacade, StorageStatus } from '../storage/storage.facade';
-import { StorageOverview } from '../storage/storage.models';
-import { CronRun } from '../reports/reports.models';
-import { AutomationSummary, summarizeAutomationHealth } from '../automation/automation.models';
-import { fixtureHost } from '../../testing/fixture-host';
+import { formatRelativeTime } from '../../automation/automation-format';
+import { AutomationFacade, AutomationStatus } from '../../automation/automation.facade';
+import { ServiceHealthFacade, ServiceHealthStatus } from '../../automation/service-health.facade';
+import { CalendarFacade, CalendarRailEvent, CalendarStatus } from '../../calendar/calendar.facade';
+import { DownloadsAction, DownloadsFacade, DownloadsStatus } from '../../downloads/downloads.facade';
+import { DownloadTorrent } from '../../downloads/downloads.models';
+import { LibraryStatsFacade, LibraryStatsStatus } from '../../library/library-stats.facade';
+import { LibraryItemsFacade, LibraryItemsStatus } from '../../library/library-items.facade';
+import { LibraryItem, LibraryStats } from '../../library/library.models';
+import { StorageFacade, StorageStatus } from '../../storage/storage.facade';
+import { StorageOverview } from '../../storage/storage.models';
+import { CronRun } from '../../reports/reports.models';
+import { AutomationSummary, summarizeAutomationHealth } from '../../automation/automation.models';
+import { fixtureHost } from '../../../testing/fixture-host';
 import { DashboardPage } from './dashboard-page';
 
 describe('DashboardPage composition', () => {

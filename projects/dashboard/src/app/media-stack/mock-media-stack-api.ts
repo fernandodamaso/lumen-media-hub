@@ -248,7 +248,7 @@ function demoAutomationSummary(): MediaStackAutomationSummaryDto {
         summary: '1 indexer(s) in cooldown',
         serviceId: 'prowlarr',
         severity: 'warning',
-        items: [{ title: 'CoolIndex', when: '2026-07-28T15:00:00Z', href: null, posterUrl: null }],
+        items: [{ title: 'CoolIndex', when: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), href: null, posterUrl: null }],
         itemCount: 1,
       },
       {

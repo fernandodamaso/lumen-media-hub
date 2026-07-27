@@ -276,6 +276,15 @@
     } @else {
       <div class="svc-detail">
         @if (service.id === 'prowlarr' && selectedStats(); as stats) {
+          @if (service.status === 'down') {
+            <p class="svc-detail__status">
+              <span class="svc__status svc__status--down">
+                <span class="dot" aria-hidden="true"></span>
+                {{ statusLabel(service.status) }}
+              </span>
+              @if (service.detail) { · {{ service.detail }} }
+            </p>
+          }
           <div class="stats">
             @for (stat of stats; track $index) {
               <div class="stat" [class.stat--lead]="$first">

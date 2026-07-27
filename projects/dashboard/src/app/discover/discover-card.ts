@@ -1,11 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { LucideEye, LucideSkipForward, LucideThumbsDown, LucideThumbsUp } from '@lucide/angular';
-import { MmButton, MmPoster, MmStatus } from '@app/ui';
+import { MmButton, MmIconButton, MmPoster, MmStatus } from '@app/ui';
 import { DiscoverFeedback } from './discover.models';
 import {
   DiscoverCardItem,
+  discoverPosterFallback,
   formatDiscoverMeta,
-  posterArtFor,
+  isDiscoverFeedbackPressed,
   resolveRequestAction,
 } from './discover-format';
 
@@ -22,7 +23,7 @@ const FEEDBACK_OPTIONS: {
 
 @Component({
   selector: 'mm-discover-card',
-  imports: [MmButton, MmPoster, MmStatus, LucideThumbsUp, LucideThumbsDown, LucideEye, LucideSkipForward],
+  imports: [MmButton, MmIconButton, MmPoster, MmStatus, LucideThumbsUp, LucideThumbsDown, LucideEye, LucideSkipForward],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './discover-card.html',
   styleUrl: './discover-card.scss',
@@ -30,6 +31,7 @@ const FEEDBACK_OPTIONS: {
 export class DiscoverCard {
   readonly item = input.required<DiscoverCardItem>();
   readonly showFeedback = input(false);
+  readonly showSummary = input(true);
   readonly syncFailed = input(false);
   readonly busy = input(false);
   readonly feedback = output<DiscoverFeedback>();
@@ -38,10 +40,16 @@ export class DiscoverCard {
   readonly feedbackOptions = FEEDBACK_OPTIONS;
 
   readonly meta = computed(() => formatDiscoverMeta(this.item()));
-  readonly art = computed(() => posterArtFor(this.item()));
+  readonly fallbackArt = computed(() => discoverPosterFallback(this.item().title));
   readonly requestAction = computed(() =>
     resolveRequestAction(this.item(), { syncFailed: this.syncFailed() }),
   );
+
+  readonly summaryText = computed(() => this.item().reason ?? this.item().overview ?? '');
+
+  isFeedbackPressed(option: DiscoverFeedback): boolean {
+    return isDiscoverFeedbackPressed(this.item().feedback, option);
+  }
 
   onRequest(): void {
     if (this.requestAction().disabled || this.busy()) return;

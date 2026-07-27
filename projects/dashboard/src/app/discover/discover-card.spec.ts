@@ -61,6 +61,59 @@ describe('DiscoverCard', () => {
     );
     if (!liked) throw new Error('Liked button not found');
     expect(liked.getAttribute('aria-pressed')).toBe('true');
+
+    const watched = Array.from(fixtureHost(fixture).querySelectorAll('button')).find(
+      (button) => button.getAttribute('aria-label') === 'Watched',
+    );
+    if (!watched) throw new Error('Watched button not found');
+    expect(watched.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('uses lazy-loaded poster images with decorative alt text', () => {
+    setItem({ tmdbId: 1, title: 'Poster', posterUrl: 'https://example.com/poster.jpg' });
+    const image = fixtureHost(fixture).querySelector('img.mm-poster__image') as HTMLImageElement;
+    expect(image).toBeTruthy();
+    expect(image.getAttribute('loading')).toBe('lazy');
+    expect(image.getAttribute('decoding')).toBe('async');
+    expect(image.getAttribute('alt')).toBe('');
+  });
+
+  it('falls back when the poster image fails without removing title meta', () => {
+    setItem({ tmdbId: 1, title: 'Broken poster', posterUrl: 'https://example.com/bad.jpg' });
+    const image = fixtureHost(fixture).querySelector('img.mm-poster__image') as HTMLImageElement;
+    image.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelector('img.mm-poster__image')).toBeNull();
+    expect(fixtureHost(fixture).textContent).toContain('Broken poster');
+  });
+
+  it('does not reserve an empty badge row when there is no status', () => {
+    setItem({ tmdbId: 1, title: 'Clean' });
+    expect(fixtureHost(fixture).querySelector('.discover-card__badges')).toBeNull();
+  });
+
+  it('keeps the footer for short, long, and absent summaries', () => {
+    setItem({ tmdbId: 1, title: 'Short', reason: 'Brief' });
+    expect(fixtureHost(fixture).querySelector('.discover-card__footer')).toBeTruthy();
+
+    setItem({
+      tmdbId: 1,
+      title: 'Long',
+      reason: 'One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen',
+    });
+    expect(fixtureHost(fixture).querySelector('.discover-card__summary-text')).toBeTruthy();
+    expect(fixtureHost(fixture).querySelector('.discover-card__footer')).toBeTruthy();
+
+    setItem({ tmdbId: 1, title: 'No summary' });
+    expect(fixtureHost(fixture).querySelector('.discover-card__summary')).toBeNull();
+    expect(fixtureHost(fixture).querySelector('.discover-card__footer')).toBeTruthy();
+  });
+
+  it('hides the summary when showSummary is false', () => {
+    setItem({ tmdbId: 1, title: 'History item', reason: 'Sharp crime drama; strong overlap.' });
+    fixture.componentRef.setInput('showSummary', false);
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelector('.discover-card__summary')).toBeNull();
   });
 
   function setItem(overrides: Partial<DiscoverCardItem>): void {

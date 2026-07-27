@@ -3,6 +3,7 @@ import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 import {
   DiscoverCardItem,
   DiscoverHistoryFilter,
+  isHermesActiveItem,
   matchesHistoryFilter,
   mediaIdentityKey,
   resolveRequestAction,
@@ -92,7 +93,7 @@ export class DiscoverFacade {
       const view = this._hermesView();
       const filter = this._historyFilter();
       return this._hermesItems()
-        .filter((item) => (view === 'active' ? item.active : !item.active))
+        .filter((item) => (view === 'active' ? isHermesActiveItem(item) : !isHermesActiveItem(item)))
         .filter((item) => (view === 'history' ? matchesHistoryFilter(item, filter) : true))
         .map((item) => {
           const card = toHermesCardItem(item);
@@ -160,6 +161,20 @@ export class DiscoverFacade {
       }
       this._noticeTone.set('success');
       this._notice.set(result.message ?? 'Feedback saved.');
+      // Archive immediately so liked/watched leave Active even before reload settles.
+      this._hermesItems.update((items) =>
+        items.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                active: false,
+                feedback,
+                feedback_at: new Date().toISOString(),
+              }
+            : item,
+        ),
+      );
+      this.syncVisibleStatus();
       await this.loadHermes();
     } catch {
       this._noticeTone.set('danger');

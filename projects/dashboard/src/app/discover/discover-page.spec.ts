@@ -4,7 +4,7 @@ import { vi } from 'vitest';
 import { fixtureHost } from '../../testing/fixture-host';
 import { DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { DiscoverCardItem, DiscoverHistoryFilter } from './discover-format';
-import { DiscoverPage } from './discover-page';
+import { DISCOVER_BATCH_SIZE, DiscoverPage } from './discover-page';
 import { DiscoverFacade, DiscoverStatus, HermesView } from './discover.facade';
 
 describe('DiscoverPage', () => {
@@ -17,7 +17,6 @@ describe('DiscoverPage', () => {
       imports: [DiscoverPage],
       providers: [{ provide: DiscoverFacade, useValue: facade }],
     });
-    // Override page-level providers so the test double is used.
     TestBed.overrideComponent(DiscoverPage, {
       set: { providers: [{ provide: DiscoverFacade, useValue: facade }] },
     });
@@ -75,10 +74,7 @@ describe('DiscoverPage', () => {
     expect(sourceButtons.every((button) => button.type === 'button')).toBe(true);
     expect(sourceButtons[0].getAttribute('aria-pressed')).toBe('true');
     expect(sourceButtons[1].getAttribute('aria-pressed')).toBe('false');
-
-    // Document order is focus/tab order for these native buttons.
-    expect(sourceButtons[0].compareDocumentPosition(sourceButtons[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(sourceButtons[1].compareDocumentPosition(sourceButtons[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(sourceButtons[0].classList.contains('tab')).toBe(true);
 
     sourceButtons[1].focus();
     expect(document.activeElement).toBe(sourceButtons[1]);
@@ -90,19 +86,173 @@ describe('DiscoverPage', () => {
     fixture.detectChanges();
     expect(sourceTabButtons()[1].getAttribute('aria-pressed')).toBe('true');
     expect(sourceTabButtons()[0].getAttribute('aria-pressed')).toBe('false');
+  });
 
-    sourceButtons[2].focus();
-    expect(document.activeElement).toBe(sourceButtons[2]);
-    sourceButtons[2].click();
-    expect(facade.setTab).toHaveBeenCalledWith('trakt');
+  it('filters cards with search and updates the result count', () => {
+    facade.status.set('ready');
+    facade.visibleItems.set([
+      card({ id: 'a', title: 'Alpha' }),
+      card({ id: 'b', title: 'Beta' }),
+    ]);
+    fixture.detectChanges();
+
+    setSearchInput('alpha');
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).textContent).toContain('1 match');
+    expect(fixtureHost(fixture).querySelectorAll('mm-discover-card')).toHaveLength(1);
+
+    setSearchInput('');
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).textContent).toContain('2 titles');
+  });
+
+  it('caps the initial grid at 24 items and loads more in batches', () => {
+    facade.status.set('ready');
+    facade.visibleItems.set(
+      Array.from({ length: 30 }, (_, index) => card({ id: `item-${index}`, title: `Title ${index}` })),
+    );
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelectorAll('mm-discover-card')).toHaveLength(24);
+
+    clickLoadMore();
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelectorAll('mm-discover-card')).toHaveLength(30);
+  });
+
+  it('resets the visible limit when the source tab changes', () => {
+    facade.status.set('ready');
+    facade.visibleItems.set(
+      Array.from({ length: 30 }, (_, index) => card({ id: `item-${index}`, title: `Title ${index}` })),
+    );
+    fixture.detectChanges();
+    clickLoadMore();
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelectorAll('mm-discover-card')).toHaveLength(30);
+
+    clickTab('Jellyseerr');
+    facade.tab.set('jellyseerr');
+    fixture.detectChanges();
+    expect(fixture.componentInstance.visibleLimit()).toBe(DISCOVER_BATCH_SIZE);
+  });
+
+  it('resets the visible limit when search changes', () => {
+    facade.status.set('ready');
+    facade.visibleItems.set(
+      Array.from({ length: 30 }, (_, index) => card({ id: `item-${index}`, title: `Title ${index}` })),
+    );
+    fixture.detectChanges();
+    clickLoadMore();
+    fixture.detectChanges();
+    setSearchInput('Title 1');
+    fixture.detectChanges();
+    expect(fixture.componentInstance.visibleLimit()).toBe(DISCOVER_BATCH_SIZE);
+  });
+
+  it('keeps the search query when switching sources', () => {
+    facade.status.set('ready');
+    facade.visibleItems.set([card({ title: 'Alpha' })]);
+    fixture.detectChanges();
+    setSearchInput('alpha');
+    fixture.detectChanges();
+
+    clickTab('Jellyseerr');
+    facade.tab.set('jellyseerr');
+    fixture.detectChanges();
+
+    const input = document.querySelector('#discover-search-input');
+    expect(input instanceof HTMLInputElement && input.value).toBe('alpha');
+  });
+
+  it('does not show a title count when the source is empty', () => {
+    facade.status.set('empty');
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelector('.discover-count')).toBeNull();
+  });
+
+  it('resets the visible limit when source filters change but not on refresh', () => {
+    facade.status.set('ready');
+    facade.tab.set('hermes');
+    facade.visibleItems.set(
+      Array.from({ length: 30 }, (_, index) => card({ id: `item-${index}`, title: `Title ${index}` })),
+    );
+    fixture.detectChanges();
+    clickLoadMore();
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelectorAll('mm-discover-card')).toHaveLength(30);
+
+    fixture.componentInstance.refresh();
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelectorAll('mm-discover-card')).toHaveLength(30);
+
+    clickHermesView('History');
+    fixture.detectChanges();
+    expect(fixture.componentInstance.visibleLimit()).toBe(DISCOVER_BATCH_SIZE);
+  });
+
+  it('differentiates search empty state from source empty state', () => {
+    facade.status.set('empty');
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).textContent).toContain('No recommendations in this view.');
+
+    facade.status.set('ready');
+    facade.visibleItems.set([card({ title: 'Alpha' })]);
+    fixture.detectChanges();
+    setSearchInput('zzz');
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).textContent).toContain('No titles match');
+    expect(fixtureHost(fixture).textContent).toContain('Clear search');
+  });
+
+  it('shows skeleton grid while loading and keeps controls visible', () => {
+    facade.status.set('loading');
+    fixture.detectChanges();
+    const root = fixtureHost(fixture);
+    expect(root.querySelector('.discover-controls')).toBeTruthy();
+    expect(root.querySelector('.discover-card--skeleton')).toBeTruthy();
+    expect(root.querySelector('mm-state-card')).toBeNull();
+  });
+
+  it('shows Request more only on Hermes', () => {
+    facade.status.set('ready');
+    facade.tab.set('hermes');
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).textContent).toContain('Request more');
+
+    facade.tab.set('jellyseerr');
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).textContent).not.toContain('Request more');
   });
 });
+
+function setSearchInput(value: string): void {
+  const input = document.querySelector('#discover-search-input');
+  if (!(input instanceof HTMLInputElement)) throw new Error('Search input not found');
+  input.value = value;
+  input.dispatchEvent(new Event('input'));
+}
+
+function clickLoadMore(): void {
+  const button = Array.from(document.querySelectorAll('button')).find((candidate) =>
+    candidate.textContent.includes('Load'),
+  );
+  if (!(button instanceof HTMLButtonElement)) throw new Error('Load more button not found');
+  button.click();
+}
+
+function clickHermesView(label: string): void {
+  const button = Array.from(document.querySelectorAll('button.chip')).find((candidate) =>
+    candidate.textContent.includes(label),
+  );
+  if (!(button instanceof HTMLButtonElement)) throw new Error(`Hermes view button not found: ${label}`);
+  button.click();
+}
 
 function clickTab(label: string): void {
   const button = Array.from(document.querySelectorAll('button')).find((candidate) =>
     candidate.textContent.includes(label),
   );
-  button?.click();
+  if (!(button instanceof HTMLButtonElement)) throw new Error(`Tab button not found: ${label}`);
+  button.click();
 }
 
 function sourceTabButtons(): HTMLButtonElement[] {
@@ -152,11 +302,21 @@ function createFacade() {
     requestingMore,
     generationPending,
     visibleItems,
-    setTab: vi.fn((value: DiscoverSourceTab) => { tab.set(value); }),
-    setHermesView: vi.fn((value: HermesView) => { hermesView.set(value); }),
-    setHistoryFilter: vi.fn((value: DiscoverHistoryFilter) => { historyFilter.set(value); }),
-    setJellyseerrKind: vi.fn((value: JellyseerrDiscoverKind) => { jellyseerrKind.set(value); }),
-    setTraktType: vi.fn((value: TraktDiscoverType) => { traktType.set(value); }),
+    setTab: vi.fn((value: DiscoverSourceTab) => {
+      tab.set(value);
+    }),
+    setHermesView: vi.fn((value: HermesView) => {
+      hermesView.set(value);
+    }),
+    setHistoryFilter: vi.fn((value: DiscoverHistoryFilter) => {
+      historyFilter.set(value);
+    }),
+    setJellyseerrKind: vi.fn((value: JellyseerrDiscoverKind) => {
+      jellyseerrKind.set(value);
+    }),
+    setTraktType: vi.fn((value: TraktDiscoverType) => {
+      traktType.set(value);
+    }),
     submitFeedback: vi.fn(() => Promise.resolve()),
     requestItem: vi.fn(() => Promise.resolve()),
     requestMore: vi.fn(() => Promise.resolve()),

@@ -325,6 +325,17 @@ describe('app/ui primitives', () => {
     expect(button?.getAttribute('aria-busy')).toBeNull();
   });
 
+  it('exposes aria-pressed when the icon button is pressed', () => {
+    const fixture = TestBed.createComponent(MmIconButton);
+    fixture.componentRef.setInput('label', 'Liked');
+    fixture.componentRef.setInput('pressed', true);
+    fixture.detectChanges();
+    const button = fixtureHost(fixture).querySelector('button');
+
+    expect(button?.getAttribute('aria-pressed')).toBe('true');
+    expect(button?.classList.contains('mm-icon-button--pressed')).toBe(true);
+  });
+
   it('keeps the theme picker selection aligned with the applied theme', () => {
     const fixture = TestBed.createComponent(MmThemePicker);
     const picker = fixture.componentInstance;

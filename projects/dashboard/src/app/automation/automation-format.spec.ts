@@ -3,6 +3,7 @@ import {
   AUTOMATION_SERVICE_STATUS_VIEW,
   formatGeneratedAt,
   formatRelativeTime,
+  formatShortDate,
   mapAutomationSummary,
 } from './automation-format';
 
@@ -37,6 +38,50 @@ describe('automation format / automation mapping', () => {
       problems: [{ id: 'x', summary: 'X', severity: undefined }],
     });
     expect(summary.problems[0].severity).toBe('info');
+  });
+
+  it('passes through posterUrl on problem items and defaults to null when absent', () => {
+    const summary = mapAutomationSummary({
+      generatedAt: '',
+      problems: [
+        {
+          id: 'x',
+          summary: 'X',
+          items: [
+            { title: 'With Poster', when: 'Tonight', href: null, posterUrl: 'http://localhost:8989/MediaCover/13/poster-250.jpg' },
+            { title: 'No Poster', when: 'Tomorrow', href: null },
+          ],
+        },
+      ],
+    });
+    expect(summary.problems[0].items).toEqual([
+      { title: 'With Poster', when: 'Tonight', href: null, posterUrl: 'http://localhost:8989/MediaCover/13/poster-250.jpg' },
+      { title: 'No Poster', when: 'Tomorrow', href: null, posterUrl: null },
+    ]);
+  });
+
+  it('passes through href on problem items and defaults to null when absent', () => {
+    const summary = mapAutomationSummary({
+      generatedAt: '',
+      problems: [
+        {
+          id: 'x',
+          summary: 'X',
+          items: [
+            { title: 'With Link', when: 'Tonight', href: 'http://example.com/link' },
+            { title: 'No Link', when: 'Tomorrow' },
+            { title: 'Blank Href', when: 'Later', href: '' },
+            { title: 'Whitespace Poster', when: 'Soon', href: null, posterUrl: '   ' },
+          ],
+        },
+      ],
+    });
+    expect(summary.problems[0].items).toEqual([
+      { title: 'With Link', when: 'Tonight', href: 'http://example.com/link', posterUrl: null },
+      { title: 'No Link', when: 'Tomorrow', href: null, posterUrl: null },
+      { title: 'Blank Href', when: 'Later', href: null, posterUrl: null },
+      { title: 'Whitespace Poster', when: 'Soon', href: null, posterUrl: null },
+    ]);
   });
 
   it('marks null sections with unavailable flag as unavailable', () => {
@@ -119,6 +164,27 @@ describe('automation format / automation mapping', () => {
   it('reports unavailable generated time for empty or invalid timestamps', () => {
     expect(formatGeneratedAt('')).toBe('Generated time unavailable');
     expect(formatGeneratedAt('not-a-date')).toBe('Generated time unavailable');
+  });
+
+  describe('formatShortDate', () => {
+    it('returns empty string for empty input', () => {
+      expect(formatShortDate('')).toBe('');
+    });
+
+    it('passes through non-date strings unchanged', () => {
+      expect(formatShortDate('downloading')).toBe('downloading');
+      expect(formatShortDate('Tonight')).toBe('Tonight');
+    });
+
+    it('formats current-year ISO date as short month + day', () => {
+      expect(formatShortDate('2026-03-24T14:00:00Z')).toBe('Mar 24');
+    });
+
+    it('includes year when the date falls in a different year', () => {
+      const result = formatShortDate('2025-07-01T12:00:00Z');
+      expect(result).toContain('2025');
+      expect(result).toContain('Jul');
+    });
   });
 
   describe('formatRelativeTime', () => {

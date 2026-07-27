@@ -1,19 +1,40 @@
 <article class="card card--automation" data-testid="automation-card" aria-labelledby="automation-heading">
   <header class="card__head">
-    <h2 id="automation-heading">Connected services</h2>
+    <div class="card__chrome-skeleton" aria-hidden="true">
+      <mm-skeleton variant="text" width="148px" height="18px" />
+    </div>
+    <div class="card__chrome card__chrome--head">
+      <h2 id="automation-heading" class="card__heading">Connected services</h2>
+    </div>
   </header>
 
   @if (health.error() && health.status() !== 'error') {
     <mm-status tone="warning" [announce]="true">{{ health.error() }}</mm-status>
   }
 
-  @switch (health.status()) {
+  <div
+    class="card__body card__body--automation"
+    [attr.aria-busy]="health.status() === 'loading' || storage.status() === 'loading'"
+  >
+    <div class="card__skeleton card__skeleton--automation-stack" aria-hidden="true">
+      <ul class="card__skeleton-main svc-list svc-list--skeleton">
+        @for (slot of skeletonRows; track slot) {
+          <li><mm-skeleton variant="text" width="100%" height="14px" /></li>
+        }
+      </ul>
+      <div class="card__foot-skeleton card__foot-skeleton--automation">
+        <div class="card__foot-skeleton-storage">
+          <mm-skeleton variant="text" width="42%" height="12px" />
+          <mm-skeleton variant="text" width="68%" height="11px" />
+          <mm-skeleton variant="text" width="100%" height="6px" />
+        </div>
+        <mm-skeleton variant="text" width="28%" height="13px" />
+      </div>
+    </div>
+    <div class="card__inner">
+      @switch (health.status()) {
         @case ('loading') {
-          <ul class="svc-list svc-list--skeleton" aria-busy="true">
-            @for (slot of skeletonRows; track slot) {
-              <li><mm-skeleton variant="text" width="100%" height="14px" /></li>
-            }
-          </ul>
+          <div class="card__inner-spacer card__inner-spacer--automation" aria-hidden="true"></div>
         }
         @case ('error') {
           <mm-state-card kind="error" tone="danger" title="Services unavailable" [message]="health.error()">
@@ -102,39 +123,41 @@
         }
       }
 
-  <footer class="card__foot">
-    @if (storage.error() && storage.status() !== 'error') {
-      <mm-status tone="warning" [announce]="true">{{ storage.error() }}</mm-status>
-    }
-    @if (storage.status() === 'error') {
-      <mm-state-card kind="error" tone="danger" title="Storage unavailable" [message]="storage.error()">
-        <mm-button label="Try again" (click)="retryStorage()" />
-      </mm-state-card>
-    } @else if (libraryVolume(); as volume) {
-      <div class="storage-foot">
-        <div class="storage-foot__copy">
-          <span class="storage-foot__label">{{ volume.label }}</span>
-          <span class="storage-foot__meta">
-            {{ formatBytes(volume.usedBytes) }} / {{ formatBytes(volume.totalBytes) }} · {{ percent(volume) }}%
-          </span>
-        </div>
-        <mm-progress
-          [value]="percent(volume)"
-          [tone]="barTone(volume)"
-          [showLabel]="false"
-          [label]="volume.label + ' usage'"
-        />
-      </div>
-    } @else if (storage.status() === 'loading') {
-      <mm-skeleton variant="text" width="100%" height="14px" />
-    } @else {
-      <span class="text-muted">Storage data unavailable</span>
-    }
-    <a class="link-arrow link-arrow--sm" routerLink="/reports">
-      View reports
-      <svg lucideChevronRight [size]="14" aria-hidden="true"></svg>
-    </a>
-  </footer>
+      <footer class="card__foot">
+        @if (storage.error() && storage.status() !== 'error') {
+          <mm-status tone="warning" [announce]="true">{{ storage.error() }}</mm-status>
+        }
+        @if (storage.status() === 'error') {
+          <mm-state-card kind="error" tone="danger" title="Storage unavailable" [message]="storage.error()">
+            <mm-button label="Try again" (click)="retryStorage()" />
+          </mm-state-card>
+        } @else if (libraryVolume(); as volume) {
+          <div class="storage-foot">
+            <div class="storage-foot__copy">
+              <span class="storage-foot__label">{{ volume.label }}</span>
+              <span class="storage-foot__meta">
+                {{ formatBytes(volume.usedBytes) }} / {{ formatBytes(volume.totalBytes) }} · {{ percent(volume) }}%
+              </span>
+            </div>
+            <mm-progress
+              [value]="percent(volume)"
+              [tone]="barTone(volume)"
+              [showLabel]="false"
+              [label]="volume.label + ' usage'"
+            />
+          </div>
+        } @else if (storage.status() === 'loading') {
+          <mm-skeleton variant="text" width="100%" height="14px" />
+        } @else {
+          <span class="text-muted">Storage data unavailable</span>
+        }
+        <a class="link-arrow link-arrow--sm" routerLink="/reports">
+          View reports
+          <svg lucideChevronRight [size]="14" aria-hidden="true"></svg>
+        </a>
+      </footer>
+    </div>
+  </div>
 </article>
 
 <mm-dialog
@@ -144,63 +167,174 @@
   (closed)="onDialogClosed()"
 >
   @if (selectedService(); as service) {
-    <div class="svc-detail">
-      <p class="svc-detail__status">
-        <span
-          class="svc__status"
-          [class.svc__status--ok]="service.status === 'healthy'"
-          [class.svc__status--degraded]="service.status === 'degraded'"
-          [class.svc__status--down]="service.status === 'down'"
-        >
-          <span class="dot" aria-hidden="true"></span>
-          {{ statusLabel(service.status) }}
-        </span>
-      </p>
-      @if (service.detail) {
-        <p class="svc-detail__copy">{{ service.detail }}</p>
-      }
-      @if (selectedProblemGroups().length > 0) {
-        @for (group of selectedProblemGroups(); track group.severity) {
-          <section class="problem-group">
-            <h3
-              class="problem-group__label"
-              [class.problem-group__label--actionable]="group.severity === 'actionable'"
-              [class.problem-group__label--warning]="group.severity === 'warning'"
-            >
-              {{ group.label }}
-            </h3>
-            <ul class="problem-list">
-              @for (problem of group.problems; track problem.id) {
-                <li class="problem-list__item">
-                  @if (!problem.items?.length) {
-                    {{ problem.summary }}
-                  } @else {
-                    <span class="problem-list__summary">{{ problem.summary }}</span>
-                    <ul class="problem-detail-list">
-                      @for (item of problem.items; track item.title) {
-                        <li class="problem-detail-list__row">
-                          <span class="problem-detail-list__title">{{ item.title }}</span>
-                          @if (item.when) {
-                            <span class="problem-detail-list__meta">{{ item.when }}</span>
-                          }
-                        </li>
-                      }
-                    </ul>
-                    @if (problem.itemCount && problem.items && problem.itemCount > problem.items.length) {
-                      <p class="problem-detail-list__more">
-                        and {{ problem.itemCount - problem.items.length }} more not shown
-                      </p>
-                    }
-                  }
-                </li>
-              }
-            </ul>
-          </section>
+    @if (isArrService(service.id)) {
+      <div class="svc-detail svc-detail--arr">
+        @if (arrStats(); as stats) {
+          <div class="stats">
+            @for (stat of stats; track $index) {
+              <div class="stat" [class.stat--lead]="$first">
+                <div class="stat__num">{{ stat.value }}</div>
+                <div class="stat__label">{{ stat.label }}</div>
+              </div>
+            }
+          </div>
         }
-      } @else {
-        <p class="svc-detail__empty">No specific problems reported</p>
-      }
-    </div>
+        @let heading = sectionLabel(service.id);
+        @if (heading) {
+          <p class="section-label">{{ heading }}</p>
+        }
+        @if (selectedShowCards().length > 0) {
+          @for (card of selectedShowCards(); track card.key) {
+          @if (service.id === 'sonarr' && card.rows.length > 1) {
+            <details class="show-card">
+              <summary class="show-card__head">
+                <div class="show-card__poster" [class.ph-1]="card.toneClass === 'ph-1'" [class.ph-2]="card.toneClass === 'ph-2'" [class.ph-3]="card.toneClass === 'ph-3'">
+                  @if (card.posterUrl) {
+                    <img [src]="card.posterUrl" alt="" (error)="onPosterError($event)" class="show-card__poster-img" />
+                  }
+                  <span class="show-card__poster-fallback">{{ card.initials }}</span>
+                </div>
+                <span>
+                  <span class="show-card__title">{{ card.label }}</span>
+                  <span class="show-card__sub">{{ card.rows.length }} episodes missing</span>
+                </span>
+                <svg class="show-card__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+              </summary>
+              <div class="show-card__eps">
+                @for (ep of card.rows; track ep.key) {
+                  @if (ep.href) {
+                    <a class="ep" [href]="ep.href" target="_blank" rel="noreferrer" [attr.aria-label]="ep.title">
+                      @if (ep.season !== null && ep.episode !== null) {
+                        <span class="ep__label">Season {{ ep.season }} · <strong>Episode {{ ep.episode }}</strong></span>
+                      } @else {
+                        <span class="ep__label">{{ ep.title }}</span>
+                      }
+                      @if (ep.when) {
+                        <span class="ep__date">{{ ep.when }}</span>
+                      }
+                    </a>
+                  } @else {
+                    <span class="ep ep--static">
+                      @if (ep.season !== null && ep.episode !== null) {
+                        <span class="ep__label">Season {{ ep.season }} · <strong>Episode {{ ep.episode }}</strong></span>
+                      } @else {
+                        <span class="ep__label">{{ ep.title }}</span>
+                      }
+                      @if (ep.when) {
+                        <span class="ep__date">{{ ep.when }}</span>
+                      }
+                    </span>
+                  }
+                }
+              </div>
+            </details>
+          } @else if (card.href) {
+            <a class="show-card" [href]="card.href" target="_blank" rel="noreferrer">
+              <span class="show-card__head">
+                <span class="show-card__poster" [class.ph-1]="card.toneClass === 'ph-1'" [class.ph-2]="card.toneClass === 'ph-2'" [class.ph-3]="card.toneClass === 'ph-3'">
+                  @if (card.posterUrl) {
+                    <img [src]="card.posterUrl" alt="" (error)="onPosterError($event)" class="show-card__poster-img" />
+                  }
+                  <span class="show-card__poster-fallback">{{ card.initials }}</span>
+                </span>
+                <span>
+                  <span class="show-card__title">{{ card.label }}</span>
+                  <span class="show-card__sub">{{ cardSubtitle(service.id, card) }}</span>
+                </span>
+              </span>
+            </a>
+          } @else {
+            <span class="show-card show-card--static">
+              <span class="show-card__head">
+                <span class="show-card__poster" [class.ph-1]="card.toneClass === 'ph-1'" [class.ph-2]="card.toneClass === 'ph-2'" [class.ph-3]="card.toneClass === 'ph-3'">
+                  @if (card.posterUrl) {
+                    <img [src]="card.posterUrl" alt="" (error)="onPosterError($event)" class="show-card__poster-img" />
+                  }
+                  <span class="show-card__poster-fallback">{{ card.initials }}</span>
+                </span>
+                <span>
+                  <span class="show-card__title">{{ card.label }}</span>
+                  <span class="show-card__sub">{{ cardSubtitle(service.id, card) }}</span>
+                </span>
+              </span>
+            </span>
+          }
+        }
+          @if (arrMoreCount(); as moreCount) {
+          @if (moreCount > 0) {
+            <p class="problem-detail-list__more">and {{ moreCount }} more not shown</p>
+          }
+        }
+        } @else if (selectedProblems().length > 0) {
+          <ul class="problem-list">
+            @for (problem of selectedProblems(); track problem.id) {
+              <li class="problem-list__item">{{ problem.summary }}</li>
+            }
+          </ul>
+        }
+      </div>
+    } @else {
+      <div class="svc-detail">
+        <p class="svc-detail__status">
+          <span class="svc__status"
+            [class.svc__status--ok]="service.status === 'healthy'"
+            [class.svc__status--degraded]="service.status === 'degraded'"
+            [class.svc__status--down]="service.status === 'down'">
+            <span class="dot" aria-hidden="true"></span>
+            {{ statusLabel(service.status) }}
+          </span>
+          @if (service.detail) { · {{ service.detail }} }
+        </p>
+        @if (selectedProblemGroups().length > 0) {
+          @for (group of selectedProblemGroups(); track group.severity) {
+            <section class="problem-group">
+              @if (selectedProblemGroups().length > 1) {
+                <h3
+                  class="problem-group__label"
+                  [class.problem-group__label--actionable]="group.severity === 'actionable'"
+                  [class.problem-group__label--warning]="group.severity === 'warning'"
+                >
+                  {{ group.label }}
+                </h3>
+              }
+              <ul class="problem-list">
+                @for (problem of group.problems; track problem.id) {
+                  <li class="problem-list__item">
+                    @if (!problem.groups.length) {
+                      {{ problem.summary }}
+                    } @else {
+                      <p class="problem-list__summary">{{ problem.summary }}</p>
+                      @for (subgroup of problem.groups; track subgroup.key) {
+                        @for (row of subgroup.rows; track row.key) {
+                          @if (row.href) {
+                            <a class="problem-list__row" [href]="row.href" target="_blank" rel="noreferrer">
+                              <span>{{ row.title }}</span>
+                              @if (row.when) { <span class="problem-list__meta">{{ row.when }}</span> }
+                            </a>
+                          } @else {
+                            <span class="problem-list__row">
+                              <span>{{ row.title }}</span>
+                              @if (row.when) { <span class="problem-list__meta">{{ row.when }}</span> }
+                            </span>
+                          }
+                        }
+                      }
+                      @if (problem.moreCount > 0) {
+                        <p class="problem-detail-list__more">
+                          and {{ problem.moreCount }} more not shown
+                        </p>
+                      }
+                    }
+                  </li>
+                }
+              </ul>
+            </section>
+          }
+        } @else {
+          <p class="svc-detail__empty">No specific problems reported</p>
+        }
+      </div>
+    }
     @if (serviceHref(service.id); as href) {
       <a mmDialogFooter class="svc-dialog__open" [href]="href" target="_blank" rel="noreferrer">
         Open {{ service.name }}

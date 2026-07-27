@@ -67,6 +67,7 @@ interface LiveAutomationPreviewItem {
   href?: string | null;
   titleSlug?: string;
   seriesId?: number;
+  posterUrl?: string | null;
 }
 
 interface LiveAutomationServiceBlock {
@@ -380,6 +381,8 @@ function mapProblemDetailItems(
     .map((item) => ({
       title: String(item.label).trim(),
       when: item.airDate || item.timeleft || item.status || undefined,
+      href: typeof item.href === 'string' && item.href.trim() ? item.href : null,
+      posterUrl: typeof item.posterUrl === 'string' && item.posterUrl.trim() ? item.posterUrl : null,
     }));
 }
 

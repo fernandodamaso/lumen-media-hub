@@ -27,6 +27,9 @@ export interface MediaStackAutomationProblemDto {
 export interface MediaStackAutomationProblemItemDto {
   title: string;
   when?: string;
+  /** Deep link into the service UI (e.g. Sonarr series page) when available. */
+  href?: string | null;
+  posterUrl?: string | null;
 }
 
 export interface MediaStackAutomationSummaryDto {

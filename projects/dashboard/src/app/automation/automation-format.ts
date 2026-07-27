@@ -54,6 +54,8 @@ export const mapAutomationSummary = (dto: MediaStackAutomationSummaryDto): Autom
           (item): AutomationProblemItem => ({
             title: wireText(item.title),
             when: wireText(item.when),
+            href: normalizeOptionalUrl(item.href),
+            posterUrl: normalizeOptionalUrl(item.posterUrl),
           }),
         ),
       itemCount: normalizeItemCount(problem.itemCount),
@@ -69,6 +71,11 @@ export const mapAutomationSummary = (dto: MediaStackAutomationSummaryDto): Autom
 /** Soft wire strings may be missing even when the DTO marks them required. */
 function wireText(value: string | null | undefined): string {
   return value ?? '';
+}
+
+function normalizeOptionalUrl(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized || null;
 }
 
 function normalizeAutomationStatus(status: string | null | undefined): AutomationServiceStatus {
@@ -116,6 +123,18 @@ export function formatGeneratedAt(isoTimestamp: string): string {
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+  });
+}
+
+export function formatShortDate(value: string): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' as const }),
   });
 }
 

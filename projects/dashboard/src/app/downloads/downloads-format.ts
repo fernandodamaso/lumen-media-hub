@@ -56,15 +56,28 @@ export function groupTorrents(torrents: DownloadTorrent[]): TorrentGroup[] {
   })).filter((group) => group.torrents.length > 0);
 }
 
-export function formatBytes(bytes: number): string {
-  if (!bytes) return '0 B';
+function byteParts(bytes: number): { value: string; unit: string } {
+  if (!bytes) return { value: '0', unit: 'B' };
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}`;
+  return {
+    value: (bytes / 1024 ** index).toFixed(index ? 1 : 0),
+    unit: units[index],
+  };
+}
+
+export function formatBytes(bytes: number): string {
+  const p = byteParts(bytes);
+  return `${p.value} ${p.unit}`;
 }
 
 export function formatRate(bytes: number): string {
   return `${formatBytes(bytes)}/s`;
+}
+
+export function formatRateParts(bytes: number): { value: string; unit: string } {
+  const p = byteParts(bytes);
+  return { value: p.value, unit: `${p.unit}/s` };
 }
 
 export function formatEta(seconds: number): string {

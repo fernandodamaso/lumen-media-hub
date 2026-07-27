@@ -13,6 +13,17 @@ import {
   provideOperationalLinkBases,
 } from './media-stack-api.providers';
 
+async function withMockLocation(search: string, fn: () => void | Promise<void>): Promise<void> {
+  const original = globalThis.location;
+  const mock = { search } as Location;
+  Object.defineProperty(globalThis, 'location', { value: mock, configurable: true, writable: true });
+  try {
+    await fn();
+  } finally {
+    Object.defineProperty(globalThis, 'location', { value: original, configurable: true, writable: true });
+  }
+}
+
 describe('provideMediaStackApi', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
@@ -33,9 +44,6 @@ describe('provideMediaStackApi', () => {
     (environment as { useLiveApi: boolean }).useLiveApi = true;
 
     try {
-      const binding = provideMediaStackApi()[0] as { useClass: unknown };
-      expect(binding.useClass).toBe(HttpMediaStackApi);
-
       TestBed.configureTestingModule({
         providers: [provideHttpClient(), ...provideMediaStackApi()],
       });
@@ -43,6 +51,92 @@ describe('provideMediaStackApi', () => {
     } finally {
       (environment as { useLiveApi: boolean }).useLiveApi = previous;
     }
+  });
+
+  describe('latency URL param (demo mode)', () => {
+    it('defaults to 0 when param is missing', () => {
+      TestBed.configureTestingModule({
+        providers: [...provideMediaStackApi()],
+      });
+      const api = TestBed.inject(MEDIA_STACK_API) as MockMediaStackApi;
+      expect(api.latencyMs).toBe(0);
+    });
+
+    it('applies latency from URL param', async () => {
+      await withMockLocation('?latency=500', () => {
+        TestBed.configureTestingModule({
+          providers: [...provideMediaStackApi()],
+        });
+        const api = TestBed.inject(MEDIA_STACK_API) as MockMediaStackApi;
+        expect(api.latencyMs).toBe(500);
+      });
+    });
+
+    it('ignores invalid latency values silently', async () => {
+      await withMockLocation('?latency=abc', () => {
+        TestBed.configureTestingModule({
+          providers: [...provideMediaStackApi()],
+        });
+        const api = TestBed.inject(MEDIA_STACK_API) as MockMediaStackApi;
+        expect(api.latencyMs).toBe(0);
+      });
+    });
+
+    it('ignores negative latency values silently', async () => {
+      await withMockLocation('?latency=-100', () => {
+        TestBed.configureTestingModule({
+          providers: [...provideMediaStackApi()],
+        });
+        const api = TestBed.inject(MEDIA_STACK_API) as MockMediaStackApi;
+        expect(api.latencyMs).toBe(0);
+      });
+    });
+  });
+
+  describe('scenario URL param (demo mode)', () => {
+    it('ignores missing param', () => {
+      TestBed.configureTestingModule({
+        providers: [...provideMediaStackApi()],
+      });
+      const api = TestBed.inject(MEDIA_STACK_API) as MockMediaStackApi;
+      expect(api).toBeInstanceOf(MockMediaStackApi);
+    });
+
+    it('ignores unknown scenario silently', async () => {
+      await withMockLocation('?scenario=downloads-unknown', () => {
+        TestBed.configureTestingModule({
+          providers: [...provideMediaStackApi()],
+        });
+        const api = TestBed.inject(MEDIA_STACK_API) as MockMediaStackApi;
+        expect(api).toBeInstanceOf(MockMediaStackApi);
+      });
+    });
+
+    it('applies paused scenario from URL in demo mode', async () => {
+      await withMockLocation('?scenario=downloads-paused', async () => {
+        TestBed.configureTestingModule({
+          providers: [...provideMediaStackApi()],
+        });
+        const api = TestBed.inject(MEDIA_STACK_API) as MockMediaStackApi;
+        api.latencyMs = 0;
+        const torrents = await api.listTorrents();
+        expect(torrents.every((t) => t.state === 'paused')).toBe(true);
+      });
+    });
+
+    it('ignores scenario param in live mode', async () => {
+      const previous = environment.useLiveApi;
+      (environment as { useLiveApi: boolean }).useLiveApi = true;
+
+      await withMockLocation('?scenario=downloads-empty', () => {
+        TestBed.configureTestingModule({
+          providers: [provideHttpClient(), ...provideMediaStackApi()],
+        });
+        expect(TestBed.inject(MEDIA_STACK_API)).toBeInstanceOf(HttpMediaStackApi);
+      });
+
+      (environment as { useLiveApi: boolean }).useLiveApi = previous;
+    });
   });
 });
 

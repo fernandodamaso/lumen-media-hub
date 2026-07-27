@@ -20,6 +20,7 @@
     [meta]="libraryMeta()"
     [href]="jellyfinLibraryHref()"
     [external]="true"
+    [loading]="isLoading()"
   />
   <mm-metric-card
     iconName="download"
@@ -28,6 +29,7 @@
     [value]="downloads.summary().active"
     [meta]="downloadsMeta()"
     href="#downloads-region"
+    [loading]="isLoading()"
   />
   <mm-metric-card
     iconName="activity"
@@ -36,6 +38,7 @@
     [value]="servicesValue()"
     [meta]="servicesStatus()"
     href="#automation-region"
+    [loading]="isLoading()"
   />
   <mm-metric-card
     iconName="hard-drive"
@@ -45,6 +48,7 @@
     [meta]="storageMeta()"
     [progress]="storagePercent()"
     href="#automation-region"
+    [loading]="isLoading()"
   />
 </div>
 
@@ -53,16 +57,31 @@
 }
 
 <div class="dashboard-grid" data-testid="dashboard-grid">
-  <div class="dashboard-grid__cell dashboard-grid__cell--library region" data-region="library">
+  <div class="dashboard-grid__cell dashboard-grid__cell--library region" data-region="library" style="--i: 0">
     <mm-library-card />
   </div>
-  <div class="dashboard-grid__cell dashboard-grid__cell--upcoming region" id="upcoming-region" data-region="upcoming">
+  <div
+    class="dashboard-grid__cell dashboard-grid__cell--upcoming region"
+    id="upcoming-region"
+    data-region="upcoming"
+    style="--i: 1"
+  >
     <mm-upcoming-card />
   </div>
-  <div class="dashboard-grid__cell dashboard-grid__cell--downloads region" id="downloads-region" data-region="downloads">
+  <div
+    class="dashboard-grid__cell dashboard-grid__cell--downloads region"
+    id="downloads-region"
+    data-region="downloads"
+    style="--i: 2"
+  >
     <mm-downloads-card />
   </div>
-  <div class="dashboard-grid__cell dashboard-grid__cell--automation region" id="automation-region" data-region="automation">
+  <div
+    class="dashboard-grid__cell dashboard-grid__cell--automation region"
+    id="automation-region"
+    data-region="automation"
+    style="--i: 3"
+  >
     <mm-automation-card />
   </div>
 </div>

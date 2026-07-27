@@ -1,29 +1,35 @@
 <article class="card card--library" data-testid="library-card" aria-labelledby="library-heading">
   <header class="card__head">
-    <h2 id="library-heading">Library</h2>
-    <div class="segmented" role="tablist" aria-label="Library kind">
-      <button
-        type="button"
-        class="segmented__btn"
-        role="tab"
-        [class.is-active]="tab() === 'movie'"
-        [attr.aria-selected]="tab() === 'movie'"
-        (click)="setTab('movie')"
-      >
-        Movies
-        <span class="segmented__count">{{ movieCount() }}</span>
-      </button>
-      <button
-        type="button"
-        class="segmented__btn"
-        role="tab"
-        [class.is-active]="tab() === 'series'"
-        [attr.aria-selected]="tab() === 'series'"
-        (click)="setTab('series')"
-      >
-        Series
-        <span class="segmented__count">{{ seriesCount() }}</span>
-      </button>
+    <div class="card__chrome-skeleton card__chrome-skeleton--library" aria-hidden="true">
+      <mm-skeleton variant="text" width="72px" height="18px" />
+      <mm-skeleton variant="rect" width="168px" height="34px" />
+    </div>
+    <div class="card__chrome card__chrome--head">
+      <h2 id="library-heading" class="card__heading">Library</h2>
+      <div class="segmented" role="tablist" aria-label="Library kind">
+        <button
+          type="button"
+          class="segmented__btn"
+          role="tab"
+          [class.is-active]="tab() === 'movie'"
+          [attr.aria-selected]="tab() === 'movie'"
+          (click)="setTab('movie')"
+        >
+          Movies
+          <span class="segmented__count">{{ movieCount() }}</span>
+        </button>
+        <button
+          type="button"
+          class="segmented__btn"
+          role="tab"
+          [class.is-active]="tab() === 'series'"
+          [attr.aria-selected]="tab() === 'series'"
+          (click)="setTab('series')"
+        >
+          Series
+          <span class="segmented__count">{{ seriesCount() }}</span>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -31,48 +37,61 @@
     <mm-status tone="warning" [announce]="true">{{ facade.error() }}</mm-status>
   }
 
-  @switch (facade.status()) {
-    @case ('loading') {
-      <div class="posters posters--skeleton" aria-busy="true">
+  <div class="card__body card__body--library" [attr.aria-busy]="facade.status() === 'loading'">
+    <div class="card__skeleton" aria-hidden="true">
+      <div class="card__skeleton-main posters posters--skeleton">
         @for (slot of skeletons; track slot) {
           <mm-skeleton variant="rect" width="100%" height="180px" />
         }
       </div>
-    }
-    @case ('error') {
-      <mm-state-card
-        kind="error"
-        tone="danger"
-        title="Library unavailable"
-        [message]="facade.error()"
-      >
-        <mm-button label="Retry" (click)="retry()" />
-      </mm-state-card>
-    }
-    @case ('empty') {
-      <mm-state-card
-        kind="empty"
-        title="Library is empty"
-        message="No movies or series are available yet."
-      />
-    }
-    @default {
-      @if (filteredItems().length === 0) {
-        <mm-state-card
-          kind="empty"
-          title="Nothing in this tab"
-          [message]="tab() === 'movie' ? 'No movies to show.' : 'No series to show.'"
-        />
-      } @else {
-        <mm-library-poster-grid [items]="filteredItems()" [compact]="true" />
+      <div class="card__foot-skeleton">
+        <mm-skeleton variant="text" width="38%" height="12px" />
+        <mm-skeleton variant="text" width="22%" height="13px" />
+      </div>
+    </div>
+    <div class="card__inner">
+      @switch (facade.status()) {
+        @case ('loading') {
+          <div class="card__reveal card__inner-spacer" aria-hidden="true"></div>
+        }
+        @case ('error') {
+          <mm-state-card
+            kind="error"
+            tone="danger"
+            title="Library unavailable"
+            [message]="facade.error()"
+          >
+            <mm-button label="Retry" (click)="retry()" />
+          </mm-state-card>
+        }
+        @case ('empty') {
+          <mm-state-card
+            kind="empty"
+            title="Library is empty"
+            message="No movies or series are available yet."
+          />
+        }
+        @default {
+          <div class="card__reveal">
+            @if (filteredItems().length === 0) {
+              <mm-state-card
+                kind="empty"
+                title="Nothing in this tab"
+                [message]="tab() === 'movie' ? 'No movies to show.' : 'No series to show.'"
+              />
+            } @else {
+              <mm-library-poster-grid [items]="filteredItems()" [compact]="true" />
+            }
+            <footer class="card__foot">
+              <span class="text-muted">{{ facade.totalCount() }} titles in library</span>
+              <a class="link-arrow" routerLink="/library">
+                View all
+                <svg lucideChevronRight [size]="14" aria-hidden="true"></svg>
+              </a>
+            </footer>
+          </div>
+        }
       }
-      <footer class="card__foot">
-        <span class="text-muted">{{ facade.totalCount() }} titles in library</span>
-        <a class="link-arrow" routerLink="/library">
-          View all
-          <svg lucideChevronRight [size]="14" aria-hidden="true"></svg>
-        </a>
-      </footer>
-    }
-  }
+    </div>
+  </div>
 </article>

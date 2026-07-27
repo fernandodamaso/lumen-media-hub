@@ -53,6 +53,30 @@ describe('LibraryCard', () => {
     expect(facade.refresh).toHaveBeenCalledWith({ initial: true });
   });
 
+  it('keeps the card heading visible while loading (D3)', () => {
+    facade.status.set('loading');
+    fixture.detectChanges();
+    const root = fixtureHost(fixture);
+    const heading = root.querySelector('#library-heading');
+    expect(heading).toBeTruthy();
+    expect(heading?.textContent).toContain('Library');
+  });
+
+  it('enters ready content inside card__inner with overlay skeleton markup', () => {
+    facade.status.set('ready');
+    facade.items.set([item('s1', 'series', 'Night Watch')]);
+    facade.seriesCount.set(1);
+    facade.totalCount.set(1);
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    expect(root.querySelector('.card__inner')).toBeTruthy();
+    expect(root.querySelector('.card__skeleton')).toBeTruthy();
+    expect(root.querySelector('.card__chrome-skeleton')).toBeTruthy();
+    expect(root.querySelector('.card__foot-skeleton')).toBeTruthy();
+    expect(root.querySelector('.mm-content-enter')).toBeNull();
+  });
+
   it('keeps one poster row and carousels past five series', () => {
     facade.status.set('ready');
     facade.items.set([

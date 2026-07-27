@@ -79,3 +79,14 @@
   flex: none;
   color: var(--mm-component-text-muted);
 }
+
+.metric-card--skeleton {
+  border: 1px solid transparent;
+  background: var(--mm-component-card-bg);
+  pointer-events: none;
+  box-shadow: none;
+}
+
+.metric-card--skeleton .metric-card__body {
+  gap: 8px;
+}

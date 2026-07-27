@@ -17,8 +17,10 @@ export type MmSkeletonVariant = 'text' | 'rect' | 'circle';
   styles: `
     :host { display: inline-block; }
     .mm-skeleton {
+      position: relative;
+      overflow: hidden;
       display: inline-block;
-      background: var(--mm-component-muted-bg);
+      background-color: var(--mm-component-raised-bg);
       border-radius: var(--mm-radius-sm);
     }
     .mm-skeleton--text {
@@ -35,13 +37,25 @@ export type MmSkeletonVariant = 'text' | 'rect' | 'circle';
       height: 100%;
     }
     @media (prefers-reduced-motion: no-preference) {
-      .mm-skeleton {
-        animation: mm-skeleton-pulse 2s ease-in-out infinite;
+      .mm-skeleton::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background-image: linear-gradient(
+          100deg,
+          transparent 35%,
+          color-mix(in srgb, var(--mm-component-text-primary) 18%, transparent) 50%,
+          transparent 65%
+        );
+        background-size: 220% 100%;
+        animation: mm-skeleton-shimmer 1.6s linear infinite;
+        will-change: background-position;
       }
     }
-    @keyframes mm-skeleton-pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.45; }
+    @keyframes mm-skeleton-shimmer {
+      from { background-position: 160% 0; }
+      to   { background-position: -60% 0; }
     }
   `,
 })

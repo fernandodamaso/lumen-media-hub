@@ -19,6 +19,8 @@ interface AutomationPreviewItem {
 export interface AutomationProblemItem {
   title: string;
   when: string;
+  href: string | null;
+  posterUrl: string | null;
 }
 
 export interface AutomationProblem {

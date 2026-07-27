@@ -67,6 +67,7 @@ interface LiveAutomationPreviewItem {
   href?: string | null;
   titleSlug?: string;
   seriesId?: number;
+  posterUrl?: string | null;
 }
 
 interface LiveAutomationServiceBlock {
@@ -380,6 +381,8 @@ function mapProblemDetailItems(
     .map((item) => ({
       title: String(item.label).trim(),
       when: item.airDate || item.timeleft || item.status || undefined,
+      href: typeof item.href === 'string' && item.href.trim() ? item.href : null,
+      posterUrl: typeof item.posterUrl === 'string' && item.posterUrl.trim() ? item.posterUrl : null,
     }));
 }
 
@@ -531,6 +534,19 @@ function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutom
       items,
       itemCount: sonarr?.missing ?? items.length,
     });
+  } else {
+    const sonarrQueueWarnings = (sonarr?.queueItems ?? []).filter((q) => q.warning);
+    if (sonarrQueueWarnings.length > 0) {
+      const items = mapProblemDetailItems(sonarrQueueWarnings);
+      problems.push({
+        id: 'sonarr-queue',
+        summary: `${sonarrQueueWarnings.length} Sonarr queue item(s) need attention`,
+        serviceId: 'sonarr',
+        severity: 'warning',
+        items,
+        itemCount: sonarrQueueWarnings.length,
+      });
+    }
   }
 
   if ((radarr?.missing ?? 0) > 0) {
@@ -543,6 +559,19 @@ function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutom
       items,
       itemCount: radarr?.missing ?? items.length,
     });
+  } else {
+    const radarrQueueWarnings = (radarr?.queueItems ?? []).filter((q) => q.warning);
+    if (radarrQueueWarnings.length > 0) {
+      const items = mapProblemDetailItems(radarrQueueWarnings);
+      problems.push({
+        id: 'radarr-queue',
+        summary: `${radarrQueueWarnings.length} Radarr queue item(s) need attention`,
+        serviceId: 'radarr',
+        severity: 'warning',
+        items,
+        itemCount: radarrQueueWarnings.length,
+      });
+    }
   }
 
   if (live.error) {

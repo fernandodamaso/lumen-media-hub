@@ -505,22 +505,37 @@ function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutom
     }
   }
 
-  for (const item of prowlarr?.disabled ?? []) {
+  const disabledIndexers = prowlarr?.disabled ?? [];
+  if (disabledIndexers.length > 0) {
     problems.push({
-      id: `prowlarr-disabled-${item.name}`,
-      summary: `${item.name} · disabled`,
+      id: 'prowlarr-disabled',
+      summary: `${disabledIndexers.length} indexer(s) disabled`,
       serviceId: 'prowlarr',
       severity: 'warning',
+      items: disabledIndexers.map((item) => ({
+        title: item.name,
+        when: 'disabled',
+        href: null,
+        posterUrl: null,
+      })),
+      itemCount: disabledIndexers.length,
     });
   }
 
-  for (const item of prowlarr?.cooldown ?? []) {
-    const until = item.until ? ` · until ${item.until}` : '';
+  const cooldownIndexers = prowlarr?.cooldown ?? [];
+  if (cooldownIndexers.length > 0) {
     problems.push({
-      id: `prowlarr-cooldown-${item.name}`,
-      summary: `${item.name} · cooldown${until}`,
+      id: 'prowlarr-cooldown',
+      summary: `${cooldownIndexers.length} indexer(s) in cooldown`,
       serviceId: 'prowlarr',
       severity: 'warning',
+      items: cooldownIndexers.map((item) => ({
+        title: item.name,
+        when: item.until ?? 'cooldown',
+        href: null,
+        posterUrl: null,
+      })),
+      itemCount: cooldownIndexers.length,
     });
   }
 

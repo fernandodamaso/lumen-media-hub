@@ -129,6 +129,12 @@ describe('live-api.mappers', () => {
     expect(dto.preview?.[0]?.title).toBe('Stuck episode');
     expect(dto.problems?.some((p) => p.serviceId === 'bazarr')).toBe(true);
     expect(dto.problems?.some((p) => p.id.includes('disabled'))).toBe(true);
+    const prowlarrDisabled = dto.problems?.find((p) => p.id === 'prowlarr-disabled');
+    expect(prowlarrDisabled?.items).toEqual([{ title: 'SlowIndex', when: 'disabled', href: null, posterUrl: null }]);
+    expect(prowlarrDisabled?.itemCount).toBe(1);
+    const prowlarrCooldown = dto.problems?.find((p) => p.id === 'prowlarr-cooldown');
+    expect(prowlarrCooldown?.items).toEqual([{ title: 'CoolIndex', when: '2026-07-13T15:00:00Z', href: null, posterUrl: null }]);
+    expect(prowlarrCooldown?.itemCount).toBe(1);
     const sonarrMissing = dto.problems?.find((p) => p.id === 'sonarr-missing');
     expect(sonarrMissing?.items).toEqual([{ title: 'Show S01E01', when: 'Tonight', href: null, posterUrl: null }]);
     expect(sonarrMissing?.itemCount).toBe(2);

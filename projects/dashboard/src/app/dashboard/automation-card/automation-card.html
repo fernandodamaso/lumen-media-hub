@@ -169,7 +169,7 @@
   @if (selectedService(); as service) {
     @if (isArrService(service.id)) {
       <div class="svc-detail svc-detail--arr">
-        @if (arrStats(); as stats) {
+        @if (selectedStats(); as stats) {
           <div class="stats">
             @for (stat of stats; track $index) {
               <div class="stat" [class.stat--lead]="$first">
@@ -179,7 +179,7 @@
             }
           </div>
         }
-        @let heading = arrSectionHeading(service.id);
+        @let heading = selectedSectionHeading();
         @if (heading) {
           <p class="section-label">{{ heading }}</p>
         }
@@ -275,16 +275,40 @@
       </div>
     } @else {
       <div class="svc-detail">
-        <p class="svc-detail__status">
-          <span class="svc__status"
-            [class.svc__status--ok]="service.status === 'healthy'"
-            [class.svc__status--degraded]="service.status === 'degraded'"
-            [class.svc__status--down]="service.status === 'down'">
-            <span class="dot" aria-hidden="true"></span>
-            {{ statusLabel(service.status) }}
-          </span>
-          @if (service.detail) { · {{ service.detail }} }
-        </p>
+        @if (service.id === 'prowlarr' && selectedStats(); as stats) {
+          @if (service.status === 'down') {
+            <p class="svc-detail__status">
+              <span class="svc__status svc__status--down">
+                <span class="dot" aria-hidden="true"></span>
+                {{ statusLabel(service.status) }}
+              </span>
+              @if (service.detail) { · {{ service.detail }} }
+            </p>
+          }
+          <div class="stats">
+            @for (stat of stats; track $index) {
+              <div class="stat" [class.stat--lead]="$first">
+                <div class="stat__num">{{ stat.value }}</div>
+                <div class="stat__label">{{ stat.label }}</div>
+              </div>
+            }
+          </div>
+        } @else {
+          <p class="svc-detail__status">
+            <span class="svc__status"
+              [class.svc__status--ok]="service.status === 'healthy'"
+              [class.svc__status--degraded]="service.status === 'degraded'"
+              [class.svc__status--down]="service.status === 'down'">
+              <span class="dot" aria-hidden="true"></span>
+              {{ statusLabel(service.status) }}
+            </span>
+            @if (service.detail) { · {{ service.detail }} }
+          </p>
+        }
+        @let heading = selectedSectionHeading();
+        @if (heading) {
+          <p class="section-label">{{ heading }}</p>
+        }
         @if (selectedProblemGroups().length > 0) {
           @for (group of selectedProblemGroups(); track group.severity) {
             <section class="problem-group">
@@ -299,26 +323,28 @@
               }
               <ul class="problem-list">
                 @for (problem of group.problems; track problem.id) {
-                  <li class="problem-list__item">
+                  <li class="problem-list__item" [class.problem-list__item--card]="problem.groups.length > 0">
                     @if (!problem.groups.length) {
                       {{ problem.summary }}
                     } @else {
                       <p class="problem-list__summary">{{ problem.summary }}</p>
-                      @for (subgroup of problem.groups; track subgroup.key) {
-                        @for (row of subgroup.rows; track row.key) {
-                          @if (row.href) {
-                            <a class="problem-list__row" [href]="row.href" target="_blank" rel="noreferrer">
-                              <span>{{ row.title }}</span>
-                              @if (row.when) { <span class="problem-list__meta">{{ row.when }}</span> }
-                            </a>
-                          } @else {
-                            <span class="problem-list__row">
-                              <span>{{ row.title }}</span>
-                              @if (row.when) { <span class="problem-list__meta">{{ row.when }}</span> }
-                            </span>
+                      <div class="problem-list__rows">
+                        @for (subgroup of problem.groups; track subgroup.key) {
+                          @for (row of subgroup.rows; track row.key) {
+                            @if (row.href) {
+                              <a class="problem-list__row" [href]="row.href" target="_blank" rel="noreferrer">
+                                <span>{{ row.title }}</span>
+                                @if (row.when) { <span class="problem-list__meta">{{ row.when }}</span> }
+                              </a>
+                            } @else {
+                              <span class="problem-list__row">
+                                <span>{{ row.title }}</span>
+                                @if (row.when) { <span class="problem-list__meta">{{ row.when }}</span> }
+                              </span>
+                            }
                           }
                         }
-                      }
+                      </div>
                       @if (problem.moreCount > 0) {
                         <p class="problem-detail-list__more">
                           and {{ problem.moreCount }} more not shown

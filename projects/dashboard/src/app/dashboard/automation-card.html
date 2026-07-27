@@ -14,7 +14,7 @@
 
   <div
     class="card__body card__body--automation"
-    [attr.aria-busy]="health.status() === 'loading' || storage.status() === 'loading'"
+    [attr.aria-busy]="health.status() === 'loading'"
   >
     <div class="card__skeleton card__skeleton--automation-stack" aria-hidden="true">
       <ul class="card__skeleton-main svc-list svc-list--skeleton">
@@ -179,7 +179,7 @@
             }
           </div>
         }
-        @let heading = sectionLabel(service.id);
+        @let heading = arrSectionHeading(service.id);
         @if (heading) {
           <p class="section-label">{{ heading }}</p>
         }

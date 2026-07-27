@@ -244,6 +244,28 @@ describe('live-api.mappers', () => {
     expect(() => mapLiveJellyfinItem({ id: '1' }, 'movie')).toThrow(/missing name/);
   });
 
+  it('maps queue-only Sonarr degradation into queue problems when nothing is missing', () => {
+    const dto = mapLiveAutomationSummary({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      sonarr: {
+        ok: true,
+        missing: 0,
+        monitored: 10,
+        queued: 1,
+        queueItems: [{ label: 'Stuck episode', warning: true, status: 'warning' }],
+      },
+      radarr: { ok: true, movies: 5, missing: 0, queued: 0 },
+    });
+
+    expect(dto.services?.find((s) => s.id === 'sonarr')?.status).toBe('degraded');
+    expect(dto.problems?.find((p) => p.id === 'sonarr-missing')).toBeUndefined();
+    expect(dto.problems?.find((p) => p.id === 'sonarr-queue')).toMatchObject({
+      serviceId: 'sonarr',
+      items: [{ title: 'Stuck episode', when: 'warning', href: null, posterUrl: null }],
+    });
+  });
+
   it('maps automation ok:false when nested service blocks remain', () => {
     const dto = mapLiveAutomationSummary({
       ok: false,

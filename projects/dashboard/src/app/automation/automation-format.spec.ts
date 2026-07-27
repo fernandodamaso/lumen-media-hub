@@ -177,7 +177,13 @@ describe('automation format / automation mapping', () => {
     });
 
     it('formats current-year ISO date as short month + day', () => {
-      expect(formatShortDate('2026-03-24T14:00:00Z')).toBe('Mar 24');
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-15T12:00:00Z'));
+      try {
+        expect(formatShortDate('2026-03-24T14:00:00Z')).toBe('Mar 24');
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('includes year when the date falls in a different year', () => {

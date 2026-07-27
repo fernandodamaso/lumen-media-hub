@@ -167,9 +167,24 @@ export class AutomationCard {
     return isArrId(id);
   }
 
-  sectionLabel(id: string): string {
-    if (id === 'sonarr') return 'Missing episodes';
-    if (id === 'radarr') return 'Missing movies';
+  arrSectionHeading(id: string): string {
+    const problems = this.selectedProblems();
+    if (id === 'sonarr') {
+      if (problems.some((problem) => problem.id === 'sonarr-missing')) return 'Missing episodes';
+      if (problems.some((problem) => problem.id === 'sonarr-queue')) return 'Queue warnings';
+      const stats = this.arrStats();
+      if ((stats?.[0]?.value ?? 0) > 0) return 'Missing episodes';
+      if ((stats?.[2]?.value ?? 0) > 0) return 'Queue warnings';
+      return '';
+    }
+    if (id === 'radarr') {
+      if (problems.some((problem) => problem.id === 'radarr-missing')) return 'Missing movies';
+      if (problems.some((problem) => problem.id === 'radarr-queue')) return 'Queue warnings';
+      const stats = this.arrStats();
+      if ((stats?.[0]?.value ?? 0) > 0) return 'Missing movies';
+      if ((stats?.[2]?.value ?? 0) > 0) return 'Queue warnings';
+      return '';
+    }
     return '';
   }
 

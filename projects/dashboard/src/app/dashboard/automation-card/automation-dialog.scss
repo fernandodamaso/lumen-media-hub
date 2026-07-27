@@ -32,7 +32,7 @@
   text-transform: uppercase;
 }
 
-.svc-detail--arr .section-label {
+.svc-detail .section-label {
   margin: 2px 6px 10px;
   color: var(--mm-component-text-muted);
   font: 600 11px/1 var(--mm-font-mono);
@@ -250,6 +250,39 @@ details.show-card summary {
 .problem-list__item {
   display: grid;
   gap: var(--mm-space-sm);
+}
+
+.problem-list li.problem-list__item--card {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--mm-component-border);
+  border-radius: var(--mm-radius-md);
+  background: var(--mm-component-muted-bg);
+}
+
+.problem-list li.problem-list__item--card + li.problem-list__item--card {
+  margin-top: 4px;
+}
+
+.problem-list__item--card .problem-list__summary {
+  padding: 8px 10px;
+  color: var(--mm-component-text-primary);
+  font-size: 12.5px;
+  letter-spacing: -0.005em;
+}
+
+.problem-list__rows {
+  display: grid;
+  border-top: 1px solid var(--mm-component-border);
+}
+
+.problem-list__item--card .problem-list__row {
+  border-radius: 0;
+}
+
+.problem-list__item--card .problem-detail-list__more {
+  padding: 0 10px 8px;
 }
 
 .problem-list__summary {

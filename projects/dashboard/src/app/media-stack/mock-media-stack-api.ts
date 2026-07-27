@@ -222,7 +222,7 @@ function demoAutomationSummary(): MediaStackAutomationSummaryDto {
       { id: 'jellyfin', name: 'Jellyfin', status: 'healthy', detail: 'Streaming ready', latencyMs: 18 },
       { id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'Indexers reachable', latencyMs: 20 },
       { id: 'radarr', name: 'Radarr', status: 'healthy', detail: 'Indexers reachable', latencyMs: 22 },
-      { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: 'One indexer slow to respond', latencyMs: 350 },
+      { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: '5/8 enabled · 1 off · 1 cooldown', latencyMs: 350 },
       { id: 'sabnzbd', name: 'SABnzbd', status: 'down', detail: 'Last seen 18m ago' },
       { id: 'qbittorrent', name: 'qBittorrent', status: 'healthy', detail: 'Connected', latencyMs: 15 },
       { id: 'bazarr', name: 'Bazarr', status: 'healthy', detail: 'Subtitles up to date', latencyMs: 16 },
@@ -235,8 +235,22 @@ function demoAutomationSummary(): MediaStackAutomationSummaryDto {
     ],
     problems: [
       { id: 'problem-1', summary: 'SABnzbd unreachable', serviceId: 'sabnzbd', severity: 'actionable' },
-      { id: 'problem-2', summary: 'Prowlarr indexer response slow', serviceId: 'prowlarr', severity: 'warning' },
-      { id: 'problem-3', summary: 'Prowlarr indexer in cooldown', serviceId: 'prowlarr', severity: 'warning' },
+      {
+        id: 'prowlarr-disabled',
+        summary: '1 indexer(s) disabled',
+        serviceId: 'prowlarr',
+        severity: 'warning',
+        items: [{ title: 'SlowIndex', when: 'disabled', href: null, posterUrl: null }],
+        itemCount: 1,
+      },
+      {
+        id: 'prowlarr-cooldown',
+        summary: '1 indexer(s) in cooldown',
+        serviceId: 'prowlarr',
+        severity: 'warning',
+        items: [{ title: 'CoolIndex', when: '2026-07-28T15:00:00Z', href: null, posterUrl: null }],
+        itemCount: 1,
+      },
       {
         id: 'sonarr-missing',
         summary: '4 Sonarr episode(s) missing',

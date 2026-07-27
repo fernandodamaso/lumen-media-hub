@@ -92,8 +92,11 @@ describe('AutomationCard', () => {
     const dialog = root.querySelector('dialog');
     expect(dialog?.open).toBe(true);
     expect(dialog?.textContent).toContain('Prowlarr');
-    expect(dialog?.textContent).toContain('Prowlarr indexer response slow');
-    expect(dialog?.textContent).toContain('Prowlarr indexer in cooldown');
+    expect(dialog?.textContent).toContain('Indexers');
+    expect(dialog?.textContent).toContain('1 indexer(s) disabled');
+    expect(dialog?.textContent).toContain('SlowIndex');
+    expect(dialog?.textContent).toContain('1 indexer(s) in cooldown');
+    expect(dialog?.textContent).toContain('CoolIndex');
     expect(dialog?.textContent).not.toContain('SABnzbd unreachable');
   });
 
@@ -715,6 +718,61 @@ describe('AutomationCard', () => {
     expect(dialog?.textContent).toContain('Indexer lag');
   });
 
+  it('renders Prowlarr stat tiles and indexer rows when detail is parseable', () => {
+    health.status.set('ready');
+    health.summary.set({
+      generatedAt: '',
+      services: [
+        { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: '5/8 enabled · 2 off · 1 cooldown', latencyMs: 40 },
+      ],
+      problems: [
+        {
+          id: 'prowlarr-disabled',
+          summary: '2 indexer(s) disabled',
+          serviceId: 'prowlarr',
+          severity: 'warning',
+          items: [
+            { title: 'SlowIndex', when: 'disabled', href: null, posterUrl: null },
+            { title: 'StaleIndex', when: 'disabled', href: null, posterUrl: null },
+          ],
+          itemCount: 2,
+        },
+        {
+          id: 'prowlarr-cooldown',
+          summary: '1 indexer(s) in cooldown',
+          serviceId: 'prowlarr',
+          severity: 'warning',
+          items: [{ title: 'CoolIndex', when: '2026-07-28T15:00:00Z', href: null, posterUrl: null }],
+          itemCount: 1,
+        },
+      ],
+      preview: [],
+      availability: { services: 'present', preview: 'empty', problems: 'present' },
+    });
+    seedStorage();
+    fixture.detectChanges();
+
+    fixtureHost(fixture).querySelector<HTMLButtonElement>('.svc__trigger')?.click();
+    fixture.detectChanges();
+    const dialog = fixtureHost(fixture).querySelector('dialog');
+    const stats = dialog?.querySelectorAll('.stat');
+    expect(stats).toHaveLength(3);
+    expect(stats?.[0]?.textContent).toContain('2');
+    expect(stats?.[0]?.textContent).toContain('Off');
+    expect(stats?.[1]?.textContent).toContain('1');
+    expect(stats?.[1]?.textContent).toContain('Cooldown');
+    expect(stats?.[2]?.textContent).toContain('5/8');
+    expect(stats?.[2]?.textContent).toContain('Enabled');
+    expect(dialog?.textContent).toContain('Indexers');
+    expect(dialog?.textContent).toContain('SlowIndex');
+    expect(dialog?.textContent).toContain('StaleIndex');
+    expect(dialog?.textContent).toContain('CoolIndex');
+    expect(dialog?.querySelectorAll('.problem-list__item--card')).toHaveLength(2);
+    expect(dialog?.querySelectorAll('.problem-list__row')).toHaveLength(3);
+    expect(dialog?.textContent).not.toContain('Indexer lag');
+    expect(dialog?.textContent).not.toContain('Degraded');
+  });
+
   it.each([
     { status: 'healthy' as const, expectedClass: 'svc__status--ok' },
     { status: 'degraded' as const, expectedClass: 'svc__status--degraded' },
@@ -779,22 +837,26 @@ describe('AutomationCard', () => {
       services: [
         { id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: '', latencyMs: 12 },
         { id: 'radarr', name: 'Radarr', status: 'healthy', detail: '', latencyMs: 10 },
-        { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: 'Indexer lag', latencyMs: 40 },
+        { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: '5/8 enabled · 1 off · 1 cooldown', latencyMs: 40 },
         { id: 'sabnzbd', name: 'SABnzbd', status: 'down', detail: 'Unreachable', latencyMs: null },
       ],
       problems: [
         { id: 'problem-1', summary: 'SABnzbd unreachable', serviceId: 'sabnzbd', severity: 'actionable' },
         {
-          id: 'problem-2',
-          summary: 'Prowlarr indexer response slow',
+          id: 'prowlarr-disabled',
+          summary: '1 indexer(s) disabled',
           serviceId: 'prowlarr',
           severity: 'warning',
+          items: [{ title: 'SlowIndex', when: 'disabled', href: null, posterUrl: null }],
+          itemCount: 1,
         },
         {
-          id: 'problem-3',
-          summary: 'Prowlarr indexer in cooldown',
+          id: 'prowlarr-cooldown',
+          summary: '1 indexer(s) in cooldown',
           serviceId: 'prowlarr',
           severity: 'warning',
+          items: [{ title: 'CoolIndex', when: '2026-07-28T15:00:00Z', href: null, posterUrl: null }],
+          itemCount: 1,
         },
       ],
       preview: [],

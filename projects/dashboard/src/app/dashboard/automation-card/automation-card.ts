@@ -49,9 +49,10 @@ const PROBLEM_SEVERITY_ORDER: AutomationProblemSeverity[] = ['actionable', 'warn
 const EPISODE_CODE_RE = /\sS(\d+)E(\d+)$/;
 // ponytail: stats parsed from backend display string; if homepage-actions adds structured fields, map those instead
 const ARR_DETAIL_RE = /^(\d+)\s+missing\s+·\s+(\d+)\s+(?:shows|movies)\s+·\s+(\d+)\s+queued$/;
+const PROWLARR_DETAIL_RE = /^(\d+)\/(\d+)\s+enabled\s+·\s+(\d+)\s+off\s+·\s+(\d+)\s+cooldown$/;
 const POSTER_TONES = ['ph-1', 'ph-2', 'ph-3'];
 
-interface ArrStat { value: number; label: string; }
+interface ArrStat { value: string | number; label: string; }
 
 interface DialogItemRow { key: string; title: string; season: number | null; episode: number | null; when: string; href: string | null; }
 interface DialogItemGroup { key: string; label: string; href: string | null; posterUrl: string | null; initials: string; toneClass: string; rows: DialogItemRow[]; }
@@ -132,10 +133,12 @@ export class AutomationCard {
     return AUTOMATION_SERVICE_STATUS_VIEW[status].label;
   }
 
-  readonly arrStats = computed<ArrStat[] | null>(() => {
+  readonly selectedStats = computed<ArrStat[] | null>(() => {
     const service = this.selectedService();
-    if (!service || !isArrId(service.id)) return null;
-    return parseArrDetail(service.detail, service.id);
+    if (!service) return null;
+    if (isArrId(service.id)) return parseArrDetail(service.detail, service.id);
+    if (service.id === 'prowlarr') return parseProwlarrDetail(service.detail);
+    return null;
   });
 
   readonly selectedShowCards = computed<DialogItemGroup[]>(() => {
@@ -167,26 +170,14 @@ export class AutomationCard {
     return isArrId(id);
   }
 
-  arrSectionHeading(id: string): string {
-    const problems = this.selectedProblems();
-    if (id === 'sonarr') {
-      if (problems.some((problem) => problem.id === 'sonarr-missing')) return 'Missing episodes';
-      if (problems.some((problem) => problem.id === 'sonarr-queue')) return 'Queue warnings';
-      const stats = this.arrStats();
-      if ((stats?.[0]?.value ?? 0) > 0) return 'Missing episodes';
-      if ((stats?.[2]?.value ?? 0) > 0) return 'Queue warnings';
-      return '';
+  readonly selectedSectionHeading = computed(() => {
+    const id = this.selectedService()?.id;
+    if (!id) return '';
+    if (id === 'prowlarr') {
+      return this.selectedProblems().length > 0 ? 'Indexers' : '';
     }
-    if (id === 'radarr') {
-      if (problems.some((problem) => problem.id === 'radarr-missing')) return 'Missing movies';
-      if (problems.some((problem) => problem.id === 'radarr-queue')) return 'Queue warnings';
-      const stats = this.arrStats();
-      if ((stats?.[0]?.value ?? 0) > 0) return 'Missing movies';
-      if ((stats?.[2]?.value ?? 0) > 0) return 'Queue warnings';
-      return '';
-    }
-    return '';
-  }
+    return isArrId(id) ? arrSectionHeading(id as 'sonarr' | 'radarr', this.selectedProblems(), this.selectedStats()) : '';
+  });
 
   cardSubtitle(serviceId: string, card: DialogItemGroup): string {
     if (serviceId === 'radarr') return 'Missing movie';
@@ -294,6 +285,32 @@ function parseArrDetail(detail: string, serviceId: string): ArrStat[] | null {
     { value: parseInt(match[2], 10), label },
     { value: parseInt(match[3], 10), label: 'Queued' },
   ];
+}
+
+function parseProwlarrDetail(detail: string): ArrStat[] | null {
+  const match = PROWLARR_DETAIL_RE.exec(detail);
+  if (!match) return null;
+  return [
+    { value: parseInt(match[3], 10), label: 'Off' },
+    { value: parseInt(match[4], 10), label: 'Cooldown' },
+    { value: `${match[1]}/${match[2]}`, label: 'Enabled' },
+  ];
+}
+
+function arrSectionHeading(
+  id: 'sonarr' | 'radarr',
+  problems: AutomationProblem[],
+  stats: ArrStat[] | null,
+): string {
+  const config =
+    id === 'sonarr'
+      ? { missingId: 'sonarr-missing', queueId: 'sonarr-queue', label: 'Missing episodes' }
+      : { missingId: 'radarr-missing', queueId: 'radarr-queue', label: 'Missing movies' };
+  if (problems.some((problem) => problem.id === config.missingId)) return config.label;
+  if (problems.some((problem) => problem.id === config.queueId)) return 'Queue warnings';
+  if (Number(stats?.[0]?.value ?? 0) > 0) return config.label;
+  if (Number(stats?.[2]?.value ?? 0) > 0) return 'Queue warnings';
+  return '';
 }
 
 function isArrId(id: string): boolean {

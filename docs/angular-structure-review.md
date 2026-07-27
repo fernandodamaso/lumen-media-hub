@@ -5,6 +5,10 @@ Review of the structure, component boundaries, and missing modern Angular practi
 **Angular version:** 22.0.6
 **Reviewed:** 2026-07-16
 
+> **Historical review.** This document records the pre-component-folder layout
+> and the state of the application at the review date. See
+> [`docs/architecture.md`](architecture.md) for the current frontend structure.
+
 ## Overall verdict
 
 This is a well-structured, genuinely modern Angular application. Its architecture is stronger than its current hardening: feature ownership, standalone components, signal-based state, the facade boundary, the API port/adapters, and the local design system are all good choices. The remaining problems are not a reason to redesign the project or introduce a heavier state-management layer.

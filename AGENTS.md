@@ -24,6 +24,28 @@ Live proxy: [`projects/dashboard/proxy.conf.js`](projects/dashboard/proxy.conf.j
 
 Production Angular is a separate Docker image/Nginx reverse proxy on the same Compose network as `homepage-actions` (often published on `127.0.0.1:3000`). Local Angular Live remain on **`http://localhost:4200/`**.
 
+## Frontend structure
+
+The Angular app is organized by feature under `projects/dashboard/src/app`.
+Component resources stay co-located in folders named after the component:
+
+```text
+dashboard/
+  dashboard-page/
+  automation-card/
+  metric-card/
+  dashboard-refresh.ts
+
+library/
+  library-page/
+  library-card/
+  library-poster-grid/
+```
+
+Keep each component's `.ts`, `.html`, `.scss`, `.spec.ts`, and Storybook story together when present. Keep facades, models, formatters, and tests with their owning feature. Smaller features such as `calendar`, `automation`, and `discover` may remain flat. `ui` is the shared design-system boundary, and `media-stack` owns transport/API concerns.
+
+Do not create generic root-level `components/`, `services/`, `models/`, `pages/`, or `widgets/` folders, and do not introduce NgModules into this standalone Angular application.
+
 ## Do not
 
 - Add an Angular interceptor that embeds `ACTIONS_TOKEN`

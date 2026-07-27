@@ -11,6 +11,38 @@ Single Angular app (`dashboard`) owning the shell, feature boards, design system
 | `app/media-stack` | `MediaStackApi` port, mock/HTTP adapters, providers, wire DTOs + mappers |
 | Feature folders | Domain/display models, facades, boards/pages for `dashboard`, `downloads`, `reports`, `discover`, `calendar`, `automation`; shared service-health and storage facades feed the home dashboard |
 
+## Frontend organization
+
+The application uses feature-first organization. Component resources are
+co-located in folders named after the component rather than grouped into
+generic `components`, `pages`, or `widgets` folders:
+
+```text
+projects/dashboard/src/app/
+  dashboard/
+    dashboard-page/
+    automation-card/
+    metric-card/
+    dashboard-refresh.ts
+  library/
+    library-page/
+    library-card/
+    library-poster-grid/
+  calendar/       flat feature folder
+  automation/     flat feature folder
+  discover/       flat feature folder
+  ui/             shared design-system boundary
+  media-stack/    transport/API boundary
+```
+
+Each component folder keeps the component TypeScript file, template, styles,
+tests, and Storybook story together when present. Facades, models, formatters,
+and feature-specific transformations remain with their owning feature.
+
+The application is standalone and does not use NgModules. Do not introduce
+generic root-level type folders unless a real architectural boundary requires
+one.
+
 ## Data flow
 
 ### Production (Docker)

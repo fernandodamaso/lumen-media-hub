@@ -6,6 +6,7 @@ import { HttpMediaStackApi } from './http-media-stack-api';
 import {
   mapLiveAutomationSummary,
   mapLiveJellyfinItem,
+  mapLiveWatchNextItem,
   mapLiveSystemResourcesDisk,
   mapLiveTorrent,
 } from './live-api.mappers';
@@ -248,6 +249,49 @@ describe('live-api.mappers', () => {
   it('rejects jellyfin items that lack required identity', () => {
     expect(() => mapLiveJellyfinItem({ name: 'Dune' }, 'movie')).toThrow(/missing id/);
     expect(() => mapLiveJellyfinItem({ id: '1' }, 'movie')).toThrow(/missing name/);
+  });
+
+  it('maps watch-next items and rejects malformed progress or parent identity', () => {
+    expect(
+      mapLiveWatchNextItem({
+        id: 'ep-1',
+        parentId: 'series-1',
+        title: 'The Expanse',
+        subtitle: 'S04E02 · Jetsam',
+        kind: 'episode',
+        image: '/img',
+        progressPercent: 42,
+      }),
+    ).toMatchObject({
+      id: 'ep-1',
+      parentId: 'series-1',
+      title: 'The Expanse',
+      kind: 'episode',
+      progressPercent: 42,
+      posterUrl: '/img',
+    });
+
+    expect(() =>
+      mapLiveWatchNextItem({
+        id: 'mv-1',
+        parentId: 'series-1',
+        title: 'Dune',
+        subtitle: '',
+        kind: 'movie',
+        progressPercent: 10,
+      }),
+    ).toThrow(/movie parentId must be null/);
+
+    expect(() =>
+      mapLiveWatchNextItem({
+        id: 'ep-1',
+        parentId: 'series-1',
+        title: 'Show',
+        subtitle: '',
+        kind: 'episode',
+        progressPercent: Number.NaN,
+      }),
+    ).toThrow(/missing progressPercent/);
   });
 
   it('maps queue-only Sonarr degradation into queue problems when nothing is missing', () => {
@@ -1189,5 +1233,55 @@ describe('HttpMediaStackApi', () => {
       if (!(error instanceof Error)) return false;
       return error.message.includes('/api/qbt/torrents');
     });
+  });
+
+  it('GETs jellyfin watch-next and maps progress items', async () => {
+    const pending = api.listWatchNext();
+    const req = http.expectOne('/api/jellyfin/watch-next');
+    req.flush({
+      ok: true,
+      items: [
+        {
+          id: 'ep-1',
+          parentId: 'series-1',
+          title: 'The Expanse',
+          subtitle: 'S04E02 · Jetsam',
+          kind: 'episode',
+          image: '/img',
+          playable: true,
+          progressPercent: 42,
+        },
+      ],
+    });
+    const result = await pending;
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      id: 'ep-1',
+      title: 'The Expanse',
+      subtitle: 'S04E02 · Jetsam',
+      kind: 'episode',
+      progressPercent: 42,
+    });
+  });
+
+  it('rejects malformed watch-next envelopes and members', async () => {
+    const malformedEnvelope = api.listWatchNext();
+    http.expectOne('/api/jellyfin/watch-next').flush({ ok: false, error: 'watch-next unavailable' });
+    await expect(malformedEnvelope).rejects.toThrow('watch-next unavailable');
+
+    const malformedMember = api.listWatchNext();
+    http.expectOne('/api/jellyfin/watch-next').flush({
+      ok: true,
+      items: [{ id: 'ep-1', parentId: 'series-1', title: 'Show', kind: 'episode', progressPercent: null }],
+    });
+    await expect(malformedMember).rejects.toThrow(/missing progressPercent/);
+  });
+
+  it('aborts in-flight watch-next requests', async () => {
+    const abort = new AbortController();
+    const pending = api.listWatchNext(abort.signal);
+    http.expectOne('/api/jellyfin/watch-next');
+    abort.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
   });
 });

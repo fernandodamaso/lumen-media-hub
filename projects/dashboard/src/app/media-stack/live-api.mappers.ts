@@ -15,6 +15,7 @@ import {
   MediaStackExternalDiscoverItemDto,
 } from './wire/discover';
 import { MediaStackLibraryItemDto } from './wire/library';
+import { MediaStackWatchNextItemDto } from './wire/watch-next';
 import { MediaStackStorageVolumeDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
 
@@ -54,6 +55,35 @@ export interface LiveJellyfinListResponse {
   ok?: boolean;
   total?: number;
   items?: LiveJellyfinItem[];
+  error?: string;
+}
+
+/** Jellyfin watch-next item from GET /jellyfin/watch-next. */
+interface LiveWatchNextItem {
+  id?: string;
+  parentId?: string | null;
+  title?: string;
+  subtitle?: string;
+  kind?: string;
+  image?: string | null;
+  playable?: boolean;
+  progressPercent?: number;
+}
+
+interface ValidatedLiveWatchNextItem {
+  id: string;
+  parentId: string | null;
+  title: string;
+  subtitle: string;
+  kind: 'movie' | 'episode';
+  image?: string | null;
+  playable?: boolean;
+  progressPercent: number;
+}
+
+export interface LiveWatchNextListResponse {
+  ok?: boolean;
+  items?: LiveWatchNextItem[];
   error?: string;
 }
 
@@ -318,6 +348,74 @@ export function mapLiveJellyfinItem(
     artworkState: posterUrl ? 'ok' : 'missing',
     playable: true,
     rating: validated.rating,
+  };
+}
+
+function requireLiveWatchNextItem(raw: unknown, index = 0): ValidatedLiveWatchNextItem {
+  if (!isRecord(raw)) {
+    throw new Error(`Malformed watch-next response: member ${index} is not an object`);
+  }
+
+  const id = raw['id'];
+  const title = raw['title'];
+  const kindRaw = raw['kind'];
+  const progressPercent = raw['progressPercent'];
+  if (typeof id !== 'string' || !id.trim()) {
+    throw new Error(`Malformed watch-next response: member ${index} is missing id`);
+  }
+  if (typeof title !== 'string' || !title.trim()) {
+    throw new Error(`Malformed watch-next response: member ${index} is missing title`);
+  }
+  if (kindRaw !== 'movie' && kindRaw !== 'episode') {
+    throw new Error(`Malformed watch-next response: member ${index} has invalid kind`);
+  }
+  if (typeof progressPercent !== 'number' || !Number.isFinite(progressPercent)) {
+    throw new Error(`Malformed watch-next response: member ${index} is missing progressPercent`);
+  }
+
+  const subtitle = optionalString(raw, 'subtitle', index, 'watch-next') ?? '';
+  const parentIdRaw = raw['parentId'];
+  let parentId: string | null = null;
+  if (parentIdRaw !== undefined && parentIdRaw !== null) {
+    if (typeof parentIdRaw !== 'string') {
+      throw new Error(`Malformed watch-next response: member ${index} has invalid parentId`);
+    }
+    parentId = parentIdRaw.trim() || null;
+  }
+  if (kindRaw === 'episode' && !parentId) {
+    throw new Error(`Malformed watch-next response: member ${index} is missing parentId`);
+  }
+  if (kindRaw === 'movie' && parentId) {
+    throw new Error(`Malformed watch-next response: member ${index} movie parentId must be null`);
+  }
+
+  const playable = optionalBoolean(raw, 'playable', index, 'watch-next');
+
+  return {
+    id,
+    parentId,
+    title,
+    subtitle,
+    kind: kindRaw,
+    image: optionalNullableString(raw, 'image', index, 'watch-next'),
+    playable,
+    progressPercent,
+  };
+}
+
+export function mapLiveWatchNextItem(raw: unknown, index = 0): MediaStackWatchNextItemDto {
+  const validated = requireLiveWatchNextItem(raw, index);
+  const posterUrl = validated.image ?? undefined;
+  return {
+    id: validated.id,
+    parentId: validated.parentId,
+    title: validated.title,
+    subtitle: validated.subtitle,
+    kind: validated.kind,
+    posterUrl,
+    artworkState: posterUrl ? 'ok' : 'missing',
+    playable: validated.playable,
+    progressPercent: validated.progressPercent,
   };
 }
 

@@ -10,6 +10,7 @@ import { DownloadsCard } from '../../downloads/downloads-card';
 import { JELLYFIN_LINK_BASES } from '../../library/library.models';
 import { LibraryCard } from '../../library/library-card/library-card';
 import { LibraryItemsFacade } from '../../library/library-items.facade';
+import { WatchNextFacade } from '../../library/watch-next.facade';
 import { LibraryStatsFacade } from '../../library/library-stats.facade';
 import { StorageFacade } from '../../storage/storage.facade';
 import { formatRelativeTime } from '../../automation/automation-format';
@@ -39,6 +40,7 @@ export class DashboardPage {
   readonly health = inject(ServiceHealthFacade);
   readonly library = inject(LibraryStatsFacade);
   private readonly libraryItems = inject(LibraryItemsFacade);
+  private readonly watchNext = inject(WatchNextFacade);
   readonly downloads = inject(DownloadsFacade);
   readonly storage = inject(StorageFacade);
   private readonly calendar = inject(CalendarFacade);
@@ -47,6 +49,7 @@ export class DashboardPage {
   readonly isLoading = computed(
     () =>
       this.libraryItems.status() === 'loading' ||
+      this.watchNext.status() === 'loading' ||
       this.library.status() === 'loading' ||
       this.downloads.status() === 'loading' ||
       this.calendar.status() === 'loading' ||
@@ -152,6 +155,7 @@ export class DashboardPage {
       health: this.health,
       libraryItems: this.libraryItems,
       libraryStats: this.library,
+      watchNext: this.watchNext,
       downloads: this.downloads,
       storage: this.storage,
       calendar: this.calendar,

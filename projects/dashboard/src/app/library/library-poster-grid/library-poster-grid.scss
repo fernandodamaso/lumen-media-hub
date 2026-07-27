@@ -28,7 +28,9 @@
 }
 
 .poster-rail--carousel .poster-rail__nav-layer {
-  height: calc(((100cqw - 4 * var(--poster-rail-gap)) / 5) * 3 / 2);
+  height: calc(
+    ((100cqw - (var(--poster-rail-columns, 5) - 1) * var(--poster-rail-gap, 18px)) / var(--poster-rail-columns, 5)) * 3 / 2
+  );
 }
 
 .poster-rail__nav {
@@ -94,7 +96,8 @@
 }
 
 .posters--compact {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--poster-rail-columns, 5), minmax(0, 1fr));
+  gap: var(--poster-rail-gap, 18px);
 }
 
 .posters--page {

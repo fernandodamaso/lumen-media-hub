@@ -275,6 +275,22 @@ describe('MockMediaStackApi', () => {
     expect(again.items[0].title).not.toBe('Mutated');
   });
 
+  it('lists watch-next items with episode and movie progress', async () => {
+    const api: MediaStackApi = createApi();
+    const result = await api.listWatchNext();
+    expect(result.items.length).toBeGreaterThanOrEqual(3);
+    expect(result.items.some((item) => item.kind === 'episode' && item.progressPercent > 0)).toBe(true);
+    expect(result.items.some((item) => item.kind === 'movie')).toBe(true);
+    expect(result.items.some((item) => item.artworkState === 'missing')).toBe(true);
+  });
+
+  it('returns an empty watch-next list in the empty demo scenario', async () => {
+    const api = createApi();
+    api.setWatchNextScenario('empty');
+    const result = await api.listWatchNext();
+    expect(result.items).toEqual([]);
+  });
+
   it('provides mixed cron-log history covering failures, actionable, and quiet runs', async () => {
     const api: MediaStackApi = createApi();
     const response = await api.listCronLogs();

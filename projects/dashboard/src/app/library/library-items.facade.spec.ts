@@ -183,7 +183,12 @@ class MockApi implements MediaStackApi {
   }
   listLibraryItems(): Promise<LibraryListResult> {
     if (this.nextResponse) return this.nextResponse;
-    return this.failure ? Promise.reject(new Error('offline')) : Promise.resolve({ ...this.result, items: [...this.result.items] });
+    return this.failure
+      ? Promise.reject(new Error('offline'))
+      : Promise.resolve({ ...this.result, items: [...this.result.items] });
+  }
+  listWatchNext() {
+    return Promise.resolve({ items: [] });
   }
   getAutomationSummary() {
     return Promise.resolve({

@@ -18,6 +18,7 @@ import { CalendarFacade } from '../calendar/calendar.facade';
 import { DownloadsFacade } from '../downloads/downloads.facade';
 import { JELLYFIN_LINK_BASES, resolveJellyfinItemLink } from '../library/library.models';
 import { LibraryItemsFacade } from '../library/library-items.facade';
+import { WatchNextFacade } from '../library/watch-next.facade';
 import { LibraryStatsFacade } from '../library/library-stats.facade';
 import { SERVICE_LINK_BASES } from '../media-stack/media-stack-api.providers';
 import { StorageFacade } from '../storage/storage.facade';
@@ -44,6 +45,7 @@ export class CommandPalette {
   private readonly router = inject(Router);
   private readonly health = inject(ServiceHealthFacade);
   private readonly libraryItems = inject(LibraryItemsFacade);
+  private readonly watchNext = inject(WatchNextFacade);
   private readonly libraryStats = inject(LibraryStatsFacade);
   private readonly downloads = inject(DownloadsFacade);
   private readonly storage = inject(StorageFacade);
@@ -143,6 +145,7 @@ export class CommandPalette {
             health: this.health,
             libraryItems: this.libraryItems,
             libraryStats: this.libraryStats,
+            watchNext: this.watchNext,
             downloads: this.downloads,
             storage: this.storage,
             calendar: this.calendar,

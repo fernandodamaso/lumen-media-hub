@@ -206,6 +206,9 @@ class MockApi implements MediaStackApi {
   listLibraryItems() {
     return Promise.resolve({ items: [], availability: 'complete' as const });
   }
+  listWatchNext() {
+    return Promise.resolve({ items: [] });
+  }
   getAutomationSummary() {
     return Promise.resolve({
       generatedAt: '',

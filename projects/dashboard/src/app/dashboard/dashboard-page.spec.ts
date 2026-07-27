@@ -108,6 +108,15 @@ describe('DashboardPage composition', () => {
   it('keeps other regions usable when one feature fails', () => {
     library.status.set('error');
     library.error.set('Library stats offline');
+    libraryItems.status.set('ready');
+    health.status.set('ready');
+    health.summary.set({
+      generatedAt: new Date().toISOString(),
+      services: [{ id: 'jellyfin', name: 'Jellyfin', status: 'healthy', detail: '', latencyMs: 10 }],
+      problems: [],
+      preview: [],
+      availability: { services: 'present', preview: 'empty', problems: 'empty' },
+    });
     downloads.status.set('ready');
     downloads.torrents.set([torrent()]);
     automation.status.set('ready');
@@ -123,6 +132,157 @@ describe('DashboardPage composition', () => {
     expect(root.querySelector('[data-region="upcoming"]')).toBeTruthy();
     expect(root.querySelector('[data-region="automation"]')).toBeTruthy();
     expect(root.querySelector('[data-testid="dashboard-grid"]')).toBeTruthy();
+  });
+
+  it('shows shimmer skeletons in the metrics row while the dashboard gate is active', () => {
+    library.status.set('loading');
+    libraryItems.status.set('loading');
+    downloads.status.set('loading');
+    health.status.set('loading');
+    storage.status.set('loading');
+    calendar.status.set('loading');
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    const metrics = root.querySelector('.metrics-row');
+    expect(metrics?.querySelectorAll('mm-skeleton').length).toBeGreaterThan(0);
+    expect(metrics?.querySelectorAll('.metric-card--skeleton')).toHaveLength(4);
+    expect(metrics?.textContent).not.toMatch(/0 downloads active/);
+    expect(metrics?.textContent).not.toMatch(/0\s*\/\s*0/);
+  });
+
+  it('keeps metric skeletons until all core facades leave loading', () => {
+    library.status.set('ready');
+    library.stats.set({ movies: 12, series: 3, availability: 'complete' });
+    libraryItems.status.set('ready');
+    health.status.set('ready');
+    health.summary.set({
+      generatedAt: new Date().toISOString(),
+      services: [{ id: 'jellyfin', name: 'Jellyfin', status: 'healthy', detail: '', latencyMs: 10 }],
+      problems: [],
+      preview: [],
+      availability: { services: 'present', preview: 'empty', problems: 'empty' },
+    });
+    storage.status.set('ready');
+    storage.overview.set(storageOverview());
+    calendar.status.set('ready');
+    downloads.status.set('loading');
+    fixture.detectChanges();
+
+    const metrics = fixtureHost(fixture).querySelector('.metrics-row');
+    expect(metrics?.querySelectorAll('.metric-card--skeleton')).toHaveLength(4);
+    expect(fixture.componentInstance.isLoading()).toBe(true);
+  });
+
+  it('exposes coordinated card reveal markup while the dashboard gate is active', () => {
+    library.status.set('loading');
+    libraryItems.status.set('loading');
+    downloads.status.set('loading');
+    health.status.set('loading');
+    storage.status.set('loading');
+    calendar.status.set('loading');
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    expect(root.querySelector('[data-testid="library-card"] .card__skeleton')).toBeTruthy();
+    expect(root.querySelector('[data-testid="library-card"] .card__chrome-skeleton')).toBeTruthy();
+    expect(root.querySelector('[data-testid="library-card"] .card__foot-skeleton')).toBeTruthy();
+    expect(root.querySelector('[data-testid="library-card"] .card__inner')).toBeTruthy();
+  });
+
+  it('shows ready card content when a sibling facade is still loading (D2)', () => {
+    library.status.set('loading');
+    library.stats.set(null);
+    libraryItems.status.set('loading');
+    // Health is ready with data
+    health.status.set('ready');
+    health.summary.set({
+      generatedAt: new Date().toISOString(),
+      services: [{ id: 'jellyfin', name: 'Jellyfin', status: 'healthy', detail: '', latencyMs: 10 }],
+      problems: [],
+      preview: [],
+      availability: { services: 'present', preview: 'empty', problems: 'empty' },
+    });
+    downloads.status.set('ready');
+    downloads.torrents.set([torrent()]);
+    downloads.summary.set({ active: 1, total: 1, downloaded: 50, size: 100, downloadRate: 10, uploadRate: 2 });
+    automation.status.set('ready');
+    automation.tasks.set([cronRun()]);
+    calendar.status.set('empty');
+    storage.status.set('ready');
+    storage.overview.set(storageOverview());
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    // Library is loading — its skeleton content must be visible (not display:none)
+    const libSkeletonMain = root.querySelector('[data-testid="library-card"] .card__skeleton-main');
+    expect(libSkeletonMain).toBeTruthy();
+    expect(window.getComputedStyle(libSkeletonMain as HTMLElement).display).toBe('grid');
+    // Health is ready — its content should not be hidden
+    const healthCard = root.querySelector('[data-testid="automation-card"]');
+    expect(healthCard?.textContent).toContain('Connected services');
+    expect(healthCard?.textContent).toContain('Jellyfin');
+    // Downloads is ready — its torrent list should be visible
+    expect(root.querySelector('[data-testid="downloads-card"] .torrent-list')).toBeTruthy();
+    // The grid itself is always rendered
+    expect(root.querySelector('[data-testid="dashboard-grid"]')).toBeTruthy();
+  });
+
+  it('shows error state in one card while another card is still loading (D2)', () => {
+    library.status.set('loading');
+    libraryItems.status.set('loading');
+    // Downloads hits error while library loads
+    downloads.status.set('error');
+    downloads.error.set('Connection lost');
+    health.status.set('ready');
+    health.summary.set({
+      generatedAt: new Date().toISOString(),
+      services: [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: '', latencyMs: 12 }],
+      problems: [],
+      preview: [],
+      availability: { services: 'present', preview: 'empty', problems: 'empty' },
+    });
+    automation.status.set('ready');
+    automation.tasks.set([cronRun()]);
+    calendar.status.set('empty');
+    storage.status.set('ready');
+    storage.overview.set(storageOverview());
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    const libSkeletonMain = root.querySelector('[data-testid="library-card"] .card__skeleton-main');
+    expect(libSkeletonMain).toBeTruthy();
+    expect(window.getComputedStyle(libSkeletonMain as HTMLElement).display).toBe('grid');
+    expect(root.querySelector('[data-testid="downloads-card"] mm-state-card')?.textContent).toContain('Connection lost');
+  });
+
+  it('keeps card region headings visible while its facade is loading (D3)', () => {
+    library.status.set('loading');
+    library.stats.set(null);
+    libraryItems.status.set('loading');
+    // Other facades ready so the class-based loader is irrelevant
+    health.status.set('loading');
+    downloads.status.set('loading');
+    automation.status.set('ready');
+    automation.tasks.set([cronRun()]);
+    calendar.status.set('empty');
+    storage.status.set('ready');
+    storage.overview.set(storageOverview());
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    // The h2 that labels the card via aria-labelledby must not be hidden
+    const heading = root.querySelector('#library-heading');
+    expect(heading).toBeTruthy();
+    expect(heading?.classList.contains('card__heading')).toBe(true);
+    expect(window.getComputedStyle(heading as HTMLElement).visibility).not.toBe('hidden');
+  });
+
+  it('clears the dashboard loading gate when core facades are ready', () => {
+    setReady();
+    libraryItems.status.set('ready');
+    fixture.detectChanges();
+    expect(fixture.componentInstance.isLoading()).toBe(false);
   });
 
   it('renders regions immediately without an entrance animation', () => {
@@ -219,6 +379,7 @@ describe('DashboardPage composition', () => {
 
   function setReady(): void {
     health.status.set('ready');
+    libraryItems.status.set('ready');
     health.summary.set({
       generatedAt: new Date().toISOString(),
       services: [
@@ -340,7 +501,7 @@ function createLibraryStatsFacade() {
 
 function createLibraryItemsFacade() {
   return {
-    status: signal<LibraryItemsStatus>('ready'),
+    status: signal<LibraryItemsStatus>('loading'),
     items: signal<LibraryItem[]>([]),
     error: signal(''),
     availability: signal<'complete' | 'partial'>('complete'),

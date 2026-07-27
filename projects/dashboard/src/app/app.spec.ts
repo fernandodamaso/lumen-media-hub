@@ -38,7 +38,14 @@ describe('App shell', () => {
       providers: [
         provideRouter(routes),
         provideLocationMocks(),
-        { provide: MEDIA_STACK_API, useClass: MockMediaStackApi },
+        {
+          provide: MEDIA_STACK_API,
+          useFactory: () => {
+            const api = new MockMediaStackApi();
+            api.latencyMs = 0;
+            return api;
+          },
+        },
         ...provideOperationalLinkBases(),
         ...provideCommandPaletteFacadeMocks(),
       ],
@@ -105,7 +112,14 @@ describe('App shell', () => {
       providers: [
         provideRouter(routes),
         provideLocationMocks(),
-        { provide: MEDIA_STACK_API, useClass: MockMediaStackApi },
+        {
+          provide: MEDIA_STACK_API,
+          useFactory: () => {
+            const api = new MockMediaStackApi();
+            api.latencyMs = 0;
+            return api;
+          },
+        },
         ...provideOperationalLinkBases(),
         {
           provide: ServiceHealthFacade,
@@ -158,7 +172,14 @@ describe('App shell', () => {
       providers: [
         provideRouter(routes),
         provideLocationMocks(),
-        { provide: MEDIA_STACK_API, useClass: MockMediaStackApi },
+        {
+          provide: MEDIA_STACK_API,
+          useFactory: () => {
+            const api = new MockMediaStackApi();
+            api.latencyMs = 0;
+            return api;
+          },
+        },
         ...provideOperationalLinkBases(),
         {
           provide: ServiceHealthFacade,

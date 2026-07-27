@@ -10,7 +10,7 @@
       </div>
     </div>
     <div class="card__chrome card__chrome--head card__chrome--head-split">
-      <h2 id="downloads-heading">Downloads</h2>
+      <h2 id="downloads-heading" class="card__heading">Downloads</h2>
       @if (facade.status() !== 'empty') {
         @let downRate = formatRateParts(facade.summary().downloadRate);
         @let upRate = formatRateParts(facade.summary().uploadRate);

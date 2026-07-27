@@ -85,15 +85,8 @@ mm-status {
   display: none;
 }
 
-:host-context(mm-dashboard-page.is-dashboard-loading) .card__skeleton-main.torrent-list {
+:host:has(.card__body[aria-busy="true"]) .card__skeleton-main.torrent-list {
   display: grid;
-}
-
-:host-context(mm-dashboard-page.is-dashboard-loading) .card__chrome,
-:host-context(mm-dashboard-page.is-dashboard-loading) .card__inner {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
 }
 
 .card__chrome-skeleton--downloads {
@@ -245,25 +238,8 @@ mm-status {
   padding-top: 14px;
 }
 
-.link-arrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--mm-component-accent-strong);
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-  transition: gap 0.15s, filter 0.15s;
-}
-
 .link-arrow:hover {
-  gap: 8px;
   filter: brightness(1.1);
-}
-
-.link-arrow:focus-visible {
-  outline: 3px solid var(--mm-component-focus-ring);
-  outline-offset: 2px;
 }
 
 :host mm-progress {

@@ -16,34 +16,18 @@
   @include dash.card-title;
 }
 
-.link-arrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--mm-component-accent-strong);
-  font-size: 12.5px;
-  font-weight: 600;
-  text-decoration: none;
-  transition: gap 0.15s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.link-arrow:hover {
-  gap: 7px;
-}
-
-.link-arrow:focus-visible {
-  outline: 3px solid var(--mm-component-focus-ring);
-  outline-offset: 2px;
-}
-
 mm-status {
   display: block;
   margin-bottom: 12px;
 }
 
-.upcoming-skeleton {
-  display: grid;
+.card__skeleton-main.upcoming-skeleton {
+  display: none;
   gap: 12px;
+}
+
+:host:has(.card__body[aria-busy="true"]) .card__skeleton-main.upcoming-skeleton {
+  display: grid;
 }
 
 .upcoming-skeleton__row {
@@ -56,6 +40,10 @@ mm-status {
 .upcoming-skeleton__copy {
   display: grid;
   gap: 8px;
+}
+
+.card__body--upcoming .card__inner-spacer {
+  min-height: 308px;
 }
 
 .day-label {

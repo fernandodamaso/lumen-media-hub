@@ -6,6 +6,26 @@ Angular 22 workspace for the Media Manager shell: a single `dashboard` app with 
 
 This is a monorepo. The Angular workspace lives in [`dashboard-app/`](dashboard-app/) — **run all npm commands there**. The repo root carries the production media stack: `docker-compose.yml`, the `homepage-actions` Live API under `config/homepage-actions/`, and the Hermes recommendation contract under `config/recommendations/`.
 
+## First-time install
+
+On a blank Windows machine (PowerShell 7+):
+
+```powershell
+.\install.ps1 -Mode both
+```
+
+| Mode | What it does |
+|------|--------------|
+| `frontend-dev` | Checks Node 20+, runs `npm ci` in `dashboard-app/`, prints Demo/Live commands |
+| `stack` | Checks Docker + Node, creates `.env` from `.env.example` (generated `ACTIONS_TOKEN`, prompted paths/password), builds and tags the dashboard image, `docker compose up -d`, prints the API-key checklist |
+| `both` | `frontend-dev`, then `stack` |
+
+Flags: `-Force` recreates `.env`; `-Gpu` merges `docker-compose.gpu.yml` (NVIDIA transcoding); `-SkipBuild` reuses the existing dashboard image.
+
+Prerequisites: Docker Desktop, Node.js 20+, PowerShell 7+. Optional: NVIDIA GPU + nvidia-container-toolkit for `-Gpu`.
+
+After `stack` mode, open each service UI, copy its API key into `.env`, then `docker compose up -d` to apply. The installer intentionally does not configure indexers, libraries, or service API keys — those need each app's first-run UI.
+
 ## Quick start (Demo / mock)
 
 ```bash
@@ -138,7 +158,7 @@ Switch from the top-bar theme picker; preference persists in `localStorage` (`me
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for the port ΓåÆ adapter ΓåÆ facade ΓåÆ page flow, Demo/Live modes, and operational link policy.
+See [dashboard-app/docs/architecture.md](dashboard-app/docs/architecture.md) for the port ΓåÆ adapter ΓåÆ facade ΓåÆ page flow, Demo/Live modes, and operational link policy.
 
 ## Testing
 

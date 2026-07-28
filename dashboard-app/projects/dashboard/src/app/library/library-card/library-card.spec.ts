@@ -72,7 +72,7 @@ describe('LibraryCard', () => {
     if (!(skeletonMain instanceof HTMLElement)) {
       throw new Error('Expected poster skeleton container');
     }
-    expect(skeletonMain.querySelectorAll('mm-skeleton').length).toBe(5);
+    expect(skeletonMain.querySelectorAll('mm-skeleton')).toHaveLength(5);
     // Four stacked 180px posters would be ~720px; one compact row stays near one poster tall.
     expect(skeletonMain.scrollHeight).toBeLessThan(400);
   });

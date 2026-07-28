@@ -94,7 +94,6 @@ function Initialize-EnvFile {
     'DOWNLOADS_PATH'  = $downloadsPath
     'ACTIONS_TOKEN'   = [guid]::NewGuid().ToString('N')
     'STACK_PASSWORD'  = $password
-    'QBT_PASSWORD'    = $password
   }
   $lines = Get-Content (Join-Path $RepoRoot '.env.example') | ForEach-Object {
     if ($_ -match '^([A-Z_]+)=' -and $values.ContainsKey($Matches[1])) {

@@ -52,7 +52,9 @@ TRAKT_ACCESS_TOKEN = os.environ.get("TRAKT_ACCESS_TOKEN", "")
 
 HERMES_COLLECTION_NAME = os.environ.get("HERMES_COLLECTION_NAME", "Hermes Picks")
 
-_cors_raw = os.environ.get("CORS_ORIGINS") or os.environ.get("CORS_ORIGIN", "*")
+_cors_raw = os.environ.get("CORS_ORIGINS") or os.environ.get(
+    "CORS_ORIGIN", "http://localhost:3000,http://localhost:4200"
+)
 CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
 ACTIONS_TOKEN = os.environ.get("ACTIONS_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8085"))

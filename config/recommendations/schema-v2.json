@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.media/hermes/recommendations.schema-v2.json",
+  "title": "Hermes Recommendations v2",
+  "description": "Versioned contract for config/recommendations/recommendations.json. Enforced at write time by RecommendationStore.validate_v2 in config/homepage-actions/recommendations_store.py (hand-rolled, stdlib-only); keep this document and that validator in sync.",
+  "type": "object",
+  "required": ["version", "revision", "updated_at", "presented_tmdb_ids", "items"],
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "const": 2
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonically incremented by RecommendationStore on every successful mutation."
+    },
+    "updated_at": {
+      "type": "string",
+      "description": "UTC ISO-8601 timestamp (YYYY-MM-DDTHH:MM:SSZ) of the last committed mutation."
+    },
+    "presented_tmdb_ids": {
+      "type": "array",
+      "description": "Append-only deny set of every TMDB ID ever presented by Hermes.",
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "type",
+          "title",
+          "tmdb_id",
+          "reason",
+          "active",
+          "feedback",
+          "feedback_at",
+          "request_state",
+          "requested_at",
+          "jellyseerr_request_id",
+          "added_at"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "description": "Origin of the row; the dashboard feed shows source=hermes."
+          },
+          "type": {
+            "enum": ["movie", "tv"]
+          },
+          "title": {
+            "type": "string"
+          },
+          "year": {
+            "type": ["integer", "null"]
+          },
+          "tmdb_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether the title belongs in the default recommendation feed."
+          },
+          "feedback": {
+            "enum": [null, "liked", "disliked", "watched", "skipped"],
+            "description": "User feedback dimension. Independent of request_state."
+          },
+          "feedback_at": {
+            "type": ["string", "null"]
+          },
+          "request_state": {
+            "enum": [null, "requested"],
+            "description": "Request lifecycle dimension. Independent of feedback."
+          },
+          "requested_at": {
+            "type": ["string", "null"]
+          },
+          "jellyseerr_request_id": {
+            "type": ["integer", "null"]
+          },
+          "poster_path": {
+            "type": ["string", "null"]
+          },
+          "notes": {
+            "type": ["string", "null"]
+          },
+          "added_at": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

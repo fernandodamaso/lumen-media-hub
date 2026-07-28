@@ -1,63 +1,45 @@
-# See https://docs.github.com/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+# Secrets — never commit
+.env
+.env.*
+!.env.example
 
-# Compiled output
-/dist
-/tmp
-/out-tsc
-/bazel-out
+# Stack runtime state (app configs contain API keys)
+config/**
+!config/homepage-actions/
+!config/homepage-actions/**
+config/homepage-actions/__pycache__/
+!config/recommendations/
+!config/recommendations/schema-v2.json
+!config/recommendations/schema-v3.json
+!config/recommendations/recommendations.example.json
+!config/recommendations/HERMES_DISCOVER_PROMPT.md
+!config/recommendations/README.md
 
-# Node
-/node_modules
-npm-debug.log
-yarn-error.log
+# Media data (large volumes)
+downloads/
+media/
+tmp/
 
-# IDEs and editors
-.idea/
-.project
-.classpath
-.c9/
-*.launch
-.settings/
-*.sublime-workspace
+# Legacy React dashboard source (retained until 2026-08-11, then deleted; history in the media-stack backup repo)
+dashboard/
 
-# Visual Studio Code
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-!.vscode/mcp.json
-.history/*
+# Ops scripts and ops docs (host-specific detail, hardcoded lab creds; not part of the public project)
+scripts/
+docs/
 
-# Miscellaneous
-/.angular/cache
-.sass-cache/
-/connect.lock
-/coverage
-/libpeerconnection.log
-testem.log
-/typings
-__screenshots__/
+# Local scratch
+.codex/
+.scratch/
+.superpowers/
 .playwright-cli/
-/documentation.json
-/test-results
-/playwright-report
+IDEA.md
+fonts/
 
-# System files
+# Temp / OS
+*.tmp
+*.log
+*.pid
 .DS_Store
 Thumbs.db
-
-# Git worktrees
-.worktrees/
-
-# OpenCode local tooling state
-.opencode/
-
-# Local commandcode scratch
-.commandcode/
-
-# Local design-exploration mockups (logs, screenshots, scratch HTML)
-/docs/mockups/
-
-/storybook-static
-/.playwright-mcp
+desktop.ini
+.hermes/

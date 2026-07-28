@@ -2,14 +2,9 @@
 
 Angular 22 workspace for the Media Manager shell: a single `dashboard` app with local design system (`app/ui`) and API boundary (`app/media-stack`). Containerized with Nginx reverse proxy for Docker deployment.
 
-## Repository layout
-
-This is a monorepo. The Angular workspace lives in [`dashboard-app/`](dashboard-app/) — **run all npm commands there**. The repo root carries the production media stack: `docker-compose.yml`, the `homepage-actions` Live API under `config/homepage-actions/`, and the Hermes recommendation contract under `config/recommendations/`.
-
 ## Quick start (Demo / mock)
 
 ```bash
-cd dashboard-app
 npm ci
 npm start
 ```

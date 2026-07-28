@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.media/hermes/recommendations.schema-v3.json",
+  "title": "Hermes Recommendations v3",
+  "description": "Versioned contract for config/recommendations/recommendations.json. v3 uses composite movie/tv identities; numeric v2 history is represented by legacy tombstones.",
+  "type": "object",
+  "required": ["version", "revision", "updated_at", "presented_media_ids", "items"],
+  "additionalProperties": true,
+  "properties": {
+    "version": { "const": 3 },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updated_at": { "type": "string" },
+    "presented_media_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Append-only deny set of composite identities. legacy:<id> conservatively blocks both movie:<id> and tv:<id>.",
+      "items": {
+        "type": "string",
+        "pattern": "^(?:(?:movie|tv):[1-9][0-9]*|legacy:[1-9][0-9]*)$"
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "identity",
+          "source",
+          "type",
+          "title",
+          "tmdb_id",
+          "reason",
+          "active",
+          "feedback",
+          "feedback_at",
+          "request_state",
+          "requested_at",
+          "jellyseerr_request_id",
+          "added_at"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^hermes-(?:movie|tv)-[1-9][0-9]*$"
+          },
+          "identity": {
+            "type": "string",
+            "pattern": "^(?:movie|tv):[1-9][0-9]*$"
+          },
+          "source": { "type": "string" },
+          "type": { "enum": ["movie", "tv"] },
+          "title": { "type": "string" },
+          "year": { "type": ["integer", "null"] },
+          "tmdb_id": { "type": "integer", "minimum": 1 },
+          "reason": { "type": "string" },
+          "active": { "type": "boolean" },
+          "feedback": {
+            "enum": [null, "liked", "disliked", "watched", "skipped"]
+          },
+          "feedback_at": { "type": ["string", "null"] },
+          "request_state": { "enum": [null, "requested"] },
+          "requested_at": { "type": ["string", "null"] },
+          "jellyseerr_request_id": { "type": ["integer", "null"] },
+          "poster_path": { "type": ["string", "null"] },
+          "notes": { "type": ["string", "null"] },
+          "in_library": { "type": "boolean" },
+          "jellyfin_id": { "type": ["string", "null"] },
+          "poster_url": { "type": ["string", "null"] },
+          "added_at": { "type": "string" }
+        }
+      }
+    }
+  }
+}

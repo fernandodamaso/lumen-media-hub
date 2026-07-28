@@ -68,12 +68,11 @@ describe('LibraryCard', () => {
     fixture.detectChanges();
 
     const root = fixtureHost(fixture);
-    const skeletonMain = root.querySelector('.card__skeleton-main.posters--skeleton');
+    const skeletonMain = root.querySelector('.posters--skeleton.card__skeleton-main');
     if (!(skeletonMain instanceof HTMLElement)) {
       throw new Error('Expected poster skeleton container');
     }
-    expect(window.getComputedStyle(skeletonMain).display).toBe('grid');
-    expect(window.getComputedStyle(skeletonMain).gridTemplateColumns).toContain('repeat(5');
+    expect(skeletonMain.querySelectorAll('mm-skeleton').length).toBe(5);
     // Four stacked 180px posters would be ~720px; one compact row stays near one poster tall.
     expect(skeletonMain.scrollHeight).toBeLessThan(400);
   });

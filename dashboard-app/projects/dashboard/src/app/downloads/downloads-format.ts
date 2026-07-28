@@ -22,7 +22,7 @@ function clamp(value: number): number {
 
 function normalizeState(state: string): TorrentState {
   const normalized = state.toLowerCase();
-  if (normalized.includes('paused')) return 'paused';
+  if (normalized.includes('paused') || normalized.startsWith('stopped')) return 'paused';
   if (normalized.includes('error')) return 'error';
   if (normalized.includes('check')) return 'checking';
   if (normalized.includes('queued')) return 'queued';

@@ -39,18 +39,25 @@ function Assert-Command([string]$Name, [string]$InstallHint) {
 }
 
 function Assert-Node {
-  Assert-Command 'node' 'Install Node.js 20+ from https://nodejs.org/'
-  Assert-Command 'npm' 'Install Node.js 20+ from https://nodejs.org/'
-  $major = [int]((node --version).TrimStart('v').Split('.')[0])
-  if ($major -lt 20) { throw "Node.js 20+ required, found $(node --version)." }
+  Assert-Command 'node' 'Install Node.js from https://nodejs.org/'
+  Assert-Command 'npm' 'Install Node.js from https://nodejs.org/'
   Write-Host "node $(node --version), npm $(npm --version)"
 }
 
-function Assert-Docker {
-  Assert-Command 'docker' 'Install Docker Desktop: https://www.docker.com/products/docker-desktop/'
-  docker compose version | Out-Null
-  Assert-ExitCode 'docker compose version'
-  Write-Host (docker --version)
+function Assert-AngularNodeEngine {
+  Push-Location $DashboardApp
+  try {
+    node -e @"
+const semver = require('semver');
+const pkg = require('@angular/cli/package.json');
+const version = process.version.replace(/^v/, '');
+if (!semver.satisfies(version, pkg.engines.node)) {
+  console.error('Node ' + process.version + ' does not satisfy Angular CLI requirement: ' + pkg.engines.node);
+  process.exit(1);
+}
+"@
+    Assert-ExitCode 'Angular CLI Node engine check'
+  } finally { Pop-Location }
 }
 
 function Format-DotEnvValue([string]$Value) {
@@ -59,7 +66,7 @@ function Format-DotEnvValue([string]$Value) {
 }
 
 function Read-Value([string]$Prompt, [string]$Default, [string]$EnvVar) {
-  $fromEnv = (Get-Item -Path "Env:$EnvVar" -ErrorAction SilentlyContinue).Value
+  $fromEnv = [Environment]::GetEnvironmentVariable($EnvVar)
   if ($fromEnv) { return $fromEnv }
   if ($Interactive) {
     $answer = Read-Host "$Prompt [$Default]"
@@ -68,18 +75,46 @@ function Read-Value([string]$Prompt, [string]$Default, [string]$EnvVar) {
   return $Default
 }
 
-function Invoke-NpmCi {
-  if ($script:NpmCiComplete) { return }
-  Push-Location $DashboardApp
-  try {
-    npm ci
-    Assert-ExitCode 'npm ci'
-    $script:NpmCiComplete = $true
-  } finally { Pop-Location }
+function Get-EnvMap([string[]]$Lines) {
+  $map = @{}
+  foreach ($line in $Lines) {
+    if ($line -match '^([A-Z_]+)=(.*)$') {
+      $map[$Matches[1]] = $Matches[2]
+    }
+  }
+  return $map
+}
+
+function Unquote-DotEnvValue([string]$Value) {
+  if ($Value -match '^"(.*)"$') { return $Matches[1].Replace('\"', '"').Replace('\\', '\') }
+  return $Value
+}
+
+function Merge-MissingEnvKeys {
+  $lines = [System.Collections.Generic.List[string]]::new()
+  $lines.AddRange([string[]](Get-Content $EnvFile))
+  $map = Get-EnvMap $lines
+  $changed = $false
+
+  if (-not $map.ContainsKey('DOWNLOADS_PATH')) {
+    $root = if ($map['ROOT_PATH']) { (Unquote-DotEnvValue $map['ROOT_PATH']) -replace '\\', '/' } else { $RepoRoot -replace '\\', '/' }
+    $lines.Add("DOWNLOADS_PATH=$(Format-DotEnvValue "$root/downloads")")
+    $changed = $true
+  }
+  if (-not $map.ContainsKey('QBT_PASSWORD') -and $map.ContainsKey('STACK_PASSWORD')) {
+    $lines.Add("QBT_PASSWORD=$($map['STACK_PASSWORD'])")
+    $changed = $true
+  }
+
+  if ($changed) {
+    Set-Content -Path $EnvFile -Value $lines -Encoding utf8
+    Write-Host 'Added missing keys to .env (DOWNLOADS_PATH and/or QBT_PASSWORD).'
+  }
 }
 
 function Initialize-EnvFile {
   if ((Test-Path $EnvFile) -and -not $Force) {
+    Merge-MissingEnvKeys
     Write-Host ".env already exists (use -Force to recreate). Keeping it."
     return
   }
@@ -94,6 +129,7 @@ function Initialize-EnvFile {
     'DOWNLOADS_PATH'  = $downloadsPath
     'ACTIONS_TOKEN'   = [guid]::NewGuid().ToString('N')
     'STACK_PASSWORD'  = $password
+    'QBT_PASSWORD'    = $password
   }
   $lines = Get-Content (Join-Path $RepoRoot '.env.example') | ForEach-Object {
     if ($_ -match '^([A-Z_]+)=' -and $values.ContainsKey($Matches[1])) {
@@ -102,6 +138,17 @@ function Initialize-EnvFile {
   }
   Set-Content -Path $EnvFile -Value $lines -Encoding utf8
   Write-Host "Wrote $EnvFile (gitignored; never commit it)."
+}
+
+function Invoke-NpmCi {
+  if ($script:NpmCiComplete) { return }
+  Push-Location $DashboardApp
+  try {
+    npm ci
+    Assert-ExitCode 'npm ci'
+    $script:NpmCiComplete = $true
+    Assert-AngularNodeEngine
+  } finally { Pop-Location }
 }
 
 function Build-DashboardImage {
@@ -125,12 +172,12 @@ function Build-DashboardImage {
 
 function Invoke-Stack {
   Assert-Docker
-  Assert-Node   # dashboard image is built from source
+  Assert-Node
   Initialize-EnvFile
 
   $envContent = Get-Content $EnvFile -Raw
   if ($envContent -match '(?m)^DOWNLOADS_PATH=(?:"([^"]*)"|([^\r\n]+))') {
-    $downloadsDir = if ($Matches[1]) { $Matches[1] } else { $Matches[2].Trim() }
+    $downloadsDir = if ($Matches[1]) { $Matches[1] } else { (Unquote-DotEnvValue $Matches[2].Trim()) }
     New-Item -ItemType Directory -Force $downloadsDir | Out-Null
   }
 
@@ -170,7 +217,7 @@ Stack is up. Remaining manual steps (one-time):
        Jellyseerr  http://127.0.0.1:5055
   2. Apply the keys:  docker compose up -d
   3. Dashboard:       http://127.0.0.1:3000
-  qBittorrent WebUI:  http://127.0.0.1:8081 (admin / password you set)
+  qBittorrent WebUI:  http://127.0.0.1:8081 (admin; set WebUI password to match STACK_PASSWORD in .env on first login)
 "@
 }
 

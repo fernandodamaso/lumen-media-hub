@@ -350,6 +350,14 @@ class ApiResilienceTests(PosterEnrichmentTestCase):
         self._old_store = main.RECOMMENDATIONS_STORE
         main.RECOMMENDATIONS_STORE = self.store
         self.addCleanup(self._restore_store)
+        self._old_generation_request_path = main.GENERATION_REQUEST_PATH
+        main.GENERATION_REQUEST_PATH = os.path.join(
+            self.tmpdir, "generation-request.json"
+        )
+        self.addCleanup(self._restore_generation_request_path)
+
+    def _restore_generation_request_path(self):
+        main.GENERATION_REQUEST_PATH = self._old_generation_request_path
 
     def _restore_store(self):
         main.RECOMMENDATIONS_STORE = self._old_store

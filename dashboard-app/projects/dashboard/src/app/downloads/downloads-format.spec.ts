@@ -27,7 +27,9 @@ describe('downloads format / torrent mapping', () => {
     });
   });
 
-  it.each(['paused', 'pausedDL', 'PAUSEDUP'])('maps qBittorrent paused state %s case-insensitively', (state) => {
+  it.each(['paused', 'pausedDL', 'PAUSEDUP', 'stoppedDL', 'stoppedUP'])(
+    'maps qBittorrent paused/stopped state %s case-insensitively',
+    (state) => {
     const torrent = mapTorrent({
       hash: 'paused',
       name: 'Paused',

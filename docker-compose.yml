@@ -62,7 +62,7 @@ services:
       - UMASK=${UMASK}
     volumes:
       - ${ROOT_PATH}:/data
-      - ${DOWNLOADS_PATH}:/downloads
+      - ${DOWNLOADS_PATH:-./downloads}:/downloads
       - ./config/radarr:/config
     logging:
       driver: json-file
@@ -85,7 +85,7 @@ services:
       - UMASK=${UMASK}
     volumes:
       - ${ROOT_PATH}:/data
-      - ${DOWNLOADS_PATH}:/downloads
+      - ${DOWNLOADS_PATH:-./downloads}:/downloads
       - ./config/sonarr:/config
     logging:
       driver: json-file

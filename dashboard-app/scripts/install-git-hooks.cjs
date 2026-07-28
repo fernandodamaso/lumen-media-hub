@@ -1,20 +1,27 @@
 'use strict';
 
 const { chmodSync, existsSync } = require('node:fs');
-const { spawnSync } = require('node:child_process');
+const { execSync, spawnSync } = require('node:child_process');
 const path = require('node:path');
 
-const root = path.resolve(__dirname, '..');
-const gitDir = path.join(root, '.git');
-const hooksPath = 'githooks';
-const preCommit = path.join(root, hooksPath, 'pre-commit');
+const dashboardApp = path.resolve(__dirname, '..');
+const hooksDir = path.join(dashboardApp, 'githooks');
+const preCommit = path.join(hooksDir, 'pre-commit');
 
-if (!existsSync(gitDir)) {
+let gitRoot;
+try {
+  gitRoot = execSync('git rev-parse --show-toplevel', {
+    cwd: dashboardApp,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
+} catch {
   process.exit(0);
 }
 
+const hooksPath = path.relative(gitRoot, hooksDir).split(path.sep).join('/');
 const result = spawnSync('git', ['config', 'core.hooksPath', hooksPath], {
-  cwd: root,
+  cwd: gitRoot,
   stdio: 'inherit',
   shell: process.platform === 'win32',
 });

@@ -20,6 +20,7 @@ import {
   LibraryListResult,
   LibraryStats,
 } from '../library/library.models';
+import { WatchNextResult } from '../library/watch-next.models';
 import { AutomationService, AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
@@ -34,6 +35,7 @@ import {
   toDiscoverRequestPayloadDto,
 } from '../discover/discover-format';
 import { mapLibraryItem, mapLibraryStats } from '../library/library-format';
+import { mapWatchNextItem } from '../library/watch-next-format';
 import { mapTorrent } from '../downloads/downloads-format';
 import { mapStorageOverview } from '../storage/storage-format';
 import { MediaStackArrLibraryDto } from './wire/calendar';
@@ -42,8 +44,10 @@ import { MediaStackDiscoverActionDto, MediaStackExternalDiscoverDto, MediaStackH
 import {
   LiveAutomationSummary,
   LiveJellyfinListResponse,
+  LiveWatchNextListResponse,
   mapLiveAutomationSummary,
   mapLiveJellyfinItem,
+  mapLiveWatchNextItem,
   mapLiveSystemResourcesDisk,
   mapLiveTorrent,
   requireExternalDiscoverPayload,
@@ -139,6 +143,28 @@ export class HttpMediaStackApi implements MediaStackApi {
       return this.listLibraryItemsByKind(kind, signal);
     }
     return this.listLibraryItemsMerged(signal);
+  }
+
+  async listWatchNext(signal?: AbortSignal): Promise<WatchNextResult> {
+    const data = await this.getRaw<LiveWatchNextListResponse>('/jellyfin/watch-next', signal);
+    const envelope = requireSoftEnvelope<OkEnvelope & { items?: unknown }>(
+      data,
+      'Failed to list watch-next items',
+      (value) => {
+        requireArrayField(
+          requireEnvelopeRecord(value, 'Malformed watch-next response'),
+          'items',
+          'Malformed watch-next response',
+        );
+      },
+    );
+    if (!envelope.ok) {
+      throw new Error(envelope.error || 'Failed to list watch-next items');
+    }
+    const items = (data.items ?? []).map((item, index) =>
+      mapWatchNextItem(mapLiveWatchNextItem(item, index)),
+    );
+    return { items };
   }
 
   private async listLibraryItemsByKind(

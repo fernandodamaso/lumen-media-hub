@@ -3,8 +3,8 @@ import { provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
 import { vi } from 'vitest';
 import { fixtureHost } from '../../../testing/fixture-host';
-import { LibraryItem } from '../library.models';
-import { LibraryItemsFacade, LibraryItemsStatus } from '../library-items.facade';
+import { WatchNextItem } from '../watch-next.models';
+import { WatchNextFacade, WatchNextStatus } from '../watch-next.facade';
 import { LibraryCard } from './library-card';
 
 describe('LibraryCard', () => {
@@ -15,16 +15,16 @@ describe('LibraryCard', () => {
     facade = createFacade();
     TestBed.configureTestingModule({
       imports: [LibraryCard],
-      providers: [provideRouter([]), { provide: LibraryItemsFacade, useValue: facade }],
+      providers: [provideRouter([]), { provide: WatchNextFacade, useValue: facade }],
     });
     fixture = TestBed.createComponent(LibraryCard);
   });
 
-  it('renders series posters by default and switches to movies', () => {
+  it('renders series watch-next items by default and switches to movies', () => {
     facade.status.set('ready');
     facade.items.set([
       item('m1', 'movie', 'Moonrise'),
-      item('s1', 'series', 'Night Watch'),
+      item('e1', 'episode', 'Night Watch', 'S01E02 · Signal'),
     ]);
     facade.movieCount.set(1);
     facade.seriesCount.set(1);
@@ -33,6 +33,7 @@ describe('LibraryCard', () => {
 
     const root = fixtureHost(fixture);
     expect(root.textContent).toContain('Night Watch');
+    expect(root.textContent).toContain('S01E02 · Signal');
     expect(root.textContent).not.toContain('Moonrise');
 
     const moviesTab = [...root.querySelectorAll('.segmented__btn')].find((button) =>
@@ -64,7 +65,7 @@ describe('LibraryCard', () => {
 
   it('enters ready content inside card__inner with overlay skeleton markup', () => {
     facade.status.set('ready');
-    facade.items.set([item('s1', 'series', 'Night Watch')]);
+    facade.items.set([item('e1', 'episode', 'Night Watch', 'S01E01 · Pilot')]);
     facade.seriesCount.set(1);
     facade.totalCount.set(1);
     fixture.detectChanges();
@@ -75,17 +76,19 @@ describe('LibraryCard', () => {
     expect(root.querySelector('.card__chrome-skeleton')).toBeTruthy();
     expect(root.querySelector('.card__foot-skeleton')).toBeTruthy();
     expect(root.querySelector('.mm-content-enter')).toBeNull();
+    expect(root.textContent).toContain('Your next items');
+    expect(root.textContent).toContain('View full library');
   });
 
   it('keeps one poster row and carousels past five series', () => {
     facade.status.set('ready');
     facade.items.set([
-      item('s1', 'series', 'Series One'),
-      item('s2', 'series', 'Series Two'),
-      item('s3', 'series', 'Series Three'),
-      item('s4', 'series', 'Series Four'),
-      item('s5', 'series', 'Series Five'),
-      item('s6', 'series', 'Series Six'),
+      item('e1', 'episode', 'Series One', 'S01E01 · One'),
+      item('e2', 'episode', 'Series Two', 'S01E01 · Two'),
+      item('e3', 'episode', 'Series Three', 'S01E01 · Three'),
+      item('e4', 'episode', 'Series Four', 'S01E01 · Four'),
+      item('e5', 'episode', 'Series Five', 'S01E01 · Five'),
+      item('e6', 'episode', 'Series Six', 'S01E01 · Six'),
     ]);
     facade.seriesCount.set(6);
     facade.totalCount.set(6);
@@ -106,33 +109,56 @@ describe('LibraryCard', () => {
     expect(root.textContent).toContain('Series Six');
     expect(root.textContent).not.toContain('Series One');
   });
+
+  it('shows global empty when there is nothing to watch', () => {
+    facade.status.set('empty');
+    facade.items.set([]);
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).textContent).toContain('Nothing waiting for you');
+  });
+
+  it('shows caught-up empty copy on the series tab', () => {
+    facade.status.set('ready');
+    facade.items.set([item('m1', 'movie', 'Moonrise')]);
+    facade.movieCount.set(1);
+    facade.seriesCount.set(0);
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).textContent).toContain("You're caught up");
+  });
 });
 
-function item(id: string, kind: 'movie' | 'series', title: string): LibraryItem {
+function item(
+  id: string,
+  kind: 'movie' | 'episode',
+  title: string,
+  subtitle = '',
+): WatchNextItem {
   return {
     id,
+    parentId: kind === 'episode' ? 'series-1' : null,
     title,
+    subtitle,
     kind,
-    meta: kind === 'movie' ? '2024 · Movie' : '2024 · Series',
     art: 'linear-gradient(145deg, #312e81, #0f172a 70%)',
-    overview: '',
-    href: null,
     artworkState: 'ok',
+    href: null,
     playable: true,
+    progressPercent: kind === 'movie' ? 12 : 0,
   };
 }
 
 function createFacade() {
   return {
-    status: signal<LibraryItemsStatus>('loading'),
-    items: signal<LibraryItem[]>([]),
+    status: signal<WatchNextStatus>('loading'),
+    items: signal<WatchNextItem[]>([]),
     error: signal(''),
-    availability: signal<'complete' | 'partial'>('complete'),
     refreshing: signal(false),
     lastFetchedAt: signal(''),
     movieCount: signal(0),
     seriesCount: signal(0),
     totalCount: signal(0),
+    movies: signal<WatchNextItem[]>([]),
+    series: signal<WatchNextItem[]>([]),
     refresh: vi.fn(),
   };
 }

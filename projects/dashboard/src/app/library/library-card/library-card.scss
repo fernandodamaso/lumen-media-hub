@@ -40,8 +40,6 @@
 
 .card__skeleton-main.posters--skeleton {
   display: none;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 18px;
   margin-bottom: 18px;
 }
 
@@ -80,5 +78,22 @@ mm-status {
   .card__head {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@container (max-width: 480px) {
+  .card__foot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .segmented {
+    width: 100%;
+  }
+
+  .segmented__btn {
+    flex: 1;
+    justify-content: center;
   }
 }

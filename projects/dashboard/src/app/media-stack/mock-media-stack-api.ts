@@ -12,6 +12,7 @@ import {
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
 import { LibraryItem, LibraryItemKind, LibraryListResult, LibraryStats } from '../library/library.models';
+import { WatchNextResult } from '../library/watch-next.models';
 import { AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
@@ -25,6 +26,7 @@ import {
   mapHermesDiscover,
 } from '../discover/discover-format';
 import { mapLibraryItem, mapLibraryStats } from '../library/library-format';
+import { mapWatchNextResult } from '../library/watch-next-format';
 import { mapTorrent } from '../downloads/downloads-format';
 import { mapStorageOverview } from '../storage/storage-format';
 import { MediaStackArrLibraryDto, MediaStackCalendarEventDto } from './wire/calendar';
@@ -35,6 +37,7 @@ import {
   MediaStackExternalDiscoverItemDto,
 } from './wire/discover';
 import { MediaStackLibraryItemDto, MediaStackLibraryStatsDto } from './wire/library';
+import { MediaStackWatchNextItemDto } from './wire/watch-next';
 import { MediaStackStorageOverviewDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
 
@@ -59,6 +62,49 @@ const MIXED_TORRENTS: MediaStackTorrentDto[] = [
 ];
 
 const DEMO_LIBRARY_STATS: MediaStackLibraryStatsDto = { ok: true, movies: 428, series: 76 };
+
+const DEMO_WATCH_NEXT: MediaStackWatchNextItemDto[] = [
+  {
+    id: 'jf-expanse-s04e02',
+    parentId: 'jf-expanse',
+    title: 'The Expanse',
+    subtitle: 'S04E02 · Jetsam',
+    kind: 'episode',
+    posterUrl: 'linear-gradient(145deg, #1e3a5f, #0b1220 70%)',
+    playable: true,
+    progressPercent: 42,
+  },
+  {
+    id: 'jf-blue-hour-s02e03',
+    parentId: 'jf-blue-hour',
+    title: 'The Blue Hour',
+    subtitle: 'S02E03 · Nightfall',
+    kind: 'episode',
+    posterUrl: 'linear-gradient(145deg, #312e81, #0f172a 70%)',
+    playable: true,
+    progressPercent: 0,
+  },
+  {
+    id: 'jf-dune-resume',
+    parentId: null,
+    title: 'Dune',
+    subtitle: '',
+    kind: 'movie',
+    posterUrl: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
+    playable: true,
+    progressPercent: 18,
+  },
+  {
+    id: 'jf-night-transit-resume',
+    parentId: null,
+    title: 'Night Transit',
+    subtitle: '',
+    kind: 'movie',
+    artworkState: 'missing',
+    playable: true,
+    progressPercent: 6,
+  },
+];
 
 function demoStorageOverview(): MediaStackStorageOverviewDto {
   return {
@@ -370,6 +416,7 @@ function copyCronLogs(source: MediaStackCronLogsDto): MediaStackCronLogsDto {
 
 export type AutomationScenario = 'default' | 'partial' | 'empty';
 export type DownloadsScenario = 'default' | 'empty' | 'error' | 'paused' | 'mixed';
+export type WatchNextScenario = 'default' | 'empty';
 
 const DEMO_HERMES: MediaStackDiscoverItemDto[] = [
   {
@@ -576,8 +623,10 @@ export class MockMediaStackApi implements MediaStackApi {
   private nextJellyseerrRequestId = 9100;
   private requestedKeys = new Set<string>();
   private libraryItems = DEMO_LIBRARY_ITEMS.map((item) => ({ ...item }));
+  private watchNextItems = DEMO_WATCH_NEXT.map((item) => ({ ...item }));
   private automationScenario: AutomationScenario = 'default';
   private downloadsScenario: DownloadsScenario = 'default';
+  private watchNextScenario: WatchNextScenario = 'default';
 
   /**
    * Artificial Demo-mode latency in ms so skeleton loading states are visible.
@@ -602,6 +651,10 @@ export class MockMediaStackApi implements MediaStackApi {
 
   setAutomationScenario(scenario: AutomationScenario): void {
     this.automationScenario = scenario;
+  }
+
+  setWatchNextScenario(scenario: WatchNextScenario): void {
+    this.watchNextScenario = scenario;
   }
 
   setDownloadsScenario(scenario: DownloadsScenario): void {
@@ -687,6 +740,13 @@ export class MockMediaStackApi implements MediaStackApi {
     const movieCount = items.filter((item) => item.kind === 'movie').length;
     const seriesCount = items.filter((item) => item.kind === 'series').length;
     return this.withLatency({ items, availability: 'complete', movieCount, seriesCount });
+  }
+
+  listWatchNext(_signal?: AbortSignal): Promise<WatchNextResult> {
+    if (this.watchNextScenario === 'empty') {
+      return this.withLatency(mapWatchNextResult([]));
+    }
+    return this.withLatency(mapWatchNextResult(this.watchNextItems.map((item) => ({ ...item }))));
   }
 
   getLibraryStats(_signal?: AbortSignal): Promise<LibraryStats> {

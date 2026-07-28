@@ -6,6 +6,29 @@
 .poster-rail {
   display: block;
   min-width: 0;
+  container-type: inline-size;
+  --poster-rail-gap: 18px;
+  --poster-rail-columns: 5;
+}
+
+@container (max-width: 900px) {
+  .poster-rail {
+    --poster-rail-columns: 4;
+  }
+}
+
+@container (max-width: 720px) {
+  .poster-rail {
+    --poster-rail-columns: 3;
+    --poster-rail-gap: 14px;
+  }
+}
+
+@container (max-width: 520px) {
+  .poster-rail {
+    --poster-rail-columns: 2;
+    --poster-rail-gap: 12px;
+  }
 }
 
 .poster-rail__stage {
@@ -17,18 +40,18 @@
 .poster-rail__nav-layer {
   position: absolute;
   inset: 0 0 auto;
-  z-index: 2;
+  z-index: 4;
   pointer-events: none;
 }
 
 .poster-rail--carousel {
   --poster-rail-gap: 18px;
-
-  container-type: inline-size;
 }
 
 .poster-rail--carousel .poster-rail__nav-layer {
-  height: calc(((100cqw - 4 * var(--poster-rail-gap)) / 5) * 3 / 2);
+  height: calc(
+    ((100cqw - (var(--poster-rail-columns, 5) - 1) * var(--poster-rail-gap, 18px)) / var(--poster-rail-columns, 5)) * 3 / 2
+  );
 }
 
 .poster-rail__nav {
@@ -94,7 +117,8 @@
 }
 
 .posters--compact {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--poster-rail-columns, 5), minmax(0, 1fr));
+  gap: var(--poster-rail-gap, 18px);
 }
 
 .posters--page {

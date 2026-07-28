@@ -482,6 +482,9 @@ class MockApi implements MediaStackApi {
       ? Promise.reject(new Error('library offline'))
       : Promise.resolve({ items: this.libraryItems.map((item) => ({ ...item })), availability: 'complete' as const });
   }
+  listWatchNext() {
+    return Promise.resolve({ items: [] });
+  }
   getAutomationSummary() {
     return Promise.resolve({
       generatedAt: '',

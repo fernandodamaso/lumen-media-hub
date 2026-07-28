@@ -96,6 +96,7 @@ Empty calendar bases must not fall back to relative `/series/...` or `/movie/...
 | `/api/start-all` | POST | Global resume (token required) |
 | `/api/jellyfin/movies` | GET | Movie library items |
 | `/api/jellyfin/series` | GET | Series library items |
+| `/api/jellyfin/watch-next` | GET | User-specific next episodes and in-progress movies (`progressPercent` 0–100) |
 | `/api/sonarr/calendar` | GET | Upcoming calendar events |
 | `/api/arr/library` | GET | Series/movie library index |
 | `/api/automation/summary` | GET | Service health and warnings |

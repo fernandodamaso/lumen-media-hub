@@ -34,6 +34,7 @@ export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premie
     }
     .mm-progress__bar {
       height: 100%;
+      min-width: var(--mm-progress-min-fill, 0);
       border-radius: inherit;
       position: relative;
       background: linear-gradient(90deg, color-mix(in srgb, var(--mm-progress-tone, var(--mm-component-accent)) 70%, transparent), var(--mm-progress-tone, var(--mm-component-accent)));

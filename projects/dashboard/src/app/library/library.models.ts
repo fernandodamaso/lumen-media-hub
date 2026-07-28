@@ -64,6 +64,17 @@ export const resolveJellyfinItemLink = (
   return `${jellyfinBase}/web/index.html#!/details?id=${encodeURIComponent(item.id)}`;
 };
 
+/** Opens Jellyfin's player for a movie or episode id. */
+export const resolveJellyfinPlaybackLink = (
+  item: Pick<LibraryItem, 'id' | 'playable'>,
+  bases: JellyfinLinkBases = {},
+): string | null => {
+  if (!item.playable || !item.id || item.id === 'unknown') return null;
+  const jellyfinBase = (bases.jellyfinBase ?? DEFAULT_JELLYFIN_LINK_BASES.jellyfinBase).replace(/\/$/, '');
+  if (!jellyfinBase) return null;
+  return `${jellyfinBase}/web/index.html#!/item?id=${encodeURIComponent(item.id)}`;
+};
+
 export const formatLibraryMeta = (year: number | undefined, kind: LibraryItemKind): string => {
   const kindLabel = kind === 'movie' ? 'Movie' : 'Series';
   return Number.isFinite(year) && year ? `${year} · ${kindLabel}` : kindLabel;

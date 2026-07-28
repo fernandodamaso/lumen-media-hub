@@ -21,9 +21,16 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = $PSScriptRoot
 $DashboardApp = Join-Path $RepoRoot 'dashboard-app'
 $EnvFile = Join-Path $RepoRoot '.env'
+$ComposeFile = Join-Path $RepoRoot 'docker-compose.yml'
+$ComposeGpuFile = Join-Path $RepoRoot 'docker-compose.gpu.yml'
 $Interactive = -not [Console]::IsInputRedirected
+$script:NpmCiComplete = $false
 
 function Write-Step([string]$Message) { Write-Host "`n==> $Message" -ForegroundColor Cyan }
+
+function Assert-ExitCode([string]$Step) {
+  if ($LASTEXITCODE -ne 0) { throw "$Step failed (exit $LASTEXITCODE)." }
+}
 
 function Assert-Command([string]$Name, [string]$InstallHint) {
   if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
@@ -42,8 +49,13 @@ function Assert-Node {
 function Assert-Docker {
   Assert-Command 'docker' 'Install Docker Desktop: https://www.docker.com/products/docker-desktop/'
   docker compose version | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "'docker compose' (v2) not available. Update Docker Desktop." }
+  Assert-ExitCode 'docker compose version'
   Write-Host (docker --version)
+}
+
+function Format-DotEnvValue([string]$Value) {
+  $escaped = $Value.Replace('\', '\\').Replace('"', '\"')
+  return "`"$escaped`""
 }
 
 function Read-Value([string]$Prompt, [string]$Default, [string]$EnvVar) {
@@ -54,6 +66,16 @@ function Read-Value([string]$Prompt, [string]$Default, [string]$EnvVar) {
     if ($answer) { return $answer }
   }
   return $Default
+}
+
+function Invoke-NpmCi {
+  if ($script:NpmCiComplete) { return }
+  Push-Location $DashboardApp
+  try {
+    npm ci
+    Assert-ExitCode 'npm ci'
+    $script:NpmCiComplete = $true
+  } finally { Pop-Location }
 }
 
 function Initialize-EnvFile {
@@ -76,7 +98,7 @@ function Initialize-EnvFile {
   }
   $lines = Get-Content (Join-Path $RepoRoot '.env.example') | ForEach-Object {
     if ($_ -match '^([A-Z_]+)=' -and $values.ContainsKey($Matches[1])) {
-      "$($Matches[1])=$($values[$Matches[1]])"
+      "$($Matches[1])=$(Format-DotEnvValue $values[$Matches[1]])"
     } else { $_ }
   }
   Set-Content -Path $EnvFile -Value $lines -Encoding utf8
@@ -84,16 +106,21 @@ function Initialize-EnvFile {
 }
 
 function Build-DashboardImage {
+  Invoke-NpmCi
   Push-Location $DashboardApp
   try {
-    npm ci
     npm run build:live
-    if ($LASTEXITCODE -ne 0) { throw 'npm run build:live failed.' }
+    Assert-ExitCode 'npm run build:live'
   } finally { Pop-Location }
   docker build -t media-dashboard-angular:local $DashboardApp
-  if ($LASTEXITCODE -ne 0) { throw 'docker build failed.' }
-  $pin = (Select-String -Path (Join-Path $RepoRoot 'docker-compose.yml') -Pattern 'image: media-dashboard-angular:(\S+)').Matches[0].Groups[1].Value
+  Assert-ExitCode 'docker build'
+  $pinMatch = Select-String -Path $ComposeFile -Pattern 'image: media-dashboard-angular:(\S+)'
+  if (-not $pinMatch) {
+    throw 'Could not find media-dashboard-angular image pin in docker-compose.yml.'
+  }
+  $pin = $pinMatch.Matches[0].Groups[1].Value
   docker tag media-dashboard-angular:local "media-dashboard-angular:$pin"
+  Assert-ExitCode 'docker tag'
   Write-Host "Tagged media-dashboard-angular:local as media-dashboard-angular:$pin (compose pin)."
 }
 
@@ -103,22 +130,23 @@ function Invoke-Stack {
   Initialize-EnvFile
 
   $envContent = Get-Content $EnvFile -Raw
-  if ($envContent -match '(?m)^DOWNLOADS_PATH=(.+)$') {
-    New-Item -ItemType Directory -Force $Matches[1] | Out-Null
+  if ($envContent -match '(?m)^DOWNLOADS_PATH=(?:"([^"]*)"|([^\r\n]+))') {
+    $downloadsDir = if ($Matches[1]) { $Matches[1] } else { $Matches[2].Trim() }
+    New-Item -ItemType Directory -Force $downloadsDir | Out-Null
   }
 
   if (-not $SkipBuild) { Build-DashboardImage }
 
   Write-Step 'Pulling service images'
-  docker compose pull --ignore-pull-failures
+  docker compose --env-file $EnvFile -f $ComposeFile pull --ignore-pull-failures
 
   Write-Step 'Starting the stack'
   if ($Gpu) {
-    docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d
   } else {
-    docker compose up -d
+    docker compose --env-file $EnvFile -f $ComposeFile up -d
   }
-  if ($LASTEXITCODE -ne 0) { throw 'docker compose up failed.' }
+  Assert-ExitCode 'docker compose up'
 
   Write-Step 'Waiting for homepage-actions health'
   $healthy = $false
@@ -149,8 +177,7 @@ Stack is up. Remaining manual steps (one-time):
 
 function Invoke-FrontendDev {
   Assert-Node
-  Push-Location $DashboardApp
-  try { npm ci } finally { Pop-Location }
+  Invoke-NpmCi
   Write-Host @"
 
 Frontend dev ready. From dashboard-app/:
@@ -159,8 +186,13 @@ Frontend dev ready. From dashboard-app/:
 "@
 }
 
-switch ($Mode) {
-  'frontend-dev' { Invoke-FrontendDev }
-  'stack'        { Invoke-Stack }
-  'both'         { Invoke-FrontendDev; Invoke-Stack }
+Push-Location $RepoRoot
+try {
+  switch ($Mode) {
+    'frontend-dev' { Invoke-FrontendDev }
+    'stack'        { Invoke-Stack }
+    'both'         { Invoke-FrontendDev; Invoke-Stack }
+  }
+} finally {
+  Pop-Location
 }

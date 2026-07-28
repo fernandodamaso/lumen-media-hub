@@ -116,8 +116,16 @@ class ReadJsonBodyTests(unittest.TestCase):
             main._read_json_body(handler)
 
     def test_read_json_body_accepts_body_at_limit(self):
-        handler = FakeHandler({"ok": True})
-        self.assertEqual(main._read_json_body(handler), {"ok": True})
+        prefix = b'{"p":"'
+        suffix = b'"}'
+        pad_len = main.MAX_JSON_BODY_BYTES - len(prefix) - len(suffix)
+        self.assertGreater(pad_len, 0)
+        raw = prefix + (b"x" * pad_len) + suffix
+        self.assertEqual(len(raw), main.MAX_JSON_BODY_BYTES)
+        handler = FakeHandler()
+        handler.headers = {"Content-Length": str(main.MAX_JSON_BODY_BYTES)}
+        handler.rfile = io.BytesIO(raw)
+        self.assertEqual(main._read_json_body(handler), {"p": "x" * pad_len})
 
 
 def make_hermes_item(tmdb_id, **extra):

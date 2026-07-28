@@ -1,0 +1,133 @@
+@use '../../ui/dashboard-card' as dash;
+
+:host {
+  display: block;
+  min-width: 0;
+  container-type: inline-size;
+}
+
+.card {
+  @include dash.card-shell;
+}
+
+.card__head {
+  @include dash.card-head;
+}
+
+.card__head h2 {
+  @include dash.card-title;
+}
+
+.segmented {
+  @include dash.segmented;
+
+  background: var(--mm-semantic-surface-page);
+}
+
+.segmented__btn {
+  @include dash.segmented-btn;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.segmented__count {
+  font-family: var(--mm-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.card__skeleton-main.posters--skeleton {
+  display: none;
+  margin-bottom: 18px;
+
+  /* poster-rail / posters--compact styles live on other components; define the
+     compact rail here so the overlay skeleton stays one row and does not spill. */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 18px;
+  align-content: start;
+}
+
+:host:has(.card__body[aria-busy="true"]) .card__skeleton-main.posters--skeleton {
+  display: grid;
+}
+
+.card__skeleton-main.posters--skeleton mm-skeleton {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 2 / 3;
+  height: auto;
+}
+
+@container (max-width: 900px) {
+  .card__skeleton-main.posters--skeleton {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 720px) {
+  .card__skeleton-main.posters--skeleton {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+}
+
+@container (max-width: 520px) {
+  .card__skeleton-main.posters--skeleton {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+}
+
+.card__reveal {
+  min-height: 232px;
+}
+
+.card__inner-spacer {
+  min-height: 232px;
+}
+
+.card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 14px;
+}
+
+.text-muted {
+  color: var(--mm-component-text-muted);
+  font-size: 12.5px;
+}
+
+mm-status {
+  display: block;
+  margin-bottom: 12px;
+}
+
+@container (max-width: 720px) {
+  .card__head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@container (max-width: 480px) {
+  .card__foot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .segmented {
+    width: 100%;
+  }
+
+  .segmented__btn {
+    flex: 1;
+    justify-content: center;
+  }
+}

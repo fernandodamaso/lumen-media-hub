@@ -1,0 +1,92 @@
+@use './discover-card-shell' as shell;
+
+:host {
+  display: block;
+  height: 100%;
+  min-width: 0;
+}
+
+.discover-card {
+  @include shell.discover-card-shell;
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  transition: border-color var(--mm-transition-fast);
+}
+
+@media (hover: hover) {
+  .discover-card:hover:not(:has(.discover-card__footer:hover)) {
+    border-color: color-mix(in srgb, var(--mm-component-accent) 35%, var(--mm-component-border));
+  }
+}
+
+.discover-card__poster {
+  position: relative;
+}
+
+.discover-card__poster mm-poster {
+  display: block;
+  width: 100%;
+  max-width: none;
+}
+
+.discover-card__badges {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+}
+
+.discover-card__summary {
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  color: var(--mm-component-text-secondary);
+  font-size: var(--mm-text-sm);
+  line-height: 1.45;
+}
+
+.discover-card__summary-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.discover-card__footer {
+  display: grid;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.discover-card__feedback {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.discover-card__actions {
+  display: flex;
+}
+
+.discover-card__request-wrap {
+  display: block;
+  width: 100%;
+}
+
+.discover-card__request-wrap mm-button {
+  display: block;
+  width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .discover-card {
+    transition: none;
+  }
+}

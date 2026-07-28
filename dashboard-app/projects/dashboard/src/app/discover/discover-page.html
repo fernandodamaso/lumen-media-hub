@@ -1,0 +1,179 @@
+<section class="page-intro">
+  <p class="eyebrow">Workspace</p>
+  <h1>Discover</h1>
+  <p class="lede">Browse Hermes, Jellyseerr, and Trakt recommendations. Request eligible titles.</p>
+</section>
+
+<section class="discover-controls" aria-label="Discover controls">
+  <div class="discover-controls__primary">
+    <div class="tabs" role="group" aria-label="Discover sources">
+      @for (tab of tabs; track tab.id) {
+        <button
+          type="button"
+          class="tab"
+          [attr.aria-pressed]="facade.tab() === tab.id"
+          (click)="setTab(tab.id)"
+        >
+          {{ tab.label }}
+        </button>
+      }
+    </div>
+    <div class="toolbar-actions">
+      @if (facade.tab() === 'hermes') {
+        <mm-button
+          label="Request more"
+          icon="plus"
+          variant="quiet"
+          [disabled]="facade.requestingMore() || facade.generationPending()"
+          [busy]="facade.requestingMore()"
+          (click)="requestMore()"
+        />
+      }
+      <mm-button label="Refresh" icon="refresh" variant="quiet" (click)="refresh()" />
+    </div>
+  </div>
+
+  <div class="discover-controls__secondary">
+    @if (facade.tab() === 'hermes') {
+      <div class="filters" aria-label="Hermes filters">
+        <div class="filter-group" role="group" aria-label="Hermes view">
+          @for (view of hermesViews; track view.id) {
+            <button
+              type="button"
+              class="chip"
+              [attr.aria-pressed]="facade.hermesView() === view.id"
+              (click)="setHermesView(view.id)"
+            >
+              {{ view.label }}
+            </button>
+          }
+        </div>
+        @if (facade.hermesView() === 'history') {
+          <div class="filter-group" role="group" aria-label="History filter">
+            @for (filter of historyFilters; track filter.id) {
+              <button
+                type="button"
+                class="chip"
+                [attr.aria-pressed]="facade.historyFilter() === filter.id"
+                (click)="setHistoryFilter(filter.id)"
+              >
+                {{ filter.label }}
+              </button>
+            }
+          </div>
+        }
+      </div>
+    }
+
+    @if (facade.tab() === 'jellyseerr') {
+      <div class="filters" role="group" aria-label="Jellyseerr kind">
+        @for (kind of jellyseerrKinds; track kind.id) {
+          <button
+            type="button"
+            class="chip"
+            [attr.aria-pressed]="facade.jellyseerrKind() === kind.id"
+            (click)="setJellyseerrKind(kind.id)"
+          >
+            {{ kind.label }}
+          </button>
+        }
+      </div>
+    }
+
+    @if (facade.tab() === 'trakt') {
+      <div class="filters" role="group" aria-label="Trakt type">
+        @for (type of traktTypes; track type.id) {
+          <button
+            type="button"
+            class="chip"
+            [attr.aria-pressed]="facade.traktType() === type.id"
+            (click)="setTraktType(type.id)"
+          >
+            {{ type.label }}
+          </button>
+        }
+      </div>
+    }
+
+    <div class="discover-search">
+      <label class="discover-search__label" for="discover-search-input">Search current results</label>
+      <input
+        id="discover-search-input"
+        class="discover-search__input"
+        type="search"
+        placeholder="Search current results"
+        [value]="searchQuery()"
+        (input)="setSearchQuery($any($event.target).value)"
+      />
+      @if (hasSearchQuery()) {
+        <button type="button" class="discover-search__clear" (click)="clearSearch()">Clear search</button>
+      }
+    </div>
+
+    @if (facade.status() === 'ready') {
+      <p class="discover-count" role="status" aria-live="polite">{{ resultCountLabel() }}</p>
+    }
+  </div>
+</section>
+
+@if (facade.notice()) {
+  <p class="notice" role="status" aria-live="polite">
+    <mm-status [tone]="facade.noticeTone()">{{ facade.notice() }}</mm-status>
+  </p>
+}
+
+<section
+  class="discover-results"
+  aria-label="Discover results"
+  [attr.aria-busy]="facade.status() === 'loading' ? true : null"
+>
+  @if (facade.status() === 'loading') {
+    <p class="discover-results__loading-status" role="status">Loading recommendations…</p>
+    <div class="grid grid--skeleton" aria-hidden="true">
+      @for (slot of skeletonSlots; track slot) {
+        <article class="discover-card discover-card--skeleton">
+          <div class="discover-card--skeleton__poster">
+            <mm-skeleton variant="rect" width="100%" height="100%" />
+          </div>
+          <mm-skeleton variant="text" width="72%" />
+          <mm-skeleton variant="text" width="100%" />
+          <mm-skeleton variant="text" width="88%" />
+          <mm-skeleton variant="rect" width="100%" height="40px" />
+        </article>
+      }
+    </div>
+  } @else if (facade.status() === 'error') {
+    <mm-state-card kind="error" title="Discover unavailable" [message]="facade.error()" tone="danger">
+      <mm-button label="Try again" (click)="refresh()" />
+    </mm-state-card>
+  } @else if (facade.status() === 'empty') {
+    <mm-state-card kind="empty" title="Nothing to show" message="No recommendations in this view." />
+  } @else if (filteredItems().length === 0) {
+    <mm-state-card
+      kind="empty"
+      title="No matches"
+      [message]="'No titles match “' + searchQuery().trim() + '”.'"
+    >
+      <mm-button label="Clear search" variant="quiet" (click)="clearSearch()" />
+    </mm-state-card>
+  } @else {
+    <div class="grid">
+      @for (item of displayedItems(); track item.id) {
+        <mm-discover-card
+          [item]="item"
+          [showFeedback]="facade.tab() === 'hermes'"
+          [showSummary]="facade.tab() !== 'hermes' || facade.hermesView() !== 'history'"
+          [syncFailed]="facade.isSyncFailed(item)"
+          [busy]="facade.busyItemId() === item.id"
+          (feedback)="onFeedback(item.id, $event)"
+          (request)="onRequest(item)"
+        />
+      }
+    </div>
+    @if (remainingCount() > 0) {
+      <div class="load-more">
+        <mm-button [label]="loadMoreLabel()" variant="quiet" (click)="loadMore()" />
+      </div>
+    }
+  }
+</section>

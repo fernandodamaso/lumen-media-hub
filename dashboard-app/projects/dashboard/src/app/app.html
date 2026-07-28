@@ -1,0 +1,66 @@
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<div class="shell">
+  <div class="shell-body">
+    <nav class="sidebar" aria-label="Primary navigation">
+      <div class="sidebar__header">
+        <a class="brand" routerLink="/" aria-label="Media Manager home">
+          <span class="brand-mark" aria-hidden="true">M</span>
+          <span class="brand__text">Media Manager</span>
+        </a>
+        <span class="demo-badge" [attr.aria-label]="modeLabel + ' mode'">{{ modeLabel }}</span>
+      </div>
+
+      <button
+        type="button"
+        class="search-trigger"
+        data-testid="search-trigger"
+        (click)="openCommandPalette()"
+      >
+        <svg lucideSearch [size]="15" aria-hidden="true"></svg>
+        <span>Search or command…</span>
+        <kbd>{{ shortcutLabel }}</kbd>
+      </button>
+
+      <div class="sidebar__nav">
+        <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
+          <svg lucideLayoutDashboard [size]="18" aria-hidden="true"></svg>
+          <span>Dashboard</span>
+        </a>
+        <a routerLink="/library" routerLinkActive="active">
+          <svg lucideLibrary [size]="18" aria-hidden="true"></svg>
+          <span>Library</span>
+          <span class="nav-badge" aria-label="{{ libraryCount() }} library items">{{ libraryCount() }}</span>
+        </a>
+        <a routerLink="/discover" routerLinkActive="active">
+          <svg lucideCompass [size]="18" aria-hidden="true"></svg>
+          <span>Discover</span>
+        </a>
+        <a routerLink="/reports" routerLinkActive="active">
+          <svg lucideFileText [size]="18" aria-hidden="true"></svg>
+          <span>Reports</span>
+        </a>
+      </div>
+
+      <div class="sidebar__footer">
+        @if (hasAttention()) {
+          <a
+            class="status-pill"
+            routerLink="/"
+            data-testid="status-pill"
+            [attr.aria-label]="attentionLabel()"
+          >
+            <span class="status-pill__dot" aria-hidden="true"></span>
+            <span>{{ attentionLabel() }}</span>
+          </a>
+        }
+        <mm-theme-picker />
+      </div>
+    </nav>
+
+    <main id="main-content" class="content">
+      <router-outlet />
+    </main>
+  </div>
+</div>
+
+<mm-command-palette [open]="commandPaletteOpen()" (openChange)="commandPaletteOpen.set($event)" />

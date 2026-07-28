@@ -255,8 +255,20 @@ def _valid_torrent_hash(torrent_id):
     return _TORRENT_HASH_RE.fullmatch(value) is not None
 
 
+MAX_JSON_BODY_BYTES = 1_048_576  # 1 MiB
+
+
+class _BodyTooLarge(ValueError):
+    pass
+
+
 def _read_json_body(handler):
-    length = int(handler.headers.get("Content-Length", "0") or "0")
+    try:
+        length = int(handler.headers.get("Content-Length", "0") or "0")
+    except ValueError:
+        raise json.JSONDecodeError("invalid Content-Length", "", 0)
+    if length > MAX_JSON_BODY_BYTES:
+        raise _BodyTooLarge(f"body exceeds {MAX_JSON_BODY_BYTES} bytes")
     if length <= 0:
         return {}
     raw = handler.rfile.read(length)
@@ -368,6 +380,9 @@ def handle_qbt_action(handler, action_path):
 def handle_qbt_torrent_hash_action(handler, action_path):
     try:
         body = _read_json_body(handler)
+    except _BodyTooLarge:
+        send_json(handler, 413, {"ok": False, "error": "Request body too large"})
+        return
     except json.JSONDecodeError:
         send_json(handler, 400, {"ok": False, "error": "Invalid JSON"})
         return
@@ -2869,6 +2884,9 @@ def handle_discover_hermes_get(handler):
 def handle_discover_hermes_patch(handler, item_id):
     try:
         body = _read_json_body(handler)
+    except _BodyTooLarge:
+        send_json(handler, 413, {"ok": False, "error": "Request body too large"})
+        return
     except json.JSONDecodeError:
         send_json(handler, 400, {"ok": False, "error": "Invalid JSON body"})
         return
@@ -3149,6 +3167,9 @@ def handle_discover_hermes_generations(handler):
     """
     try:
         body = _read_json_body(handler)
+    except _BodyTooLarge:
+        send_json(handler, 413, {"ok": False, "error": "Request body too large"})
+        return
     except json.JSONDecodeError:
         send_json(handler, 400, {"ok": False, "error": "Invalid JSON body"})
         return
@@ -3559,6 +3580,9 @@ def handle_discover_request(handler):
         return
     try:
         body = _read_json_body(handler)
+    except _BodyTooLarge:
+        send_json(handler, 413, {"ok": False, "error": "Request body too large"})
+        return
     except json.JSONDecodeError:
         send_json(handler, 400, {"ok": False, "error": "Invalid JSON body"})
         return

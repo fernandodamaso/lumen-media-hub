@@ -102,6 +102,24 @@ class FakeHandler:
         return json.loads(self.wfile.getvalue().decode("utf-8") or b"{}")
 
 
+class ReadJsonBodyTests(unittest.TestCase):
+    def test_read_json_body_rejects_oversized_content_length(self):
+        handler = FakeHandler()
+        handler.headers = {"Content-Length": str(main.MAX_JSON_BODY_BYTES + 1)}
+        with self.assertRaises(main._BodyTooLarge):
+            main._read_json_body(handler)
+
+    def test_read_json_body_rejects_invalid_content_length(self):
+        handler = FakeHandler()
+        handler.headers = {"Content-Length": "not-a-number"}
+        with self.assertRaises(main.json.JSONDecodeError):
+            main._read_json_body(handler)
+
+    def test_read_json_body_accepts_body_at_limit(self):
+        handler = FakeHandler({"ok": True})
+        self.assertEqual(main._read_json_body(handler), {"ok": True})
+
+
 def make_hermes_item(tmdb_id, **extra):
     media_type = extra.get("type", "movie")
     item = {

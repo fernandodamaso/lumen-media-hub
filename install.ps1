@@ -47,7 +47,8 @@ function Assert-Docker {
 }
 
 function Read-Value([string]$Prompt, [string]$Default, [string]$EnvVar) {
-  if ($env:$EnvVar) { return $env:$EnvVar }
+  $fromEnv = (Get-Item -Path "Env:$EnvVar" -ErrorAction SilentlyContinue).Value
+  if ($fromEnv) { return $fromEnv }
   if ($Interactive) {
     $answer = Read-Host "$Prompt [$Default]"
     if ($answer) { return $answer }

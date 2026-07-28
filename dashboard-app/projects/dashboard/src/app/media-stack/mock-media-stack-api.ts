@@ -49,12 +49,12 @@ const TIB = 1024 * GIB;
 const DEMO_TORRENTS: MediaStackTorrentDto[] = [
   { hash: 'demo-afterlight', name: 'Afterlight', state: 'downloading', progress: 0.68, size: Math.round(6.9 * GIB), downloaded: Math.round(4.7 * GIB), dlspeed: Math.round(4.0 * MIB), upspeed: 312 * KIB, eta: 9 * 60, category: 'Movies' },
   { hash: 'demo-blue-hour', name: 'The Blue Hour', state: 'downloading', progress: 0.31, size: 2 * GIB, downloaded: 620 * MIB, dlspeed: Math.round(1.7 * MIB), upspeed: 78 * KIB, eta: 13 * 60, category: 'TV · S2E3' },
-  { hash: 'demo-orbit', name: 'Orbit Station', state: 'stoppedUP', progress: 1, size: Math.round(5.4 * GIB), downloaded: Math.round(5.4 * GIB), dlspeed: 0, upspeed: 117 * KIB, eta: 0, category: 'Movies' },
+  { hash: 'demo-orbit', name: 'Orbit Station', state: 'stalledUP', progress: 1, size: Math.round(5.4 * GIB), downloaded: Math.round(5.4 * GIB), dlspeed: 0, upspeed: 117 * KIB, eta: 0, category: 'Movies' },
 ];
 
 const MIXED_TORRENTS: MediaStackTorrentDto[] = [
   { hash: 'demo-afterlight', name: 'Afterlight', state: 'downloading', progress: 0.68, size: Math.round(6.9 * GIB), downloaded: Math.round(4.7 * GIB), dlspeed: Math.round(4.0 * MIB), upspeed: 312 * KIB, eta: 9 * 60, category: 'Movies' },
-  { hash: 'demo-orbit', name: 'Orbit Station', state: 'stoppedUP', progress: 1, size: Math.round(5.4 * GIB), downloaded: Math.round(5.4 * GIB), dlspeed: 0, upspeed: 117 * KIB, eta: 0, category: 'Movies' },
+  { hash: 'demo-orbit', name: 'Orbit Station', state: 'stalledUP', progress: 1, size: Math.round(5.4 * GIB), downloaded: Math.round(5.4 * GIB), dlspeed: 0, upspeed: 117 * KIB, eta: 0, category: 'Movies' },
   { hash: 'demo-silent-wave', name: 'Silent Wave', state: 'pausedDL', progress: 0.45, size: Math.round(3.2 * GIB), downloaded: Math.round(1.44 * GIB), dlspeed: 0, upspeed: 0, eta: 0, category: 'TV · S1E6' },
   { hash: 'demo-dust-road', name: 'Dust Road', state: 'queuedDL', progress: 0, size: Math.round(4.1 * GIB), downloaded: 0, dlspeed: 0, upspeed: 0, eta: 0, category: 'Movies' },
   { hash: 'demo-echo-point', name: 'Echo Point', state: 'checkingDL', progress: 0.92, size: Math.round(2.8 * GIB), downloaded: Math.round(2.8 * GIB), dlspeed: 0, upspeed: 0, eta: 0, category: 'TV · S3E1' },
@@ -709,7 +709,7 @@ export class MockMediaStackApi implements MediaStackApi {
     const demo = DEMO_TORRENTS.find((demoTorrent) => demoTorrent.hash === torrent.hash);
     return {
       ...torrent,
-      state: torrent.progress >= 1 ? 'stoppedUP' : 'downloading',
+      state: torrent.progress >= 1 ? 'stalledUP' : 'downloading',
       dlspeed: demo?.dlspeed ?? 0,
       upspeed: demo?.upspeed ?? 0,
     };

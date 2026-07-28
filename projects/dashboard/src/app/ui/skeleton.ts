@@ -15,11 +15,18 @@ export type MmSkeletonVariant = 'text' | 'rect' | 'circle';
     aria-hidden="true"
   ></span>`,
   styles: `
-    :host { display: inline-block; }
+    :host {
+      display: inline-block;
+      max-width: 100%;
+      min-width: 0;
+      vertical-align: top;
+    }
     .mm-skeleton {
       position: relative;
       overflow: hidden;
-      display: inline-block;
+      display: block;
+      max-width: 100%;
+      box-sizing: border-box;
       background-color: var(--mm-component-raised-bg);
       border-radius: var(--mm-radius-sm);
     }

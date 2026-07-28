@@ -332,10 +332,14 @@ export class HttpMediaStackApi implements MediaStackApi {
     ).then(mapCronLogs);
   }
 
-  listHermesRecommendations(): Promise<HermesDiscover> {
-    return this.getSoftEnvelope<MediaStackHermesDiscoverDto>('/discover/hermes', (data) => {
-      requireHermesDiscoverPayload(requireEnvelopeRecord(data, 'Malformed Hermes response'));
-    }).then(mapHermesDiscover);
+  listHermesRecommendations(signal?: AbortSignal): Promise<HermesDiscover> {
+    return this.getSoftEnvelope<MediaStackHermesDiscoverDto>(
+      '/discover/hermes',
+      (data) => {
+        requireHermesDiscoverPayload(requireEnvelopeRecord(data, 'Malformed Hermes response'));
+      },
+      signal,
+    ).then(mapHermesDiscover);
   }
 
   submitHermesFeedback(
@@ -353,7 +357,7 @@ export class HttpMediaStackApi implements MediaStackApi {
     return this.mutateSoft('/discover/hermes/request-more', 'POST');
   }
 
-  listJellyseerrDiscover(kind: JellyseerrDiscoverKind): Promise<ExternalDiscover> {
+  listJellyseerrDiscover(kind: JellyseerrDiscoverKind, signal?: AbortSignal): Promise<ExternalDiscover> {
     return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(
       `/discover/jellyseerr?kind=${kind}`,
       (data) => {
@@ -362,16 +366,21 @@ export class HttpMediaStackApi implements MediaStackApi {
           'Jellyseerr',
         );
       },
+      signal,
     ).then(mapExternalDiscover);
   }
 
-  listTraktDiscover(type: TraktDiscoverType): Promise<ExternalDiscover> {
-    return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(`/discover/trakt?type=${type}`, (data) => {
-      requireExternalDiscoverPayload(
-        requireEnvelopeRecord(data, 'Malformed Trakt response'),
-        'Trakt',
-      );
-    }).then(mapExternalDiscover);
+  listTraktDiscover(type: TraktDiscoverType, signal?: AbortSignal): Promise<ExternalDiscover> {
+    return this.getSoftEnvelope<MediaStackExternalDiscoverDto>(
+      `/discover/trakt?type=${type}`,
+      (data) => {
+        requireExternalDiscoverPayload(
+          requireEnvelopeRecord(data, 'Malformed Trakt response'),
+          'Trakt',
+        );
+      },
+      signal,
+    ).then(mapExternalDiscover);
   }
 
   requestMedia(payload: DiscoverRequestPayload): Promise<DiscoverAction> {

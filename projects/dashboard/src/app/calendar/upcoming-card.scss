@@ -57,7 +57,7 @@ mm-status {
 
 .up-next {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
   margin-bottom: 12px;

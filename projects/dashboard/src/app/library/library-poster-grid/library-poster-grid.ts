@@ -8,7 +8,6 @@ import {
   signal,
 } from '@angular/core';
 import { LucideChevronLeft, LucideChevronRight, LucidePlay } from '@lucide/angular';
-import { MmTooltip } from '@app/ui';
 import {
   DEFAULT_LIBRARY_ART,
   JELLYFIN_LINK_BASES,
@@ -21,7 +20,7 @@ const COMPACT_PAGE_SIZE = 5;
 
 @Component({
   selector: 'mm-library-poster-grid',
-  imports: [LucideChevronLeft, LucideChevronRight, LucidePlay, MmTooltip],
+  imports: [LucideChevronLeft, LucideChevronRight, LucidePlay],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './library-poster-grid.html',
   styleUrl: './library-poster-grid.scss',

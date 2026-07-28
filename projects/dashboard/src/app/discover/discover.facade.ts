@@ -1,5 +1,6 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
+import { ScheduledPollController } from '../media-stack/scheduled-poll';
 import {
   DiscoverCardItem,
   DiscoverHistoryFilter,
@@ -29,10 +30,14 @@ const LOAD_ERROR = 'Discover is temporarily unavailable. Try again.';
 const REFRESH_NOTICE = 'Could not refresh. Showing last loaded results.';
 const STALE_HINT = ' Results may be stale.';
 
+/** Re-export for specs; canonical home is `media-stack/scheduled-poll`. */
+export { SCHEDULED_REFRESH_TIMEOUT_MS } from '../media-stack/scheduled-poll';
+
 @Injectable()
 export class DiscoverFacade {
   private readonly api = inject(MEDIA_STACK_API);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly poll = new ScheduledPollController();
 
   private readonly _tab = signal<DiscoverSourceTab>('hermes');
   private readonly _hermesView = signal<HermesView>('active');
@@ -68,9 +73,6 @@ export class DiscoverFacade {
   private traktAppliedId = 0;
   /** True after at least one successful Hermes payload (including empty). */
   private hermesLoaded = false;
-  private scheduledInFlight = false;
-  private scheduledRefreshGen = 0;
-  private pollHandle?: ReturnType<typeof setInterval>;
 
   readonly tab = this._tab.asReadonly();
   readonly hermesView = this._hermesView.asReadonly();
@@ -113,7 +115,9 @@ export class DiscoverFacade {
   });
 
   constructor() {
-    this.destroyRef.onDestroy(() => { this.stopPolling(); });
+    this.destroyRef.onDestroy(() => {
+      this.stopPolling();
+    });
   }
 
   async setTab(tab: DiscoverSourceTab): Promise<void> {
@@ -263,62 +267,60 @@ export class DiscoverFacade {
     );
   }
 
-  private async refreshCurrentTab(): Promise<void> {
+  private async refreshCurrentTab(signal?: AbortSignal): Promise<void> {
     const tab = this._tab();
     if (tab === 'hermes') {
-      await this.loadHermes();
+      await this.loadHermes(signal);
       return;
     }
     if (tab === 'jellyseerr') {
-      await this.loadJellyseerr(this._jellyseerrKind());
+      await this.loadJellyseerr(this._jellyseerrKind(), signal);
       return;
     }
-    await this.loadTrakt(this._traktType());
+    await this.loadTrakt(this._traktType(), signal);
   }
 
   private restartPolling(): void {
-    // Clear the interval timer only — leave scheduledInFlight alone so an
-    // outstanding scheduled refresh keeps owning the overlap guard.
-    this.stopPolling(false);
+    this.poll.stop();
     const interval = this._tab() === 'hermes' ? HERMES_POLL_MS : EXTERNAL_POLL_MS;
-    this.pollHandle = setInterval(() => void this.runScheduledRefresh(), interval);
-  }
-
-  private async runScheduledRefresh(): Promise<void> {
-    if (this.scheduledInFlight) return;
-    this.scheduledInFlight = true;
-    const ownedGen = ++this.scheduledRefreshGen;
-    try {
-      await this.refreshCurrentTab();
-    } finally {
-      if (ownedGen === this.scheduledRefreshGen) {
-        this.scheduledInFlight = false;
-      }
-    }
+    this.poll.start(interval, (initial) => {
+      if (initial) return;
+      void this.poll.run(
+        async (scheduledSignal) => {
+          this.poll.beginRequest();
+          await this.refreshCurrentTab(scheduledSignal);
+        },
+        () => {
+          this.applyBrowseFailure(this.isBrowseInitialForCurrentTab(), LOAD_ERROR);
+        },
+      );
+    });
   }
 
   private stopPolling(invalidateInFlight = true): void {
-    if (this.pollHandle) clearInterval(this.pollHandle);
-    this.pollHandle = undefined;
+    this.poll.stop();
     if (invalidateInFlight) {
-      // Destroy / hard stop: drop the interval and orphan any in-flight finally
-      // so it cannot clear a later scheduled refresh's guard.
-      this.scheduledRefreshGen++;
-      this.scheduledInFlight = false;
       this.hermesRequestId++;
       this.jellyseerrRequestId++;
       this.traktRequestId++;
     }
   }
 
-  private async loadHermes(): Promise<void> {
+  private isBrowseInitialForCurrentTab(): boolean {
+    const tab = this._tab();
+    if (tab === 'hermes') return !this.hermesLoaded;
+    if (tab === 'jellyseerr') return !this._jellyseerrCache()[this._jellyseerrKind()];
+    return !this._traktCache()[this._traktType()];
+  }
+
+  private async loadHermes(signal?: AbortSignal): Promise<void> {
     const requestId = ++this.hermesRequestId;
     const isInitial = !this.hermesLoaded;
     if (isInitial && this._tab() === 'hermes') {
       this._status.set('loading');
     }
     try {
-      const response = await this.api.listHermesRecommendations();
+      const response = await this.api.listHermesRecommendations(signal);
       if (!response.ok) {
         // Failures only apply when still current — a stale failure must not clobber newer work.
         if (!this.isCurrentHermesRequest(requestId)) return;
@@ -334,6 +336,7 @@ export class DiscoverFacade {
       if (this._tab() !== 'hermes') return;
       this.commitBrowseSuccessCount(this.visibleItems().length, requestId, this.hermesRequestId);
     } catch {
+      if (signal?.aborted) return;
       if (!this.isCurrentHermesRequest(requestId)) return;
       this.applyBrowseFailure(isInitial, LOAD_ERROR);
     }
@@ -343,7 +346,7 @@ export class DiscoverFacade {
     return requestId === this.hermesRequestId && this._tab() === 'hermes';
   }
 
-  private async loadJellyseerr(kind: JellyseerrDiscoverKind): Promise<void> {
+  private async loadJellyseerr(kind: JellyseerrDiscoverKind, signal?: AbortSignal): Promise<void> {
     await this.loadExternalBrowse({
       nextRequestId: () => ++this.jellyseerrRequestId,
       currentRequestId: () => this.jellyseerrRequestId,
@@ -356,11 +359,12 @@ export class DiscoverFacade {
       writeCache: (items) => {
         this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: items }));
       },
-      fetch: () => this.api.listJellyseerrDiscover(kind),
+      fetch: () => this.api.listJellyseerrDiscover(kind, signal),
+      signal,
     });
   }
 
-  private async loadTrakt(type: TraktDiscoverType): Promise<void> {
+  private async loadTrakt(type: TraktDiscoverType, signal?: AbortSignal): Promise<void> {
     await this.loadExternalBrowse({
       nextRequestId: () => ++this.traktRequestId,
       currentRequestId: () => this.traktRequestId,
@@ -373,7 +377,8 @@ export class DiscoverFacade {
       writeCache: (items) => {
         this._traktCache.update((cache) => ({ ...cache, [type]: items }));
       },
-      fetch: () => this.api.listTraktDiscover(type),
+      fetch: () => this.api.listTraktDiscover(type, signal),
+      signal,
     });
   }
 
@@ -387,6 +392,7 @@ export class DiscoverFacade {
     cached: () => ExternalDiscoverItem[] | undefined;
     writeCache: (items: ExternalDiscoverItem[]) => void;
     fetch: () => Promise<{ ok: boolean; items: ExternalDiscoverItem[]; error?: string }>;
+    signal?: AbortSignal;
   }): Promise<void> {
     const requestId = opts.nextRequestId();
     const isActive = opts.isActive();
@@ -404,6 +410,7 @@ export class DiscoverFacade {
       if (!opts.isActive()) return;
       this.commitBrowseSuccess(response.items, requestId, opts.currentRequestId());
     } catch {
+      if (opts.signal?.aborted) return;
       if (requestId !== opts.currentRequestId() || !opts.isActive()) return;
       this.applyBrowseFailure(isInitial, LOAD_ERROR);
     }

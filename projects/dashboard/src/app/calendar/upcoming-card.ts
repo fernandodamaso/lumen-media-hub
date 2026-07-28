@@ -2,8 +2,8 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { LucideChevronRight } from '@lucide/angular';
 import { MmButton, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { SERVICE_LINK_BASES } from '../media-stack/media-stack-api.providers';
-import { CalendarMediaKind } from './calendar.models';
-import { CALENDAR_KIND_VIEW } from './calendar-format';
+import { CalendarEventStatus, CalendarMediaKind } from './calendar.models';
+import { CALENDAR_KIND_VIEW, CALENDAR_STATUS_VIEW } from './calendar-format';
 import { CalendarFacade } from './calendar.facade';
 
 @Component({
@@ -45,6 +45,10 @@ export class UpcomingCard {
 
   kindLabel(kind: CalendarMediaKind): string {
     return CALENDAR_KIND_VIEW[kind].label;
+  }
+
+  statusView(status: CalendarEventStatus) {
+    return CALENDAR_STATUS_VIEW[status];
   }
 
   retry(): void {

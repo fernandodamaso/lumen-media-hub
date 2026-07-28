@@ -18,7 +18,7 @@ type LibraryCardTab = 'movies' | 'series';
 export class LibraryCard {
   readonly facade = inject(WatchNextFacade);
   readonly tab = signal<LibraryCardTab>('series');
-  readonly skeletons = [0, 1, 2, 3];
+  readonly skeletons = [0, 1, 2, 3, 4];
 
   readonly filteredItems = computed(() => {
     const kind = this.tab() === 'movies' ? 'movie' : 'episode';

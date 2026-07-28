@@ -206,13 +206,15 @@
 }
 
 .card__skeleton-main {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+  max-height: 100%;
 }
 
 .card__body {
   position: relative;
   min-width: 0;
+  overflow: hidden;
 }
 
 .card__skeleton {
@@ -220,6 +222,7 @@
   position: absolute;
   inset: 0;
   z-index: 2;
+  overflow: hidden;
   pointer-events: none;
   background: var(--mm-component-card-bg);
 }

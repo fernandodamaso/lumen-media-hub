@@ -44,7 +44,7 @@ Verified 2026-07-16 during the Nocturne ops-console redesign on the main dashboa
 | Home keeps other regions usable when one feature fails | `dashboard-page.spec.ts` ΓÇö ΓÇ£keeps other regions usable when one feature failsΓÇ¥ |
 | Home stays unambiguous when a feature is empty | `dashboard-page.spec.ts` ΓÇö ΓÇ£keeps the grid unambiguous when a feature is emptyΓÇ¥ |
 | Reduced motion suppresses nonessential enter animation | `dashboard-page.spec.ts` ΓÇö ΓÇ£declares reduced-motion suppressionΓÇªΓÇ¥ |
-| Calendar empty / error | `calendar.facade.spec.ts`, `calendar-board.spec.ts` |
+| Calendar empty / error | `calendar.facade.spec.ts`, `upcoming-card.spec.ts` |
 | Library empty / error | `library.facade.spec.ts` |
 | Automation partial / error | `automation.facade.spec.ts` |
 | Downloads loading / empty / error | `downloads-board.spec.ts` |

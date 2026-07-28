@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { DiscoverAction, DiscoverFeedback, DiscoverItem, DiscoverRequestPayload, ExternalDiscoverItem, HermesDiscover, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
-import { DiscoverFacade } from './discover.facade';
+import { DiscoverFacade, SCHEDULED_REFRESH_TIMEOUT_MS } from './discover.facade';
 
 describe('DiscoverFacade', () => {
   let api: MockApi;
@@ -489,14 +489,11 @@ describe('DiscoverFacade', () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(api.hermesCalls).toBe(2);
 
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(29_000);
     expect(api.hermesCalls).toBe(2);
 
-    // Same-tab refresh restarts the interval but must not clear the in-flight poll guard.
-    await facade.setTab('hermes');
-    const afterManual = api.hermesCalls;
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(api.hermesCalls).toBe(afterManual);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(api.hermesCalls).toBe(2);
 
     releaseHermes({
       ok: true,
@@ -504,7 +501,7 @@ describe('DiscoverFacade', () => {
     });
     await flush();
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(api.hermesCalls).toBe(afterManual + 1);
+    expect(api.hermesCalls).toBe(3);
     vi.useRealTimers();
   });
 
@@ -516,6 +513,51 @@ describe('DiscoverFacade', () => {
     expect(facade.generationPending()).toBe(true);
     await facade.requestMore();
     expect(api.moreCalls).toBe(1);
+  });
+
+  it('recovers scheduled polling after a hung Hermes refresh times out', async () => {
+    vi.useFakeTimers();
+    await facade.setTab('hermes');
+    expect(facade.status()).toBe('ready');
+
+    const { promise: hermesDeferred, resolve: releaseHermes } = Promise.withResolvers<HermesDiscover>();
+    api.hermesDeferred = hermesDeferred;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(api.hermesCalls).toBe(2);
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
+    expect(facade.status()).toBe('ready');
+    expect(facade.notice()).toContain('Could not refresh');
+
+    releaseHermes({
+      ok: true,
+      items: api.hermes.items.map((item) => ({ ...item })),
+    });
+    api.hermesDeferred = null;
+    await flush();
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(api.hermesCalls).toBe(3);
+
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
+  });
+
+  it('aborts the active Hermes signal when a scheduled refresh times out', async () => {
+    vi.useFakeTimers();
+    await facade.setTab('hermes');
+
+    const { promise: hermesDeferred } = Promise.withResolvers<HermesDiscover>();
+    api.hermesDeferred = hermesDeferred;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(api.hermesCalls).toBe(2);
+    expect(api.lastHermesSignal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
+    expect(api.lastHermesSignal?.aborted).toBe(true);
+
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
   });
 
   it('shows cached external feeds immediately when returning to a filter', async () => {
@@ -601,6 +643,8 @@ class MockApi implements MediaStackApi {
   moreCalls = 0;
   feedbackGate: Promise<DiscoverAction> | null = null;
   hermesGate: Promise<HermesDiscover> | null = null;
+  hermesDeferred: Promise<HermesDiscover> | null = null;
+  lastHermesSignal?: AbortSignal;
   jellyseerrGate: Promise<{ ok: boolean; items: ExternalDiscoverItem[] }> | null = null;
   requestGate: Promise<DiscoverAction> | null = null;
   requestResult: DiscoverAction = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
@@ -643,8 +687,12 @@ class MockApi implements MediaStackApi {
   getAutomationSummary() {
     return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [], availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const } });
   }
-  listHermesRecommendations() {
+  listHermesRecommendations(signal?: AbortSignal) {
     this.hermesCalls++;
+    this.lastHermesSignal = signal;
+    if (this.hermesDeferred) {
+      return this.withAbort(signal, this.hermesDeferred);
+    }
     if (this.hermesGate) {
       const gate = this.hermesGate;
       this.hermesGate = null;
@@ -667,16 +715,16 @@ class MockApi implements MediaStackApi {
     }
     return Promise.resolve(this.moreResult);
   }
-  listJellyseerrDiscover(kind: JellyseerrDiscoverKind) {
+  listJellyseerrDiscover(kind: JellyseerrDiscoverKind, signal?: AbortSignal) {
     this.jellyseerrCalls.push(kind);
     if (this.jellyseerrGate) {
       const gate = this.jellyseerrGate;
       this.jellyseerrGate = null;
-      return gate;
+      return this.withAbort(signal, gate);
     }
     return Promise.resolve({ ok: true, items: this.jellyseerr[kind].map((item) => ({ ...item })) });
   }
-  listTraktDiscover(type: TraktDiscoverType) {
+  listTraktDiscover(type: TraktDiscoverType, _signal?: AbortSignal) {
     this.traktCalls.push(type);
     return Promise.resolve({ ok: true, items: this.trakt[type].map((item) => ({ ...item })) });
   }
@@ -691,5 +739,35 @@ class MockApi implements MediaStackApi {
   }
   listCronLogs() {
     return Promise.resolve({ ok: true, runs: [] });
+  }
+
+  private withAbort<T>(signal: AbortSignal | undefined, pending: Promise<T>): Promise<T> {
+    if (!signal) return pending;
+    if (signal.aborted) {
+      return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+    }
+    return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        reject(new DOMException('The operation was aborted.', 'AbortError'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      void pending.then(
+        (value) => {
+          if (settled) return;
+          settled = true;
+          signal.removeEventListener('abort', onAbort);
+          resolve(value);
+        },
+        (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          signal.removeEventListener('abort', onAbort);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        },
+      );
+    });
   }
 }

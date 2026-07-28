@@ -35,11 +35,11 @@ export interface MediaStackApi {
   getStorageOverview(signal?: AbortSignal): Promise<StorageOverview>;
   getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary>;
   listCronLogs(signal?: AbortSignal): Promise<CronLogs>;
-  listHermesRecommendations(): Promise<HermesDiscover>;
+  listHermesRecommendations(signal?: AbortSignal): Promise<HermesDiscover>;
   submitHermesFeedback(id: string, feedback: DiscoverFeedback, notes?: string): Promise<DiscoverAction>;
   requestHermesMore(): Promise<DiscoverAction>;
-  listJellyseerrDiscover(kind: JellyseerrDiscoverKind): Promise<ExternalDiscover>;
-  listTraktDiscover(type: TraktDiscoverType): Promise<ExternalDiscover>;
+  listJellyseerrDiscover(kind: JellyseerrDiscoverKind, signal?: AbortSignal): Promise<ExternalDiscover>;
+  listTraktDiscover(type: TraktDiscoverType, signal?: AbortSignal): Promise<ExternalDiscover>;
   requestMedia(payload: DiscoverRequestPayload): Promise<DiscoverAction>;
 }
 

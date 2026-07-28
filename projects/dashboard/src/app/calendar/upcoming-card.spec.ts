@@ -39,7 +39,7 @@ describe('UpcomingCard', () => {
     expect(facade.status()).toBe('ready');
   });
 
-  it('renders grouped events with linked thumbs and no status slots', () => {
+  it('renders grouped events with linked thumbs and status labels', () => {
     const now = new Date();
     const y = now.getFullYear();
     const m = String(now.getMonth() + 1).padStart(2, '0');
@@ -64,8 +64,8 @@ describe('UpcomingCard', () => {
     const root = fixtureHost(fixture);
     expect(root.textContent).toContain('Today');
     expect(root.textContent).toContain('Cowboy Bebop');
-    expect(root.textContent).not.toContain('Soon');
-    expect(root.querySelector('.slot')).toBeNull();
+    expect(root.textContent).toContain('Soon');
+    expect(root.querySelector('.mm-status--warning')).not.toBeNull();
     const thumb = root.querySelector('a.up-next__thumb') as HTMLAnchorElement;
     expect(thumb.getAttribute('href')).toBe('http://localhost:8989/series/cowboy-bebop');
   });

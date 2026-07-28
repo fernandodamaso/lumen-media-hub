@@ -8,4 +8,5 @@ RUN npm run build:live
 FROM nginx:1.27-alpine
 COPY --from=builder /app/dist/dashboard/browser /usr/share/nginx/html
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+ENV NGINX_ENVSUBST_FILTER=ACTIONS_TOKEN
 EXPOSE 80

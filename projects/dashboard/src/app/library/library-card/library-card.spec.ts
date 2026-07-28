@@ -63,6 +63,21 @@ describe('LibraryCard', () => {
     expect(heading?.textContent).toContain('Library');
   });
 
+  it('keeps the library poster skeleton on one compact row while loading', () => {
+    facade.status.set('loading');
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    const skeletonMain = root.querySelector('.card__skeleton-main.posters--skeleton');
+    if (!(skeletonMain instanceof HTMLElement)) {
+      throw new Error('Expected poster skeleton container');
+    }
+    expect(window.getComputedStyle(skeletonMain).display).toBe('grid');
+    expect(window.getComputedStyle(skeletonMain).gridTemplateColumns).toContain('repeat(5');
+    // Four stacked 180px posters would be ~720px; one compact row stays near one poster tall.
+    expect(skeletonMain.scrollHeight).toBeLessThan(400);
+  });
+
   it('enters ready content inside card__inner with overlay skeleton markup', () => {
     facade.status.set('ready');
     facade.items.set([item('e1', 'episode', 'Night Watch', 'S01E01 · Pilot')]);

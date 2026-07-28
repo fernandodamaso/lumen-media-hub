@@ -773,7 +773,7 @@ export class MockMediaStackApi implements MediaStackApi {
     return this.withLatency(mapCronLogs(copyCronLogs(demoCronLogs())));
   }
 
-  listHermesRecommendations(): Promise<HermesDiscover> {
+  listHermesRecommendations(_signal?: AbortSignal): Promise<HermesDiscover> {
     const pending_request_sync = this.hermesItems
       .filter((item) => item.id === MOCK_SYNC_FAILED_HERMES_ID && item.jellyseerr_request_id && item.request_state == null)
       .map((item) => ({ id: item.id, jellyseerr_request_id: item.jellyseerr_request_id as number }));
@@ -828,7 +828,7 @@ export class MockMediaStackApi implements MediaStackApi {
     );
   }
 
-  listJellyseerrDiscover(kind: JellyseerrDiscoverKind): Promise<ExternalDiscover> {
+  listJellyseerrDiscover(kind: JellyseerrDiscoverKind, _signal?: AbortSignal): Promise<ExternalDiscover> {
     return this.withLatency(
       mapExternalDiscover({
         ok: true,
@@ -837,7 +837,7 @@ export class MockMediaStackApi implements MediaStackApi {
     );
   }
 
-  listTraktDiscover(type: TraktDiscoverType): Promise<ExternalDiscover> {
+  listTraktDiscover(type: TraktDiscoverType, _signal?: AbortSignal): Promise<ExternalDiscover> {
     return this.withLatency(
       mapExternalDiscover({
         ok: true,

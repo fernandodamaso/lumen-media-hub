@@ -41,10 +41,44 @@
 .card__skeleton-main.posters--skeleton {
   display: none;
   margin-bottom: 18px;
+
+  /* poster-rail / posters--compact styles live on other components; define the
+     compact rail here so the overlay skeleton stays one row and does not spill. */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 18px;
+  align-content: start;
 }
 
 :host:has(.card__body[aria-busy="true"]) .card__skeleton-main.posters--skeleton {
   display: grid;
+}
+
+.card__skeleton-main.posters--skeleton mm-skeleton {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 2 / 3;
+  height: auto;
+}
+
+@container (max-width: 900px) {
+  .card__skeleton-main.posters--skeleton {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 720px) {
+  .card__skeleton-main.posters--skeleton {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+}
+
+@container (max-width: 520px) {
+  .card__skeleton-main.posters--skeleton {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
 }
 
 .card__reveal {

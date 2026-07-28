@@ -35,7 +35,16 @@
     >
       @for (item of visibleItems(); track item.id) {
         <figure class="poster">
-          <div class="poster__frame" [style.background]="artStyle(item)">
+          <div class="poster__frame" [class.poster__frame--playable]="!!playHref(item)" [style.background]="artStyle(item)">
+            @if (playHref(item); as href) {
+              <a
+                class="poster__hit"
+                [href]="href"
+                target="_blank"
+                rel="noreferrer"
+                [attr.aria-label]="'Play ' + item.title"
+              ></a>
+            }
             @if (posterImageSrc(item); as src) {
               <img
                 class="poster__image"
@@ -45,19 +54,11 @@
                 (error)="onArtError(item)"
               />
             }
-            <div class="poster__actions">
-              @if (playHref(item); as href) {
-                <mm-tooltip text="Play" tone="accent">
-                  <a
-                    class="poster__action"
-                    [href]="href"
-                    target="_blank"
-                    rel="noreferrer"
-                    [attr.aria-label]="'Play ' + item.title"
-                  >
-                    <svg lucidePlay [size]="14" aria-hidden="true"></svg>
-                  </a>
-                </mm-tooltip>
+            <div class="poster__actions" aria-hidden="true">
+              @if (playHref(item)) {
+                <span class="poster__action">
+                  <svg lucidePlay [size]="14" aria-hidden="true"></svg>
+                </span>
               }
             </div>
           </div>

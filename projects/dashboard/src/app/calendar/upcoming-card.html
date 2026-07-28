@@ -82,6 +82,7 @@
                       {{ event.subtitle }} · {{ formatTime(event.airDate) }} · {{ kindLabel(event.kind) }}
                     </p>
                   </div>
+                  <mm-status [tone]="statusView(event.status).tone">{{ statusView(event.status).label }}</mm-status>
                 </div>
               }
             }

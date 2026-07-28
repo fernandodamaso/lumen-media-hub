@@ -1,9 +1,19 @@
-<div class="mm-poster">
-  <div class="mm-poster__art" [style.background]="art()">
+<div class="mm-poster" [class.mm-poster--unframed]="!framed()">
+  <div class="mm-poster__art" [style.background]="showNetworkImage() ? null : art()">
+    @if (showNetworkImage()) {
+      <img
+        class="mm-poster__image"
+        [src]="imageUrl()!"
+        alt=""
+        loading="lazy"
+        decoding="async"
+        (error)="onImageError()"
+      />
+    }
     <div class="mm-poster__overlay">
       <div class="mm-poster__head">
         <strong>{{ title() }}</strong>
-        @if (rating() !== null) {
+        @if (rating() !== null && rating() !== undefined) {
           <span class="mm-poster__rating" aria-label="Rating {{ rating() }} out of 10">★ {{ rating() }}</span>
         }
       </div>

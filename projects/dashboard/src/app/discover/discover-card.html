@@ -1,35 +1,46 @@
 <article class="discover-card">
-  <mm-poster [title]="item().title" [meta]="meta()" [art]="art()" />
-  <div class="body">
-    <div class="badges">
-      @if (item().inLibrary) {
-        <mm-status tone="success">In library</mm-status>
-      }
-      @if (item().requestState === 'requested') {
-        <mm-status tone="info">Requested</mm-status>
-      }
-      @if (syncFailed()) {
-        <mm-status tone="warning">Sync failed</mm-status>
-      }
-      @if (item().feedback) {
-        <mm-status tone="info">{{ item().feedback }}</mm-status>
-      }
-    </div>
-    @if (item().reason) {
-      <p class="reason">{{ item().reason }}</p>
-    } @else if (item().overview) {
-      <p class="reason">{{ item().overview }}</p>
+  <div class="discover-card__poster">
+    <mm-poster
+      [title]="item().title"
+      [meta]="meta()"
+      [imageUrl]="item().posterUrl"
+      [art]="fallbackArt()"
+      [framed]="false"
+    />
+    @if (item().inLibrary || item().requestState === 'requested' || syncFailed() || item().feedback) {
+      <div class="discover-card__badges">
+        @if (item().inLibrary) {
+          <mm-status tone="success">In library</mm-status>
+        }
+        @if (item().requestState === 'requested') {
+          <mm-status tone="info">Requested</mm-status>
+        }
+        @if (syncFailed()) {
+          <mm-status tone="warning">Sync failed</mm-status>
+        }
+        @if (item().feedback) {
+          <mm-status tone="info">{{ item().feedback }}</mm-status>
+        }
+      </div>
     }
+  </div>
+
+  @if (showSummary() && summaryText()) {
+    <p class="discover-card__summary">
+      <span class="discover-card__summary-text">{{ summaryText() }}</span>
+    </p>
+  }
+
+  <footer class="discover-card__footer">
     @if (showFeedback()) {
-      <div class="feedback" role="group" [attr.aria-label]="'Feedback for ' + item().title">
+      <div class="discover-card__feedback" role="group" [attr.aria-label]="'Feedback for ' + item().title">
         @for (option of feedbackOptions; track option.value) {
-          <button
-            type="button"
-            class="feedback-btn"
-            [attr.aria-label]="option.label"
-            [attr.title]="option.label"
-            [attr.aria-pressed]="item().feedback === option.value"
+          <mm-icon-button
+            [label]="option.label"
+            [toggle]="true"
+            [pressed]="isFeedbackPressed(option.value)"
             [disabled]="busy()"
+            [busy]="busy()"
             (click)="feedback.emit(option.value)"
           >
             @switch (option.icon) {
@@ -46,20 +57,20 @@
                 <svg lucideSkipForward [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
               }
             }
-          </button>
+          </mm-icon-button>
         }
       </div>
     }
-    <div class="actions">
-      <span [attr.title]="requestAction().title">
+    <div class="discover-card__actions">
+      <span class="discover-card__request-wrap" [attr.title]="requestAction().title">
         <mm-button
           [label]="requestAction().label"
+          variant="quiet"
           [disabled]="requestAction().disabled || busy()"
           [busy]="busy()"
-          [variant]="requestAction().disabled ? 'quiet' : 'primary'"
           (click)="onRequest()"
         />
       </span>
     </div>
-  </div>
+  </footer>
 </article>

@@ -51,6 +51,53 @@ describe('DiscoverFacade', () => {
     expect(facade.notice()).toContain('Feedback');
   });
 
+  it('ignores stale Hermes poll responses that predate feedback', async () => {
+    await facade.setTab('hermes');
+    expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(true);
+
+    let resolveStale!: (value: HermesDiscover) => void;
+    api.hermesGate = new Promise((resolve) => {
+      resolveStale = resolve;
+    });
+
+    const poll = facade.setTab('hermes');
+
+    api.hermes.items = api.hermes.items.map((item) =>
+      item.id === 'hermes-eligible'
+        ? { ...item, active: false, feedback: 'liked' as const, feedback_at: '2026-07-27T00:00:00Z' }
+        : item,
+    );
+    await facade.submitFeedback('hermes-eligible', 'liked');
+    expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(false);
+
+    resolveStale({
+      ok: true,
+      items: api.hermes.items.map((item) =>
+        item.id === 'hermes-eligible' ? { ...item, active: true, feedback: null } : item,
+      ),
+    });
+    await poll;
+
+    expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(false);
+  });
+
+  it('removes liked titles from Active even when the API still reports active', async () => {
+    await facade.setTab('hermes');
+    expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(true);
+
+    api.hermes.items = api.hermes.items.map((item) =>
+      item.id === 'hermes-eligible'
+        ? { ...item, active: true, feedback: 'liked' as const, feedback_at: '2026-07-27T00:00:00Z' }
+        : item,
+    );
+    await facade.submitFeedback('hermes-eligible', 'liked');
+
+    expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(false);
+    facade.setHermesView('history');
+    facade.setHistoryFilter('watched');
+    expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(true);
+  });
+
   it('requestItem calls only requestMedia and tracks sync-failed notices', async () => {
     await facade.setTab('hermes');
     api.requestResult = {

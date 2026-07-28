@@ -1,9 +1,9 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareArrowOutUpRight } from '@lucide/angular';
+import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideRefreshCw, LucideSquareArrowOutUpRight } from '@lucide/angular';
 
 @Component({
   selector: 'mm-button',
-  imports: [LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareArrowOutUpRight],
+  imports: [LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideRefreshCw, LucideSquareArrowOutUpRight],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<button
     [type]="type()"
@@ -19,91 +19,19 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideSquareAr
       <svg lucidePlay [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
     } @else if (icon() === 'plus') {
       <svg lucidePlus [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
+    } @else if (icon() === 'refresh') {
+      <svg lucideRefreshCw [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
     } @else if (icon() === 'external-link') {
       <svg lucideSquareArrowOutUpRight [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
     }
     {{ label() }}
   </button>`,
-  styles: `
-    :host {
-      display: inline-block;
-    }
-    .mm-button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 40px;
-      gap: var(--mm-space-sm);
-      border: 0;
-      border-radius: var(--mm-radius-sm);
-      padding: 8px 14px;
-      background: var(--mm-component-accent);
-      color: var(--mm-component-on-accent);
-      cursor: pointer;
-      font: 600 13px/1 var(--mm-font-body);
-      white-space: nowrap;
-      transition:
-        background var(--mm-transition-fast),
-        opacity var(--mm-transition-fast),
-        transform var(--mm-transition-fast);
-    }
-    .mm-button--primary {
-      background: var(--mm-component-accent);
-      color: var(--mm-component-on-accent);
-    }
-    .mm-button:hover:not(:disabled) {
-      background: var(--mm-component-accent-strong);
-    }
-    .mm-button:active:not(:disabled) {
-      transform: scale(0.98);
-    }
-    .mm-button:focus-visible {
-      outline: 3px solid var(--mm-component-focus-ring);
-      outline-offset: 2px;
-    }
-    .mm-button--quiet {
-      background: var(--mm-component-control-bg);
-      color: var(--mm-component-text-primary);
-      border: 1px solid var(--mm-component-border);
-    }
-    .mm-button--quiet:hover:not(:disabled) {
-      background: var(--mm-component-muted-bg);
-    }
-    .mm-button--success {
-      background: var(--mm-component-success);
-      color: var(--mm-component-on-success);
-    }
-    .mm-button--success:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--mm-component-success) 82%, #000);
-    }
-    .mm-button--warning {
-      background: var(--mm-component-warning);
-      color: var(--mm-component-on-warning);
-    }
-    .mm-button--warning:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--mm-component-warning) 82%, #000);
-    }
-    .mm-button--danger {
-      background: var(--mm-component-danger);
-      color: var(--mm-component-on-danger);
-    }
-    .mm-button--danger:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--mm-component-danger) 82%, #000);
-    }
-    .mm-button:disabled {
-      cursor: not-allowed;
-      opacity: 0.65;
-    }
-    .mm-button[aria-busy='true'] { cursor: wait; }
-    @media (max-width: 900px), (pointer: coarse) {
-      .mm-button { min-height: 44px; }
-    }
-  `,
+  styleUrl: './button.scss',
 })
 export class MmButton {
   readonly label = input('Continue');
   readonly variant = input<'primary' | 'quiet' | 'success' | 'warning' | 'danger'>('primary');
-  readonly icon = input<'pause' | 'play' | 'plus' | 'external-link' | ''>('');
+  readonly icon = input<'pause' | 'play' | 'plus' | 'refresh' | 'external-link' | ''>('');
   readonly disabled = input(false);
   readonly busy = input(false);
   readonly type = input<'button' | 'submit'>('button');

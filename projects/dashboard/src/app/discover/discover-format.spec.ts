@@ -1,5 +1,9 @@
 import { DiscoverItem } from './discover.models';
 import {
+  discoverPosterFallback,
+  isDiscoverFeedbackPressed,
+  isHermesActiveItem,
+  matchesDiscoverSearch,
   matchesHistoryFilter,
   resolveRequestAction,
   toExternalCardItem,
@@ -69,6 +73,46 @@ describe('discover-format', () => {
     expect(matchesHistoryFilter(liked, 'requested')).toBe(false);
     expect(matchesHistoryFilter(liked, 'liked')).toBe(true);
     expect(matchesHistoryFilter(liked, 'all')).toBe(true);
+  });
+
+  it('removes feedbacked titles from the Active Hermes queue', () => {
+    expect(isHermesActiveItem(hermesItem({ active: true, feedback: null }))).toBe(true);
+    expect(isHermesActiveItem(hermesItem({ active: true, feedback: 'liked' }))).toBe(false);
+    expect(isHermesActiveItem(hermesItem({ active: false, feedback: null }))).toBe(false);
+  });
+
+  it('treats liked as pressed for both liked and watched controls', () => {
+    expect(isDiscoverFeedbackPressed('liked', 'liked')).toBe(true);
+    expect(isDiscoverFeedbackPressed('liked', 'watched')).toBe(true);
+    expect(isDiscoverFeedbackPressed('liked', 'disliked')).toBe(false);
+    expect(isDiscoverFeedbackPressed('watched', 'watched')).toBe(true);
+    expect(isDiscoverFeedbackPressed('watched', 'liked')).toBe(false);
+  });
+
+  it('builds a deterministic title-based poster fallback gradient', () => {
+    const first = discoverPosterFallback('Signal Drift');
+    const second = discoverPosterFallback('Signal Drift');
+    const other = discoverPosterFallback('Other Title');
+    expect(first).toBe(second);
+    expect(first).toContain('linear-gradient');
+    expect(first).toContain('hsl(');
+    expect(first).not.toBe(other);
+  });
+
+  it('matches discover search case-insensitively across title, year, reason, and overview', () => {
+    const item = {
+      title: 'Signal Drift',
+      year: 2024,
+      reason: 'Because you liked sci-fi',
+      overview: 'A deep space relay',
+    };
+    expect(matchesDiscoverSearch(item, '')).toBe(true);
+    expect(matchesDiscoverSearch(item, '   ')).toBe(true);
+    expect(matchesDiscoverSearch(item, 'signal')).toBe(true);
+    expect(matchesDiscoverSearch(item, '2024')).toBe(true);
+    expect(matchesDiscoverSearch(item, 'SCI-FI')).toBe(true);
+    expect(matchesDiscoverSearch(item, 'relay')).toBe(true);
+    expect(matchesDiscoverSearch(item, 'no match')).toBe(false);
   });
 
   it('maps hermes and external DTOs into card items', () => {

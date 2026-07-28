@@ -1,13 +1,15 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { MmButton, MmStateCard, MmStatus } from '@app/ui';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { MmButton, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { DiscoverFeedback, DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { DiscoverCard } from './discover-card';
-import { DiscoverHistoryFilter } from './discover-format';
+import { DiscoverHistoryFilter, matchesDiscoverSearch } from './discover-format';
 import { DiscoverFacade, HermesView } from './discover.facade';
+
+export const DISCOVER_BATCH_SIZE = 24;
 
 @Component({
   selector: 'mm-discover-page',
-  imports: [MmButton, MmStateCard, MmStatus, DiscoverCard],
+  imports: [MmButton, MmSkeleton, MmStateCard, MmStatus, DiscoverCard],
   providers: [DiscoverFacade],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './discover-page.html',
@@ -15,6 +17,39 @@ import { DiscoverFacade, HermesView } from './discover.facade';
 })
 export class DiscoverPage {
   readonly facade = inject(DiscoverFacade);
+
+  readonly DISCOVER_BATCH_SIZE = DISCOVER_BATCH_SIZE;
+
+  readonly searchQuery = signal('');
+  readonly visibleLimit = signal(DISCOVER_BATCH_SIZE);
+
+  readonly filteredItems = computed(() =>
+    this.facade.visibleItems().filter((item) => matchesDiscoverSearch(item, this.searchQuery())),
+  );
+
+  readonly displayedItems = computed(() => this.filteredItems().slice(0, this.visibleLimit()));
+
+  readonly remainingCount = computed(() =>
+    Math.max(0, this.filteredItems().length - this.displayedItems().length),
+  );
+
+  readonly resultCountLabel = computed(() => {
+    const count = this.filteredItems().length;
+    const query = this.searchQuery().trim();
+    if (!query) {
+      return count === 1 ? '1 title' : `${count} titles`;
+    }
+    return count === 1 ? '1 match' : `${count} matches`;
+  });
+
+  readonly hasSearchQuery = computed(() => this.searchQuery().trim().length > 0);
+
+  readonly loadMoreLabel = computed(() => {
+    const count = Math.min(DISCOVER_BATCH_SIZE, this.remainingCount());
+    return `Load ${count} more`;
+  });
+
+  readonly skeletonSlots = Array.from({ length: 12 }, (_, index) => index);
 
   readonly tabs: { id: DiscoverSourceTab; label: string }[] = [
     { id: 'hermes', label: 'Hermes' },
@@ -47,24 +82,63 @@ export class DiscoverPage {
     void this.facade.setTab('hermes');
   }
 
+  private withLimitReset(changed: boolean, run: () => void): void {
+    if (changed) {
+      this.resetVisibleLimit();
+    }
+    run();
+  }
+
   setTab(tab: DiscoverSourceTab): void {
-    void this.facade.setTab(tab);
+    this.withLimitReset(this.facade.tab() !== tab, () => {
+      void this.facade.setTab(tab);
+    });
   }
 
   setHermesView(view: HermesView): void {
-    this.facade.setHermesView(view);
+    this.withLimitReset(this.facade.hermesView() !== view, () => {
+      this.facade.setHermesView(view);
+    });
   }
 
   setHistoryFilter(filter: DiscoverHistoryFilter): void {
-    this.facade.setHistoryFilter(filter);
+    this.withLimitReset(this.facade.historyFilter() !== filter, () => {
+      this.facade.setHistoryFilter(filter);
+    });
   }
 
   setJellyseerrKind(kind: JellyseerrDiscoverKind): void {
-    this.facade.setJellyseerrKind(kind);
+    this.withLimitReset(this.facade.jellyseerrKind() !== kind, () => {
+      this.facade.setJellyseerrKind(kind);
+    });
   }
 
   setTraktType(type: TraktDiscoverType): void {
-    this.facade.setTraktType(type);
+    this.withLimitReset(this.facade.traktType() !== type, () => {
+      this.facade.setTraktType(type);
+    });
+  }
+
+  setSearchQuery(value: string): void {
+    const previous = this.searchQuery().trim();
+    this.searchQuery.set(value);
+    if (previous !== value.trim()) {
+      this.resetVisibleLimit();
+    }
+  }
+
+  clearSearch(): void {
+    if (!this.searchQuery()) return;
+    this.searchQuery.set('');
+    this.resetVisibleLimit();
+  }
+
+  loadMore(): void {
+    this.visibleLimit.update((limit) => limit + DISCOVER_BATCH_SIZE);
+  }
+
+  resetVisibleLimit(): void {
+    this.visibleLimit.set(DISCOVER_BATCH_SIZE);
   }
 
   refresh(): void {

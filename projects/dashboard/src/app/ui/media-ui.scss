@@ -118,6 +118,20 @@
   --mm-component-muted-bg: color-mix(in srgb, var(--mm-semantic-surface-control) 70%, transparent);
   --mm-component-border: var(--mm-semantic-border-default);
   --mm-component-divider: color-mix(in srgb, var(--mm-semantic-border-default) 70%, transparent);
+
+  /* Quiet / bordered controls (MmButton quiet, MmIconButton, chips) */
+  --mm-component-control-text: var(--mm-semantic-text-secondary);
+  --mm-component-control-text-hover: var(--mm-semantic-text-primary);
+  --mm-component-control-hover-bg: var(--mm-component-muted-bg);
+  --mm-component-control-hover-border: color-mix(
+    in srgb,
+    var(--mm-component-accent) 30%,
+    var(--mm-component-border)
+  );
+  --mm-component-control-pressed-bg: color-mix(in srgb, var(--mm-component-accent) 12%, transparent);
+  --mm-component-control-pressed-border: var(--mm-component-accent);
+  --mm-component-control-pressed-text: var(--mm-component-accent);
+  --mm-component-control-pressed-hover-bg: color-mix(in srgb, var(--mm-component-accent) 20%, transparent);
   --mm-component-accent: var(--mm-semantic-accent);
   --mm-component-accent-strong: var(--mm-semantic-accent-strong);
   --mm-component-success: var(--mm-semantic-success);

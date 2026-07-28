@@ -130,12 +130,38 @@ export function matchesHistoryFilter(item: DiscoverItem, filter: DiscoverHistory
   return item.feedback === filter;
 }
 
-export function posterArtFor(item: Pick<DiscoverCardItem, 'title' | 'posterUrl'>): string {
-  if (item.posterUrl) {
-    return `center / cover no-repeat url(${JSON.stringify(item.posterUrl)})`;
-  }
-  const hue = hashHue(item.title);
+/** Active Hermes browse excludes any title that already has feedback (liked leaves the queue). */
+export function isHermesActiveItem(item: Pick<DiscoverItem, 'active' | 'feedback'>): boolean {
+  return item.active && item.feedback == null;
+}
+
+/** Liked also counts as watched for pressed UI and history filtering. */
+export function isDiscoverFeedbackPressed(
+  current: DiscoverFeedback | null,
+  option: DiscoverFeedback,
+): boolean {
+  if (current === option) return true;
+  return option === 'watched' && current === 'liked';
+}
+
+export function discoverPosterFallback(title: string): string {
+  const hue = hashHue(title);
   return `linear-gradient(145deg, hsl(${hue} 42% 42%), var(--mm-component-card-bg) 70%)`;
+}
+
+export function matchesDiscoverSearch(
+  item: Pick<DiscoverCardItem, 'title' | 'year' | 'reason' | 'overview'>,
+  query: string,
+): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  const haystacks = [
+    item.title,
+    item.year != null ? String(item.year) : '',
+    item.reason ?? '',
+    item.overview ?? '',
+  ];
+  return haystacks.some((part) => part.toLowerCase().includes(needle));
 }
 
 const mapDiscoverItem = (dto: MediaStackDiscoverItemDto): DiscoverItem => ({ ...dto });

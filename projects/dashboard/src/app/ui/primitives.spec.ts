@@ -325,6 +325,33 @@ describe('app/ui primitives', () => {
     expect(button?.getAttribute('aria-busy')).toBeNull();
   });
 
+  it('exposes aria-pressed on toggle icon buttons', () => {
+    const fixture = TestBed.createComponent(MmIconButton);
+    fixture.componentRef.setInput('label', 'Liked');
+    fixture.componentRef.setInput('toggle', true);
+    fixture.componentRef.setInput('pressed', true);
+    fixture.detectChanges();
+    const button = fixtureHost(fixture).querySelector('button');
+
+    expect(button?.getAttribute('aria-pressed')).toBe('true');
+    expect(button?.classList.contains('mm-icon-button--pressed')).toBe(true);
+
+    fixture.componentRef.setInput('pressed', false);
+    fixture.detectChanges();
+    expect(button?.getAttribute('aria-pressed')).toBe('false');
+    expect(button?.classList.contains('mm-icon-button--pressed')).toBe(false);
+  });
+
+  it('omits aria-pressed when the icon button is not a toggle', () => {
+    const fixture = TestBed.createComponent(MmIconButton);
+    fixture.componentRef.setInput('label', 'Refresh');
+    fixture.componentRef.setInput('pressed', true);
+    fixture.detectChanges();
+    const button = fixtureHost(fixture).querySelector('button');
+
+    expect(button?.getAttribute('aria-pressed')).toBeNull();
+  });
+
   it('keeps the theme picker selection aligned with the applied theme', () => {
     const fixture = TestBed.createComponent(MmThemePicker);
     const picker = fixture.componentInstance;

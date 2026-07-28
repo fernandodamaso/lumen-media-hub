@@ -80,9 +80,21 @@ Feature code imports domain models from its own folder and talks to the backend 
 |------|-----|-----|------------------------|
 | Demo | `npm start` | Mock | Local Jellyfin / Sonarr / Radarr bases from environment |
 | Live dev | `npm run start:live` | HTTP → `:8085` via `/api` proxy | Same local bases |
-| Production | `docker run` or `docker compose up` | Same-origin `/api/*` → `homepage-actions:8085` via Nginx | Service deep-links from environment |
+| Production | `docker compose up` (`D:\media`, `dashboard` service) | Same-origin `/api/*` → `homepage-actions:8085` via Nginx | Service deep-links from environment |
 
 Empty calendar bases must not fall back to relative `/series/...` or `/movie/...` URLs. Resolvers treat a missing or blank base as "no link."
+
+### Stack deploy and rollback (`D:\media`)
+
+Image IDs, cutover dates, and rollback commands: `D:\media\docs\fdm-529-cutover-baseline.md`. Staging on `:3001` was used before M4 cutover; production listens on `:3000` only.
+
+```powershell
+docker compose --project-directory D:\media up -d dashboard homepage-actions
+$env:SMOKE_BASE_URL = 'http://127.0.0.1:3000'
+npm run test:smoke
+```
+
+Legacy React (`dashboard-react`, profile `legacy-dashboard`) is for rollback only — plain `docker compose up -d` does not start it. Do not set `COMPOSE_PROFILES` in `.env`.
 
 ## API endpoints (production-live)
 
@@ -126,7 +138,7 @@ Design-system showcase is Storybook (`npm run storybook`), not an in-app `/ui` r
 - The token never appears in Angular source, bundles, source maps, HTML, or error pages.
 - SABnzbd is excluded from the live application shell; only qBittorrent on port `8081` remains as a download client.
 
-Backend security enforcement (fail-closed token validation, per-torrent routes, CORS allowlist) is pending implementation in the backend repository (`D:\media`).
+Backend security (fail-closed `ACTIONS_TOKEN`, per-torrent qBT routes, CORS allowlist) is implemented in `D:\media\config\homepage-actions` (Milestone 1, commit `f0b4213` on the media stack repo).
 
 ## Docker build
 
@@ -135,7 +147,7 @@ npm run build:live
 docker build -t media-dashboard-angular:local .
 ```
 
-Multi-stage build: `node:22-alpine` compiles the production-live Angular build, then `nginx:1.27-alpine` serves the static assets with the reverse-proxy template.
+Multi-stage build: `node:22-alpine` compiles the production-live Angular build, then `nginx:1.28-alpine` serves the static assets with the reverse-proxy template.
 
 The container must be deployed on the same Docker network as `homepage-actions` (`media_media-net`) for DNS resolution of the upstream service name. The `${ACTIONS_TOKEN}` variable is substituted by the official Nginx entrypoint at container startup.
 

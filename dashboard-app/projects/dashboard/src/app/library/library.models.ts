@@ -36,7 +36,7 @@ export interface LibraryListResult {
   seriesCount?: number;
 }
 
-interface JellyfinLinkBases {
+export interface JellyfinLinkBases {
   jellyfinBase?: string;
 }
 

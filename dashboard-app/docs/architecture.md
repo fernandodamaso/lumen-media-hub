@@ -98,8 +98,8 @@ Manual “refresh all” goes through [`dashboard-refresh.ts`](../projects/dashb
 | Mode | How | API | Operational deep links |
 |------|-----|-----|------------------------|
 | Demo | `npm start` in `dashboard-app/` → `:4200` | Mock | Local Jellyfin / Sonarr / Radarr bases from environment |
-| Live development | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard` (repo root) → `:3000` | HTTP → `homepage-actions:8085` via `/api` proxy inside the override container | Same local bases |
-| Production | `docker compose up -d --build dashboard` (repo root) → `:3000` | Same-origin `/api/*` → `homepage-actions:8085` via Nginx | Service deep-links from environment |
+| Live development | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard` (repo root) → `:3000` | HTTP → `homepage-actions:8085` via `/api` proxy inside the override container | Host-published bases from `GET /api/service-links` (Compose `*_PORT` / `*_EXTERNAL_URL`) |
+| Production | `docker compose up -d --build dashboard` (repo root) → `:3000` | Same-origin `/api/*` → `homepage-actions:8085` via Nginx | Same `GET /api/service-links` as Live development |
 
 The Live override container runs `npm run start:live` with [`proxy.conf.js`](../projects/dashboard/proxy.conf.js) and Compose-provided `ACTIONS_TOKEN` / `LIVE_API_PROXY_TARGET`. Keep those scripts and the Angular `live` configuration for the container; host Live `ng serve` is not a supported workflow.
 
@@ -119,6 +119,7 @@ npm run test:smoke
 
 | Endpoint | Method | Backend source |
 |---|---|---|
+| `/api/service-links` | GET | Browser deep-link bases from `*_EXTERNAL_URL` (Compose host ports) |
 | `/api/system/resources` | GET | Storage volume from `disk.path`, `disk.used`, `disk.total` |
 | `/api/qbt/torrents` | GET | Active torrents |
 | `/api/qbt/torrents/stop` | POST `{ "id" }` | Per-torrent pause (token required) |

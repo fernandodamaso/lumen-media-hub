@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config
 from http_support import _reject_mutating, _reject_post, send_json, send_options
-from routes import arr, automation, discover, jellyfin, qbittorrent, reports, resources
+from routes import arr, automation, discover, jellyfin, qbittorrent, reports, resources, service_links
 
 
 class ActionsHandler(BaseHTTPRequestHandler):
@@ -41,6 +41,8 @@ class ActionsHandler(BaseHTTPRequestHandler):
             resources.handle_system_resources(self)
         elif path == "/health":
             send_json(self, 200, {"ok": True})
+        elif path == "/service-links":
+            service_links.handle_service_links(self)
         elif path == "/cron/logs":
             reports.handle_cron_logs(self)
         elif path == "/discover/hermes":

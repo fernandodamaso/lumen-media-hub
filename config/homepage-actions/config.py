@@ -158,6 +158,23 @@ AUTOMATION_PREVIEW_LIMIT = int(os.environ.get("AUTOMATION_PREVIEW_LIMIT", "3"))
 AUTOMATION_MISSING_LIMIT = int(os.environ.get("AUTOMATION_MISSING_LIMIT", "50"))
 SONARR_EXTERNAL_URL = os.environ.get("SONARR_EXTERNAL_URL", "http://localhost:8989").rstrip("/")
 RADARR_EXTERNAL_URL = os.environ.get("RADARR_EXTERNAL_URL", "http://localhost:7878").rstrip("/")
+PROWLARR_EXTERNAL_URL = os.environ.get("PROWLARR_EXTERNAL_URL", "http://localhost:9696").rstrip("/")
+QBITTORRENT_EXTERNAL_URL = os.environ.get(
+    "QBITTORRENT_EXTERNAL_URL", "http://127.0.0.1:8081"
+).rstrip("/")
+BAZARR_EXTERNAL_URL = os.environ.get("BAZARR_EXTERNAL_URL", "http://localhost:6767").rstrip("/")
+
+
+def service_link_bases():
+    """Browser-facing service base URLs (host-published ports)."""
+    return {
+        "jellyfin": JELLYFIN_EXTERNAL_URL,
+        "sonarr": SONARR_EXTERNAL_URL,
+        "radarr": RADARR_EXTERNAL_URL,
+        "prowlarr": PROWLARR_EXTERNAL_URL,
+        "qbittorrent": QBITTORRENT_EXTERNAL_URL,
+        "bazarr": BAZARR_EXTERNAL_URL,
+    }
 
 _jellyfin_cache = {}
 _jellyfin_locks = {}

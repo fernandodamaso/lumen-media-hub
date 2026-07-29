@@ -1,5 +1,7 @@
+import { ApplicationInitStatus } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { environment } from '../../environments/environment';
 import { CALENDAR_LINK_BASES } from '../calendar/calendar.models';
@@ -9,6 +11,7 @@ import { HttpMediaStackApi } from './http-media-stack-api';
 import { MockMediaStackApi } from './mock-media-stack-api';
 import {
   SERVICE_LINK_BASES,
+  applyServiceLinkBases,
   provideMediaStackApi,
   provideOperationalLinkBases,
 } from './media-stack-api.providers';
@@ -140,6 +143,63 @@ describe('provideMediaStackApi', () => {
   });
 });
 
+describe('applyServiceLinkBases', () => {
+  it('overwrites injectable holders from API payload and strips trailing slashes', () => {
+    const service = {
+      jellyfin: 'http://localhost:8096',
+      sonarr: 'http://localhost:8989',
+      radarr: 'http://localhost:7878',
+      prowlarr: 'http://localhost:9696',
+      qbittorrent: 'http://127.0.0.1:8081',
+      bazarr: 'http://localhost:6767',
+    };
+    const jellyfin = { jellyfinBase: 'http://localhost:8096' };
+    const calendar = {
+      sonarrBase: 'http://localhost:8989',
+      radarrBase: 'http://localhost:7878',
+    };
+
+    applyServiceLinkBases(
+      {
+        jellyfin: 'http://localhost:18096/',
+        sonarr: 'http://localhost:18989/',
+        radarr: 'http://localhost:17878/',
+        prowlarr: 'http://localhost:19696/',
+        qbittorrent: 'http://127.0.0.1:18081/',
+        bazarr: 'http://localhost:16767/',
+      },
+      service,
+      jellyfin,
+      calendar,
+    );
+
+    expect(service).toEqual({
+      jellyfin: 'http://localhost:18096',
+      sonarr: 'http://localhost:18989',
+      radarr: 'http://localhost:17878',
+      prowlarr: 'http://localhost:19696',
+      qbittorrent: 'http://127.0.0.1:18081',
+      bazarr: 'http://localhost:16767',
+    });
+    expect(jellyfin).toEqual({ jellyfinBase: 'http://localhost:18096' });
+    expect(calendar).toEqual({
+      sonarrBase: 'http://localhost:18989',
+      radarrBase: 'http://localhost:17878',
+    });
+  });
+
+  it('ignores blank values so environment fallbacks remain', () => {
+    const service = { jellyfin: 'http://localhost:8096', sonarr: 'http://localhost:8989' };
+    const jellyfin = { jellyfinBase: 'http://localhost:8096' };
+    const calendar = { sonarrBase: 'http://localhost:8989', radarrBase: 'http://localhost:7878' };
+
+    applyServiceLinkBases({ jellyfin: '  ', sonarr: undefined }, service, jellyfin, calendar);
+
+    expect(service.jellyfin).toBe('http://localhost:8096');
+    expect(jellyfin.jellyfinBase).toBe('http://localhost:8096');
+  });
+});
+
 describe('provideOperationalLinkBases', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
@@ -163,5 +223,54 @@ describe('provideOperationalLinkBases', () => {
       qbittorrent: environment.qbittorrentBase,
       bazarr: environment.bazarrBase,
     });
+  });
+
+  it('Live mode loads Compose host ports from /service-links before bootstrap finishes', async () => {
+    const previous = environment.useLiveApi;
+    (environment as { useLiveApi: boolean }).useLiveApi = true;
+
+    try {
+      TestBed.configureTestingModule({
+        providers: [
+          provideHttpClient(),
+          provideHttpClientTesting(),
+          ...provideOperationalLinkBases(),
+        ],
+      });
+
+      const httpMock = TestBed.inject(HttpTestingController);
+      const initStatus = TestBed.inject(ApplicationInitStatus);
+      const initDone = initStatus.donePromise;
+
+      const req = httpMock.expectOne('/api/service-links');
+      expect(req.request.method).toBe('GET');
+      req.flush({
+        jellyfin: 'http://localhost:18096',
+        sonarr: 'http://localhost:18989',
+        radarr: 'http://localhost:17878',
+        prowlarr: 'http://localhost:19696',
+        qbittorrent: 'http://127.0.0.1:18081',
+        bazarr: 'http://localhost:16767',
+      });
+
+      await initDone;
+
+      expect(TestBed.inject(JELLYFIN_LINK_BASES)).toEqual({ jellyfinBase: 'http://localhost:18096' });
+      expect(TestBed.inject(CALENDAR_LINK_BASES)).toEqual({
+        sonarrBase: 'http://localhost:18989',
+        radarrBase: 'http://localhost:17878',
+      });
+      expect(TestBed.inject(SERVICE_LINK_BASES)).toEqual({
+        jellyfin: 'http://localhost:18096',
+        sonarr: 'http://localhost:18989',
+        radarr: 'http://localhost:17878',
+        prowlarr: 'http://localhost:19696',
+        qbittorrent: 'http://127.0.0.1:18081',
+        bazarr: 'http://localhost:16767',
+      });
+      httpMock.verify();
+    } finally {
+      (environment as { useLiveApi: boolean }).useLiveApi = previous;
+    }
   });
 });

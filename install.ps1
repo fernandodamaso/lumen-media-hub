@@ -258,7 +258,7 @@ function Invoke-FrontendDev {
 
 Frontend ready.
   Demo (host):  cd dashboard-app; npm start  -> http://localhost:4200/
-  Live (Docker hot reload on :3000, from repo root):
+  Live (Docker hot reload on :3000, from repo root; needs stack running + ACTIONS_TOKEN in .env; Compose 2.24.4+):
     docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard
 "@
 }

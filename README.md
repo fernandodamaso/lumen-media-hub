@@ -114,7 +114,7 @@ Browser → http://127.0.0.1:3000
 
 ## Live development (Docker hot reload)
 
-Official Live development uses the Compose override so `ng serve` runs in Docker and publishes on **`:3000`** (same URL as production). From the **repo root**, with the stack already up and `ACTIONS_TOKEN` in `.env`:
+Official Live development uses the Compose override so `ng serve` runs in Docker and publishes on **`:3000`** (same URL as production). From the **repo root**, with the stack already up and `ACTIONS_TOKEN` in `.env` (requires Docker Compose **2.24.4+** for `ports: !override` / `build: !reset`):
 
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard

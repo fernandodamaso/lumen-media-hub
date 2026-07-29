@@ -68,7 +68,7 @@ Browser → http://127.0.0.1:3000
 
 ## Live development (Docker hot reload)
 
-Official Live development uses the Compose override from the **repo root** so hot reload publishes on **`:3000`**:
+Official Live development uses the Compose override from the **repo root** so hot reload publishes on **`:3000`**. Requires the stack running, `ACTIONS_TOKEN` in `.env`, and Docker Compose **2.24.4+**:
 
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard

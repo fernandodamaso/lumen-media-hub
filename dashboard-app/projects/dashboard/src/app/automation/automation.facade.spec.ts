@@ -169,7 +169,6 @@ describe('AutomationFacade', () => {
     facade.startPolling(100);
     await vi.advanceTimersByTimeAsync(0);
     expect(api.cronCalls).toBe(1);
-    expect(health.startPolling).toHaveBeenCalled();
 
     facade.startPolling(100);
     await vi.advanceTimersByTimeAsync(300);

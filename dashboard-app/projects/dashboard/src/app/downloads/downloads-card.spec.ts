@@ -237,7 +237,6 @@ function createFacade() {
     nextAction: signal<DownloadsAction | null>(null),
     canPauseAll: signal(false),
     canResumeAll: signal(false),
-    startPolling: vi.fn(),
     refresh: vi.fn(() => {
       status.set('ready');
       return Promise.resolve();

@@ -18,10 +18,6 @@ export class UpcomingCard {
   private readonly linkBases = inject(SERVICE_LINK_BASES);
   readonly rowSkeletons = [0, 1, 2, 3];
 
-  constructor() {
-    this.facade.startPolling();
-  }
-
   calendarHref(): string | null {
     const base = this.linkBases.sonarr?.replace(/\/$/, '');
     return base ? `${base}/calendar` : null;

@@ -896,7 +896,6 @@ function createHealth() {
         : { overall: 'unknown' as const, actionableCount: 0 };
     }),
     error: signal(''),
-    startPolling: vi.fn(),
     refresh: vi.fn(),
   };
 }
@@ -908,7 +907,6 @@ function createStorage() {
     overview,
     volumes: computed(() => overview()?.volumes ?? []),
     error: signal(''),
-    startPolling: vi.fn(),
     refresh: vi.fn(),
   };
 }

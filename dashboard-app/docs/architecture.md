@@ -74,6 +74,25 @@ Providers are selected in [media-stack-api.providers.ts](../projects/dashboard/s
 
 Feature code imports domain models from its own folder and talks to the backend only through `MEDIA_STACK_API`. Wire `*Dto` types stay inside `app/media-stack`.
 
+Library, automation, and service-health facades stay as separate stores. Do not merge them by folder or route: app-wide slices (shell library count, attention/health) must remain app-scoped, and dashboard-only polling must stop when the dashboard is destroyed.
+
+### Facade lifetimes
+
+| Facade | Provider scope | Consumers | Init owner | Polling owner | Stop behavior |
+|--------|----------------|-----------|------------|---------------|---------------|
+| `ServiceHealthFacade` | `providedIn: 'root'` | App shell attention, dashboard metrics/automation card | App ctor `startPolling` | App (app-wide, 60s) | Runs for app lifetime (no public stop) |
+| `LibraryItemsFacade` | `providedIn: 'root'` | App shell count, `/library`, dashboard refresh, command palette | Facade ctor initial `refresh` | None (manual / dashboard refresh) | Request-id bump on newer refresh |
+| `WatchNextFacade` | `providedIn: 'root'` | Library card, dashboard refresh | Facade ctor initial `refresh` | None | Request-id bump |
+| `LibraryStatsFacade` | `app.config` singleton | Dashboard metrics, dashboard refresh | Facade ctor initial `refresh` | None | Request-id bump |
+| `DownloadsFacade` | `app.config` singleton | Downloads card, dashboard metrics/refresh, command palette actions | `DashboardPage` `startPolling` | DashboardPage (10s) | `DashboardPage` destroy → `stopPolling` |
+| `StorageFacade` | `app.config` singleton | Automation card, dashboard metrics/refresh | `DashboardPage` `startPolling` | DashboardPage (60s) | `DashboardPage` destroy → `stopPolling` |
+| `CalendarFacade` | `app.config` singleton | Upcoming card, dashboard refresh | `DashboardPage` `startPolling` | DashboardPage (60s) | `DashboardPage` destroy → `stopPolling` |
+| `AutomationFacade` | `app.config` singleton | Dashboard refresh / syncedAt (cron logs); health UI via `ServiceHealthFacade` | `DashboardPage` `startPolling` | DashboardPage (60s); does **not** start health polling | `DashboardPage` destroy → `stopPolling` |
+| `DiscoverFacade` | Page `providers` | Discover page | Page / tab change | Discover page (Hermes 30s / external 60s) | Page destroy → `stopPolling` |
+| `ReportsFacade` | Page `providers` | Reports page | Page `load` | None | Request-id bump |
+
+Manual “refresh all” goes through [`dashboard-refresh.ts`](../projects/dashboard/src/app/dashboard/dashboard-refresh.ts) (`refreshDashboardData` / `DashboardRefreshDeps`): one-shot `refresh()` on each dashboard source, no new poll loops. The command palette resolves those deps lazily inside the action so shell boot does not construct dashboard-only facades early.
+
 ## Modes
 
 | Mode | How | API | Operational deep links |

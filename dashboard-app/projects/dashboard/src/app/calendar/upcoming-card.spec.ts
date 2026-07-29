@@ -91,7 +91,6 @@ function createFacade() {
     status,
     events,
     error,
-    startPolling: vi.fn(),
     refresh,
     groups: computed(() => groupCalendarEvents(events())),
   };

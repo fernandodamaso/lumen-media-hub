@@ -7,8 +7,8 @@ import { LibraryStatsFacade } from '../library/library-stats.facade';
 import { WatchNextFacade } from '../library/watch-next.facade';
 import { StorageFacade } from '../storage/storage.facade';
 
-/** Refresh every dashboard data source (matches dashboard page manual refresh). */
-export async function refreshDashboardData(deps: {
+/** Facades refreshed by a single manual dashboard refresh (no poll loops started). */
+export type DashboardRefreshDeps = {
   health: ServiceHealthFacade;
   libraryItems: LibraryItemsFacade;
   libraryStats: LibraryStatsFacade;
@@ -17,7 +17,10 @@ export async function refreshDashboardData(deps: {
   storage: StorageFacade;
   calendar: CalendarFacade;
   automation: AutomationFacade;
-}): Promise<void> {
+};
+
+/** Refresh every dashboard data source exactly once (matches dashboard page manual refresh). */
+export async function refreshDashboardData(deps: DashboardRefreshDeps): Promise<void> {
   await Promise.all([
     deps.health.refresh(),
     deps.libraryItems.refresh(),

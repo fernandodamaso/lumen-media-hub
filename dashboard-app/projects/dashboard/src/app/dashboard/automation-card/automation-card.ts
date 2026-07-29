@@ -125,10 +125,6 @@ export class AutomationCard {
     return volumes.length > 0 ? volumes[0] : null;
   });
 
-  constructor() {
-    this.storage.startPolling();
-  }
-
   statusLabel(status: AutomationServiceStatus): string {
     return AUTOMATION_SERVICE_STATUS_VIEW[status].label;
   }

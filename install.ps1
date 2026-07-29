@@ -26,8 +26,7 @@ $ComposeGpuFile = Join-Path $RepoRoot 'docker-compose.gpu.yml'
 $Interactive = -not [Console]::IsInputRedirected
 $script:NpmCiComplete = $false
 $ComposePullServices = @(
-  'jellyfin', 'qbittorrent', 'radarr', 'sonarr', 'prowlarr', 'flaresolverr',
-  'bazarr', 'jellyseerr', 'unpackerr', 'recyclarr', 'maintainerr', 'homepage-actions'
+  'jellyfin', 'qbittorrent', 'radarr', 'sonarr', 'prowlarr', 'homepage-actions'
 )
 
 function Write-Step([string]$Message) { Write-Host "`n==> $Message" -ForegroundColor Cyan }

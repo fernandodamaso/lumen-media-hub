@@ -39,6 +39,8 @@ export interface ExternalDiscoverItem {
   rating?: number | null;
 }
 
+export type ExternalDiscoverAvailability = 'available' | 'disabled';
+
 export interface HermesDiscover {
   ok: boolean;
   items: DiscoverItem[];
@@ -50,6 +52,7 @@ export interface HermesDiscover {
 export interface ExternalDiscover {
   ok: boolean;
   items: ExternalDiscoverItem[];
+  availability?: ExternalDiscoverAvailability;
   error?: string;
 }
 

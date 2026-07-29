@@ -24,7 +24,28 @@ Flags: `-Force` recreates `.env`; `-Gpu` merges `docker-compose.gpu.yml` (NVIDIA
 
 Prerequisites: Docker Desktop, Node.js 20+, PowerShell 7+. Optional: NVIDIA GPU + nvidia-container-toolkit for `-Gpu`.
 
-After `stack` mode, open each service UI, copy its API key into `.env`, then `docker compose up -d` to apply. The installer intentionally does not configure indexers, libraries, or service API keys — those need each app's first-run UI.
+After `stack` mode, enable any selected optional profiles before opening those service UIs, copy each service API key into `.env`, then rerun Compose with the same profile flags to apply. The installer intentionally does not configure indexers, libraries, or service API keys — those need each app's first-run UI.
+
+## Compose profiles
+
+Plain `docker compose up -d` starts only the core stack: Jellyfin, qBittorrent, Sonarr, Radarr, Prowlarr, homepage-actions, and the Angular dashboard. Optional services use these profiles:
+
+| Profile | Services |
+|---------|----------|
+| `subtitles` | Bazarr |
+| `requests` | Jellyseerr |
+| `maintenance` | Maintainerr, Recyclarr, Unpackerr |
+| `indexer-tools` | FlareSolverr |
+
+Start selected profiles with:
+
+```powershell
+docker compose --profile subtitles --profile requests --profile maintenance --profile indexer-tools up -d
+```
+
+Set `BAZARR_ENABLED=true` and/or `JELLYSEERR_ENABLED=true` only after the matching service is configured. Disabled or unconfigured optional capabilities are omitted from actionable health; configured but unreachable services remain degraded/down. Keep normal host profile values in ignored local operational docs, not in `.env.example` or committed configuration.
+
+Existing hosts upgrading from the key-only setup must explicitly add `BAZARR_ENABLED=true` and/or `JELLYSEERR_ENABLED=true` to `.env` for each optional service they use, enable the matching Compose profiles, and run `docker compose up -d` again. API keys alone no longer enable these capabilities; leave the flags false for intentionally disabled services.
 
 ## Quick start (Demo / mock)
 
@@ -76,7 +97,7 @@ Production dashboard on the stack is the Compose-built local Angular image; the 
 | Smoke against stack | `SMOKE_BASE_URL=http://127.0.0.1:3000 npm run test:smoke` (from this repo; does not start `ng serve`) |
 | Emergency React rollback | On `D:\media`: `docker compose stop dashboard`; `$env:LEGACY_DASHBOARD_PORT='3000'; docker compose --profile legacy-dashboard up -d dashboard-react`; verify; `docker compose --profile legacy-dashboard rm -sf dashboard-react`; `Remove-Item Env:LEGACY_DASHBOARD_PORT`; `docker compose up -d dashboard` |
 
-Do not set `COMPOSE_PROFILES` in `.env`. Legacy React image: `media-dashboard-react:legacy-77b344ef4f65` (image ID pinned — do not rebuild). Ops dates and IDs: `D:\media\docs\fdm-529-cutover-baseline.md`.
+Do not persist a universal `COMPOSE_PROFILES` default in committed configuration. `legacy-dashboard` is only for the documented emergency rollback and must not be part of the normal host profile set. Legacy React image: `media-dashboard-react:legacy-77b344ef4f65` (image ID pinned — do not rebuild). Ops dates and IDs: `D:\media\docs\fdm-529-cutover-baseline.md`.
 
 **Request flow:**
 

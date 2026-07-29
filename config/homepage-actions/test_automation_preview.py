@@ -1,7 +1,25 @@
 import unittest
+import json
+from io import BytesIO
 from unittest.mock import patch
 
 import main
+
+
+class _CaptureHandler:
+    def __init__(self):
+        self.headers = {}
+        self.status = None
+        self.wfile = BytesIO()
+
+    def send_response(self, status):
+        self.status = status
+
+    def send_header(self, name, value):
+        self.headers[name] = value
+
+    def end_headers(self):
+        pass
 
 
 class TestMissingPreviewPosterUrls(unittest.TestCase):
@@ -168,6 +186,104 @@ class TestMissingPreviewPosterUrls(unittest.TestCase):
                     self.assertNotIn("token", url.lower(), f"{label} leaks token")
                     self.assertNotIn("super-secret", url,
                                      f"{label} leaks raw key")
+
+
+class TestOptionalCapabilities(unittest.TestCase):
+    def test_disabled_bazarr_is_omitted_even_when_key_exists(self):
+        with patch.multiple(
+            main,
+            SONARR_API_KEY="",
+            RADARR_API_KEY="",
+            PROWLARR_API_KEY="",
+            BAZARR_ENABLED=False,
+            BAZARR_API_KEY="configured-key",
+        ), patch("main._arr_get") as arr_get:
+            summary = main._build_automation_summary()
+
+        self.assertNotIn("bazarr", summary)
+        arr_get.assert_not_called()
+
+    def test_enabled_unreachable_bazarr_is_down(self):
+        with patch.multiple(
+            main,
+            SONARR_API_KEY="",
+            RADARR_API_KEY="",
+            PROWLARR_API_KEY="",
+            BAZARR_ENABLED=True,
+            BAZARR_API_KEY="configured-key",
+        ), patch("main._arr_get", side_effect=ConnectionError("connection refused")):
+            summary = main._build_automation_summary()
+
+        self.assertEqual(summary["bazarr"]["ok"], False)
+        self.assertIn("connection refused", summary["bazarr"]["error"])
+
+    def test_bazarr_preserves_episode_results_when_movie_wanted_fails(self):
+        def arr_get(_url, _key, path):
+            if "/episodes/wanted" in path:
+                return {
+                    "total": 1,
+                    "data": [{"seriesTitle": "Example", "episode_number": "S01E01"}],
+                }
+            raise ConnectionError("movie wanted unavailable")
+
+        with patch.multiple(
+            main,
+            SONARR_API_KEY="",
+            RADARR_API_KEY="",
+            PROWLARR_API_KEY="",
+            BAZARR_ENABLED=True,
+            BAZARR_API_KEY="configured-key",
+        ), patch("main._arr_get", side_effect=arr_get):
+            summary = main._build_automation_summary()
+
+        self.assertEqual(summary["bazarr"]["ok"], False)
+        self.assertEqual(summary["bazarr"]["wantedEpisodes"], 1)
+        self.assertEqual(summary["bazarr"]["wantedMovies"], 0)
+        self.assertEqual(summary["bazarr"]["wantedItems"], [{"label": "Example S01E01"}])
+        self.assertIn("movies: movie wanted unavailable", summary["bazarr"]["error"])
+
+    def test_enabled_bazarr_without_key_is_explicitly_unavailable(self):
+        with patch.multiple(
+            main,
+            SONARR_API_KEY="",
+            RADARR_API_KEY="",
+            PROWLARR_API_KEY="",
+            BAZARR_ENABLED=True,
+            BAZARR_API_KEY="",
+        ), patch("main._arr_get") as arr_get:
+            summary = main._build_automation_summary()
+
+        self.assertEqual(
+            summary["bazarr"],
+            {
+                "ok": False,
+                "enabled": True,
+                "configured": False,
+                "error": "BAZARR_API_KEY not configured",
+            },
+        )
+        arr_get.assert_not_called()
+
+    def test_disabled_jellyseerr_returns_empty_success_payload(self):
+        handler = _CaptureHandler()
+        with patch.multiple(main, JELLYSEERR_ENABLED=False, JELLYSEERR_API_KEY="configured-key"):
+            main.handle_discover_jellyseerr(handler, {})
+
+        self.assertEqual(handler.status, 200)
+        self.assertEqual(
+            json.loads(handler.wfile.getvalue()),
+            {"ok": True, "enabled": False, "items": []},
+        )
+
+    def test_jellyseerr_disabled_request_error_is_distinct(self):
+        with patch.multiple(main, JELLYSEERR_ENABLED=False, JELLYSEERR_API_KEY=""):
+            with self.assertRaisesRegex(RuntimeError, "Jellyseerr is disabled"):
+                main._jellyseerr_get("/api/v1/movie/1")
+
+    def test_jellyseerr_missing_key_request_error_is_distinct(self):
+        with patch.multiple(main, JELLYSEERR_ENABLED=True, JELLYSEERR_API_KEY=""):
+            with self.assertRaisesRegex(RuntimeError, "JELLYSEERR_API_KEY not configured"):
+                main._jellyseerr_get("/api/v1/movie/1")
 
 
 if __name__ == "__main__":

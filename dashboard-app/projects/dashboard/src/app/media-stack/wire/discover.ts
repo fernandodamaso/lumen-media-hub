@@ -46,6 +46,8 @@ export interface MediaStackHermesDiscoverDto {
 
 export interface MediaStackExternalDiscoverDto {
   ok: boolean;
+  /** False is an explicit capability-disabled response, not an empty result. */
+  enabled?: boolean;
   items?: MediaStackExternalDiscoverItemDto[];
   error?: string;
 }

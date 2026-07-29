@@ -141,6 +141,19 @@ describe('live-api.mappers', () => {
     expect(sonarrMissing?.itemCount).toBe(2);
   });
 
+  it('does not invent a Bazarr outage when the optional block is absent', () => {
+    const dto = mapLiveAutomationSummary({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
+      radarr: { ok: true, movies: 1, missing: 0, queued: 0 },
+      prowlarr: { ok: true, indexers: 1, enabled: 1 },
+    });
+
+    expect(dto.services?.some((service) => service.id === 'bazarr')).toBe(false);
+    expect(dto.problems?.some((problem) => problem.serviceId === 'bazarr')).toBe(false);
+  });
+
   it('passes through posterUrl on problem detail items and normalizes blank/null/undefined to null', () => {
     const dto = mapLiveAutomationSummary({
       ok: true,
@@ -881,8 +894,8 @@ describe('HttpMediaStackApi', () => {
     await expect(hermes).resolves.toMatchObject({ ok: true, items: [] });
 
     const jelly = api.listJellyseerrDiscover('trending');
-    http.expectOne('/api/discover/jellyseerr?kind=trending').flush({ ok: true, items: [] });
-    await expect(jelly).resolves.toMatchObject({ ok: true });
+    http.expectOne('/api/discover/jellyseerr?kind=trending').flush({ ok: true, enabled: false, items: [] });
+    await expect(jelly).resolves.toMatchObject({ ok: true, availability: 'disabled' });
 
     const trakt = api.listTraktDiscover('movies');
     http.expectOne('/api/discover/trakt?type=movies').flush({ ok: true, items: [] });

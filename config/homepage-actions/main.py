@@ -42,9 +42,15 @@ RADARR_API_KEY = os.environ.get("RADARR_API_KEY", "")
 PROWLARR_URL = os.environ.get("PROWLARR_URL", "http://prowlarr:9696").rstrip("/")
 PROWLARR_API_KEY = os.environ.get("PROWLARR_API_KEY", "")
 BAZARR_URL = os.environ.get("BAZARR_URL", "http://bazarr:6767").rstrip("/")
+BAZARR_ENABLED = os.environ.get("BAZARR_ENABLED", "false").strip().lower() in {
+    "1", "true", "yes", "on"
+}
 BAZARR_API_KEY = os.environ.get("BAZARR_API_KEY", "")
 
 JELLYSEERR_URL = os.environ.get("JELLYSEERR_URL", "http://jellyseerr:5055").rstrip("/")
+JELLYSEERR_ENABLED = os.environ.get("JELLYSEERR_ENABLED", "false").strip().lower() in {
+    "1", "true", "yes", "on"
+}
 JELLYSEERR_API_KEY = os.environ.get("JELLYSEERR_API_KEY", "")
 
 TRAKT_CLIENT_ID = os.environ.get("TRAKT_CLIENT_ID", "")
@@ -1519,6 +1525,7 @@ def _bazarr_wanted_langs(missing):
 def _bazarr_wanted_details():
     ep_wanted = {"total": 0, "items": []}
     movie_wanted = {"total": 0, "items": []}
+    errors = []
 
     try:
         ep = _arr_get(
@@ -1538,8 +1545,8 @@ def _bazarr_wanted_details():
             if langs:
                 label = f"{label} · {', '.join(langs)}"
             ep_wanted["items"].append({"label": label})
-    except Exception:
-        pass
+    except Exception as e:
+        errors.append(f"episodes: {e}")
 
     try:
         movies = _arr_get(
@@ -1558,17 +1565,17 @@ def _bazarr_wanted_details():
             if langs:
                 label = f"{title} · {', '.join(langs)}"
             movie_wanted["items"].append({"label": label})
-    except Exception:
-        pass
+    except Exception as e:
+        errors.append(f"movies: {e}")
 
-    return ep_wanted, movie_wanted
+    return ep_wanted, movie_wanted, errors
 
 
 def _build_automation_summary():
     sonarr = {"ok": False}
     radarr = {"ok": False}
     prowlarr = {"ok": False}
-    bazarr = {"ok": False}
+    bazarr = None
 
     if SONARR_API_KEY:
         try:
@@ -1613,38 +1620,38 @@ def _build_automation_summary():
         except Exception as e:
             prowlarr = {"ok": False, "error": str(e)}
 
-    if BAZARR_API_KEY:
-        try:
-            ep_wanted, movie_wanted = _bazarr_wanted_details()
-            bazarr = {
-                "ok": True,
-                "wanted": ep_wanted["total"] + movie_wanted["total"],
-                "wantedEpisodes": ep_wanted["total"],
-                "wantedMovies": movie_wanted["total"],
-                "wantedItems": (ep_wanted["items"] + movie_wanted["items"])[
-                    :AUTOMATION_PREVIEW_LIMIT
-                ],
-            }
-        except Exception:
-            try:
-                _arr_get(BAZARR_URL, BAZARR_API_KEY, "/api/system/status")
-                bazarr = {
-                    "ok": True,
-                    "wanted": 0,
-                    "wantedEpisodes": 0,
-                    "wantedMovies": 0,
-                    "wantedItems": [],
-                }
-            except Exception as e:
-                bazarr = {"ok": False, "error": str(e)}
+    if BAZARR_ENABLED and not BAZARR_API_KEY:
+        bazarr = {
+            "ok": False,
+            "enabled": True,
+            "configured": False,
+            "error": "BAZARR_API_KEY not configured",
+        }
+    elif BAZARR_ENABLED:
+        ep_wanted, movie_wanted, errors = _bazarr_wanted_details()
+        bazarr = {
+            "ok": not errors,
+            "enabled": True,
+            "configured": True,
+            "wanted": ep_wanted["total"] + movie_wanted["total"],
+            "wantedEpisodes": ep_wanted["total"],
+            "wantedMovies": movie_wanted["total"],
+            "wantedItems": (ep_wanted["items"] + movie_wanted["items"])[
+                :AUTOMATION_PREVIEW_LIMIT
+            ],
+        }
+        if errors:
+            bazarr["error"] = "; ".join(errors)
 
-    return {
+    summary = {
         "ok": True,
         "sonarr": sonarr,
         "radarr": radarr,
         "prowlarr": prowlarr,
-        "bazarr": bazarr,
     }
+    if bazarr is not None:
+        summary["bazarr"] = bazarr
+    return summary
 
 
 def _get_automation_summary_cached():
@@ -2609,11 +2616,12 @@ def _resolve_poster_paths(requests):
 
     fetched = len(pending)
     failed = 0
-    if not JELLYSEERR_API_KEY:
+    if not JELLYSEERR_ENABLED or not JELLYSEERR_API_KEY:
         for key in pending:
             resolved[key] = None
+        reason = "disabled" if not JELLYSEERR_ENABLED else "no-api-key"
         _log_poster_batch(
-            hits + fetched, hits, 0, 0, 0.0, skipped=fetched, reason="no-api-key"
+            hits + fetched, hits, 0, 0, 0.0, skipped=fetched, reason=reason
         )
         return resolved
 
@@ -2646,7 +2654,7 @@ def _resolve_poster_paths(requests):
 def _jellyseerr_poster_path(media_type, tmdb_id):
     """Single cached lookup kept for non-batched callers (Trakt mapping)."""
     tmdb_id = _normalize_tmdb_id(tmdb_id)
-    if not tmdb_id or not JELLYSEERR_API_KEY:
+    if not tmdb_id or not JELLYSEERR_ENABLED or not JELLYSEERR_API_KEY:
         return None
     kind = "tv" if media_type == "tv" else "movie"
     hit, value = _poster_cache_get((kind, tmdb_id))
@@ -3428,6 +3436,8 @@ def handle_discover_hermes_request_more(handler):
 
 
 def _jellyseerr_get(path):
+    if not JELLYSEERR_ENABLED:
+        raise RuntimeError("Jellyseerr is disabled (set JELLYSEERR_ENABLED=true)")
     if not JELLYSEERR_API_KEY:
         raise RuntimeError("JELLYSEERR_API_KEY not configured")
     req = urllib.request.Request(f"{JELLYSEERR_URL}{path}")
@@ -3474,8 +3484,8 @@ def handle_discover_jellyseerr(handler, query):
         "tv": "/api/v1/discover/tv",
     }
     path = paths.get(kind, paths["trending"])
-    if not JELLYSEERR_API_KEY:
-        send_json(handler, 503, {"ok": False, "error": "JELLYSEERR_API_KEY not configured"})
+    if not JELLYSEERR_ENABLED or not JELLYSEERR_API_KEY:
+        send_json(handler, 200, {"ok": True, "enabled": False, "items": []})
         return
     try:
         payload = _jellyseerr_get(path)

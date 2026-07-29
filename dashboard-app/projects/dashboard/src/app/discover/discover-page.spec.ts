@@ -182,6 +182,18 @@ describe('DiscoverPage', () => {
     expect(fixtureHost(fixture).querySelector('.discover-count')).toBeNull();
   });
 
+  it('renders disabled Jellyseerr as unavailable without an actionable retry', () => {
+    facade.status.set('disabled');
+    facade.tab.set('jellyseerr');
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    expect(root.textContent).toContain('Jellyseerr unavailable');
+    expect(root.textContent).toContain('Enable the requests profile');
+    expect(root.textContent).toContain('JELLYSEERR_ENABLED=true');
+    expect(root.textContent).not.toContain('Try again');
+  });
+
   it('resets the visible limit when source filters change but not on refresh', () => {
     facade.status.set('ready');
     facade.tab.set('hermes');

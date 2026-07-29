@@ -212,9 +212,9 @@ function Invoke-Stack {
 
   Write-Step 'Building the dashboard and starting the stack'
   if ($Gpu) {
-    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d --build
+    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d --build --remove-orphans
   } else {
-    docker compose --env-file $EnvFile -f $ComposeFile up -d --build
+    docker compose --env-file $EnvFile -f $ComposeFile up -d --build --remove-orphans
   }
   Assert-ExitCode 'docker compose up --build'
 

@@ -264,7 +264,7 @@ services:
       - TRAKT_CLIENT_ID=${TRAKT_CLIENT_ID}
       - TRAKT_ACCESS_TOKEN=${TRAKT_ACCESS_TOKEN}
       - RECOMMENDATIONS_PATH=/recommendations/recommendations.json
-      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:4200,http://127.0.0.1:4200,http://localhost:5173
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:4200,http://127.0.0.1:4200
       - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
       - PORT=8085
       - DATA_PATH=/data

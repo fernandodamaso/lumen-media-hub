@@ -269,7 +269,9 @@ services:
         max-file: "3"
 
   dashboard:
-    image: media-dashboard-angular:7e3e285
+    build:
+      context: ./dashboard-app
+    image: media-dashboard-angular:local
     container_name: dashboard
     restart: unless-stopped
     networks:

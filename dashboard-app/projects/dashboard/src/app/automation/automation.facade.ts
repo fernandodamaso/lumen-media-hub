@@ -50,7 +50,6 @@ export class AutomationFacade {
 
   startPolling(intervalMs = 60_000): void {
     if (this.poll.armed) return;
-    this.serviceHealth.startPolling(intervalMs);
     this.poll.startRefreshing(
       intervalMs,
       (options) => this.refresh(options),

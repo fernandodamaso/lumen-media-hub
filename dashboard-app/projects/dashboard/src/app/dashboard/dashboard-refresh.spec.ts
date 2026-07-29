@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import { refreshDashboardData } from './dashboard-refresh';
+import { DashboardRefreshDeps, refreshDashboardData } from './dashboard-refresh';
 
 describe('refreshDashboardData', () => {
   it('refreshes watch-next together with other dashboard sources', async () => {
@@ -14,11 +14,9 @@ describe('refreshDashboardData', () => {
       storage: { refresh },
       calendar: { refresh },
       automation: { refresh },
-    };
+    } as unknown as DashboardRefreshDeps;
 
-    await refreshDashboardData(
-      deps as unknown as Parameters<typeof refreshDashboardData>[0],
-    );
+    await refreshDashboardData(deps);
 
     expect(refresh).toHaveBeenCalledTimes(7);
     expect(watchNextRefresh).toHaveBeenCalledTimes(1);

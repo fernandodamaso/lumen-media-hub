@@ -345,6 +345,21 @@ describe('DashboardPage composition', () => {
     expect(automation.refresh).toHaveBeenCalled();
   });
 
+  it('starts dashboard-only polling on create and stops it on destroy', () => {
+    fixture.detectChanges();
+    expect(downloads.startPolling).toHaveBeenCalledTimes(1);
+    expect(storage.startPolling).toHaveBeenCalledTimes(1);
+    expect(calendar.startPolling).toHaveBeenCalledTimes(1);
+    expect(automation.startPolling).toHaveBeenCalledTimes(1);
+    expect(health.startPolling).not.toHaveBeenCalled();
+
+    fixture.destroy();
+    expect(downloads.stopPolling).toHaveBeenCalledTimes(1);
+    expect(storage.stopPolling).toHaveBeenCalledTimes(1);
+    expect(calendar.stopPolling).toHaveBeenCalledTimes(1);
+    expect(automation.stopPolling).toHaveBeenCalledTimes(1);
+  });
+
   it('prefers health generatedAt over a newer health lastFetchedAt', () => {
     setReady();
     health.summary.set({

@@ -53,7 +53,7 @@ Verified 2026-07-16 during the Nocturne ops-console redesign on the main dashboa
 
 ## Live-mode smoke test
 
-- [x] `npm run start:live` proxies `/api` to `http://127.0.0.1:8085`
+- [x] Docker Live override (`docker-compose.dev.yml` on `:3000`) proxies `/api` to `homepage-actions` (container still runs `npm run start:live`)
 - [x] Home loads with `Live` badge and real backend data (read-only inspection only)
 - [x] Library, Downloads, and Calendar regions render from the live service
 

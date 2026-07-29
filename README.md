@@ -16,7 +16,7 @@ On a blank Windows machine (PowerShell 7+):
 
 | Mode | What it does |
 |------|--------------|
-| `frontend-dev` | Checks Node 20+, runs `npm ci` in `dashboard-app/`, prints Demo/Live commands |
+| `frontend-dev` | Checks Node 20+, runs `npm ci` in `dashboard-app/`, prints Demo and Docker Live-dev commands |
 | `stack` | Checks Docker, creates `.env` from `.env.example` (generated `ACTIONS_TOKEN`, prompted paths/password), pulls service images, Compose-builds the dashboard, starts the stack, and prints the API-key checklist |
 | `both` | `frontend-dev`, then `stack` |
 
@@ -112,26 +112,24 @@ Browser → http://127.0.0.1:3000
 - `ACTIONS_TOKEN` is injected by Compose/Nginx from the container environment and never emitted into JavaScript, HTML, or source maps.
 - The browser never sees the token and never connects directly to backend services.
 
-## Live dev mode (optional)
+## Live development (Docker hot reload)
 
-With a local [`homepage-actions`](config/homepage-actions/) service on port **8085**:
+Official Live development uses the Compose override so `ng serve` runs in Docker and publishes on **`:3000`** (same URL as production). From the **repo root**, with the stack already up and `ACTIONS_TOKEN` in `.env` (requires Docker Compose **2.24.4+** for `ports: !override` / `build: !reset`):
 
-```bash
-npm run start:live
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard
 ```
 
-- Proxies `/api` → `http://127.0.0.1:8085` via [dashboard-app/projects/dashboard/proxy.conf.js](dashboard-app/projects/dashboard/proxy.conf.js).
-- Set `ACTIONS_TOKEN` in the environment when mutating requests need `X-Actions-Token`.
-- Feature components stay unchanged; only the `MediaStackApi` adapter switches.
+Open [http://127.0.0.1:3000/](http://127.0.0.1:3000/). SCSS/TS/HTML edits under `dashboard-app/` hot-reload without rebuilding the Nginx image.
 
-Live mode is **local-only**. Do not point a static host at the live configuration.
+The override container still runs `npm run start:live` internally (with `proxy.conf.js` and the Angular `live` configuration). Keep those scripts for the container; do not treat host `npm run start:live` as a supported workflow.
 
 ## Scripts
 
 | Script | Purpose |
 |--------|---------|
 | `npm start` | Demo serve (`:4200`) |
-| `npm run start:live` | Live serve with API proxy |
+| `npm run start:live` | Live serve with API proxy (**dev-container only**; used by `docker-compose.dev.yml`) |
 | `npm run lint` | Rigorous ESLint (typed + strict, used by `quality` gate) |
 | `npm run lint:fast` | Fast ESLint (day-to-day editing, used by `lint:agent`) |
 | `npm run lint:fix` | Rigorous ESLint with auto-fix |

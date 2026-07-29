@@ -57,13 +57,13 @@ Browser → http://127.0.0.1:3000
 
 `ACTIONS_TOKEN` lives in the Compose environment and is injected by Nginx's `envsubst` into the `X-Actions-Token` header on proxied requests. The token never appears in Angular source, bundles, source maps, or browser-visible configuration.
 
-### Development (Demo / Live serve)
+### Development (Demo / Live)
 
 ```text
 MediaStackApi (port)  ← app/media-stack
         │
-        ├── MockMediaStackApi     ← Demo default (npm start)
-        └── HttpMediaStackApi     ← live serve only (npm run start:live)
+        ├── MockMediaStackApi     ← Demo default (npm start on :4200)
+        └── HttpMediaStackApi     ← Live (Docker hot reload on :3000)
                 │
          Feature facades
                 │
@@ -97,9 +97,11 @@ Manual “refresh all” goes through [`dashboard-refresh.ts`](../projects/dashb
 
 | Mode | How | API | Operational deep links |
 |------|-----|-----|------------------------|
-| Demo | `npm start` | Mock | Local Jellyfin / Sonarr / Radarr bases from environment |
-| Live dev | `npm run start:live` | HTTP → `:8085` via `/api` proxy | Same local bases |
-| Production | `docker compose up -d --build dashboard` (repo root) | Same-origin `/api/*` → `homepage-actions:8085` via Nginx | Service deep-links from environment |
+| Demo | `npm start` in `dashboard-app/` → `:4200` | Mock | Local Jellyfin / Sonarr / Radarr bases from environment |
+| Live development | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard` (repo root) → `:3000` | HTTP → `homepage-actions:8085` via `/api` proxy inside the override container | Same local bases |
+| Production | `docker compose up -d --build dashboard` (repo root) → `:3000` | Same-origin `/api/*` → `homepage-actions:8085` via Nginx | Service deep-links from environment |
+
+The Live override container runs `npm run start:live` with [`proxy.conf.js`](../projects/dashboard/proxy.conf.js) and Compose-provided `ACTIONS_TOKEN` / `LIVE_API_PROXY_TARGET`. Keep those scripts and the Angular `live` configuration for the container; host Live `ng serve` is not a supported workflow.
 
 Empty calendar bases must not fall back to relative `/series/...` or `/movie/...` URLs. Resolvers treat a missing or blank base as "no link."
 

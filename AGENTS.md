@@ -14,7 +14,7 @@ From the **repo root** (installer sets CWD to `$PSScriptRoot` automatically):
 
 | Mode | What it does |
 |------|--------------|
-| `frontend-dev` | `npm ci` in `dashboard-app/`, prints Demo/Live dev commands |
+| `frontend-dev` | `npm ci` in `dashboard-app/`, prints Demo and Docker Live-dev commands |
 | `stack` | Creates `.env` from `.env.example`, pulls service images, Compose-builds the dashboard, starts the stack, and health-checks `homepage-actions` |
 | `both` | `frontend-dev` then `stack` (`npm ci` runs once) |
 
@@ -46,10 +46,9 @@ Upgrade existing hosts by adding the enable flag for every optional service alre
 | Goal | Where | Command / check |
 |------|--------|------------------|
 | Demo UI (no stack) | `dashboard-app/` | `npm ci` → `npm start` → http://localhost:4200/ |
-| Live UI against stack | `dashboard-app/` | Stack up + `ACTIONS_TOKEN` in shell → `npm run start:live` → http://localhost:4200/ |
-| Production dashboard in stack | Docker | http://127.0.0.1:3000/ (Compose-built image `media-dashboard-angular:local`) |
-| Refresh `:3000` after UI edits | Repo root | `.\install.ps1 -Mode redeploy-dashboard` |
-| Hot reload on `:3000` (agent/dev) | Repo root | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard` (Compose 2.24.4+; uses `ports: !override`) |
+| Live development (hot reload) | Repo root | Stack up → `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard` → http://127.0.0.1:3000/ (Compose 2.24.4+) |
+| Production dashboard in stack | Docker | `docker compose up -d --build dashboard` → http://127.0.0.1:3000/ (Compose-built image `media-dashboard-angular:local`) |
+| Refresh production `:3000` after UI edits | Repo root | `.\install.ps1 -Mode redeploy-dashboard` |
 | Live API | `config/homepage-actions/` | http://127.0.0.1:8085/health |
 | Full quality gate | `dashboard-app/` | `npm run quality` |
 | Angular unit tests | `dashboard-app/` | `npm test -- --watch=false` |
@@ -84,28 +83,29 @@ When Live endpoints fail, check the stack first (`docker ps`, hit `http://127.0.
 
 ## Frontend ↔ backend wiring
 
-| Mode | Command (in `dashboard-app/`) | Data source |
-|------|---------|-------------|
-| Demo | `npm start` | In-process `MockMediaStackApi` (no private API) |
-| Live | `npm run dev` / `npm run start:live` | `HttpMediaStackApi` → `/api` → proxy → `http://127.0.0.1:8085` |
+| Mode | How to run | Data source |
+|------|------------|-------------|
+| Demo | `npm start` in `dashboard-app/` → `:4200` | In-process `MockMediaStackApi` (no private API) |
+| Live development | Dev Compose override → `:3000` | `HttpMediaStackApi` → `/api` → proxy → `homepage-actions:8085` |
+| Production | Compose-built Nginx dashboard → `:3000` | Same-origin `/api/*` → `homepage-actions:8085` via Nginx |
 
-Live proxy: [`dashboard-app/projects/dashboard/proxy.conf.js`](dashboard-app/projects/dashboard/proxy.conf.js) strips `/api` and forwards to `127.0.0.1:8085`. Set `ACTIONS_TOKEN` in the shell env for mutating requests (proxy injects `X-Actions-Token`; the browser must never hold that secret).
+Official Live development is the Docker hot-reload override (`docker-compose.yml` + `docker-compose.dev.yml`) on **`http://127.0.0.1:3000/`**. Do not start host Live `ng serve` as a workflow.
 
-Production Angular is the Compose-built local image `media-dashboard-angular:local` (Nginx reverse proxy on the Compose network, published on `127.0.0.1:3000`). Compose runs the single production build in `dashboard-app/Dockerfile`; local Angular Live remains on **`http://localhost:4200/`**.
+The dev container still runs `npm run start:live` internally. Keep `start:live` / `dev`, [`proxy.conf.js`](dashboard-app/projects/dashboard/proxy.conf.js), and the Angular `live` serve configuration — they are implementation details for that container (`ACTIONS_TOKEN` and `LIVE_API_PROXY_TARGET` come from Compose env). The browser must never hold the token.
+
+Production Angular is the Compose-built local image `media-dashboard-angular:local` (Nginx reverse proxy on the Compose network, published on `127.0.0.1:3000`). Compose runs the single production build in `dashboard-app/Dockerfile`.
 
 ## Applying changes the user can see (agents)
 
-**`http://localhost:3000/` is the Docker Nginx image, not `ng serve`.** Edits under `dashboard-app/` do not appear there until the image is rebuilt and the `dashboard` container is recreated.
+**Default Live iteration uses the hot-reload override on `:3000`.** Without that override, `:3000` is the static Nginx image and UI edits need a rebuild.
 
 | What changed | User URL | What to run (repo root) |
 |--------------|----------|-------------------------|
-| `dashboard-app/**` (UI) | `:3000` | `.\install.ps1 -Mode redeploy-dashboard` |
+| `dashboard-app/**` (UI, hot reload) | `:3000` | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard` |
+| `dashboard-app/**` (production image) | `:3000` | `.\install.ps1 -Mode redeploy-dashboard` |
 | `config/homepage-actions/**` (Live API) | `:8085` / `:3000` via `/api` | `docker compose restart homepage-actions` (bind-mounted; no image rebuild) |
-| UI iteration with hot reload on `:3000` | `:3000` | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard` |
 
-After UI fixes, **always** redeploy (or switch to the dev compose override) before telling the user to refresh `:3000`. Mention `:4200` only if you started `npm run start:live` on the host.
-
-For long agent sessions on `:3000`, prefer `docker-compose.dev.yml` so file saves trigger `ng serve` reloads without repeated image builds.
+For long agent sessions on `:3000`, keep the `docker-compose.dev.yml` override so file saves trigger `ng serve` reloads without repeated image builds. Mention `:4200` only for Demo (`npm start`).
 
 ## Frontend structure
 

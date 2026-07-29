@@ -12,12 +12,16 @@ On Windows, run from the **repo root** (not this folder):
 
 Use `-Mode frontend-dev` if you only need `npm ci` and dev commands. Use `-Mode stack` when Docker + the full compose stack are required for Live work. Prerequisites and flags are documented in [`../README.md`](../README.md) and [`../AGENTS.md`](../AGENTS.md).
 
-After install, **all npm commands still run in `dashboard-app/`**:
+After install, Demo stays on the host; Live development uses Docker hot reload from the **repo root**:
 
 ```powershell
 cd dashboard-app
-npm start              # Demo — mock data
-npm run start:live     # Live — needs stack + ACTIONS_TOKEN in shell env
+npm start              # Demo — mock data → http://localhost:4200/
+```
+
+```powershell
+# repo root — Live development (hot reload on :3000)
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard
 ```
 
 ## Backend location
@@ -32,18 +36,27 @@ When Live endpoints fail, check the stack first (`docker ps`, `http://127.0.0.1:
 
 ## Frontend ↔ backend wiring
 
-| Mode | Command | Data source |
-|------|---------|-------------|
-| Demo | `npm start` | In-process `MockMediaStackApi` (no private API) |
-| Live | `npm run dev` / `npm run start:live` | `HttpMediaStackApi` → `/api` → proxy → `http://127.0.0.1:8085` |
+| Mode | How to run | Data source |
+|------|------------|-------------|
+| Demo | `npm start` → `:4200` | In-process `MockMediaStackApi` (no private API) |
+| Live development | Dev Compose override → `:3000` | `HttpMediaStackApi` → `/api` → proxy → `homepage-actions:8085` |
+| Production | Compose-built Nginx dashboard → `:3000` | Same-origin `/api/*` → `homepage-actions:8085` via Nginx |
 
-Live proxy: [`projects/dashboard/proxy.conf.js`](projects/dashboard/proxy.conf.js) strips `/api` and forwards to `127.0.0.1:8085`. Set `ACTIONS_TOKEN` in the shell env for mutating requests (proxy injects `X-Actions-Token`; the browser must never hold that secret).
+Official Live development is the Docker hot-reload override on **`http://127.0.0.1:3000/`**. Do not start host Live `ng serve` as a workflow.
 
-Production Angular is the Compose-built local image on the compose network (often `http://127.0.0.1:3000/`). From the repo root, use `../install.ps1 -Mode stack` or **`../install.ps1 -Mode redeploy-dashboard`** after UI edits; Compose runs the single production build in `Dockerfile`. Local Live dev stays on **`http://localhost:4200/`**.
+The override container still runs `npm run start:live` internally. Keep `start:live` / `dev`, [`projects/dashboard/proxy.conf.js`](projects/dashboard/proxy.conf.js), and the Angular `live` serve configuration for that container (`ACTIONS_TOKEN` and `LIVE_API_PROXY_TARGET` come from Compose env). The browser must never hold the token.
+
+Production Angular is the Compose-built local image on the compose network (`http://127.0.0.1:3000/`). From the repo root, use `../install.ps1 -Mode stack` or **`../install.ps1 -Mode redeploy-dashboard`** for the production Nginx image; Compose runs the single production build in `Dockerfile`.
 
 ## Applying UI changes on port 3000 (agents)
 
-If the user tests at **`http://localhost:3000/`**, after changing files in this workspace run from the **repo root** (`D:\media`):
+**Default Live iteration:** keep the hot-reload override running so saves refresh `:3000` without rebuilding:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard
+```
+
+To refresh the **production** Nginx image after UI edits, from the **repo root**:
 
 ```powershell
 .\install.ps1 -Mode redeploy-dashboard
@@ -51,13 +64,7 @@ If the user tests at **`http://localhost:3000/`**, after changing files in this 
 
 (From this `dashboard-app/` folder, that is `..\install.ps1 -Mode redeploy-dashboard`.)
 
-For hot reload without rebuilding the Nginx image, use the dev compose override (repo root):
-
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard
-```
-
-Do not assume `:3000` reflects saved source until one of those commands has been run (or the user is on `npm run start:live` at `:4200`).
+Do not assume production `:3000` reflects saved source until redeploy has run. For Demo-only work, use `npm start` on `:4200`.
 
 ## Quality and tests (run here)
 

@@ -136,42 +136,6 @@ def _validate_item(item, path):
         _fail(f"{path}.tmdb_id", "expected positive integer")
     if not isinstance(item.get("active"), bool):
         _fail(f"{path}.active", "expected boolean")
-    return True
-
-
-REQUIRED_ITEM_FIELDS = (
-    "id",
-    "source",
-    "type",
-    "title",
-    "tmdb_id",
-    "reason",
-    "active",
-    "feedback",
-    "feedback_at",
-    "request_state",
-    "requested_at",
-    "jellyseerr_request_id",
-    "added_at",
-)
-
-
-def _validate_item(item, path):
-    if not isinstance(item, dict):
-        _fail(path, "expected object")
-    for field in REQUIRED_ITEM_FIELDS:
-        if field not in item:
-            _fail(f"{path}.{field}", "required field missing")
-    for field in ("id", "source", "title", "reason", "added_at"):
-        if not isinstance(item.get(field), str):
-            _fail(f"{path}.{field}", "expected string")
-    if item.get("type") not in ITEM_TYPES:
-        _fail(f"{path}.type", f"expected one of {ITEM_TYPES}")
-    tmdb_id = item.get("tmdb_id")
-    if not _is_int(tmdb_id) or tmdb_id <= 0:
-        _fail(f"{path}.tmdb_id", "expected positive integer")
-    if not isinstance(item.get("active"), bool):
-        _fail(f"{path}.active", "expected boolean")
     feedback = item.get("feedback")
     if feedback is not None and feedback not in FEEDBACK_VALUES:
         _fail(f"{path}.feedback", f"expected null or one of {FEEDBACK_VALUES}")

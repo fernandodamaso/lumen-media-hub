@@ -6,6 +6,26 @@ Angular 22 workspace for the Media Manager shell: a single `dashboard` app with 
 
 This is a monorepo. The Angular workspace lives in [`dashboard-app/`](dashboard-app/) — **run all npm commands there**. The repo root carries the production media stack: `docker-compose.yml`, the `homepage-actions` Live API under `config/homepage-actions/`, and the Hermes recommendation contract under `config/recommendations/`.
 
+## First-time install
+
+On a blank Windows machine (PowerShell 7+):
+
+```powershell
+.\install.ps1 -Mode both
+```
+
+| Mode | What it does |
+|------|--------------|
+| `frontend-dev` | Checks Node 20+, runs `npm ci` in `dashboard-app/`, prints Demo/Live commands |
+| `stack` | Checks Docker + Node, creates `.env` from `.env.example` (generated `ACTIONS_TOKEN`, prompted paths/password), builds and tags the dashboard image, `docker compose up -d`, prints the API-key checklist |
+| `both` | `frontend-dev`, then `stack` |
+
+Flags: `-Force` recreates `.env`; `-Gpu` merges `docker-compose.gpu.yml` (NVIDIA transcoding); `-SkipBuild` reuses the existing dashboard image.
+
+Prerequisites: Docker Desktop, Node.js 20+, PowerShell 7+. Optional: NVIDIA GPU + nvidia-container-toolkit for `-Gpu`.
+
+After `stack` mode, open each service UI, copy its API key into `.env`, then `docker compose up -d` to apply. The installer intentionally does not configure indexers, libraries, or service API keys — those need each app's first-run UI.
+
 ## Quick start (Demo / mock)
 
 ```bash
@@ -21,7 +41,7 @@ Open [http://localhost:4200/](http://localhost:4200/). Default startup uses in-p
 | `/` | Nocturne ops dashboard: metrics, attention banner, active downloads, recent runs, upcoming calendar, service health, storage |
 | `/reports` | Status-weighted automation / cron triage |
 | `/discover` | Hermes, Jellyseerr, and Trakt recommendations |
-| Storybook | Design-system showcase ΓÇö `npm run storybook` ΓåÆ [http://localhost:6006/](http://localhost:6006/) |
+| Storybook | Design-system showcase — `npm run storybook` → [http://localhost:6006/](http://localhost:6006/) |
 
 ## Production deployment (Docker)
 
@@ -72,13 +92,13 @@ Browser → http://127.0.0.1:3000
 
 ## Live dev mode (optional)
 
-With a local [`homepage-actions`](https://github.com/fernandodamaso) service on port **8085**:
+With a local [`homepage-actions`](config/homepage-actions/) service on port **8085**:
 
 ```bash
 npm run start:live
 ```
 
-- Proxies `/api` ΓåÆ `http://127.0.0.1:8085` via [projects/dashboard/proxy.conf.js](projects/dashboard/proxy.conf.js).
+- Proxies `/api` → `http://127.0.0.1:8085` via [dashboard-app/projects/dashboard/proxy.conf.js](dashboard-app/projects/dashboard/proxy.conf.js).
 - Set `ACTIONS_TOKEN` in the environment when mutating requests need `X-Actions-Token`.
 - Feature components stay unchanged; only the `MediaStackApi` adapter switches.
 
@@ -138,13 +158,13 @@ Switch from the top-bar theme picker; preference persists in `localStorage` (`me
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for the port ΓåÆ adapter ΓåÆ facade ΓåÆ page flow, Demo/Live modes, and operational link policy.
+See [dashboard-app/docs/architecture.md](dashboard-app/docs/architecture.md) for the port → adapter → facade → page flow, Demo/Live modes, and operational link policy.
 
 ## Testing
 
 - **Unit / integration:** Vitest via `ng test` (facades, boards, pages, shell navigation, API boundary).
 - **Storybook:** Interactive review via `npm run storybook`. CI runs `build:storybook` then `test:storybook` (play functions + a11y).
-- **Browser acceptance:** Playwright verifies direct routes, fallback routing, titles, theme persistence, and shell navigation via `npm run test:smoke`. The broader manual desktop checklist remains in [docs/browser-acceptance.md](docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
+- **Browser acceptance:** Playwright verifies direct routes, fallback routing, titles, theme persistence, and shell navigation via `npm run test:smoke`. The broader manual desktop checklist remains in [dashboard-app/docs/browser-acceptance.md](dashboard-app/docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
 
 ## Screenshots
 
@@ -152,15 +172,15 @@ Representative Demo captures (local showcase):
 
 | Home | Discover |
 |------|----------|
-| ![Home dashboard](docs/screenshots/home.png) | ![Discover](docs/screenshots/discover.png) |
+| ![Home dashboard](dashboard-app/docs/screenshots/home.png) | ![Discover](dashboard-app/docs/screenshots/discover.png) |
 
 | Reports | Tokyo Night |
 |---------|-------------|
-| ![Reports](docs/screenshots/reports.png) | ![Tokyo Night theme](docs/screenshots/theme-tokyo-night.png) |
+| ![Reports](dashboard-app/docs/screenshots/reports.png) | ![Tokyo Night theme](dashboard-app/docs/screenshots/theme-tokyo-night.png) |
 
-![Storybook gallery](docs/screenshots/storybook.png)
+![Storybook gallery](dashboard-app/docs/screenshots/storybook.png)
 
-The Home dashboard was rebuilt to the Nocturne ops-console spec (fixed 285px sidebar, 12-column grid, metric cards, service health, storage overview). Screenshots are regenerated after each major visual pass; see [docs/screenshots/README.md](docs/screenshots/README.md).
+The Home dashboard was rebuilt to the Nocturne ops-console spec (fixed 285px sidebar, 12-column grid, metric cards, service health, storage overview). Screenshots are regenerated after each major visual pass; see [dashboard-app/docs/screenshots/README.md](dashboard-app/docs/screenshots/README.md).
 
 ## Non-goals
 

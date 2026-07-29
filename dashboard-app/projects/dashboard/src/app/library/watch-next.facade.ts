@@ -1,0 +1,71 @@
+import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
+import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
+import { WatchNextItem } from './watch-next.models';
+import { applyLibraryLoadFailure } from './library-refresh';
+
+export type WatchNextStatus = 'loading' | 'ready' | 'empty' | 'error';
+
+const REFRESH_ERROR = 'Could not refresh watch-next items. Showing last loaded titles.';
+const LOAD_ERROR = 'Watch-next items are temporarily unavailable. Try again.';
+
+@Injectable({ providedIn: 'root' })
+export class WatchNextFacade {
+  private readonly api = inject(MEDIA_STACK_API);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly _status = signal<WatchNextStatus>('loading');
+  private readonly _items = signal<WatchNextItem[]>([]);
+  private readonly _error = signal('');
+  private readonly _refreshing = signal(false);
+  private readonly _lastFetchedAt = signal('');
+  private requestId = 0;
+
+  readonly status = this._status.asReadonly();
+  readonly items = this._items.asReadonly();
+  readonly error = this._error.asReadonly();
+  readonly refreshing = this._refreshing.asReadonly();
+  readonly lastFetchedAt = this._lastFetchedAt.asReadonly();
+
+  readonly movies = computed(() => this._items().filter((item) => item.kind === 'movie'));
+  readonly series = computed(() => this._items().filter((item) => item.kind === 'episode'));
+  readonly movieCount = computed(() => this.movies().length);
+  readonly seriesCount = computed(() => this.series().length);
+  readonly totalCount = computed(() => this._items().length);
+
+  constructor() {
+    this.destroyRef.onDestroy(() => {
+      this.requestId++;
+    });
+    void this.refresh({ initial: true });
+  }
+
+  async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<void> {
+    const initial =
+      options.initial === true || this._status() === 'loading' || this._status() === 'error';
+    this._refreshing.set(true);
+    const requestId = ++this.requestId;
+    try {
+      const result = await this.api.listWatchNext(options.signal);
+      if (requestId !== this.requestId) return;
+      this._items.set(result.items);
+      this._lastFetchedAt.set(new Date().toISOString());
+      this._error.set('');
+      this._status.set(result.items.length ? 'ready' : 'empty');
+    } catch {
+      if (requestId !== this.requestId) return;
+      if (options.signal?.aborted) return;
+      applyLibraryLoadFailure({
+        initial,
+        status: this._status,
+        error: this._error,
+        hasPriorData: this._status() === 'ready',
+        refreshError: REFRESH_ERROR,
+        loadError: LOAD_ERROR,
+        clearOnInitial: () => {
+          this._items.set([]);
+        },
+      });
+    } finally {
+      if (requestId === this.requestId) this._refreshing.set(false);
+    }
+  }
+}

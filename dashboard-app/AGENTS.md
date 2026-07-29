@@ -1,17 +1,34 @@
 # AGENTS.md
 
-Guidance for coding agents working in this repo.
+Guidance for coding agents working in the **Angular workspace** (`dashboard-app/`). The monorepo root is the parent directory (`D:\media` on this machine): stack, Live API, installer, and CI live there — see [`../AGENTS.md`](../AGENTS.md).
+
+## First-time install
+
+On Windows, run from the **repo root** (not this folder):
+
+```powershell
+.\install.ps1 -Mode both
+```
+
+Use `-Mode frontend-dev` if you only need `npm ci` and dev commands. Use `-Mode stack` when Docker + the full compose stack are required for Live work. Prerequisites and flags are documented in [`../README.md`](../README.md) and [`../AGENTS.md`](../AGENTS.md).
+
+After install, **all npm commands still run in `dashboard-app/`**:
+
+```powershell
+cd dashboard-app
+npm start              # Demo — mock data
+npm run start:live     # Live — needs stack + ACTIONS_TOKEN in shell env
+```
 
 ## Backend location
 
-The Live API is **not** in this repository. It runs from the media stack at **`D:\media`**:
+The Live API **is** in the monorepo: `../config/homepage-actions` (service `homepage-actions` in compose).
 
-- Compose file: `D:\media\docker-compose.yml`
-- Service: `homepage-actions` (Python app under `D:\media\config\homepage-actions`)
-- Host port: **`127.0.0.1:8085`** (`127.0.0.1:8085->8085/tcp`)
-- Docker network: typically `media_media-net` (same network as Jellyfin, Sonarr, qBittorrent, etc.)
+- Compose file: `../docker-compose.yml`
+- Host port: **`127.0.0.1:8085`**
+- Docker network: typically `media_media-net`
 
-When Live endpoints fail, check that stack first (`docker ps`, hit `http://127.0.0.1:8085/health`) — do not assume the Angular app is miswired.
+When Live endpoints fail, check the stack first (`docker ps`, `http://127.0.0.1:8085/health`) — do not assume the Angular app is miswired.
 
 ## Frontend ↔ backend wiring
 
@@ -22,7 +39,17 @@ When Live endpoints fail, check that stack first (`docker ps`, hit `http://127.0
 
 Live proxy: [`projects/dashboard/proxy.conf.js`](projects/dashboard/proxy.conf.js) strips `/api` and forwards to `127.0.0.1:8085`. Set `ACTIONS_TOKEN` in the shell env for mutating requests (proxy injects `X-Actions-Token`; the browser must never hold that secret).
 
-Production Angular is a separate Docker image/Nginx reverse proxy on the same Compose network as `homepage-actions` (often published on `127.0.0.1:3000`). Local Angular Live remain on **`http://localhost:4200/`**.
+Production Angular is the immutable-tagged image on the compose network (often `http://127.0.0.1:3000/`). Build from this directory (`npm run build:live`, `docker build`) and retag to the pin in `../docker-compose.yml` — or use `../install.ps1 -Mode stack`. Local Live dev stays on **`http://localhost:4200/`**.
+
+## Quality and tests (run here)
+
+```powershell
+npm run quality
+npm test -- --watch=false
+npm run build
+```
+
+CI runs the same gate from repo root `.github/workflows/ci.yml` with `working-directory: dashboard-app`.
 
 ## Frontend structure
 
@@ -50,7 +77,7 @@ Do not create generic root-level `components/`, `services/`, `models/`, `pages/`
 
 - Add an Angular interceptor that embeds `ACTIONS_TOKEN`
 - Treat SABnzbd as a Live gap (Demo-only catalog capability)
-- Point Live mode at a backend other than the `D:\media` `homepage-actions` service without updating this file and the proxy/docs
+- Point Live mode at a backend other than the monorepo `homepage-actions` service without updating this file, [`../AGENTS.md`](../AGENTS.md), and the proxy/docs
 
 ## Related docs
 

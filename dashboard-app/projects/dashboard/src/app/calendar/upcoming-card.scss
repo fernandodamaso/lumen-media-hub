@@ -1,0 +1,105 @@
+@use '../ui/dashboard-card' as dash;
+
+:host {
+  @include dash.host-block;
+}
+
+.card {
+  @include dash.card-shell;
+}
+
+.card__head {
+  @include dash.card-head;
+}
+
+.card__head h2 {
+  @include dash.card-title;
+}
+
+mm-status {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.card__skeleton-main.upcoming-skeleton {
+  display: none;
+  gap: 12px;
+}
+
+:host:has(.card__body[aria-busy="true"]) .card__skeleton-main.upcoming-skeleton {
+  display: grid;
+}
+
+.upcoming-skeleton__row {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.upcoming-skeleton__copy {
+  display: grid;
+  gap: 8px;
+}
+
+.card__body--upcoming .card__inner-spacer {
+  min-height: 308px;
+}
+
+.day-label {
+  margin: 4px 0 10px;
+  color: var(--mm-component-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.up-next {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.up-next__thumb {
+  display: block;
+  width: 40px;
+  height: 56px;
+  border-radius: 8px;
+  border: 1px solid var(--mm-component-border);
+  background: var(--mm-component-muted-bg);
+  text-decoration: none;
+}
+
+a.up-next__thumb:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
+}
+
+.up-next__body {
+  min-width: 0;
+}
+
+.up-next__title {
+  display: block;
+  margin: 0;
+  overflow: hidden;
+  color: var(--mm-component-text-primary);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.up-next__title:hover {
+  color: var(--mm-component-accent-strong);
+}
+
+.up-next__meta {
+  margin: 2px 0 0;
+  color: var(--mm-component-text-muted);
+  font-size: 12px;
+}

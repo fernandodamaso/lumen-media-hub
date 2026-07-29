@@ -1,0 +1,90 @@
+<section class="page-intro">
+  <p class="eyebrow">Workspace</p>
+  <h1>Reports</h1>
+  <p class="lede">Failed and actionable automation runs first; expand quiet successes when needed.</p>
+</section>
+
+<div class="toolbar">
+  @if (facade.generatedAt()) {
+    <p class="generated" aria-live="polite">Generated {{ formatGeneratedAt(facade.generatedAt()) }}</p>
+  } @else {
+    <p class="generated muted">Waiting for first load…</p>
+  }
+  <mm-button
+    label="Refresh"
+    variant="quiet"
+    [busy]="facade.refreshing()"
+    [disabled]="facade.refreshing()"
+    (click)="refresh()"
+  />
+</div>
+
+@if (facade.error() && facade.status() !== 'error') {
+  <p class="refresh-error" role="status" aria-live="polite">
+    <mm-status tone="warning">{{ facade.error() }}</mm-status>
+  </p>
+}
+
+@if (facade.status() === 'loading') {
+  <mm-state-card kind="loading" title="Loading reports" message="Checking recent automation runs…" />
+} @else if (facade.status() === 'error') {
+  <mm-state-card kind="error" title="Reports unavailable" [message]="facade.error()" tone="danger">
+    <mm-button label="Try again" (click)="refresh()" />
+  </mm-state-card>
+} @else if (facade.status() === 'empty') {
+  <mm-state-card kind="empty" title="No cron history yet" message="Automation runs will appear here once logs are available." />
+} @else {
+  @if (facade.status() === 'allClear') {
+    <p class="health" role="status">
+      <mm-status tone="success">All clear — {{ facade.summary().quiet }} quiet run{{ facade.summary().quiet === 1 ? '' : 's' }}.</mm-status>
+    </p>
+  } @else {
+    <p class="health" role="status">
+      <mm-status tone="warning">{{ facade.summary().actionable }} actionable run{{ facade.summary().actionable === 1 ? '' : 's' }} need attention.</mm-status>
+    </p>
+  }
+
+  @if (actionableRuns().length) {
+    <div class="run-list" aria-label="Actionable runs">
+      @for (run of actionableRuns(); track run.id) {
+        <ng-container *ngTemplateOutlet="runCard; context: { $implicit: run, showExtras: true }" />
+      }
+    </div>
+  }
+
+  @if (quietRuns().length) {
+    <details class="quiet-section">
+      <summary>{{ quietRuns().length }} quiet run{{ quietRuns().length === 1 ? '' : 's' }}</summary>
+      <div class="run-list quiet-list" aria-label="Quiet runs">
+        @for (run of quietRuns(); track run.id) {
+          <ng-container *ngTemplateOutlet="runCard; context: { $implicit: run, showExtras: false }" />
+        }
+      </div>
+    </details>
+  }
+}
+
+<ng-template #runCard let-run let-showExtras="showExtras">
+  <details class="run" [open]="expanded().has(run.id)" (toggle)="onToggle(run.id, $event)">
+    <summary>
+      <div class="run-head">
+        <strong>{{ run.jobTitle }}</strong>
+        <mm-status [tone]="statusView(run.status).tone">{{ statusView(run.status).label }}</mm-status>
+        <span class="run-time">{{ formatRunTimestamp(run.timestamp) }}</span>
+      </div>
+    </summary>
+    <div class="run-detail">
+      @if (run.detail) {
+        <p>{{ run.detail }}</p>
+      }
+      @if (showExtras) {
+        @if (run.fatal) {
+          <p class="fatal">{{ run.fatal }}</p>
+        }
+        @if (run.applied !== null) {
+          <p>Applied {{ run.applied }}</p>
+        }
+      }
+    </div>
+  </details>
+</ng-template>

@@ -1,0 +1,93 @@
+/// Shared chrome for redesign dashboard cards.
+
+@mixin host-block {
+  display: block;
+  min-width: 0;
+  height: 100%;
+}
+
+@mixin card-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  padding: 18px 18px 16px;
+  border: 1px solid var(--mm-component-border);
+  border-radius: var(--mm-radius-md);
+  background: var(--mm-component-card-bg);
+}
+
+@mixin card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+@mixin card-title {
+  margin: 0;
+  color: var(--mm-component-text-primary);
+  font-size: var(--mm-text-heading);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+@mixin pagehead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+@mixin pagehead-title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+@mixin pagehead-sub {
+  margin: 2px 0 0;
+  color: var(--mm-component-text-muted);
+  font-size: 13px;
+}
+
+@mixin kbd {
+  font-family: var(--mm-font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: var(--mm-component-text-muted);
+  background: var(--mm-component-control-bg);
+  border: 1px solid var(--mm-component-border);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+@mixin segmented {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--mm-component-border);
+  border-radius: 9px;
+}
+
+@mixin segmented-btn {
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--mm-component-text-muted);
+  font: 500 12.5px/1 var(--mm-font-body);
+  cursor: pointer;
+
+  &.is-active {
+    background: color-mix(in srgb, var(--mm-component-accent) 13%, transparent);
+    color: var(--mm-component-accent-strong);
+  }
+
+  &:focus-visible {
+    outline: 3px solid var(--mm-component-focus-ring);
+    outline-offset: 2px;
+  }
+}

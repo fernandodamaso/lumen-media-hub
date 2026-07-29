@@ -15,13 +15,6 @@ services:
     volumes:
       - ${ROOT_PATH}:/data
       - ./config/jellyfin:/config
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     logging:
       driver: json-file
       options:
@@ -69,7 +62,7 @@ services:
       - UMASK=${UMASK}
     volumes:
       - ${ROOT_PATH}:/data
-      - D:/Downloads:/downloads
+      - ${DOWNLOADS_PATH:-./downloads}:/downloads
       - ./config/radarr:/config
     logging:
       driver: json-file
@@ -92,7 +85,7 @@ services:
       - UMASK=${UMASK}
     volumes:
       - ${ROOT_PATH}:/data
-      - D:/Downloads:/downloads
+      - ${DOWNLOADS_PATH:-./downloads}:/downloads
       - ./config/sonarr:/config
     logging:
       driver: json-file

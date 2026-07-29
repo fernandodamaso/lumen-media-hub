@@ -1,0 +1,14 @@
+<section [class]="'mm-state-card mm-state-card--' + tone() + (centered() ? ' mm-state-card--centered' : '')">
+  <div class="mm-state-card__icon" aria-hidden="true">
+    @if (kind() === 'loading') {
+      <svg lucideLoaderCircle [size]="18" [strokeWidth]="2.2"></svg>
+    } @else if (kind() === 'error') {
+      <svg lucideCircleAlert [size]="18" [strokeWidth]="2.2"></svg>
+    } @else {
+      <svg lucideInbox [size]="18" [strokeWidth]="2.2"></svg>
+    }
+  </div>
+  <h3>{{ title() }}</h3>
+  <p>{{ message() }}</p>
+  <ng-content />
+</section>

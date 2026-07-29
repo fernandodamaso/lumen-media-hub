@@ -102,6 +102,32 @@ class FakeHandler:
         return json.loads(self.wfile.getvalue().decode("utf-8") or b"{}")
 
 
+class ReadJsonBodyTests(unittest.TestCase):
+    def test_read_json_body_rejects_oversized_content_length(self):
+        handler = FakeHandler()
+        handler.headers = {"Content-Length": str(main.MAX_JSON_BODY_BYTES + 1)}
+        with self.assertRaises(main._BodyTooLarge):
+            main._read_json_body(handler)
+
+    def test_read_json_body_rejects_invalid_content_length(self):
+        handler = FakeHandler()
+        handler.headers = {"Content-Length": "not-a-number"}
+        with self.assertRaises(main.json.JSONDecodeError):
+            main._read_json_body(handler)
+
+    def test_read_json_body_accepts_body_at_limit(self):
+        prefix = b'{"p":"'
+        suffix = b'"}'
+        pad_len = main.MAX_JSON_BODY_BYTES - len(prefix) - len(suffix)
+        self.assertGreater(pad_len, 0)
+        raw = prefix + (b"x" * pad_len) + suffix
+        self.assertEqual(len(raw), main.MAX_JSON_BODY_BYTES)
+        handler = FakeHandler()
+        handler.headers = {"Content-Length": str(main.MAX_JSON_BODY_BYTES)}
+        handler.rfile = io.BytesIO(raw)
+        self.assertEqual(main._read_json_body(handler), {"p": "x" * pad_len})
+
+
 def make_hermes_item(tmdb_id, **extra):
     media_type = extra.get("type", "movie")
     item = {
@@ -324,6 +350,14 @@ class ApiResilienceTests(PosterEnrichmentTestCase):
         self._old_store = main.RECOMMENDATIONS_STORE
         main.RECOMMENDATIONS_STORE = self.store
         self.addCleanup(self._restore_store)
+        self._old_generation_request_path = main.GENERATION_REQUEST_PATH
+        main.GENERATION_REQUEST_PATH = os.path.join(
+            self.tmpdir, "generation-request.json"
+        )
+        self.addCleanup(self._restore_generation_request_path)
+
+    def _restore_generation_request_path(self):
+        main.GENERATION_REQUEST_PATH = self._old_generation_request_path
 
     def _restore_store(self):
         main.RECOMMENDATIONS_STORE = self._old_store

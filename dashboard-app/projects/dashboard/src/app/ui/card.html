@@ -1,0 +1,11 @@
+<section class="mm-card" [attr.aria-labelledby]="labelledBy() || null">
+  <header class="mm-card__header">
+    <div class="mm-card__heading"><ng-content select="[mm-card-header]" /></div>
+    <div class="mm-card__actions"><ng-content select="[mm-card-header-actions]" /></div>
+  </header>
+  <div class="mm-card__body"><ng-content /></div>
+  <footer class="mm-card__footer">
+    <div class="mm-card__footer-content"><ng-content select="[mm-card-footer]" /></div>
+    <div class="mm-card__actions"><ng-content select="[mm-card-footer-actions]" /></div>
+  </footer>
+</section>

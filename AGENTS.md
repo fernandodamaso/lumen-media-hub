@@ -2,12 +2,52 @@
 
 Guidance for coding agents working in this repo.
 
+## First-time install (Windows)
+
+Prerequisites: **PowerShell 7+**, **Node.js 20+**, **Docker Desktop** (Compose v2). Optional: NVIDIA GPU + `nvidia-container-toolkit` for Jellyfin transcoding.
+
+From the **repo root** (installer sets CWD to `$PSScriptRoot` automatically):
+
+```powershell
+.\install.ps1 -Mode both
+```
+
+| Mode | What it does |
+|------|--------------|
+| `frontend-dev` | `npm ci` in `dashboard-app/`, prints Demo/Live dev commands |
+| `stack` | Creates `.env` from `.env.example`, builds/tags dashboard image, `docker compose up -d`, health-checks `homepage-actions` |
+| `both` | `frontend-dev` then `stack` (`npm ci` runs once) |
+
+Flags: `-Force` recreates `.env`; `-Gpu` adds `-f docker-compose.gpu.yml`; `-SkipBuild` skips dashboard image build (local pin must already exist).
+
+Non-interactive: set `ROOT_PATH`, `DOWNLOADS_PATH`, and `STACK_PASSWORD` in the environment before running.
+
+After `stack`, copy each service API key into `.env` (installer prints URLs), then `docker compose up -d` from the repo root. The installer does not configure indexers, libraries, or *arr first-run wizards.
+
+**Manual path** (no installer): copy `.env.example` → `.env`, set `ROOT_PATH` / `DOWNLOADS_PATH` (forward slashes), run `npm ci` and `npm run build:live` in `dashboard-app/`, `docker build` + retag to the pin in `docker-compose.yml`, then `docker compose up -d`.
+
+## How to use this project
+
+| Goal | Where | Command / check |
+|------|--------|------------------|
+| Demo UI (no stack) | `dashboard-app/` | `npm ci` → `npm start` → http://localhost:4200/ |
+| Live UI against stack | `dashboard-app/` | Stack up + `ACTIONS_TOKEN` in shell → `npm run start:live` → http://localhost:4200/ |
+| Production dashboard in stack | Docker | http://127.0.0.1:3000/ (image `media-dashboard-angular:<pin>` in compose) |
+| Live API | `config/homepage-actions/` | http://127.0.0.1:8085/health |
+| Full quality gate | `dashboard-app/` | `npm run quality` |
+| Angular unit tests | `dashboard-app/` | `npm test -- --watch=false` |
+| Backend unit tests | `config/homepage-actions/` | `python -m unittest discover -v` |
+| CI | `.github/workflows/ci.yml` | `verify` (Angular) + `backend-tests` (Python) on push/PR |
+
+Tracked product docs live under **`dashboard-app/docs/`** (e.g. architecture, quality gates). Root **`docs/`** is gitignored host ops notes — do not commit.
+
 ## Repository layout
 
 This is the Media Manager monorepo (checked out at `D:\media`):
 
 - `dashboard-app/` — the Angular 22 workspace (portfolio project). **All npm commands run inside `dashboard-app/`**, not at the repo root.
-- `docker-compose.yml`, `.env.example` — the production media stack definition.
+- `install.ps1` — first-time Windows bootstrap (`stack` / `frontend-dev` / `both`).
+- `docker-compose.yml`, `docker-compose.gpu.yml` (optional merge), `.env.example` — production media stack.
 - `config/homepage-actions/` — the Live API (Python, stdlib-only HTTP service).
 - `config/recommendations/` — Hermes recommendation contract files (runtime JSON is ignored).
 - `docs/` — **local-only, git-ignored** ops notes and stack documentation (contains host-specific detail; do not commit).

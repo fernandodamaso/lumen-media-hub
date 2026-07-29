@@ -1,0 +1,45 @@
+@if (loading()) {
+  <div
+    class="metric-card metric-card--skeleton"
+    [attr.aria-label]="'Loading ' + label()"
+    aria-busy="true"
+  >
+    <mm-skeleton variant="circle" width="48px" height="48px" />
+    <span class="metric-card__body">
+      <mm-skeleton variant="text" width="42%" height="12px" />
+      <mm-skeleton variant="text" width="48%" height="24px" />
+      <mm-skeleton variant="text" width="72%" height="14px" />
+    </span>
+  </div>
+} @else {
+  <a
+    [class]="'metric-card metric-card--' + tone()"
+    [href]="href()"
+    [attr.target]="external() ? '_blank' : null"
+    [attr.rel]="external() ? 'noreferrer' : null"
+  >    <span class="metric-card__icon">
+      @switch (iconName()) {
+        @case ('folder') { <svg lucideFolder [size]="22" aria-hidden="true"></svg> }
+        @case ('download') { <svg lucideDownload [size]="22" aria-hidden="true"></svg> }
+        @case ('activity') { <svg lucideActivity [size]="22" aria-hidden="true"></svg> }
+        @case ('hard-drive') { <svg lucideHardDrive [size]="22" aria-hidden="true"></svg> }
+      }
+    </span>
+    <span class="metric-card__body">
+      <span class="metric-card__label">{{ label() }}</span>
+      <span class="metric-card__value">{{ value() }}</span>
+      @if (meta()) {
+        <span class="metric-card__meta">{{ meta() }}</span>
+      }
+      @if (progress() !== null) {
+        <mm-progress
+          [value]="progress()!"
+          [tone]="tone()"
+          [showLabel]="false"
+          [label]="label() + ' progress'"
+        />
+      }
+    </span>
+    <svg lucideChevronRight [size]="20" aria-hidden="true"></svg>
+  </a>
+}

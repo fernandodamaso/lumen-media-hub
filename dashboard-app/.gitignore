@@ -58,6 +58,7 @@ Thumbs.db
 
 # Local design-exploration mockups (logs, screenshots, scratch HTML)
 /docs/mockups/
+/docs/Kimi_Agent_Angular Media App UI Improvements/
 
 /storybook-static
 /.playwright-mcp

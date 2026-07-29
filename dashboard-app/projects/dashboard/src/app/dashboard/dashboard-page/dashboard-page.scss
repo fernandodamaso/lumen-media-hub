@@ -1,0 +1,86 @@
+@use '../../ui/dashboard-card' as dash;
+
+:host {
+  display: block;
+  container-type: inline-size;
+}
+
+.pagehead {
+  @include dash.pagehead;
+}
+
+.pagehead h1 {
+  @include dash.pagehead-title;
+}
+
+.pagehead__sub {
+  @include dash.pagehead-sub;
+}
+
+.pagehead__accent {
+  color: var(--mm-component-accent-strong);
+}
+
+.pagehead__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+  margin-bottom: var(--mm-space-lg);
+}
+
+.metrics-notice {
+  margin: calc(-1 * var(--mm-space-sm)) 0 var(--mm-space-lg);
+  color: var(--mm-component-text-secondary);
+  font-size: var(--mm-text-md);
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 18px;
+  align-items: stretch;
+}
+
+.dashboard-grid__cell {
+  min-width: 0;
+  container-type: inline-size;
+}
+
+.dashboard-grid__cell--library { grid-column: span 8; }
+.dashboard-grid__cell--upcoming { grid-column: span 4; }
+.dashboard-grid__cell--downloads { grid-column: span 7; }
+.dashboard-grid__cell--automation { grid-column: span 5; }
+
+.region {
+  min-width: 0;
+}
+
+.dashboard-grid .region > * {
+  display: block;
+  height: 100%;
+}
+
+@container (max-width: 959px) {
+  .metrics-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-grid__cell--library,
+  .dashboard-grid__cell--upcoming,
+  .dashboard-grid__cell--downloads,
+  .dashboard-grid__cell--automation {
+    grid-column: span 12;
+  }
+}
+
+@container (max-width: 639px) {
+  .metrics-row {
+    grid-template-columns: 1fr;
+  }
+}

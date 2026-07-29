@@ -1,0 +1,40 @@
+@use '../../ui/dashboard-card' as dash;
+
+:host {
+  display: block;
+}
+
+.pagehead {
+  @include dash.pagehead;
+}
+
+.pagehead h1 {
+  @include dash.pagehead-title;
+}
+
+.pagehead__sub {
+  @include dash.pagehead-sub;
+}
+
+.pagehead__accent {
+  color: var(--mm-component-accent-strong);
+}
+
+.segmented {
+  @include dash.segmented;
+
+  background: var(--mm-component-card-bg);
+}
+
+.segmented__btn {
+  @include dash.segmented-btn;
+}
+
+mm-status {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.soft-notice {
+  margin: 0 0 16px;
+}

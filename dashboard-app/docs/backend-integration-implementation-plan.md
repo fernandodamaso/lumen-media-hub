@@ -227,11 +227,13 @@ tests
 - Forward the browser `Origin` header unchanged.
 - Do not emit the token into JavaScript, HTML, source maps, logs, or error pages.
 
-Build tags:
+Compose build configuration:
 
-```text
-media-dashboard-angular:<short-angular-sha>
-media-dashboard-angular:local
+```yaml
+dashboard:
+  build:
+    context: ./dashboard-app
+  image: media-dashboard-angular:local
 ```
 
 Acceptance gate:
@@ -383,7 +385,7 @@ Acceptance gate:
 - `docker compose config` succeeds with a token and fails clearly without one.
 - Angular staging uses the actual Docker backend and token injection.
 - React is not started by ordinary `docker compose up -d`.
-- Both dashboard images are locally identifiable by immutable tags.
+- The Angular dashboard is locally identifiable by its Compose build and local tag; the legacy React image remains separately managed.
 
 ## 11. Milestone 7 — Playwright and end-to-end verification
 
@@ -454,7 +456,7 @@ A syntactically valid nonexistent torrent hash may return `{"ok":true}` because 
 
 1. Confirm the React rollback image tag exists.
 2. Stop and remove `dashboard-angular-stage` to free port `3001`.
-3. Recreate Compose service `dashboard` from the immutable Angular image.
+3. Recreate Compose service `dashboard` with `docker compose up -d --build dashboard`.
 4. Verify `http://127.0.0.1:3000` with health checks and Playwright.
 5. Record image IDs, container health, and verification results.
 

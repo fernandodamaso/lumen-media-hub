@@ -12,7 +12,7 @@ Incorporates two independent senior reviews. Key corrections relative to the dra
 
 ## Goal and non-goals
 
-Angular replaces React on `http://127.0.0.1:3000`, served by a prebuilt immutable-tagged image. `homepage-actions` becomes fail-closed with per-torrent qBittorrent routes. React survives as a `legacy-dashboard` Compose profile with a *proven* rollback path.
+Angular replaces React on `http://127.0.0.1:3000`, served by the Compose-built local image. `homepage-actions` becomes fail-closed with per-torrent qBittorrent routes. React survives as a `legacy-dashboard` Compose profile with a *proven* rollback path.
 
 Out of scope: new aggregate APIs, auth redesign, React source deletion (14-day wait, separate change), feature parity work, running the full `validate-core.ps1`, rebuilding React.
 
@@ -66,11 +66,10 @@ Files: `Dockerfile`, `nginx.conf.template`.
 
 **Gate:** `npm run quality` (lint, typecheck, stylelint, duplicates, dead-code, architecture), `npm test -- --watch=false`, `npm run build:live`, `npm run build:storybook`, `npm run test:storybook`, `git diff --check` — all green.
 
-**Then commit** the Angular changes, **then** build once and tag immutably with the resulting commit:
+**Then commit** the Angular changes and let Compose build the production image:
 
 ```powershell
-docker build -t media-dashboard-angular:<short-sha> -t media-dashboard-angular:local .
-docker inspect media-dashboard-angular:<short-sha> --format '{{.Id}}'   # record it
+docker compose up -d --build dashboard
 ```
 
 ## Milestone 3 — Compose staging (`D:\media`)
@@ -93,7 +92,7 @@ Files: `docker-compose.yml`.
 ## Milestone 4 — Cutover
 
 1. Remove `dashboard-angular-stage` (frees `:3001`).
-2. `dashboard` service: replace `build: ./dashboard` with `image: media-dashboard-angular:<short-sha>`, keep `127.0.0.1:${DASHBOARD_PORT:-3000}:80`, token env with `:?`, `depends_on: homepage-actions`.
+2. `dashboard` service: use `build.context: ./dashboard-app` and `image: media-dashboard-angular:local`, keep `127.0.0.1:${DASHBOARD_PORT:-3000}:80`, token env with `:?`, `depends_on: homepage-actions`.
 3. Add `dashboard-react`: `image: media-dashboard-react:legacy-77b344ef4f65`, `profiles: [legacy-dashboard]`, `127.0.0.1:${LEGACY_DASHBOARD_PORT:-3001}:80`, **`ACTIONS_TOKEN: ${ACTIONS_TOKEN:?…}`**, `depends_on: homepage-actions`, **no `build:` key**. (Without the token env, fail-closed backend 401s every React mutation and the drill is meaningless.)
 
 **Gate:** full Milestone 3 verification suite re-run against `http://127.0.0.1:3000`. Record image IDs, container states, results.

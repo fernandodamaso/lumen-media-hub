@@ -11,20 +11,29 @@ jobs:
       - uses: actions/checkout@v4
       - name: install.ps1 defines Assert-Docker
         run: grep -q 'function Assert-Docker' install.ps1
+      - name: installer derives required pulls from enabled Compose services
+        run: |
+          grep -Fq 'config --format json' install.ps1
+          grep -Fq "notcontains 'build'" install.ps1
+          ! grep -Fq -- '--ignore-pull-failures' install.ps1
       - name: pre-commit cds into dashboard-app before quality
         run: |
           grep -q 'cd "$(git rev-parse --show-toplevel)/dashboard-app"' dashboard-app/githooks/pre-commit
           grep -q 'npm run quality' dashboard-app/githooks/pre-commit
       - name: compose wires QBT_PASSWORD from env
         run: grep -q 'QBT_PASSWORD=\${QBT_PASSWORD' docker-compose.yml
-      - name: Validate Compose configurations
+      - name: Validate production Compose dashboard build
         run: |
-          docker compose --env-file .env.example -f docker-compose.yml config --quiet
-          docker compose --env-file .env.example \
-            -f docker-compose.yml \
-            -f docker-compose.dev.yml \
-            config --quiet
-      - name: Dev override replaces dashboard host port mapping
+          docker compose --env-file .env.example -f docker-compose.yml config --format json \
+          | python3 -c '
+          import json, sys
+          dashboard = json.load(sys.stdin)["services"]["dashboard"]
+          assert dashboard["build"]["context"].endswith("dashboard-app"), dashboard
+          assert dashboard["image"] == "media-dashboard-angular:local", dashboard
+          print("production dashboard build ok:", dashboard["build"], dashboard["image"])
+          '
+
+      - name: Validate merged development Compose dashboard
         run: |
           docker compose --env-file .env.example \
             -f docker-compose.yml \
@@ -32,12 +41,23 @@ jobs:
             config --format json \
           | python3 -c '
           import json, sys
-          ports = json.load(sys.stdin)["services"]["dashboard"]["ports"]
+          dashboard = json.load(sys.stdin)["services"]["dashboard"]
+          assert "build" not in dashboard, dashboard
+          assert dashboard["image"] == "node:22-alpine", dashboard
+          ports = dashboard["ports"]
           assert len(ports) == 1, ports
           assert str(ports[0]["published"]) == "3000", ports
           assert str(ports[0]["target"]) == "4200", ports
-          print("dashboard ports ok:", ports)
+          mounts = {volume["target"] for volume in dashboard["volumes"]}
+          assert {"/app", "/app/node_modules"} <= mounts, mounts
+          assert "npm run start:live" in " ".join(dashboard["command"]), dashboard["command"]
+          print("development dashboard ok:", dashboard["image"], ports, mounts)
           '
+
+      - name: Compose configurations parse
+        run: |
+          docker compose --env-file .env.example -f docker-compose.yml config --quiet
+          docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml config --quiet
 
   verify:
     runs-on: ubuntu-latest

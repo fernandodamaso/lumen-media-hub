@@ -12,8 +12,7 @@ param(
   [ValidateSet('stack', 'frontend-dev', 'both', 'redeploy-dashboard')]
   [string]$Mode = 'both',
   [switch]$Force,
-  [switch]$Gpu,
-  [switch]$SkipBuild
+  [switch]$Gpu
 )
 
 Set-StrictMode -Version Latest
@@ -39,6 +38,19 @@ function Assert-Command([string]$Name, [string]$InstallHint) {
   }
 }
 
+function Get-ComposePullServices {
+  $configJson = docker compose --env-file $EnvFile -f $ComposeFile config --format json
+  Assert-ExitCode 'docker compose config'
+  $config = $configJson | ConvertFrom-Json
+  $services = @(
+    $config.services.PSObject.Properties |
+      Where-Object { $_.Value.PSObject.Properties.Name -notcontains 'build' } |
+      Select-Object -ExpandProperty Name
+  )
+  if (-not $services) { throw 'Compose config contains no enabled non-build services to pull.' }
+  return $services
+}
+
 function Assert-Node {
   Assert-Command 'node' 'Install Node.js from https://nodejs.org/'
   Assert-Command 'npm' 'Install Node.js from https://nodejs.org/'
@@ -57,9 +69,9 @@ function Assert-Docker {
   $major = [int]$parts[0]
   $minor = if ($parts.Length -gt 1) { [int]$parts[1] } else { 0 }
   $patch = if ($parts.Length -gt 2) { [int]($parts[2] -replace '\D.*$', '') } else { 0 }
-  # docker-compose.dev.yml uses ports: !override (Compose 2.24.4+)
+  # docker-compose.dev.yml uses Compose reset/override tags (Compose 2.24.4+)
   if ($major -lt 2 -or ($major -eq 2 -and ($minor -lt 24 -or ($minor -eq 24 -and $patch -lt 4)))) {
-    throw "Docker Compose $composeVer is too old; need 2.24.4+ for docker-compose.dev.yml (ports: !override)."
+    throw "Docker Compose $composeVer is too old; need 2.24.4+ for docker-compose.dev.yml (Compose reset/override tags)."
   }
 }
 
@@ -170,43 +182,21 @@ function Invoke-NpmCi {
   } finally { Pop-Location }
 }
 
-function Build-DashboardImage {
-  Invoke-NpmCi
-  Push-Location $DashboardApp
-  try {
-    npm run build:live
-    Assert-ExitCode 'npm run build:live'
-  } finally { Pop-Location }
-  docker build -t media-dashboard-angular:local $DashboardApp
-  Assert-ExitCode 'docker build'
-  $pinMatch = Select-String -Path $ComposeFile -Pattern 'image: media-dashboard-angular:(\S+)'
-  if (-not $pinMatch) {
-    throw 'Could not find media-dashboard-angular image pin in docker-compose.yml.'
-  }
-  $pin = $pinMatch.Matches[0].Groups[1].Value
-  docker tag media-dashboard-angular:local "media-dashboard-angular:$pin"
-  Assert-ExitCode 'docker tag'
-  Write-Host "Tagged media-dashboard-angular:local as media-dashboard-angular:$pin (compose pin)."
-}
-
 function Invoke-RedeployDashboard {
   Assert-Docker
-  Assert-Node
   Initialize-EnvFile
-  Write-Step 'Building dashboard image and recreating container (http://127.0.0.1:3000)'
-  Build-DashboardImage
+  Write-Step 'Building dashboard with Compose and recreating container (http://127.0.0.1:3000)'
   if ($Gpu) {
-    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d --force-recreate dashboard
+    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d --build --force-recreate dashboard
   } else {
-    docker compose --env-file $EnvFile -f $ComposeFile up -d --force-recreate dashboard
+    docker compose --env-file $EnvFile -f $ComposeFile up -d --build --force-recreate dashboard
   }
-  Assert-ExitCode 'docker compose up dashboard'
+  Assert-ExitCode 'docker compose up --build dashboard'
   Write-Host 'Dashboard redeployed. Hard-refresh the browser (Ctrl+Shift+R) if assets look cached.'
 }
 
 function Invoke-Stack {
   Assert-Docker
-  Assert-Node
   Initialize-EnvFile
 
   $envContent = Get-Content $EnvFile -Raw
@@ -215,18 +205,18 @@ function Invoke-Stack {
     New-Item -ItemType Directory -Force $downloadsDir | Out-Null
   }
 
-  if (-not $SkipBuild) { Build-DashboardImage }
-
   Write-Step 'Pulling service images'
-  docker compose --env-file $EnvFile -f $ComposeFile pull --ignore-pull-failures
+  $composePullServices = Get-ComposePullServices
+  docker compose --env-file $EnvFile -f $ComposeFile pull $composePullServices
+  Assert-ExitCode 'docker compose pull service images'
 
-  Write-Step 'Starting the stack'
+  Write-Step 'Building the dashboard and starting the stack'
   if ($Gpu) {
-    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d
+    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d --build
   } else {
-    docker compose --env-file $EnvFile -f $ComposeFile up -d
+    docker compose --env-file $EnvFile -f $ComposeFile up -d --build
   }
-  Assert-ExitCode 'docker compose up'
+  Assert-ExitCode 'docker compose up --build'
 
   Write-Step 'Waiting for homepage-actions health'
   $healthy = $false

@@ -233,7 +233,7 @@ services:
     environment:
       - QBT_URL=http://qbittorrent:8081
       - QBT_USERNAME=admin
-      - QBT_PASSWORD=${STACK_PASSWORD}
+      - QBT_PASSWORD=${QBT_PASSWORD:?QBT_PASSWORD must be set}
       - JELLYFIN_URL=http://jellyfin:8096
       - JELLYFIN_EXTERNAL_URL=http://localhost:8096
       - JELLYFIN_API_KEY=${JELLYFIN_API_KEY}

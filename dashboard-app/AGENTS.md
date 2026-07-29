@@ -39,7 +39,23 @@ When Live endpoints fail, check the stack first (`docker ps`, `http://127.0.0.1:
 
 Live proxy: [`projects/dashboard/proxy.conf.js`](projects/dashboard/proxy.conf.js) strips `/api` and forwards to `127.0.0.1:8085`. Set `ACTIONS_TOKEN` in the shell env for mutating requests (proxy injects `X-Actions-Token`; the browser must never hold that secret).
 
-Production Angular is the immutable-tagged image on the compose network (often `http://127.0.0.1:3000/`). Build from this directory (`npm run build:live`, `docker build`) and retag to the pin in `../docker-compose.yml` — or use `../install.ps1 -Mode stack`. Local Live dev stays on **`http://localhost:4200/`**.
+Production Angular is the immutable-tagged image on the compose network (often `http://127.0.0.1:3000/`). Build from this directory (`npm run build:live`, `docker build`) and retag to the pin in `../docker-compose.yml` — or use `../install.ps1 -Mode stack` / **`../install.ps1 -Mode redeploy-dashboard`** after UI edits. Local Live dev stays on **`http://localhost:4200/`**.
+
+## Applying UI changes on port 3000 (agents)
+
+If the user tests at **`http://localhost:3000/`**, run from the **repo root** after changing files in this workspace:
+
+```powershell
+..\install.ps1 -Mode redeploy-dashboard
+```
+
+For hot reload without rebuilding the Nginx image, use the dev compose override (repo root):
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard
+```
+
+Do not assume `:3000` reflects saved source until one of those commands has been run (or the user is on `npm run start:live` at `:4200`).
 
 ## Quality and tests (run here)
 

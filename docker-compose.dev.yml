@@ -1,0 +1,34 @@
+# Live-reload dashboard on http://127.0.0.1:3000 (replaces the static Nginx image).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d dashboard
+#
+# Uses ng serve with a bind mount so SCSS/TS/HTML changes refresh without rebuilding the image.
+# Set LIVE_API_PROXY_TARGET so the dev proxy reaches homepage-actions on the Compose network.
+
+services:
+  dashboard:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./dashboard-app:/app
+      - dashboard-app-node-modules:/app/node_modules
+    ports:
+      - "127.0.0.1:${DASHBOARD_PORT:-3000}:4200"
+    environment:
+      - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
+      - LIVE_API_PROXY_TARGET=http://homepage-actions:8085
+      - CHOKIDAR_USEPOLLING=true
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -d node_modules/@angular/core ]; then npm ci; fi
+        exec npm run start:live -- --host 0.0.0.0 --port 4200 --poll 2000
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  dashboard-app-node-modules:

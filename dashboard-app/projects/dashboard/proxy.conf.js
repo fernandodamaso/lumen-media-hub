@@ -7,10 +7,12 @@
  * `onProxyReq` is ignored by the Vite middleware.
  */
 const token = process.env.ACTIONS_TOKEN || '';
+/** Host dev: 127.0.0.1:8085. Docker dev dashboard container: http://homepage-actions:8085 */
+const apiTarget = process.env.LIVE_API_PROXY_TARGET || 'http://127.0.0.1:8085';
 
 module.exports = {
   '/api': {
-    target: 'http://127.0.0.1:8085',
+    target: apiTarget,
     secure: false,
     changeOrigin: true,
     pathRewrite: { '^/api': '' },

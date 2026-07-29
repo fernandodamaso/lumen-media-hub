@@ -5,6 +5,17 @@ on:
   pull_request:
 
 jobs:
+  workflow-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install.ps1 defines Assert-Docker
+        run: grep -q 'function Assert-Docker' install.ps1
+      - name: pre-commit runs quality from dashboard-app
+        run: grep -q 'dashboard-app' dashboard-app/githooks/pre-commit
+      - name: compose wires QBT_PASSWORD from env
+        run: grep -q 'QBT_PASSWORD=\${QBT_PASSWORD' docker-compose.yml
+
   verify:
     runs-on: ubuntu-latest
     defaults:

@@ -33,6 +33,8 @@ After `stack`, copy each service API key into `.env` (installer prints URLs), th
 | Demo UI (no stack) | `dashboard-app/` | `npm ci` → `npm start` → http://localhost:4200/ |
 | Live UI against stack | `dashboard-app/` | Stack up + `ACTIONS_TOKEN` in shell → `npm run start:live` → http://localhost:4200/ |
 | Production dashboard in stack | Docker | http://127.0.0.1:3000/ (image `media-dashboard-angular:<pin>` in compose) |
+| Refresh `:3000` after UI edits | Repo root | `.\install.ps1 -Mode redeploy-dashboard` |
+| Hot reload on `:3000` (agent/dev) | Repo root | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard` |
 | Live API | `config/homepage-actions/` | http://127.0.0.1:8085/health |
 | Full quality gate | `dashboard-app/` | `npm run quality` |
 | Angular unit tests | `dashboard-app/` | `npm test -- --watch=false` |
@@ -75,6 +77,20 @@ When Live endpoints fail, check the stack first (`docker ps`, hit `http://127.0.
 Live proxy: [`dashboard-app/projects/dashboard/proxy.conf.js`](dashboard-app/projects/dashboard/proxy.conf.js) strips `/api` and forwards to `127.0.0.1:8085`. Set `ACTIONS_TOKEN` in the shell env for mutating requests (proxy injects `X-Actions-Token`; the browser must never hold that secret).
 
 Production Angular is the immutable-tagged Docker image `media-dashboard-angular:<sha>` (Nginx reverse proxy on the Compose network, published on `127.0.0.1:3000`). Build it from `dashboard-app/` after committing; update the tag in `docker-compose.yml`. Local Angular Live remains on **`http://localhost:4200/`**.
+
+## Applying changes the user can see (agents)
+
+**`http://localhost:3000/` is the Docker Nginx image, not `ng serve`.** Edits under `dashboard-app/` do not appear there until the image is rebuilt and the `dashboard` container is recreated.
+
+| What changed | User URL | What to run (repo root) |
+|--------------|----------|-------------------------|
+| `dashboard-app/**` (UI) | `:3000` | `.\install.ps1 -Mode redeploy-dashboard` |
+| `config/homepage-actions/**` (Live API) | `:8085` / `:3000` via `/api` | `docker compose restart homepage-actions` (bind-mounted; no image rebuild) |
+| UI iteration with hot reload on `:3000` | `:3000` | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard` |
+
+After UI fixes, **always** redeploy (or switch to the dev compose override) before telling the user to refresh `:3000`. Mention `:4200` only if you started `npm run start:live` on the host.
+
+For long agent sessions on `:3000`, prefer `docker-compose.dev.yml` so file saves trigger `ng serve` reloads without repeated image builds.
 
 ## Frontend structure
 

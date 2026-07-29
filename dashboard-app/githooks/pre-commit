@@ -1,3 +1,4 @@
 #!/bin/sh
-# Full quality gate: lint + typecheck + styles + duplicates + dead-code + architecture.
+# Full quality gate from monorepo root (hooksPath = dashboard-app/githooks).
+cd "$(git rev-parse --show-toplevel)/dashboard-app" || exit 1
 npm run quality

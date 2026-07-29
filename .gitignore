@@ -4,16 +4,16 @@
 !.env.example
 
 # Stack runtime state (app configs contain API keys)
-config/**
-!config/homepage-actions/
-!config/homepage-actions/**
-config/homepage-actions/__pycache__/
-!config/recommendations/
-!config/recommendations/schema-v2.json
-!config/recommendations/schema-v3.json
-!config/recommendations/recommendations.example.json
-!config/recommendations/HERMES_DISCOVER_PROMPT.md
-!config/recommendations/README.md
+/config/**
+!/config/homepage-actions/
+!/config/homepage-actions/**
+/config/homepage-actions/__pycache__/
+!/config/recommendations/
+!/config/recommendations/schema-v2.json
+!/config/recommendations/schema-v3.json
+!/config/recommendations/recommendations.example.json
+!/config/recommendations/HERMES_DISCOVER_PROMPT.md
+!/config/recommendations/README.md
 
 # Media data (large volumes)
 /downloads/

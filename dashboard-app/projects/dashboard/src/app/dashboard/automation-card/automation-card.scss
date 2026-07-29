@@ -107,18 +107,18 @@ a.svc__name:hover {
 
 .svc--flagged {
   display: block;
-  margin: 0 -10px;
+  margin: 0;
   padding: 0;
 }
 
 .svc--flagged + .svc--flagged {
-  margin-top: 4px;
+  margin-top: var(--mm-space-sm);
 }
 
 .svc__trigger {
   display: block;
   width: 100%;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: 0;
   border-radius: var(--mm-radius-sm);
   background: var(--mm-component-muted-bg);

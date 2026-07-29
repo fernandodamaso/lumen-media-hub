@@ -5,10 +5,11 @@
 .EXAMPLE
   .\install.ps1 -Mode both
   .\install.ps1 -Mode stack -Gpu -Force
+  .\install.ps1 -Mode redeploy-dashboard
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('stack', 'frontend-dev', 'both')]
+  [ValidateSet('stack', 'frontend-dev', 'both', 'redeploy-dashboard')]
   [string]$Mode = 'both',
   [switch]$Force,
   [switch]$Gpu,
@@ -42,6 +43,14 @@ function Assert-Node {
   Assert-Command 'node' 'Install Node.js from https://nodejs.org/'
   Assert-Command 'npm' 'Install Node.js from https://nodejs.org/'
   Write-Host "node $(node --version), npm $(npm --version)"
+}
+
+function Assert-Docker {
+  Assert-Command 'docker' 'Install and start Docker Desktop from https://www.docker.com/products/docker-desktop/'
+  docker version --format '{{.Server.Version}}' | Out-Null
+  Assert-ExitCode 'Docker daemon check'
+  docker compose version | Out-Null
+  Assert-ExitCode 'Docker Compose check'
 }
 
 function Assert-AngularNodeEngine {
@@ -170,6 +179,21 @@ function Build-DashboardImage {
   Write-Host "Tagged media-dashboard-angular:local as media-dashboard-angular:$pin (compose pin)."
 }
 
+function Invoke-RedeployDashboard {
+  Assert-Docker
+  Assert-Node
+  Initialize-EnvFile
+  Write-Step 'Building dashboard image and recreating container (http://127.0.0.1:3000)'
+  Build-DashboardImage
+  if ($Gpu) {
+    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d --force-recreate dashboard
+  } else {
+    docker compose --env-file $EnvFile -f $ComposeFile up -d --force-recreate dashboard
+  }
+  Assert-ExitCode 'docker compose up dashboard'
+  Write-Host 'Dashboard redeployed. Hard-refresh the browser (Ctrl+Shift+R) if assets look cached.'
+}
+
 function Invoke-Stack {
   Assert-Docker
   Assert-Node
@@ -217,7 +241,7 @@ Stack is up. Remaining manual steps (one-time):
        Jellyseerr  http://127.0.0.1:5055
   2. Apply the keys:  docker compose up -d
   3. Dashboard:       http://127.0.0.1:3000
-  qBittorrent WebUI:  http://127.0.0.1:8081 (admin; set WebUI password to match STACK_PASSWORD in .env on first login)
+  qBittorrent WebUI:  http://127.0.0.1:8081 (admin; set WebUI password to match QBT_PASSWORD in .env on first login)
 "@
 }
 
@@ -235,9 +259,10 @@ Frontend dev ready. From dashboard-app/:
 Push-Location $RepoRoot
 try {
   switch ($Mode) {
-    'frontend-dev' { Invoke-FrontendDev }
-    'stack'        { Invoke-Stack }
-    'both'         { Invoke-FrontendDev; Invoke-Stack }
+    'frontend-dev'       { Invoke-FrontendDev }
+    'stack'              { Invoke-Stack }
+    'both'               { Invoke-FrontendDev; Invoke-Stack }
+    'redeploy-dashboard' { Invoke-RedeployDashboard }
   }
 } finally {
   Pop-Location

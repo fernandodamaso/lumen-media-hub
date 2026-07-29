@@ -302,26 +302,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  dashboard-react:
-    image: media-dashboard-react:legacy-77b344ef4f65
-    container_name: dashboard-react
-    profiles:
-      - legacy-dashboard
-    restart: unless-stopped
-    networks:
-      - media-net
-    ports:
-      - "127.0.0.1:${LEGACY_DASHBOARD_PORT:-3001}:80"
-    environment:
-      - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
-    depends_on:
-      - homepage-actions
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
 networks:
   media-net:
     driver: bridge

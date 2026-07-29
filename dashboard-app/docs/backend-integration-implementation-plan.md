@@ -1,6 +1,6 @@
 # Angular Dashboard to Docker Backend — Final Implementation Plan
 
-Status: implementation-ready  
+Status: completed (Angular cutover done; legacy React path removed in FDM-534)  
 Repositories: `C:\git\media-manager-angular` and `D:\media`  
 Reviewed baselines: Angular `fb79901`; backend `35b72db`  
 
@@ -8,7 +8,7 @@ Reconfirm both HEADs and worktree states immediately before implementation. Do n
 
 ## 1. Goal
 
-Replace the React dashboard at `http://127.0.0.1:3000` with the Angular dashboard while reusing the existing `homepage-actions` backend and preserving a tested React rollback path.
+Replace the React dashboard at `http://127.0.0.1:3000` with the Angular dashboard while reusing the existing `homepage-actions` backend.
 
 The browser must communicate only with the Angular container's same-origin `/api/*` path. Nginx owns backend routing and the action token; Angular never receives the token or connects directly to Docker service names.
 
@@ -36,7 +36,6 @@ Browser
 4. Storage comes from `GET /system/resources`; there is no new storage endpoint.
 5. The storage card represents the mounted Docker volume and must be labelled from the returned path, for example `Media volume (/data)`.
 6. Mutation authentication becomes fail-closed in this change.
-7. React remains available through the `legacy-dashboard` Compose profile for 14 days after cutover and a successful rollback drill.
 
 ## 3. Scope boundaries
 
@@ -48,8 +47,8 @@ Browser
 - Angular Docker image and Nginx reverse proxy.
 - Per-torrent qBittorrent start/stop backend endpoints.
 - Fail-closed token handling, exact CORS allowlist, and validation.
-- Compose staging, cutover, rollback, and documentation.
-- Unit, build, smoke, proxy, and rollback verification.
+- Compose staging, cutover, and documentation.
+- Unit, build, smoke, and proxy verification.
 
 ### Explicitly excluded
 
@@ -344,13 +343,7 @@ ACTIONS_TOKEN: ${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
 
 ### Image safety
 
-Before changing the current React service, record its image ID and tag it:
-
-```text
-media-dashboard-react:legacy-<react-sha>
-```
-
-Do not rebuild React during this migration.
+Record the pre-cutover React image ID in host ops notes before changing the production dashboard service. Do not rebuild React during migration.
 
 ### Temporary staging topology
 
@@ -368,24 +361,13 @@ container: dashboard
 port: ${DASHBOARD_PORT:-3000}
 ```
 
-Legacy React:
-
-```text
-service: dashboard-react
-container: dashboard-react
-profile: legacy-dashboard
-port: ${LEGACY_DASHBOARD_PORT:-3001}
-image: media-dashboard-react:legacy-<react-sha>
-```
-
 Delete the temporary staging service after cutover verification.
 
 Acceptance gate:
 
 - `docker compose config` succeeds with a token and fails clearly without one.
 - Angular staging uses the actual Docker backend and token injection.
-- React is not started by ordinary `docker compose up -d`.
-- The Angular dashboard is locally identifiable by its Compose build and local tag; the legacy React image remains separately managed.
+- The Angular dashboard is locally identifiable by its Compose build and local tag.
 
 ## 11. Milestone 7 — Playwright and end-to-end verification
 
@@ -450,36 +432,18 @@ Additionally verify manually or by HTTP checks:
 
 A syntactically valid nonexistent torrent hash may return `{"ok":true}` because qBittorrent accepts the idempotent request. That proves validation and forwarding, not torrent existence.
 
-## 12. Milestone 8 — Cutover and rollback drill
+## 12. Milestone 8 — Cutover
 
 ### Cutover
 
-1. Confirm the React rollback image tag exists.
-2. Stop and remove `dashboard-angular-stage` to free port `3001`.
-3. Recreate Compose service `dashboard` with `docker compose up -d --build dashboard`.
-4. Verify `http://127.0.0.1:3000` with health checks and Playwright.
-5. Record image IDs, container health, and verification results.
+1. Stop and remove `dashboard-angular-stage` to free port `3001`.
+2. Recreate Compose service `dashboard` with `docker compose up -d --build dashboard`.
+3. Verify `http://127.0.0.1:3000` with health checks and Playwright.
+4. Record image IDs, container health, and verification results.
 
-### Real rollback drill
+### Post-cutover cleanup (FDM-534, completed)
 
-1. Stop Angular `dashboard`.
-2. Start `dashboard-react` with the `legacy-dashboard` profile and `LEGACY_DASHBOARD_PORT=3000`.
-3. Verify the React application and proxied backend at `http://127.0.0.1:3000`.
-4. Stop/remove `dashboard-react`.
-5. Restore Angular `dashboard` on port `3000`.
-6. Repeat Angular health and smoke checks.
-
-The rollback drill is incomplete unless the old application actually serves successfully on the canonical port.
-
-### Legacy removal
-
-Start the 14-day retention clock only after:
-
-- Angular cutover succeeds.
-- The rollback drill succeeds.
-- Angular is restored and reverified.
-
-After 14 consecutive stable days, remove the React service/profile and legacy image in a separate cleanup change.
+The legacy React Compose service, profile, and rollback documentation were removed from the tracked repository. Host-only React source trees and cutover ops notes are deleted on the operator machine; history remains in the private backup repository.
 
 ## 13. Documentation and commit boundaries
 
@@ -495,9 +459,8 @@ Document:
 - Why `/api` is stripped.
 - Where `ACTIONS_TOKEN` exists and where it must never exist.
 - Canonical URL and supported development origins.
-- Build, staging, cutover, and rollback commands.
+- Build, staging, and cutover commands.
 - Storage `/data` semantics.
-- React retirement date calculation.
 
 Preferred focused commits:
 
@@ -525,6 +488,5 @@ Implementation is complete only when all statements are true:
 - Empty/missing/wrong tokens fail closed and invalid hashes never reach qBittorrent.
 - Angular lint, unit tests, production-live build, Storybook, and smoke tests pass.
 - Backend unit tests, Compose validation, and core validation pass.
-- A real React rollback succeeds on port `3000`, followed by successful Angular restoration.
 - Unrelated user changes in both repositories remain untouched.
 

@@ -67,7 +67,6 @@ This is the Media Manager monorepo (checked out at `D:\media`):
 - `config/homepage-actions/` — the Live API (Python, stdlib-only HTTP service).
 - `config/recommendations/` — Hermes recommendation contract files (runtime JSON is ignored).
 - `docs/` — **local-only, git-ignored** ops notes and stack documentation (contains host-specific detail; do not commit).
-- `dashboard/` — **local-only, git-ignored** legacy React source, retained until 2026-08-11 (FDM-529 retention), then deleted. History: private `media-stack` backup repo.
 
 Never commit `.env` or anything under `config/` other than the whitelisted paths above — app configs contain API keys.
 

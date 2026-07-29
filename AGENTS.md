@@ -34,7 +34,7 @@ After `stack`, copy each service API key into `.env` (installer prints URLs), th
 | Live UI against stack | `dashboard-app/` | Stack up + `ACTIONS_TOKEN` in shell → `npm run start:live` → http://localhost:4200/ |
 | Production dashboard in stack | Docker | http://127.0.0.1:3000/ (image `media-dashboard-angular:<pin>` in compose) |
 | Refresh `:3000` after UI edits | Repo root | `.\install.ps1 -Mode redeploy-dashboard` |
-| Hot reload on `:3000` (agent/dev) | Repo root | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard` |
+| Hot reload on `:3000` (agent/dev) | Repo root | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard` (Compose 2.24.4+; uses `ports: !override`) |
 | Live API | `config/homepage-actions/` | http://127.0.0.1:8085/health |
 | Full quality gate | `dashboard-app/` | `npm run quality` |
 | Angular unit tests | `dashboard-app/` | `npm test -- --watch=false` |

@@ -51,6 +51,16 @@ function Assert-Docker {
   Assert-ExitCode 'Docker daemon check'
   docker compose version | Out-Null
   Assert-ExitCode 'Docker Compose check'
+  $composeVer = (docker compose version --short).Trim()
+  if (-not $composeVer) { throw 'Could not read Docker Compose version.' }
+  $parts = $composeVer.Split('.')
+  $major = [int]$parts[0]
+  $minor = if ($parts.Length -gt 1) { [int]$parts[1] } else { 0 }
+  $patch = if ($parts.Length -gt 2) { [int]($parts[2] -replace '\D.*$', '') } else { 0 }
+  # docker-compose.dev.yml uses ports: !override (Compose 2.24.4+)
+  if ($major -lt 2 -or ($major -eq 2 -and ($minor -lt 24 -or ($minor -eq 24 -and $patch -lt 4)))) {
+    throw "Docker Compose $composeVer is too old; need 2.24.4+ for docker-compose.dev.yml (ports: !override)."
+  }
 }
 
 function Assert-AngularNodeEngine {

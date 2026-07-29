@@ -4,6 +4,7 @@
 #
 # Uses ng serve with a bind mount so SCSS/TS/HTML changes refresh without rebuilding the image.
 # Set LIVE_API_PROXY_TARGET so the dev proxy reaches homepage-actions on the Compose network.
+# Requires Docker Compose 2.24.4+ (`ports: !override`).
 
 services:
   dashboard:
@@ -12,7 +13,7 @@ services:
     volumes:
       - ./dashboard-app:/app
       - dashboard-app-node-modules:/app/node_modules
-    ports:
+    ports: !override
       - "127.0.0.1:${DASHBOARD_PORT:-3000}:4200"
     environment:
       - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
@@ -22,7 +23,7 @@ services:
       - sh
       - -c
       - |
-        if [ ! -d node_modules/@angular/core ]; then npm ci; fi
+        npm ci
         exec npm run start:live -- --host 0.0.0.0 --port 4200 --poll 2000
     logging:
       driver: json-file

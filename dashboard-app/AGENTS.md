@@ -43,11 +43,13 @@ Production Angular is the immutable-tagged image on the compose network (often `
 
 ## Applying UI changes on port 3000 (agents)
 
-If the user tests at **`http://localhost:3000/`**, run from the **repo root** after changing files in this workspace:
+If the user tests at **`http://localhost:3000/`**, after changing files in this workspace run from the **repo root** (`D:\media`):
 
 ```powershell
-..\install.ps1 -Mode redeploy-dashboard
+.\install.ps1 -Mode redeploy-dashboard
 ```
+
+(From this `dashboard-app/` folder, that is `..\install.ps1 -Mode redeploy-dashboard`.)
 
 For hot reload without rebuilding the Nginx image, use the dev compose override (repo root):
 

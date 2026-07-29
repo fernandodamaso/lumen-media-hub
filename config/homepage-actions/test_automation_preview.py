@@ -3,7 +3,10 @@ import json
 from io import BytesIO
 from unittest.mock import patch
 
-import main
+import config
+import clients.jellyseerr as jellyseerr_client
+import routes.automation as automation_routes
+import routes.discover as discover_routes
 
 
 class _CaptureHandler:
@@ -44,11 +47,11 @@ class TestMissingPreviewPosterUrls(unittest.TestCase):
             }
 
         with (
-            patch("main.SONARR_API_KEY", "sk"),
-            patch("main.SONARR_EXTERNAL_URL", "http://sonarr:8989"),
-            patch("main._arr_get", side_effect=mock_get),
+            patch("config.SONARR_API_KEY", "sk"),
+            patch("config.SONARR_EXTERNAL_URL", "http://sonarr:8989"),
+            patch("routes.automation._arr_get", side_effect=mock_get),
         ):
-            _count, items = main._sonarr_missing_preview()
+            _count, items = automation_routes._sonarr_missing_preview()
             self.assertEqual(
                 items[0]["posterUrl"],
                 "http://sonarr:8989/MediaCover/13/poster-250.jpg",
@@ -69,11 +72,11 @@ class TestMissingPreviewPosterUrls(unittest.TestCase):
             }
 
         with (
-            patch("main.SONARR_API_KEY", "sk"),
-            patch("main.SONARR_EXTERNAL_URL", "http://sonarr:8989"),
-            patch("main._arr_get", side_effect=mock_get),
+            patch("config.SONARR_API_KEY", "sk"),
+            patch("config.SONARR_EXTERNAL_URL", "http://sonarr:8989"),
+            patch("routes.automation._arr_get", side_effect=mock_get),
         ):
-            _count, items = main._sonarr_missing_preview()
+            _count, items = automation_routes._sonarr_missing_preview()
             self.assertIsNone(items[0]["posterUrl"])
 
     # ------------------------------------------------------------------
@@ -95,11 +98,11 @@ class TestMissingPreviewPosterUrls(unittest.TestCase):
             return []
 
         with (
-            patch("main.RADARR_API_KEY", "rk"),
-            patch("main.RADARR_EXTERNAL_URL", "http://radarr:7878"),
-            patch("main._arr_get", side_effect=mock_get),
+            patch("config.RADARR_API_KEY", "rk"),
+            patch("config.RADARR_EXTERNAL_URL", "http://radarr:7878"),
+            patch("routes.automation._arr_get", side_effect=mock_get),
         ):
-            _count, items = main._radarr_missing_preview()
+            _count, items = automation_routes._radarr_missing_preview()
             self.assertEqual(
                 items[0]["posterUrl"],
                 "http://radarr:7878/MediaCover/27/poster-250.jpg",
@@ -126,11 +129,11 @@ class TestMissingPreviewPosterUrls(unittest.TestCase):
             }]
 
         with (
-            patch("main.RADARR_API_KEY", "rk"),
-            patch("main.RADARR_EXTERNAL_URL", "http://radarr:7878"),
-            patch("main._arr_get", side_effect=mock_get),
+            patch("config.RADARR_API_KEY", "rk"),
+            patch("config.RADARR_EXTERNAL_URL", "http://radarr:7878"),
+            patch("routes.automation._arr_get", side_effect=mock_get),
         ):
-            _count, items = main._radarr_missing_preview()
+            _count, items = automation_routes._radarr_missing_preview()
             self.assertEqual(
                 items[0]["posterUrl"],
                 "http://radarr:7878/MediaCover/29/poster-250.jpg",
@@ -169,14 +172,14 @@ class TestMissingPreviewPosterUrls(unittest.TestCase):
             return []
 
         with (
-            patch("main.SONARR_API_KEY", "super-secret-sonarr-key"),
-            patch("main.RADARR_API_KEY", "super-secret-radarr-key"),
-            patch("main.SONARR_EXTERNAL_URL", "http://sonarr:8989"),
-            patch("main.RADARR_EXTERNAL_URL", "http://radarr:7878"),
-            patch("main._arr_get", side_effect=mock_get),
+            patch("config.SONARR_API_KEY", "super-secret-sonarr-key"),
+            patch("config.RADARR_API_KEY", "super-secret-radarr-key"),
+            patch("config.SONARR_EXTERNAL_URL", "http://sonarr:8989"),
+            patch("config.RADARR_EXTERNAL_URL", "http://radarr:7878"),
+            patch("routes.automation._arr_get", side_effect=mock_get),
         ):
-            _cs, items_s = main._sonarr_missing_preview()
-            _cr, items_r = main._radarr_missing_preview()
+            _cs, items_s = automation_routes._sonarr_missing_preview()
+            _cr, items_r = automation_routes._radarr_missing_preview()
 
             for items, label in [(items_s, "sonarr"), (items_r, "radarr")]:
                 for item in items:
@@ -191,28 +194,28 @@ class TestMissingPreviewPosterUrls(unittest.TestCase):
 class TestOptionalCapabilities(unittest.TestCase):
     def test_disabled_bazarr_is_omitted_even_when_key_exists(self):
         with patch.multiple(
-            main,
+            config,
             SONARR_API_KEY="",
             RADARR_API_KEY="",
             PROWLARR_API_KEY="",
             BAZARR_ENABLED=False,
             BAZARR_API_KEY="configured-key",
-        ), patch("main._arr_get") as arr_get:
-            summary = main._build_automation_summary()
+        ), patch("clients.arr._arr_get") as arr_get:
+            summary = automation_routes._build_automation_summary()
 
         self.assertNotIn("bazarr", summary)
         arr_get.assert_not_called()
 
     def test_enabled_unreachable_bazarr_is_down(self):
         with patch.multiple(
-            main,
+            config,
             SONARR_API_KEY="",
             RADARR_API_KEY="",
             PROWLARR_API_KEY="",
             BAZARR_ENABLED=True,
             BAZARR_API_KEY="configured-key",
-        ), patch("main._arr_get", side_effect=ConnectionError("connection refused")):
-            summary = main._build_automation_summary()
+        ), patch("clients.arr._arr_get", side_effect=ConnectionError("connection refused")):
+            summary = automation_routes._build_automation_summary()
 
         self.assertEqual(summary["bazarr"]["ok"], False)
         self.assertIn("connection refused", summary["bazarr"]["error"])
@@ -227,14 +230,14 @@ class TestOptionalCapabilities(unittest.TestCase):
             raise ConnectionError("movie wanted unavailable")
 
         with patch.multiple(
-            main,
+            config,
             SONARR_API_KEY="",
             RADARR_API_KEY="",
             PROWLARR_API_KEY="",
             BAZARR_ENABLED=True,
             BAZARR_API_KEY="configured-key",
-        ), patch("main._arr_get", side_effect=arr_get):
-            summary = main._build_automation_summary()
+        ), patch("clients.arr._arr_get", side_effect=arr_get):
+            summary = automation_routes._build_automation_summary()
 
         self.assertEqual(summary["bazarr"]["ok"], False)
         self.assertEqual(summary["bazarr"]["wantedEpisodes"], 1)
@@ -244,14 +247,14 @@ class TestOptionalCapabilities(unittest.TestCase):
 
     def test_enabled_bazarr_without_key_is_explicitly_unavailable(self):
         with patch.multiple(
-            main,
+            config,
             SONARR_API_KEY="",
             RADARR_API_KEY="",
             PROWLARR_API_KEY="",
             BAZARR_ENABLED=True,
             BAZARR_API_KEY="",
-        ), patch("main._arr_get") as arr_get:
-            summary = main._build_automation_summary()
+        ), patch("clients.arr._arr_get") as arr_get:
+            summary = automation_routes._build_automation_summary()
 
         self.assertEqual(
             summary["bazarr"],
@@ -266,8 +269,8 @@ class TestOptionalCapabilities(unittest.TestCase):
 
     def test_disabled_jellyseerr_returns_empty_success_payload(self):
         handler = _CaptureHandler()
-        with patch.multiple(main, JELLYSEERR_ENABLED=False, JELLYSEERR_API_KEY="configured-key"):
-            main.handle_discover_jellyseerr(handler, {})
+        with patch.multiple(config, JELLYSEERR_ENABLED=False, JELLYSEERR_API_KEY="configured-key"):
+            discover_routes.handle_discover_jellyseerr(handler, {})
 
         self.assertEqual(handler.status, 200)
         self.assertEqual(
@@ -276,14 +279,14 @@ class TestOptionalCapabilities(unittest.TestCase):
         )
 
     def test_jellyseerr_disabled_request_error_is_distinct(self):
-        with patch.multiple(main, JELLYSEERR_ENABLED=False, JELLYSEERR_API_KEY=""):
+        with patch.multiple(config, JELLYSEERR_ENABLED=False, JELLYSEERR_API_KEY=""):
             with self.assertRaisesRegex(RuntimeError, "Jellyseerr is disabled"):
-                main._jellyseerr_get("/api/v1/movie/1")
+                jellyseerr_client._jellyseerr_get("/api/v1/movie/1")
 
     def test_jellyseerr_missing_key_request_error_is_distinct(self):
-        with patch.multiple(main, JELLYSEERR_ENABLED=True, JELLYSEERR_API_KEY=""):
+        with patch.multiple(config, JELLYSEERR_ENABLED=True, JELLYSEERR_API_KEY=""):
             with self.assertRaisesRegex(RuntimeError, "JELLYSEERR_API_KEY not configured"):
-                main._jellyseerr_get("/api/v1/movie/1")
+                jellyseerr_client._jellyseerr_get("/api/v1/movie/1")
 
 
 if __name__ == "__main__":

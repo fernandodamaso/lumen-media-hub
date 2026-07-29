@@ -6,23 +6,25 @@ import json
 import unittest
 from unittest import mock
 
-import main
+import config
+import clients.jellyfin as jellyfin_client
+import routes.jellyfin as jellyfin_routes
 
 
 class WatchNextMappingTests(unittest.TestCase):
     def test_progress_percent_clamps_and_handles_missing_runtime(self):
-        self.assertEqual(main._progress_percent({"Played": False, "PlaybackPositionTicks": 0}, 1000), 0)
-        self.assertEqual(main._progress_percent({"Played": False, "PlaybackPositionTicks": 500}, 1000), 50)
-        self.assertEqual(main._progress_percent({"Played": False, "PlaybackPositionTicks": 2000}, 1000), 100)
-        self.assertEqual(main._progress_percent({"Played": False, "PlaybackPositionTicks": 100}, 0), 1)
-        self.assertIsNone(main._progress_percent({"Played": True, "PlaybackPositionTicks": 500}, 1000))
+        self.assertEqual(jellyfin_client._progress_percent({"Played": False, "PlaybackPositionTicks": 0}, 1000), 0)
+        self.assertEqual(jellyfin_client._progress_percent({"Played": False, "PlaybackPositionTicks": 500}, 1000), 50)
+        self.assertEqual(jellyfin_client._progress_percent({"Played": False, "PlaybackPositionTicks": 2000}, 1000), 100)
+        self.assertEqual(jellyfin_client._progress_percent({"Played": False, "PlaybackPositionTicks": 100}, 0), 1)
+        self.assertIsNone(jellyfin_client._progress_percent({"Played": True, "PlaybackPositionTicks": 500}, 1000))
 
     def test_format_episode_subtitle(self):
         raw = {"ParentIndexNumber": 4, "IndexNumber": 2, "Name": "Jetsam"}
-        self.assertEqual(main._format_episode_subtitle(raw), "S04E02 · Jetsam")
+        self.assertEqual(jellyfin_client._format_episode_subtitle(raw), "S04E02 · Jetsam")
 
     def test_maps_partial_movie_and_episode(self):
-        movie = main._map_watch_next_item(
+        movie = jellyfin_client._map_watch_next_item(
             {
                 "Id": "mv-1",
                 "Type": "Movie",
@@ -48,7 +50,7 @@ class WatchNextMappingTests(unittest.TestCase):
             },
         )
 
-        episode = main._map_watch_next_item(
+        episode = jellyfin_client._map_watch_next_item(
             {
                 "Id": "ep-1",
                 "Type": "Episode",
@@ -68,7 +70,7 @@ class WatchNextMappingTests(unittest.TestCase):
 
     def test_skips_jellynext_virtual_paths(self):
         self.assertIsNone(
-            main._map_watch_next_item(
+            jellyfin_client._map_watch_next_item(
                 {
                     "Id": "ep-bad",
                     "Type": "Episode",
@@ -83,11 +85,11 @@ class WatchNextMappingTests(unittest.TestCase):
 
     def test_episode_image_prefers_series_poster(self):
         with mock.patch.object(
-            main,
+            jellyfin_client,
             "_jellyfin_image_url",
             side_effect=lambda item_id, image_tag=None: f"{item_id}:{image_tag}",
         ) as image_url:
-            url = main._watch_next_image(
+            url = jellyfin_client._watch_next_image(
                 {
                     "Id": "ep-1",
                     "Type": "Episode",
@@ -101,7 +103,7 @@ class WatchNextMappingTests(unittest.TestCase):
 
 class WatchNextFetchTests(unittest.TestCase):
     def setUp(self):
-        main._jellyfin_cache.clear()
+        config._jellyfin_cache.clear()
 
     def _patch_watch_next_sources(
         self,
@@ -118,7 +120,7 @@ class WatchNextFetchTests(unittest.TestCase):
         first_episode = first_episode if first_episode is not None else {}
 
         return mock.patch.multiple(
-            main,
+            "clients.jellyfin",
             _fetch_jellyfin_resume_raw=mock.Mock(return_value=resume),
             _fetch_jellyfin_next_up_raw=mock.Mock(return_value=next_up),
             _fetch_jellyfin_unwatched_movies_raw=mock.Mock(return_value=unwatched_movies),
@@ -153,7 +155,7 @@ class WatchNextFetchTests(unittest.TestCase):
             "UserData": {"Played": False},
         }
         with self._patch_watch_next_sources(resume=[resume_episode], next_up=[next_up_episode]):
-            payload = main._fetch_watch_next_items()
+            payload = jellyfin_client._fetch_watch_next_items()
         self.assertEqual(len(payload["items"]), 1)
         self.assertEqual(payload["items"][0]["id"], "ep-resume")
 
@@ -168,7 +170,7 @@ class WatchNextFetchTests(unittest.TestCase):
             "DateCreated": "2025-06-01T00:00:00.0000000Z",
         }
         with self._patch_watch_next_sources(unwatched_movies=[movie]):
-            payload = main._fetch_watch_next_items()
+            payload = jellyfin_client._fetch_watch_next_items()
         self.assertEqual(len(payload["items"]), 1)
         self.assertEqual(payload["items"][0]["id"], "mv-michael")
         self.assertEqual(payload["items"][0]["progressPercent"], 0)
@@ -195,7 +197,7 @@ class WatchNextFetchTests(unittest.TestCase):
             unplayed_series=[series],
             first_episode={"series-apothecary": pilot},
         ):
-            payload = main._fetch_watch_next_items()
+            payload = jellyfin_client._fetch_watch_next_items()
         self.assertEqual(len(payload["items"]), 1)
         self.assertEqual(payload["items"][0]["id"], "ep-pilot")
         self.assertEqual(payload["items"][0]["subtitle"], "S01E01 · Episode 1")
@@ -218,18 +220,18 @@ class WatchNextFetchTests(unittest.TestCase):
             unplayed_series=[series],
             first_episode={"series-1": {"Id": "ep-should-not-fetch"}},
         ):
-            payload = main._fetch_watch_next_items()
+            payload = jellyfin_client._fetch_watch_next_items()
         self.assertEqual(len(payload["items"]), 1)
         self.assertEqual(payload["items"][0]["id"], "ep-next")
 
     def test_empty_when_all_sources_empty(self):
         with self._patch_watch_next_sources():
-            payload = main._fetch_watch_next_items()
+            payload = jellyfin_client._fetch_watch_next_items()
         self.assertEqual(payload, {"ok": True, "items": []})
 
     def test_empty_when_no_resume_or_next_up(self):
         with self._patch_watch_next_sources():
-            payload = main._fetch_watch_next_items()
+            payload = jellyfin_client._fetch_watch_next_items()
         self.assertEqual(payload, {"ok": True, "items": []})
 
 
@@ -237,8 +239,8 @@ class WatchNextHandlerTests(unittest.TestCase):
     def test_returns_503_without_api_key(self):
         handler = mock.Mock()
         handler.wfile = io.BytesIO()
-        with mock.patch.object(main, "JELLYFIN_API_KEY", ""):
-            main.handle_jellyfin_watch_next(handler)
+        with mock.patch.object(config, "JELLYFIN_API_KEY", ""):
+            jellyfin_routes.handle_jellyfin_watch_next(handler)
         handler.wfile.seek(0)
         body = json.loads(handler.wfile.read().decode("utf-8"))
         self.assertFalse(body["ok"])

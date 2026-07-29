@@ -35,10 +35,6 @@ export class DownloadsCard {
   readonly formatEta = formatEta;
   readonly torrentArt = torrentArt;
 
-  constructor() {
-    this.facade.startPolling();
-  }
-
   qbittorrentHref(): string | null {
     const base = this.linkBases.qbittorrent?.replace(/\/$/, '');
     return base ? `${base}/` : null;

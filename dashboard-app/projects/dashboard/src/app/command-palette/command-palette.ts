@@ -6,6 +6,7 @@ import {
   ElementRef,
   HostListener,
   inject,
+  Injector,
   input,
   output,
   signal,
@@ -43,14 +44,8 @@ const LIBRARY_RESULT_CAP = 40;
 })
 export class CommandPalette {
   private readonly router = inject(Router);
-  private readonly health = inject(ServiceHealthFacade);
+  private readonly injector = inject(Injector);
   private readonly libraryItems = inject(LibraryItemsFacade);
-  private readonly watchNext = inject(WatchNextFacade);
-  private readonly libraryStats = inject(LibraryStatsFacade);
-  private readonly downloads = inject(DownloadsFacade);
-  private readonly storage = inject(StorageFacade);
-  private readonly calendar = inject(CalendarFacade);
-  private readonly automation = inject(AutomationFacade);
   private readonly jellyfinBases = inject(JELLYFIN_LINK_BASES);
   private readonly serviceBases = inject(SERVICE_LINK_BASES);
 
@@ -142,14 +137,14 @@ export class CommandPalette {
         meta: 'Reload dashboard data',
         run: () =>
           refreshDashboardData({
-            health: this.health,
+            health: this.injector.get(ServiceHealthFacade),
             libraryItems: this.libraryItems,
-            libraryStats: this.libraryStats,
-            watchNext: this.watchNext,
-            downloads: this.downloads,
-            storage: this.storage,
-            calendar: this.calendar,
-            automation: this.automation,
+            libraryStats: this.injector.get(LibraryStatsFacade),
+            watchNext: this.injector.get(WatchNextFacade),
+            downloads: this.injector.get(DownloadsFacade),
+            storage: this.injector.get(StorageFacade),
+            calendar: this.injector.get(CalendarFacade),
+            automation: this.injector.get(AutomationFacade),
           }),
       },
       {
@@ -157,14 +152,14 @@ export class CommandPalette {
         group: 'Actions',
         title: 'Pause all',
         meta: 'Pause downloads',
-        run: () => this.downloads.runAction('pause'),
+        run: () => this.injector.get(DownloadsFacade).runAction('pause'),
       },
       {
         id: 'action-resume',
         group: 'Actions',
         title: 'Resume all',
         meta: 'Resume downloads',
-        run: () => this.downloads.runAction('resume'),
+        run: () => this.injector.get(DownloadsFacade).runAction('resume'),
       },
       {
         id: 'action-jellyfin',
@@ -279,4 +274,3 @@ function matchesQuery(item: CommandPaletteItem, query: string): boolean {
     item.group.toLowerCase().includes(query)
   );
 }
-

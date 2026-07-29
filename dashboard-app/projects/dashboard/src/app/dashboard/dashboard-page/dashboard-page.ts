@@ -58,7 +58,11 @@ export class DashboardPage {
   );
 
   constructor() {
-    // App-scoped facades keep polling after cards mount; stop when leaving Dashboard.
+    // Dashboard owns dashboard-only polling; App owns service-health polling separately.
+    this.downloads.startPolling();
+    this.storage.startPolling();
+    this.calendar.startPolling();
+    this.automation.startPolling();
     this.destroyRef.onDestroy(() => {
       this.downloads.stopPolling();
       this.storage.stopPolling();

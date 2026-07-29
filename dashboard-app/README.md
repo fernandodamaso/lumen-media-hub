@@ -23,9 +23,10 @@ Open [http://localhost:4200/](http://localhost:4200/). Default startup uses in-p
 The production-live build is containerized with Nginx as reverse proxy. It must run on the same Docker network as the `homepage-actions` backend (typically `media_media-net`).
 
 ```bash
-npm run build:live
-docker build -t media-dashboard-angular:local .
+docker compose up -d --build dashboard
 ```
+
+Compose uses [`Dockerfile`](Dockerfile) for the single production-live build.
 
 The image is deployed through Docker Compose alongside the backend services. For local verification with an existing Compose setup:
 
@@ -40,13 +41,13 @@ Open [http://127.0.0.1:3000/](http://127.0.0.1:3000/).
 
 ### Media stack cutover (`D:\media`)
 
-Production dashboard on the stack is the **immutable-tagged** Angular image (not `docker build` from this repo on every deploy).
+Production dashboard on the stack is the Compose-built local Angular image.
 
 | Phase | Command / check |
 |-------|-----------------|
-| Build image | `docker build -t media-dashboard-angular:<short-sha> -t media-dashboard-angular:local .` after `npm run build:live` |
+| Build and deploy | `docker compose up -d --build dashboard` from the repo root |
 | Staging (done) | Compose service `dashboard-angular-stage` on `127.0.0.1:3001` — removed after M4 |
-| Production | `dashboard` service uses `image: media-dashboard-angular:<short-sha>` on `:3000` |
+| Production | `dashboard` service uses the Compose-built `media-dashboard-angular:local` image on `:3000` |
 | Smoke against stack | `SMOKE_BASE_URL=http://127.0.0.1:3000 npm run test:smoke` (from this repo; does not start `ng serve`) |
 | Emergency React rollback | On `D:\media`: `docker compose stop dashboard`; `$env:LEGACY_DASHBOARD_PORT='3000'; docker compose --profile legacy-dashboard up -d dashboard-react`; verify; `docker compose --profile legacy-dashboard rm -sf dashboard-react`; `Remove-Item Env:LEGACY_DASHBOARD_PORT`; `docker compose up -d dashboard` |
 

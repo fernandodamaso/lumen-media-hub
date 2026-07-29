@@ -17,14 +17,14 @@ On a blank Windows machine (PowerShell 7+):
 | Mode | What it does |
 |------|--------------|
 | `frontend-dev` | Checks Node 20+, runs `npm ci` in `dashboard-app/`, prints Demo/Live commands |
-| `stack` | Checks Docker + Node, creates `.env` from `.env.example` (generated `ACTIONS_TOKEN`, prompted paths/password), builds and tags the dashboard image, `docker compose up -d`, prints the API-key checklist |
+| `stack` | Checks Docker, creates `.env` from `.env.example` (generated `ACTIONS_TOKEN`, prompted paths/password), pulls service images, Compose-builds the dashboard, starts the stack, and prints the API-key checklist |
 | `both` | `frontend-dev`, then `stack` |
 
-Flags: `-Force` recreates `.env`; `-Gpu` merges `docker-compose.gpu.yml` (NVIDIA transcoding); `-SkipBuild` reuses the existing dashboard image.
+Flags: `-Force` recreates `.env`; `-Gpu` merges `docker-compose.gpu.yml` (NVIDIA transcoding).
 
 Prerequisites: Docker Desktop, Node.js 20+, PowerShell 7+. Optional: NVIDIA GPU + nvidia-container-toolkit for `-Gpu`.
 
-After `stack` mode, open each service UI, copy its API key into `.env`, then `docker compose up -d` to apply. The installer intentionally does not configure indexers, libraries, or service API keys — those need each app's first-run UI.
+After `stack` mode, enable any selected optional profiles before opening those service UIs, copy each service API key into `.env`, then rerun Compose with the same profile flags to apply. The installer intentionally does not configure indexers, libraries, or service API keys — those need each app's first-run UI.
 
 ## Compose profiles
 
@@ -69,9 +69,10 @@ Open [http://localhost:4200/](http://localhost:4200/). Default startup uses in-p
 The production-live build is containerized with Nginx as reverse proxy. It must run on the same Docker network as the `homepage-actions` backend (typically `media_media-net`).
 
 ```bash
-npm run build:live
-docker build -t media-dashboard-angular:local .
+docker compose up -d --build dashboard
 ```
+
+Compose uses [`dashboard-app/Dockerfile`](dashboard-app/Dockerfile) for the single production-live build.
 
 The image is deployed through Docker Compose alongside the backend services. For local verification with an existing Compose setup:
 
@@ -86,13 +87,13 @@ Open [http://127.0.0.1:3000/](http://127.0.0.1:3000/).
 
 ### Media stack cutover (`D:\media`)
 
-Production dashboard on the stack is the **immutable-tagged** Angular image (not `docker build` from this repo on every deploy).
+Production dashboard on the stack is the Compose-built local Angular image; the Dockerfile remains the single production-live build path.
 
 | Phase | Command / check |
 |-------|-----------------|
-| Build image | `docker build -t media-dashboard-angular:<short-sha> -t media-dashboard-angular:local .` after `npm run build:live` |
+| Build and deploy | `docker compose up -d --build dashboard` |
 | Staging (done) | Compose service `dashboard-angular-stage` on `127.0.0.1:3001` — removed after M4 |
-| Production | `dashboard` service uses `image: media-dashboard-angular:<short-sha>` on `:3000` |
+| Production | `dashboard` service uses the Compose-built `media-dashboard-angular:local` image on `:3000` |
 | Smoke against stack | `SMOKE_BASE_URL=http://127.0.0.1:3000 npm run test:smoke` (from this repo; does not start `ng serve`) |
 | Emergency React rollback | On `D:\media`: `docker compose stop dashboard`; `$env:LEGACY_DASHBOARD_PORT='3000'; docker compose --profile legacy-dashboard up -d dashboard-react`; verify; `docker compose --profile legacy-dashboard rm -sf dashboard-react`; `Remove-Item Env:LEGACY_DASHBOARD_PORT`; `docker compose up -d dashboard` |
 

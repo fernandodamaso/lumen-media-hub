@@ -15,14 +15,14 @@ From the **repo root** (installer sets CWD to `$PSScriptRoot` automatically):
 | Mode | What it does |
 |------|--------------|
 | `frontend-dev` | `npm ci` in `dashboard-app/`, prints Demo/Live dev commands |
-| `stack` | Creates `.env` from `.env.example`, builds/tags dashboard image, `docker compose up -d`, health-checks `homepage-actions` |
+| `stack` | Creates `.env` from `.env.example`, pulls service images, Compose-builds the dashboard, starts the stack, and health-checks `homepage-actions` |
 | `both` | `frontend-dev` then `stack` (`npm ci` runs once) |
 
-Flags: `-Force` recreates `.env`; `-Gpu` adds `-f docker-compose.gpu.yml`; `-SkipBuild` skips dashboard image build (local pin must already exist).
+Flags: `-Force` recreates `.env`; `-Gpu` adds `-f docker-compose.gpu.yml`.
 
 Non-interactive: set `ROOT_PATH`, `DOWNLOADS_PATH`, and `STACK_PASSWORD` in the environment before running.
 
-After `stack`, copy each service API key into `.env` (installer prints URLs), then `docker compose up -d` from the repo root. The installer does not configure indexers, libraries, or *arr first-run wizards.
+After `stack`, copy each service API key into `.env` (installer prints URLs), then rerun Compose with the same optional profile flags you selected. The installer does not configure indexers, libraries, or *arr first-run wizards.
 
 ## Compose profiles
 
@@ -39,7 +39,7 @@ Enable profiles with `docker compose --profile subtitles --profile requests up -
 
 Upgrade existing hosts by adding the enable flag for every optional service already represented by an API key, enabling its Compose profile, and rerunning `docker compose up -d`. Keys without `BAZARR_ENABLED=true` or `JELLYSEERR_ENABLED=true` no longer activate those capabilities after upgrade.
 
-**Manual path** (no installer): copy `.env.example` → `.env`, set `ROOT_PATH` / `DOWNLOADS_PATH` (forward slashes), run `npm ci` and `npm run build:live` in `dashboard-app/`, `docker build` + retag to the pin in `docker-compose.yml`, then `docker compose up -d`.
+**Manual path** (no installer): copy `.env.example` → `.env`, set `ROOT_PATH` / `DOWNLOADS_PATH` (forward slashes), then run `docker compose up -d --build` from the repo root. Compose uses `dashboard-app/Dockerfile` for the single production-live build.
 
 ## How to use this project
 
@@ -47,7 +47,7 @@ Upgrade existing hosts by adding the enable flag for every optional service alre
 |------|--------|------------------|
 | Demo UI (no stack) | `dashboard-app/` | `npm ci` → `npm start` → http://localhost:4200/ |
 | Live UI against stack | `dashboard-app/` | Stack up + `ACTIONS_TOKEN` in shell → `npm run start:live` → http://localhost:4200/ |
-| Production dashboard in stack | Docker | http://127.0.0.1:3000/ (image `media-dashboard-angular:<pin>` in compose) |
+| Production dashboard in stack | Docker | http://127.0.0.1:3000/ (Compose-built image `media-dashboard-angular:local`) |
 | Refresh `:3000` after UI edits | Repo root | `.\install.ps1 -Mode redeploy-dashboard` |
 | Hot reload on `:3000` (agent/dev) | Repo root | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard` (Compose 2.24.4+; uses `ports: !override`) |
 | Live API | `config/homepage-actions/` | http://127.0.0.1:8085/health |
@@ -91,7 +91,7 @@ When Live endpoints fail, check the stack first (`docker ps`, hit `http://127.0.
 
 Live proxy: [`dashboard-app/projects/dashboard/proxy.conf.js`](dashboard-app/projects/dashboard/proxy.conf.js) strips `/api` and forwards to `127.0.0.1:8085`. Set `ACTIONS_TOKEN` in the shell env for mutating requests (proxy injects `X-Actions-Token`; the browser must never hold that secret).
 
-Production Angular is the immutable-tagged Docker image `media-dashboard-angular:<sha>` (Nginx reverse proxy on the Compose network, published on `127.0.0.1:3000`). Build it from `dashboard-app/` after committing; update the tag in `docker-compose.yml`. Local Angular Live remains on **`http://localhost:4200/`**.
+Production Angular is the Compose-built local image `media-dashboard-angular:local` (Nginx reverse proxy on the Compose network, published on `127.0.0.1:3000`). Compose runs the single production build in `dashboard-app/Dockerfile`; local Angular Live remains on **`http://localhost:4200/`**.
 
 ## Applying changes the user can see (agents)
 

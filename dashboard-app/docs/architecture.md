@@ -80,7 +80,7 @@ Feature code imports domain models from its own folder and talks to the backend 
 |------|-----|-----|------------------------|
 | Demo | `npm start` | Mock | Local Jellyfin / Sonarr / Radarr bases from environment |
 | Live dev | `npm run start:live` | HTTP → `:8085` via `/api` proxy | Same local bases |
-| Production | `docker compose up` (`D:\media`, `dashboard` service) | Same-origin `/api/*` → `homepage-actions:8085` via Nginx | Service deep-links from environment |
+| Production | `docker compose up -d --build dashboard` (repo root) | Same-origin `/api/*` → `homepage-actions:8085` via Nginx | Service deep-links from environment |
 
 Empty calendar bases must not fall back to relative `/series/...` or `/movie/...` URLs. Resolvers treat a missing or blank base as "no link."
 
@@ -142,10 +142,12 @@ Backend security (fail-closed `ACTIONS_TOKEN`, per-torrent qBT routes, CORS allo
 
 ## Docker build
 
-```bash
-npm run build:live
-docker build -t media-dashboard-angular:local .
+```powershell
+docker compose up -d --build dashboard
 ```
+
+Compose builds from `dashboard-app/Dockerfile`; do not run a separate host Angular
+production build. The image tag is the local `media-dashboard-angular:local` tag.
 
 Multi-stage build: `node:22-alpine` compiles the production-live Angular build, then `nginx:1.28-alpine` serves the static assets with the reverse-proxy template.
 

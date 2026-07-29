@@ -39,7 +39,7 @@ When Live endpoints fail, check the stack first (`docker ps`, `http://127.0.0.1:
 
 Live proxy: [`projects/dashboard/proxy.conf.js`](projects/dashboard/proxy.conf.js) strips `/api` and forwards to `127.0.0.1:8085`. Set `ACTIONS_TOKEN` in the shell env for mutating requests (proxy injects `X-Actions-Token`; the browser must never hold that secret).
 
-Production Angular is the immutable-tagged image on the compose network (often `http://127.0.0.1:3000/`). Build from this directory (`npm run build:live`, `docker build`) and retag to the pin in `../docker-compose.yml` — or use `../install.ps1 -Mode stack` / **`../install.ps1 -Mode redeploy-dashboard`** after UI edits. Local Live dev stays on **`http://localhost:4200/`**.
+Production Angular is the Compose-built local image on the compose network (often `http://127.0.0.1:3000/`). From the repo root, use `../install.ps1 -Mode stack` or **`../install.ps1 -Mode redeploy-dashboard`** after UI edits; Compose runs the single production build in `Dockerfile`. Local Live dev stays on **`http://localhost:4200/`**.
 
 ## Applying UI changes on port 3000 (agents)
 

@@ -25,9 +25,6 @@ $ComposeFile = Join-Path $RepoRoot 'docker-compose.yml'
 $ComposeGpuFile = Join-Path $RepoRoot 'docker-compose.gpu.yml'
 $Interactive = -not [Console]::IsInputRedirected
 $script:NpmCiComplete = $false
-$ComposePullServices = @(
-  'jellyfin', 'qbittorrent', 'radarr', 'sonarr', 'prowlarr', 'homepage-actions'
-)
 
 function Write-Step([string]$Message) { Write-Host "`n==> $Message" -ForegroundColor Cyan }
 
@@ -39,6 +36,19 @@ function Assert-Command([string]$Name, [string]$InstallHint) {
   if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
     throw "'$Name' not found. $InstallHint"
   }
+}
+
+function Get-ComposePullServices {
+  $configJson = docker compose --env-file $EnvFile -f $ComposeFile config --format json
+  Assert-ExitCode 'docker compose config'
+  $config = $configJson | ConvertFrom-Json
+  $services = @(
+    $config.services.PSObject.Properties |
+      Where-Object { $_.Value.PSObject.Properties.Name -notcontains 'build' } |
+      Select-Object -ExpandProperty Name
+  )
+  if (-not $services) { throw 'Compose config contains no enabled non-build services to pull.' }
+  return $services
 }
 
 function Assert-Node {
@@ -196,7 +206,8 @@ function Invoke-Stack {
   }
 
   Write-Step 'Pulling service images'
-  docker compose --env-file $EnvFile -f $ComposeFile pull --ignore-pull-failures $ComposePullServices
+  $composePullServices = Get-ComposePullServices
+  docker compose --env-file $EnvFile -f $ComposeFile pull $composePullServices
   Assert-ExitCode 'docker compose pull service images'
 
   Write-Step 'Building the dashboard and starting the stack'

@@ -4,7 +4,7 @@
 #
 # Uses ng serve with a bind mount so SCSS/TS/HTML changes refresh without rebuilding the image.
 # Set LIVE_API_PROXY_TARGET so the dev proxy reaches homepage-actions on the Compose network.
-# Requires Docker Compose 2.24.4+ (`ports: !override`).
+# Requires Docker Compose 2.24.4+ (`ports: !override`, `build: !reset null`).
 
 services:
   dashboard:

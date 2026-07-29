@@ -15,13 +15,14 @@ import {
   DiscoverFeedback,
   DiscoverItem,
   DiscoverSourceTab,
+  ExternalDiscoverAvailability,
   ExternalDiscoverItem,
   HermesDiscover,
   JellyseerrDiscoverKind,
   TraktDiscoverType,
 } from './discover.models';
 
-export type DiscoverStatus = 'loading' | 'ready' | 'empty' | 'error';
+export type DiscoverStatus = 'loading' | 'ready' | 'empty' | 'disabled' | 'error';
 export type HermesView = 'active' | 'history';
 
 const HERMES_POLL_MS = 30_000;
@@ -391,7 +392,12 @@ export class DiscoverFacade {
     isActive: () => boolean;
     cached: () => ExternalDiscoverItem[] | undefined;
     writeCache: (items: ExternalDiscoverItem[]) => void;
-    fetch: () => Promise<{ ok: boolean; items: ExternalDiscoverItem[]; error?: string }>;
+    fetch: () => Promise<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      availability?: ExternalDiscoverAvailability;
+      error?: string;
+    }>;
     signal?: AbortSignal;
   }): Promise<void> {
     const requestId = opts.nextRequestId();
@@ -405,9 +411,15 @@ export class DiscoverFacade {
         return;
       }
       if (requestId < opts.appliedId()) return;
-      opts.writeCache(response.items);
+      opts.writeCache(response.availability === 'disabled' ? [] : response.items);
       opts.setAppliedId(requestId);
       if (!opts.isActive()) return;
+      if (response.availability === 'disabled') {
+        this._status.set('disabled');
+        this._error.set('');
+        this._notice.set('');
+        return;
+      }
       this.commitBrowseSuccess(response.items, requestId, opts.currentRequestId());
     } catch {
       if (opts.signal?.aborted) return;

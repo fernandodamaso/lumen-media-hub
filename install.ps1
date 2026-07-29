@@ -249,8 +249,12 @@ Stack is up. Remaining manual steps (one-time):
        Prowlarr    http://127.0.0.1:9696   (Settings > General)
        Bazarr      http://127.0.0.1:6767   (Settings > General)
        Jellyseerr  http://127.0.0.1:5055
-  2. Apply the keys:  docker compose up -d
-  3. Dashboard:       http://127.0.0.1:3000
+  2. Optional profiles: subtitles enables Bazarr; requests enables Jellyseerr.
+     Enable them explicitly, for example:
+       docker compose --profile subtitles --profile requests up -d
+     Set BAZARR_ENABLED=true / JELLYSEERR_ENABLED=true only after their API keys are configured.
+  3. Apply the keys:  docker compose up -d
+  4. Dashboard:       http://127.0.0.1:3000
   qBittorrent WebUI:  http://127.0.0.1:8081 (admin; set WebUI password to match QBT_PASSWORD in .env on first login)
 "@
 }

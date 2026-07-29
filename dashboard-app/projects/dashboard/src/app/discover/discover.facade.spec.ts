@@ -43,6 +43,17 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
   });
 
+  it('renders an explicit disabled Jellyseerr capability as unavailable without an error', async () => {
+    api.jellyseerrAvailability = 'disabled';
+
+    await facade.setTab('jellyseerr');
+
+    expect(facade.status()).toBe('disabled');
+    expect(facade.error()).toBe('');
+    expect(facade.notice()).toBe('');
+    expect(facade.visibleItems()).toEqual([]);
+  });
+
   it('submitFeedback calls only submitHermesFeedback and refreshes Hermes', async () => {
     await facade.setTab('hermes');
     await facade.submitFeedback('hermes-eligible', 'liked');
@@ -646,6 +657,7 @@ class MockApi implements MediaStackApi {
   hermesDeferred: Promise<HermesDiscover> | null = null;
   lastHermesSignal?: AbortSignal;
   jellyseerrGate: Promise<{ ok: boolean; items: ExternalDiscoverItem[] }> | null = null;
+  jellyseerrAvailability: 'available' | 'disabled' = 'available';
   requestGate: Promise<DiscoverAction> | null = null;
   requestResult: DiscoverAction = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
   moreResult: DiscoverAction = { ok: true, queued: true };
@@ -722,7 +734,11 @@ class MockApi implements MediaStackApi {
       this.jellyseerrGate = null;
       return this.withAbort(signal, gate);
     }
-    return Promise.resolve({ ok: true, items: this.jellyseerr[kind].map((item) => ({ ...item })) });
+    return Promise.resolve({
+      ok: true,
+      items: this.jellyseerr[kind].map((item) => ({ ...item })),
+      availability: this.jellyseerrAvailability,
+    });
   }
   listTraktDiscover(type: TraktDiscoverType, _signal?: AbortSignal) {
     this.traktCalls.push(type);

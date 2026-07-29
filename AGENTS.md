@@ -24,6 +24,21 @@ Non-interactive: set `ROOT_PATH`, `DOWNLOADS_PATH`, and `STACK_PASSWORD` in the 
 
 After `stack`, copy each service API key into `.env` (installer prints URLs), then `docker compose up -d` from the repo root. The installer does not configure indexers, libraries, or *arr first-run wizards.
 
+## Compose profiles
+
+Plain `docker compose up -d` starts core services only. Optional services are explicitly grouped:
+
+| Profile | Services |
+|---------|----------|
+| `subtitles` | Bazarr |
+| `requests` | Jellyseerr |
+| `maintenance` | Maintainerr, Recyclarr, Unpackerr |
+| `indexer-tools` | FlareSolverr |
+
+Enable profiles with `docker compose --profile subtitles --profile requests up -d` (add the other profiles as needed). Set `BAZARR_ENABLED=true` and/or `JELLYSEERR_ENABLED=true` only when the matching service is intentionally enabled and configured; an unreachable configured service remains degraded/down. Do not add optional profiles to `.env.example`; host-specific normal profiles belong only in ignored local operational docs.
+
+Upgrade existing hosts by adding the enable flag for every optional service already represented by an API key, enabling its Compose profile, and rerunning `docker compose up -d`. Keys without `BAZARR_ENABLED=true` or `JELLYSEERR_ENABLED=true` no longer activate those capabilities after upgrade.
+
 **Manual path** (no installer): copy `.env.example` → `.env`, set `ROOT_PATH` / `DOWNLOADS_PATH` (forward slashes), run `npm ci` and `npm run build:live` in `dashboard-app/`, `docker build` + retag to the pin in `docker-compose.yml`, then `docker compose up -d`.
 
 ## How to use this project

@@ -102,6 +102,7 @@ interface LiveAutomationPreviewItem {
 
 interface LiveAutomationServiceBlock {
   ok?: boolean;
+  configured?: boolean;
   series?: number;
   movies?: number;
   monitored?: number;
@@ -424,6 +425,7 @@ function serviceStatus(
   degraded: boolean,
 ): string {
   if (!block) return 'unknown';
+  if (block.configured === false) return 'unknown';
   if (block.ok === false || block.error) return 'down';
   if (degraded) return 'degraded';
   return 'healthy';
@@ -546,14 +548,16 @@ export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStac
       detail: prowlarrDetail(prowlarr),
       latencyMs: liveLatency(prowlarr),
     },
-    {
+  ];
+  if (bazarr) {
+    services.push({
       id: 'bazarr',
       name: 'Bazarr',
       status: serviceStatus(bazarr, bazarrDegraded),
       detail: bazarrDetail(bazarr),
       latencyMs: liveLatency(bazarr),
-    },
-  ];
+    });
+  }
 
   // Prefer actionable queue warnings, then missing, then wanted.
   const preview: MediaStackAutomationPreviewItemDto[] = [
@@ -593,6 +597,7 @@ function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutom
     ['prowlarr', prowlarr],
     ['bazarr', bazarr],
   ] as const) {
+    if (block?.configured === false) continue;
     if (block?.error || block?.ok === false) {
       problems.push({
         id: `${id}-error`,

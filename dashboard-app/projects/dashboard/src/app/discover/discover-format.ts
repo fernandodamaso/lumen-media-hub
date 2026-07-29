@@ -181,6 +181,7 @@ export const mapHermesDiscover = (dto: MediaStackHermesDiscoverDto): HermesDisco
 export const mapExternalDiscover = (dto: MediaStackExternalDiscoverDto): ExternalDiscover => ({
   ok: dto.ok,
   items: (dto.items ?? []).map(mapExternalDiscoverItem),
+  availability: dto.enabled === false ? 'disabled' : 'available',
   error: dto.error,
 });
 

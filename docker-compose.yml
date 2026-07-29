@@ -117,6 +117,8 @@ services:
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: flaresolverr
+    profiles:
+      - indexer-tools
     restart: unless-stopped
     networks:
       - media-net
@@ -135,6 +137,8 @@ services:
   bazarr:
     image: lscr.io/linuxserver/bazarr:latest
     container_name: bazarr
+    profiles:
+      - subtitles
     restart: unless-stopped
     networks:
       - media-net
@@ -157,6 +161,8 @@ services:
   jellyseerr:
     image: fallenbagel/jellyseerr:latest
     container_name: jellyseerr
+    profiles:
+      - requests
     restart: unless-stopped
     networks:
       - media-net
@@ -176,6 +182,8 @@ services:
   unpackerr:
     image: ghcr.io/unpackerr/unpackerr:latest
     container_name: unpackerr
+    profiles:
+      - maintenance
     restart: unless-stopped
     networks:
       - media-net
@@ -191,6 +199,8 @@ services:
   recyclarr:
     image: ghcr.io/recyclarr/recyclarr:latest
     container_name: recyclarr
+    profiles:
+      - maintenance
     restart: unless-stopped
     user: "${PUID}:${PGID}"
     networks:
@@ -206,6 +216,8 @@ services:
   maintainerr:
     image: ghcr.io/maintainerr/maintainerr:latest
     container_name: maintainerr
+    profiles:
+      - maintenance
     user: "${PUID}:${PGID}"
     restart: unless-stopped
     networks:
@@ -244,8 +256,10 @@ services:
       - PROWLARR_URL=http://prowlarr:9696
       - PROWLARR_API_KEY=${PROWLARR_API_KEY}
       - BAZARR_URL=http://bazarr:6767
+      - BAZARR_ENABLED=${BAZARR_ENABLED:-false}
       - BAZARR_API_KEY=${BAZARR_API_KEY}
       - JELLYSEERR_URL=http://jellyseerr:5055
+      - JELLYSEERR_ENABLED=${JELLYSEERR_ENABLED:-false}
       - JELLYSEERR_API_KEY=${JELLYSEERR_API_KEY}
       - TRAKT_CLIENT_ID=${TRAKT_CLIENT_ID}
       - TRAKT_ACCESS_TOKEN=${TRAKT_ACCESS_TOKEN}

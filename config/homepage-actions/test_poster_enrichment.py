@@ -158,10 +158,12 @@ class PosterEnrichmentTestCase(unittest.TestCase):
         self._old_now = main._now
         self._old_fetch = main._fetch_poster_path
         self._old_key = main.JELLYSEERR_API_KEY
+        self._old_enabled = main.JELLYSEERR_ENABLED
         self._old_jf_key = main.JELLYFIN_API_KEY
         main._now = self.clock
         main._fetch_poster_path = self.client
         main.JELLYSEERR_API_KEY = "test-key"
+        main.JELLYSEERR_ENABLED = True
         # Keep Jellyfin enrichment in its no-key fallback branch.
         main.JELLYFIN_API_KEY = ""
         with main._poster_path_cache_lock:
@@ -172,6 +174,7 @@ class PosterEnrichmentTestCase(unittest.TestCase):
         main._now = self._old_now
         main._fetch_poster_path = self._old_fetch
         main.JELLYSEERR_API_KEY = self._old_key
+        main.JELLYSEERR_ENABLED = self._old_enabled
         main.JELLYFIN_API_KEY = self._old_jf_key
         with main._poster_path_cache_lock:
             main._poster_path_cache.clear()
@@ -309,6 +312,7 @@ class EnrichmentTests(PosterEnrichmentTestCase):
 
     def test_no_api_key_resolves_without_calls(self):
         main.JELLYSEERR_API_KEY = ""
+        main.JELLYSEERR_ENABLED = False
         result = self.resolve([("movie", 1)])
         self.assertEqual(result, {("movie", 1): None})
         self.assertEqual(self.client.call_count(), 0)

@@ -20,6 +20,29 @@ jobs:
       - name: Validate Compose configurations
         run: |
           docker compose --env-file .env.example -f docker-compose.yml config --quiet
+          docker compose --env-file .env.example -f docker-compose.yml \
+            config --format json \
+          | python3 -c '
+          import json, sys
+          services = set(json.load(sys.stdin)["services"])
+          expected = {"jellyfin", "qbittorrent", "sonarr", "radarr", "prowlarr", "homepage-actions", "dashboard"}
+          assert services == expected, services
+          print("core services ok:", sorted(services))
+          '
+          docker compose --env-file .env.example \
+            --profile subtitles --profile requests --profile maintenance --profile indexer-tools \
+            -f docker-compose.yml config --quiet
+          docker compose --env-file .env.example \
+            --profile subtitles --profile requests --profile maintenance --profile indexer-tools \
+            -f docker-compose.yml config --format json \
+          | python3 -c '
+          import json, sys
+          services = set(json.load(sys.stdin)["services"])
+          expected = {"jellyfin", "qbittorrent", "sonarr", "radarr", "prowlarr", "flaresolverr", "bazarr", "jellyseerr", "unpackerr", "recyclarr", "maintainerr", "homepage-actions", "dashboard"}
+          assert services == expected, services
+          assert "dashboard-react" not in services
+          print("all supported profiles ok:", sorted(services))
+          '
           docker compose --env-file .env.example \
             -f docker-compose.yml \
             -f docker-compose.dev.yml \

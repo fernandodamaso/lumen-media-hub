@@ -105,17 +105,15 @@ The Live override container runs `npm run start:live` with [`proxy.conf.js`](../
 
 Empty calendar bases must not fall back to relative `/series/...` or `/movie/...` URLs. Resolvers treat a missing or blank base as "no link."
 
-### Stack deploy and rollback (`D:\media`)
+### Stack deploy (`D:\media`)
 
-Image IDs, cutover dates, and rollback commands: `D:\media\docs\fdm-529-cutover-baseline.md`. Staging on `:3001` was used before M4 cutover; production listens on `:3000` only.
+Production dashboard listens on `:3000`.
 
 ```powershell
 docker compose --project-directory D:\media up -d dashboard homepage-actions
 $env:SMOKE_BASE_URL = 'http://127.0.0.1:3000'
 npm run test:smoke
 ```
-
-Legacy React (`dashboard-react`, profile `legacy-dashboard`) is for rollback only — plain `docker compose up -d` does not start it. Do not set `COMPOSE_PROFILES` in `.env`.
 
 ## API endpoints (production-live)
 

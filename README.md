@@ -95,9 +95,6 @@ Production dashboard on the stack is the Compose-built local Angular image; the 
 | Staging (done) | Compose service `dashboard-angular-stage` on `127.0.0.1:3001` — removed after M4 |
 | Production | `dashboard` service uses the Compose-built `media-dashboard-angular:local` image on `:3000` |
 | Smoke against stack | `SMOKE_BASE_URL=http://127.0.0.1:3000 npm run test:smoke` (from this repo; does not start `ng serve`) |
-| Emergency React rollback | On `D:\media`: `docker compose stop dashboard`; `$env:LEGACY_DASHBOARD_PORT='3000'; docker compose --profile legacy-dashboard up -d dashboard-react`; verify; `docker compose --profile legacy-dashboard rm -sf dashboard-react`; `Remove-Item Env:LEGACY_DASHBOARD_PORT`; `docker compose up -d dashboard` |
-
-Do not persist a universal `COMPOSE_PROFILES` default in committed configuration. `legacy-dashboard` is only for the documented emergency rollback and must not be part of the normal host profile set. Legacy React image: `media-dashboard-react:legacy-77b344ef4f65` (image ID pinned — do not rebuild). Ops dates and IDs: `D:\media\docs\fdm-529-cutover-baseline.md`.
 
 **Request flow:**
 

@@ -66,26 +66,22 @@ Browser → http://127.0.0.1:3000
 - `ACTIONS_TOKEN` is injected by Compose/Nginx from the container environment and never emitted into JavaScript, HTML, or source maps.
 - The browser never sees the token and never connects directly to backend services.
 
-## Live dev mode (optional)
+## Live development (Docker hot reload)
 
-With a local [`homepage-actions`](https://github.com/fernandodamaso) service on port **8085**:
+Official Live development uses the Compose override from the **repo root** so hot reload publishes on **`:3000`**:
 
-```bash
-npm run start:live
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard
 ```
 
-- Proxies `/api` ΓåÆ `http://127.0.0.1:8085` via [projects/dashboard/proxy.conf.js](projects/dashboard/proxy.conf.js).
-- Set `ACTIONS_TOKEN` in the environment when mutating requests need `X-Actions-Token`.
-- Feature components stay unchanged; only the `MediaStackApi` adapter switches.
-
-Live mode is **local-only**. Do not point a static host at the live configuration.
+Open [http://127.0.0.1:3000/](http://127.0.0.1:3000/). The override container runs `npm run start:live` with [projects/dashboard/proxy.conf.js](projects/dashboard/proxy.conf.js) and Compose env (`ACTIONS_TOKEN`, `LIVE_API_PROXY_TARGET`). Keep those scripts for the container; do not treat host `npm run start:live` as a supported workflow.
 
 ## Scripts
 
 | Script | Purpose |
 |--------|---------|
 | `npm start` | Demo serve (`:4200`) |
-| `npm run start:live` | Live serve with API proxy |
+| `npm run start:live` | Live serve with API proxy (**dev-container only**; used by `docker-compose.dev.yml`) |
 | `npm run lint` | Rigorous ESLint (typed + strict, used by `quality` gate) |
 | `npm run lint:fast` | Fast ESLint (day-to-day editing, used by `lint:agent`) |
 | `npm run lint:fix` | Rigorous ESLint with auto-fix |

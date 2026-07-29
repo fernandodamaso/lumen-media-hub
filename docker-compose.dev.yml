@@ -1,6 +1,6 @@
 # Live-reload dashboard on http://127.0.0.1:3000 (replaces the static Nginx image).
 #
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d dashboard
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard
 #
 # Uses ng serve with a bind mount so SCSS/TS/HTML changes refresh without rebuilding the image.
 # Set LIVE_API_PROXY_TARGET so the dev proxy reaches homepage-actions on the Compose network.

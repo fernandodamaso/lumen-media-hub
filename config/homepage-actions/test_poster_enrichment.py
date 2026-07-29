@@ -21,6 +21,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import redirect_stdout
 
 import main
 import recommendations_store as rs
@@ -316,6 +317,20 @@ class EnrichmentTests(PosterEnrichmentTestCase):
         result = self.resolve([("movie", 1)])
         self.assertEqual(result, {("movie", 1): None})
         self.assertEqual(self.client.call_count(), 0)
+
+    def test_disabled_resolution_logs_disabled_reason(self):
+        main.JELLYSEERR_ENABLED = False
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.resolve([("movie", 1)])
+        self.assertIn("reason=disabled", output.getvalue())
+
+    def test_missing_key_resolution_logs_no_api_key_reason(self):
+        main.JELLYSEERR_API_KEY = ""
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.resolve([("movie", 1)])
+        self.assertIn("reason=no-api-key", output.getvalue())
 
 
 class TimingComparisonTests(PosterEnrichmentTestCase):

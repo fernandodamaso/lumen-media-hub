@@ -242,18 +242,20 @@ function Invoke-Stack {
   Write-Host @"
 
 Stack is up. Remaining manual steps (one-time):
-  1. Open each service and copy its API key into .env:
+  1. Optional profiles: subtitles enables Bazarr; requests enables Jellyseerr.
+     Enable them before opening those services, for example:
+       docker compose --profile subtitles --profile requests up -d
+     Set BAZARR_ENABLED=true / JELLYSEERR_ENABLED=true only after their API keys are configured.
+  2. Open each enabled service and copy its API key into .env:
        Jellyfin    http://localhost:8096   (Dashboard > API Keys)
        Radarr      http://127.0.0.1:7878   (Settings > General)
        Sonarr      http://127.0.0.1:8989   (Settings > General)
        Prowlarr    http://127.0.0.1:9696   (Settings > General)
        Bazarr      http://127.0.0.1:6767   (Settings > General)
        Jellyseerr  http://127.0.0.1:5055
-  2. Optional profiles: subtitles enables Bazarr; requests enables Jellyseerr.
-     Enable them explicitly, for example:
+  3. Set the selected BAZARR_ENABLED/JELLYSEERR_ENABLED flags to true in .env, then apply the keys and keep those profiles enabled:
        docker compose --profile subtitles --profile requests up -d
-     Set BAZARR_ENABLED=true / JELLYSEERR_ENABLED=true only after their API keys are configured.
-  3. Apply the keys:  docker compose up -d
+     (omit profiles you did not enable)
   4. Dashboard:       http://127.0.0.1:3000
   qBittorrent WebUI:  http://127.0.0.1:8081 (admin; set WebUI password to match QBT_PASSWORD in .env on first login)
 "@

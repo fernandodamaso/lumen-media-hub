@@ -31,6 +31,11 @@ const LOAD_ERROR = 'Discover is temporarily unavailable. Try again.';
 const REFRESH_NOTICE = 'Could not refresh. Showing last loaded results.';
 const STALE_HINT = ' Results may be stale.';
 
+interface ExternalBrowseCacheEntry {
+  items: ExternalDiscoverItem[];
+  availability: ExternalDiscoverAvailability;
+}
+
 /** Re-export for specs; canonical home is `media-stack/scheduled-poll`. */
 export { SCHEDULED_REFRESH_TIMEOUT_MS } from '../media-stack/scheduled-poll';
 
@@ -53,8 +58,8 @@ export class DiscoverFacade {
 
   private readonly _hermesItems = signal<DiscoverItem[]>([]);
   private readonly _generationPending = signal(false);
-  private readonly _jellyseerrCache = signal<Partial<Record<JellyseerrDiscoverKind, ExternalDiscoverItem[]>>>({});
-  private readonly _traktCache = signal<Partial<Record<TraktDiscoverType, ExternalDiscoverItem[]>>>({});
+  private readonly _jellyseerrCache = signal<Partial<Record<JellyseerrDiscoverKind, ExternalBrowseCacheEntry>>>({});
+  private readonly _traktCache = signal<Partial<Record<TraktDiscoverType, ExternalBrowseCacheEntry>>>({});
 
   private readonly _busyItemId = signal<string | null>(null);
   private readonly _requestingMore = signal(false);
@@ -109,10 +114,10 @@ export class DiscoverFacade {
     }
     if (tab === 'jellyseerr') {
       const kind = this._jellyseerrKind();
-      return (this._jellyseerrCache()[kind] ?? []).map((item) => toExternalCardItem(item, 'jellyseerr', requestedKeys));
+      return (this._jellyseerrCache()[kind]?.items ?? []).map((item) => toExternalCardItem(item, 'jellyseerr', requestedKeys));
     }
     const type = this._traktType();
-    return (this._traktCache()[type] ?? []).map((item) => toExternalCardItem(item, 'trakt', requestedKeys));
+    return (this._traktCache()[type]?.items ?? []).map((item) => toExternalCardItem(item, 'trakt', requestedKeys));
   });
 
   constructor() {
@@ -357,8 +362,8 @@ export class DiscoverFacade {
       },
       isActive: () => this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind,
       cached: () => this._jellyseerrCache()[kind],
-      writeCache: (items) => {
-        this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: items }));
+      writeCache: (items, availability) => {
+        this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: { items, availability } }));
       },
       fetch: () => this.api.listJellyseerrDiscover(kind, signal),
       signal,
@@ -375,8 +380,8 @@ export class DiscoverFacade {
       },
       isActive: () => this._tab() === 'trakt' && this._traktType() === type,
       cached: () => this._traktCache()[type],
-      writeCache: (items) => {
-        this._traktCache.update((cache) => ({ ...cache, [type]: items }));
+      writeCache: (items, availability) => {
+        this._traktCache.update((cache) => ({ ...cache, [type]: { items, availability } }));
       },
       fetch: () => this.api.listTraktDiscover(type, signal),
       signal,
@@ -390,8 +395,8 @@ export class DiscoverFacade {
     appliedId: () => number;
     setAppliedId: (id: number) => void;
     isActive: () => boolean;
-    cached: () => ExternalDiscoverItem[] | undefined;
-    writeCache: (items: ExternalDiscoverItem[]) => void;
+    cached: () => ExternalBrowseCacheEntry | undefined;
+    writeCache: (items: ExternalDiscoverItem[], availability: ExternalDiscoverAvailability) => void;
     fetch: () => Promise<{
       ok: boolean;
       items: ExternalDiscoverItem[];
@@ -410,11 +415,13 @@ export class DiscoverFacade {
         if (opts.isActive()) this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
         return;
       }
+      const availability = response.availability ?? 'available';
+      if (availability === 'disabled' && (requestId !== opts.currentRequestId() || !opts.isActive())) return;
       if (requestId < opts.appliedId()) return;
-      opts.writeCache(response.availability === 'disabled' ? [] : response.items);
+      opts.writeCache(availability === 'disabled' ? [] : response.items, availability);
       opts.setAppliedId(requestId);
       if (!opts.isActive()) return;
-      if (response.availability === 'disabled') {
+      if (availability === 'disabled') {
         this._status.set('disabled');
         this._error.set('');
         this._notice.set('');
@@ -429,10 +436,14 @@ export class DiscoverFacade {
   }
 
   /** Surface cached items immediately, or mark loading when the active browse has no cache. */
-  private primeBrowseCache(isActive: boolean, cached: ExternalDiscoverItem[] | undefined): boolean {
+  private primeBrowseCache(isActive: boolean, cached: ExternalBrowseCacheEntry | undefined): boolean {
     if (!isActive) return !cached;
     if (cached) {
-      this._status.set(cached.length ? 'ready' : 'empty');
+      if (cached.availability === 'disabled') {
+        this._status.set('disabled');
+      } else {
+        this._status.set(cached.items.length ? 'ready' : 'empty');
+      }
       this._error.set('');
     } else {
       this._status.set('loading');

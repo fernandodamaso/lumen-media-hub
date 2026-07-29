@@ -217,6 +217,31 @@ class TestOptionalCapabilities(unittest.TestCase):
         self.assertEqual(summary["bazarr"]["ok"], False)
         self.assertIn("connection refused", summary["bazarr"]["error"])
 
+    def test_bazarr_preserves_episode_results_when_movie_wanted_fails(self):
+        def arr_get(_url, _key, path):
+            if "/episodes/wanted" in path:
+                return {
+                    "total": 1,
+                    "data": [{"seriesTitle": "Example", "episode_number": "S01E01"}],
+                }
+            raise ConnectionError("movie wanted unavailable")
+
+        with patch.multiple(
+            main,
+            SONARR_API_KEY="",
+            RADARR_API_KEY="",
+            PROWLARR_API_KEY="",
+            BAZARR_ENABLED=True,
+            BAZARR_API_KEY="configured-key",
+        ), patch("main._arr_get", side_effect=arr_get):
+            summary = main._build_automation_summary()
+
+        self.assertEqual(summary["bazarr"]["ok"], False)
+        self.assertEqual(summary["bazarr"]["wantedEpisodes"], 1)
+        self.assertEqual(summary["bazarr"]["wantedMovies"], 0)
+        self.assertEqual(summary["bazarr"]["wantedItems"], [{"label": "Example S01E01"}])
+        self.assertIn("movies: movie wanted unavailable", summary["bazarr"]["error"])
+
     def test_enabled_bazarr_without_key_is_explicitly_unavailable(self):
         with patch.multiple(
             main,
@@ -249,6 +274,16 @@ class TestOptionalCapabilities(unittest.TestCase):
             json.loads(handler.wfile.getvalue()),
             {"ok": True, "enabled": False, "items": []},
         )
+
+    def test_jellyseerr_disabled_request_error_is_distinct(self):
+        with patch.multiple(main, JELLYSEERR_ENABLED=False, JELLYSEERR_API_KEY=""):
+            with self.assertRaisesRegex(RuntimeError, "Jellyseerr is disabled"):
+                main._jellyseerr_get("/api/v1/movie/1")
+
+    def test_jellyseerr_missing_key_request_error_is_distinct(self):
+        with patch.multiple(main, JELLYSEERR_ENABLED=True, JELLYSEERR_API_KEY=""):
+            with self.assertRaisesRegex(RuntimeError, "JELLYSEERR_API_KEY not configured"):
+                main._jellyseerr_get("/api/v1/movie/1")
 
 
 if __name__ == "__main__":

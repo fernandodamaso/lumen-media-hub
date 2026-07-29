@@ -1525,43 +1525,50 @@ def _bazarr_wanted_langs(missing):
 def _bazarr_wanted_details():
     ep_wanted = {"total": 0, "items": []}
     movie_wanted = {"total": 0, "items": []}
+    errors = []
 
-    ep = _arr_get(
-        BAZARR_URL,
-        BAZARR_API_KEY,
-        f"/api/episodes/wanted?start=0&length={AUTOMATION_PREVIEW_LIMIT}",
-    )
-    total = ep.get("total")
-    if total is None:
-        total = ep.get("recordsTotal", 0)
-    ep_wanted["total"] = int(total or 0)
-    for row in (ep.get("data") or ep.get("records") or [])[:AUTOMATION_PREVIEW_LIMIT]:
-        series = row.get("seriesTitle") or row.get("series") or "Unknown"
-        ep_num = row.get("episode_number") or ""
-        langs = _bazarr_wanted_langs(row.get("missing_subtitles"))
-        label = f"{series} {ep_num}".strip()
-        if langs:
-            label = f"{label} · {', '.join(langs)}"
-        ep_wanted["items"].append({"label": label})
+    try:
+        ep = _arr_get(
+            BAZARR_URL,
+            BAZARR_API_KEY,
+            f"/api/episodes/wanted?start=0&length={AUTOMATION_PREVIEW_LIMIT}",
+        )
+        total = ep.get("total")
+        if total is None:
+            total = ep.get("recordsTotal", 0)
+        ep_wanted["total"] = int(total or 0)
+        for row in (ep.get("data") or ep.get("records") or [])[:AUTOMATION_PREVIEW_LIMIT]:
+            series = row.get("seriesTitle") or row.get("series") or "Unknown"
+            ep_num = row.get("episode_number") or ""
+            langs = _bazarr_wanted_langs(row.get("missing_subtitles"))
+            label = f"{series} {ep_num}".strip()
+            if langs:
+                label = f"{label} · {', '.join(langs)}"
+            ep_wanted["items"].append({"label": label})
+    except Exception as e:
+        errors.append(f"episodes: {e}")
 
-    movies = _arr_get(
-        BAZARR_URL,
-        BAZARR_API_KEY,
-        f"/api/movies/wanted?start=0&length={AUTOMATION_PREVIEW_LIMIT}",
-    )
-    total = movies.get("total")
-    if total is None:
-        total = movies.get("recordsTotal", 0)
-    movie_wanted["total"] = int(total or 0)
-    for row in (movies.get("data") or movies.get("records") or [])[:AUTOMATION_PREVIEW_LIMIT]:
-        title = row.get("title") or "Unknown"
-        langs = _bazarr_wanted_langs(row.get("missing_subtitles"))
-        label = title
-        if langs:
-            label = f"{title} · {', '.join(langs)}"
-        movie_wanted["items"].append({"label": label})
+    try:
+        movies = _arr_get(
+            BAZARR_URL,
+            BAZARR_API_KEY,
+            f"/api/movies/wanted?start=0&length={AUTOMATION_PREVIEW_LIMIT}",
+        )
+        total = movies.get("total")
+        if total is None:
+            total = movies.get("recordsTotal", 0)
+        movie_wanted["total"] = int(total or 0)
+        for row in (movies.get("data") or movies.get("records") or [])[:AUTOMATION_PREVIEW_LIMIT]:
+            title = row.get("title") or "Unknown"
+            langs = _bazarr_wanted_langs(row.get("missing_subtitles"))
+            label = title
+            if langs:
+                label = f"{title} · {', '.join(langs)}"
+            movie_wanted["items"].append({"label": label})
+    except Exception as e:
+        errors.append(f"movies: {e}")
 
-    return ep_wanted, movie_wanted
+    return ep_wanted, movie_wanted, errors
 
 
 def _build_automation_summary():
@@ -1621,33 +1628,20 @@ def _build_automation_summary():
             "error": "BAZARR_API_KEY not configured",
         }
     elif BAZARR_ENABLED:
-        try:
-            ep_wanted, movie_wanted = _bazarr_wanted_details()
-            bazarr = {
-                "ok": True,
-                "enabled": True,
-                "configured": True,
-                "wanted": ep_wanted["total"] + movie_wanted["total"],
-                "wantedEpisodes": ep_wanted["total"],
-                "wantedMovies": movie_wanted["total"],
-                "wantedItems": (ep_wanted["items"] + movie_wanted["items"])[
-                    :AUTOMATION_PREVIEW_LIMIT
-                ],
-            }
-        except Exception:
-            try:
-                _arr_get(BAZARR_URL, BAZARR_API_KEY, "/api/system/status")
-                bazarr = {
-                    "ok": True,
-                    "enabled": True,
-                    "configured": True,
-                    "wanted": 0,
-                    "wantedEpisodes": 0,
-                    "wantedMovies": 0,
-                    "wantedItems": [],
-                }
-            except Exception as e:
-                bazarr = {"ok": False, "enabled": True, "configured": True, "error": str(e)}
+        ep_wanted, movie_wanted, errors = _bazarr_wanted_details()
+        bazarr = {
+            "ok": not errors,
+            "enabled": True,
+            "configured": True,
+            "wanted": ep_wanted["total"] + movie_wanted["total"],
+            "wantedEpisodes": ep_wanted["total"],
+            "wantedMovies": movie_wanted["total"],
+            "wantedItems": (ep_wanted["items"] + movie_wanted["items"])[
+                :AUTOMATION_PREVIEW_LIMIT
+            ],
+        }
+        if errors:
+            bazarr["error"] = "; ".join(errors)
 
     summary = {
         "ok": True,
@@ -2625,8 +2619,9 @@ def _resolve_poster_paths(requests):
     if not JELLYSEERR_ENABLED or not JELLYSEERR_API_KEY:
         for key in pending:
             resolved[key] = None
+        reason = "disabled" if not JELLYSEERR_ENABLED else "no-api-key"
         _log_poster_batch(
-            hits + fetched, hits, 0, 0, 0.0, skipped=fetched, reason="no-api-key"
+            hits + fetched, hits, 0, 0, 0.0, skipped=fetched, reason=reason
         )
         return resolved
 
@@ -3441,7 +3436,9 @@ def handle_discover_hermes_request_more(handler):
 
 
 def _jellyseerr_get(path):
-    if not JELLYSEERR_ENABLED or not JELLYSEERR_API_KEY:
+    if not JELLYSEERR_ENABLED:
+        raise RuntimeError("Jellyseerr is disabled (set JELLYSEERR_ENABLED=true)")
+    if not JELLYSEERR_API_KEY:
         raise RuntimeError("JELLYSEERR_API_KEY not configured")
     req = urllib.request.Request(f"{JELLYSEERR_URL}{path}")
     req.add_header("X-Api-Key", JELLYSEERR_API_KEY)

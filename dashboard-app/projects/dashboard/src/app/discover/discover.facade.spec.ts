@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
-import { DiscoverAction, DiscoverFeedback, DiscoverItem, DiscoverRequestPayload, ExternalDiscoverItem, HermesDiscover, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
+import { DiscoverAction, DiscoverFeedback, DiscoverItem, DiscoverRequestPayload, ExternalDiscoverAvailability, ExternalDiscoverItem, HermesDiscover, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { DiscoverFacade, SCHEDULED_REFRESH_TIMEOUT_MS } from './discover.facade';
 
@@ -52,6 +52,55 @@ describe('DiscoverFacade', () => {
     expect(facade.error()).toBe('');
     expect(facade.notice()).toBe('');
     expect(facade.visibleItems()).toEqual([]);
+  });
+
+  it('preserves disabled Jellyseerr availability while a tab refresh is pending', async () => {
+    api.jellyseerrAvailability = 'disabled';
+    await facade.setTab('jellyseerr');
+    await facade.setTab('trakt');
+
+    const { promise, resolve } = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      availability: ExternalDiscoverAvailability;
+    }>();
+    api.jellyseerrGate = promise;
+    const pending = facade.setTab('jellyseerr');
+    await Promise.resolve();
+
+    expect(facade.status()).toBe('disabled');
+    resolve({ ok: true, items: [], availability: 'disabled' });
+    await pending;
+    expect(facade.status()).toBe('disabled');
+  });
+
+  it('does not let a stale disabled Jellyseerr response overwrite the cache', async () => {
+    await facade.setTab('jellyseerr');
+    const { promise, resolve } = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      availability: ExternalDiscoverAvailability;
+    }>();
+    api.jellyseerrGate = promise;
+    const stale = facade.setTab('jellyseerr');
+    await facade.setTab('trakt');
+
+    resolve({ ok: true, items: [], availability: 'disabled' });
+    await stale;
+
+    api.jellyseerrAvailability = 'available';
+    const { promise: current, resolve: releaseCurrent } = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      availability: ExternalDiscoverAvailability;
+    }>();
+    api.jellyseerrGate = current;
+    const active = facade.setTab('jellyseerr');
+    await Promise.resolve();
+    expect(facade.status()).toBe('ready');
+
+    releaseCurrent({ ok: true, items: api.jellyseerr.trending, availability: 'available' });
+    await active;
   });
 
   it('submitFeedback calls only submitHermesFeedback and refreshes Hermes', async () => {
@@ -656,7 +705,11 @@ class MockApi implements MediaStackApi {
   hermesGate: Promise<HermesDiscover> | null = null;
   hermesDeferred: Promise<HermesDiscover> | null = null;
   lastHermesSignal?: AbortSignal;
-  jellyseerrGate: Promise<{ ok: boolean; items: ExternalDiscoverItem[] }> | null = null;
+  jellyseerrGate: Promise<{
+    ok: boolean;
+    items: ExternalDiscoverItem[];
+    availability?: ExternalDiscoverAvailability;
+  }> | null = null;
   jellyseerrAvailability: 'available' | 'disabled' = 'available';
   requestGate: Promise<DiscoverAction> | null = null;
   requestResult: DiscoverAction = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };

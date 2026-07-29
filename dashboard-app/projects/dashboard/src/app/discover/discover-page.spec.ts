@@ -190,6 +190,7 @@ describe('DiscoverPage', () => {
     const root = fixtureHost(fixture);
     expect(root.textContent).toContain('Jellyseerr unavailable');
     expect(root.textContent).toContain('Enable the requests profile');
+    expect(root.textContent).toContain('JELLYSEERR_ENABLED=true');
     expect(root.textContent).not.toContain('Try again');
   });
 

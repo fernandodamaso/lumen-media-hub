@@ -19,7 +19,10 @@ import unittest
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
-import main
+import config
+import reconciliation
+import routes.discover as discover_routes
+from server import ActionsHandler
 import recommendations_store as rs
 
 TOKEN = "test-actions-token"
@@ -61,35 +64,36 @@ class GenerationApiTestCase(unittest.TestCase):
         self.path = os.path.join(self.tmpdir, "recommendations.json")
         self.store = rs.RecommendationStore(self.path)
 
-        self._old_store = main.RECOMMENDATIONS_STORE
-        self._old_token = main.ACTIONS_TOKEN
-        self._old_jellyseerr_key = main.JELLYSEERR_API_KEY
-        self._old_reconciliation_path = main.RECONCILIATION_PATH
-        self._old_generation_request_path = main.GENERATION_REQUEST_PATH
-        main.RECOMMENDATIONS_STORE = self.store
-        main.ACTIONS_TOKEN = TOKEN
-        main.RECONCILIATION_PATH = os.path.join(self.tmpdir, "reconciliation.json")
-        main.GENERATION_REQUEST_PATH = os.path.join(
+        self._old_store = config.RECOMMENDATIONS_STORE
+        self._old_token = config.ACTIONS_TOKEN
+        self._old_jellyseerr_key = config.JELLYSEERR_API_KEY
+        self._old_reconciliation_path = config.RECONCILIATION_PATH
+        self._old_generation_request_path = config.GENERATION_REQUEST_PATH
+
+        config.RECOMMENDATIONS_STORE = self.store
+        config.ACTIONS_TOKEN = TOKEN
+        config.RECONCILIATION_PATH = os.path.join(self.tmpdir, "reconciliation.json")
+        config.GENERATION_REQUEST_PATH = os.path.join(
             self.tmpdir, "generation-request.json"
         )
-        main._tracked_media_cache["expires"] = 0.0
-        main._tracked_media_cache["ids"] = []
-        self.addCleanup(self._restore_main)
-        self.addCleanup(lambda: main.stop_reconciliation_scheduler(timeout=1.0))
+        discover_routes._tracked_media_cache["expires"] = 0.0
+        discover_routes._tracked_media_cache["ids"] = []
+        self.addCleanup(self._restore_config)
+        self.addCleanup(lambda: reconciliation.stop_reconciliation_scheduler(timeout=1.0))
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), main.ActionsHandler)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), ActionsHandler)
         self.port = self.server.server_address[1]
         self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self._thread.start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
 
-    def _restore_main(self):
-        main.RECOMMENDATIONS_STORE = self._old_store
-        main.ACTIONS_TOKEN = self._old_token
-        main.JELLYSEERR_API_KEY = self._old_jellyseerr_key
-        main.RECONCILIATION_PATH = self._old_reconciliation_path
-        main.GENERATION_REQUEST_PATH = self._old_generation_request_path
+    def _restore_config(self):
+        config.RECOMMENDATIONS_STORE = self._old_store
+        config.ACTIONS_TOKEN = self._old_token
+        config.JELLYSEERR_API_KEY = self._old_jellyseerr_key
+        config.RECONCILIATION_PATH = self._old_reconciliation_path
+        config.GENERATION_REQUEST_PATH = self._old_generation_request_path
 
     # -- helpers ---------------------------------------------------------
 
@@ -603,10 +607,10 @@ class GetAndRetiredRouteTests(GenerationApiTestCase):
             presented=["movie:1", "movie:2", "movie:3", "movie:4", "movie:5"],
         )
         with mock.patch(
-            "main._get_tracked_media_ids",
+            "routes.discover._get_tracked_media_ids",
             return_value=(["movie:100", "tv:200"], []),
         ), mock.patch(
-            "main._get_in_library_media_ids",
+            "routes.discover._get_in_library_media_ids",
             return_value=(["movie:300"], []),
         ):
             status, payload = self.request("GET", "/discover/hermes")
@@ -643,7 +647,7 @@ class GetAndRetiredRouteTests(GenerationApiTestCase):
 class ExclusionEnforcementTests(GenerationApiTestCase):
     def test_already_tracked_candidate_rejected(self):
         with mock.patch(
-            "main._hermes_exclusion_sets",
+            "routes.discover._hermes_exclusion_sets",
             return_value=({"movie:777"}, set(), []),
         ):
             status, payload = self.post_generation(0, [self.candidate(777)])
@@ -664,7 +668,7 @@ class ExclusionEnforcementTests(GenerationApiTestCase):
 
     def test_already_in_library_candidate_rejected(self):
         with mock.patch(
-            "main._hermes_exclusion_sets",
+            "routes.discover._hermes_exclusion_sets",
             return_value=(set(), {"movie:888"}, []),
         ):
             status, payload = self.post_generation(0, [self.candidate(888)])
@@ -685,7 +689,7 @@ class ExclusionEnforcementTests(GenerationApiTestCase):
 
     def test_tracked_takes_precedence_over_in_library(self):
         with mock.patch(
-            "main._hermes_exclusion_sets",
+            "routes.discover._hermes_exclusion_sets",
             return_value=({"movie:999"}, {"movie:999"}, []),
         ):
             status, payload = self.post_generation(0, [self.candidate(999)])
@@ -733,7 +737,7 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
             return original_update(mutator)
 
         with mock.patch.object(self.store, "update", side_effect=fail_once), mock.patch(
-            "main._add_to_arr_unmonitored",
+            "routes.discover._add_to_arr_unmonitored",
             return_value={
                 "service": "radarr",
                 "already_added": False,
@@ -778,7 +782,7 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
     def test_request_adds_unmonitored_without_search(self):
         self.seed([make_item(42)], presented=["movie:42"])
         with mock.patch(
-            "main._add_to_arr_unmonitored",
+            "routes.discover._add_to_arr_unmonitored",
             return_value={
                 "service": "radarr",
                 "already_added": False,
@@ -808,7 +812,7 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
         # Failure ordering: queue A (stale), then persist B successfully.
         # Reconciling A must preserve B and drop A as a conflict.
         self.seed([make_item(42)], presented=["movie:42"])
-        main._enqueue_request_reconciliation("hermes-movie-42", 111)
+        reconciliation._enqueue_request_reconciliation("hermes-movie-42", 111)
 
         def _persist_newer(doc):
             item = self.item_by_tmdb(doc, 42)
@@ -837,8 +841,8 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
 
     def test_malformed_queue_entries_are_dropped_without_blocking_valid_ones(self):
         self.seed([make_item(42)], presented=["movie:42"])
-        with main._reconciliation_lock:
-            main._write_reconciliation_queue(
+        with config._reconciliation_lock:
+            reconciliation._write_reconciliation_queue(
                 [
                     {"hermes_id": "", "jellyseerr_request_id": 1},
                     {"not": "an entry"},
@@ -860,11 +864,11 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
 
     def test_get_exposes_pending_request_sync_without_errors(self):
         self.seed([make_item(42)], presented=["movie:42"])
-        main._enqueue_request_reconciliation("hermes-movie-42", 812)
-        with main._reconciliation_lock:
-            queue = main._read_reconciliation_queue()
+        reconciliation._enqueue_request_reconciliation("hermes-movie-42", 812)
+        with config._reconciliation_lock:
+            queue = reconciliation._read_reconciliation_queue()
             queue[0]["last_error"] = "OSError"
-            main._write_reconciliation_queue(queue)
+            reconciliation._write_reconciliation_queue(queue)
 
         status, payload = self.request("GET", "/discover/hermes")
         self.assertEqual(status, 200)
@@ -916,11 +920,11 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
 
 class ReconciliationSchedulerTests(unittest.TestCase):
     def setUp(self):
-        main.stop_reconciliation_scheduler(timeout=1.0)
+        reconciliation.stop_reconciliation_scheduler(timeout=1.0)
         self.calls = []
 
     def tearDown(self):
-        main.stop_reconciliation_scheduler(timeout=1.0)
+        reconciliation.stop_reconciliation_scheduler(timeout=1.0)
 
     def test_scheduler_loop_runs_startup_then_interval_without_sleep(self):
         stop = threading.Event()
@@ -936,7 +940,7 @@ class ReconciliationSchedulerTests(unittest.TestCase):
         def run_cycle():
             self.calls.append("cycle")
 
-        main._reconciliation_scheduler_loop(30, stop, run_cycle, wait)
+        reconciliation._reconciliation_scheduler_loop(30, stop, run_cycle, wait)
         self.assertEqual(self.calls, ["cycle", "cycle"])
         self.assertEqual(waits, [30, 30])
 
@@ -949,22 +953,22 @@ class ReconciliationSchedulerTests(unittest.TestCase):
             release.wait(timeout=2)
             return {"ok": True, "reconciled": 0, "pending": 0}
 
-        with mock.patch.object(main, "_reconcile_pending_requests", side_effect=blocking_reconcile):
-            worker = threading.Thread(target=main.run_reconciliation_cycle)
+        with mock.patch.object(reconciliation, "_reconcile_pending_requests", side_effect=blocking_reconcile):
+            worker = threading.Thread(target=reconciliation.run_reconciliation_cycle)
             worker.start()
             self.assertTrue(entered.wait(timeout=2))
-            skipped = main.run_reconciliation_cycle()
+            skipped = reconciliation.run_reconciliation_cycle()
             self.assertTrue(skipped.get("skipped"))
             release.set()
             worker.join(timeout=2)
             self.assertFalse(worker.is_alive())
 
     def test_stop_reconciliation_scheduler_joins_thread(self):
-        started = main.start_reconciliation_scheduler(interval_seconds=60)
+        started = reconciliation.start_reconciliation_scheduler(interval_seconds=60)
         self.assertTrue(started)
-        self.assertTrue(main.start_reconciliation_scheduler(interval_seconds=60) is False)
-        self.assertTrue(main.stop_reconciliation_scheduler(timeout=2.0))
-        self.assertIsNone(main._reconcile_thread)
+        self.assertTrue(reconciliation.start_reconciliation_scheduler(interval_seconds=60) is False)
+        self.assertTrue(reconciliation.stop_reconciliation_scheduler(timeout=2.0))
+        self.assertIsNone(config._reconcile_thread)
 
 
 if __name__ == "__main__":

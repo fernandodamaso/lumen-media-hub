@@ -6,8 +6,8 @@ failure), the bounded worker pool (concurrency bound, batch timing vs
 sequential), warm reads with zero Jellyseerr calls, and degraded-mode
 resilience of GET /discover/hermes and POST /discover/hermes/generations.
 
-Only the network layer (main._fetch_poster_path) and the cache clock
-(main._now) are faked; the cache, pool, and enrichment logic run for real.
+Only the network layer (routes._fetch_poster_path) and the cache clock
+(routes._now) are faked; the cache, pool, and enrichment logic run for real.
 
 Run from inside config/homepage-actions:
     python -m unittest test_poster_enrichment -v
@@ -23,8 +23,10 @@ import time
 import unittest
 from contextlib import redirect_stdout
 
-import main
+import config
+import http_support
 import recommendations_store as rs
+from routes import discover as routes
 
 
 class FakeClock:
@@ -39,7 +41,7 @@ class FakeClock:
 
 
 class FakeJellyseerr:
-    """Stand-in for main._fetch_poster_path.
+    """Stand-in for routes._fetch_poster_path.
 
     Tracks every call, the peak number of concurrent in-flight calls, and
     supports per-key failures (permanent or once-only) and an artificial
@@ -106,27 +108,27 @@ class FakeHandler:
 class ReadJsonBodyTests(unittest.TestCase):
     def test_read_json_body_rejects_oversized_content_length(self):
         handler = FakeHandler()
-        handler.headers = {"Content-Length": str(main.MAX_JSON_BODY_BYTES + 1)}
-        with self.assertRaises(main._BodyTooLarge):
-            main._read_json_body(handler)
+        handler.headers = {"Content-Length": str(http_support.MAX_JSON_BODY_BYTES + 1)}
+        with self.assertRaises(http_support._BodyTooLarge):
+            http_support._read_json_body(handler)
 
     def test_read_json_body_rejects_invalid_content_length(self):
         handler = FakeHandler()
         handler.headers = {"Content-Length": "not-a-number"}
-        with self.assertRaises(main.json.JSONDecodeError):
-            main._read_json_body(handler)
+        with self.assertRaises(json.JSONDecodeError):
+            http_support._read_json_body(handler)
 
     def test_read_json_body_accepts_body_at_limit(self):
         prefix = b'{"p":"'
         suffix = b'"}'
-        pad_len = main.MAX_JSON_BODY_BYTES - len(prefix) - len(suffix)
+        pad_len = http_support.MAX_JSON_BODY_BYTES - len(prefix) - len(suffix)
         self.assertGreater(pad_len, 0)
         raw = prefix + (b"x" * pad_len) + suffix
-        self.assertEqual(len(raw), main.MAX_JSON_BODY_BYTES)
+        self.assertEqual(len(raw), http_support.MAX_JSON_BODY_BYTES)
         handler = FakeHandler()
-        handler.headers = {"Content-Length": str(main.MAX_JSON_BODY_BYTES)}
+        handler.headers = {"Content-Length": str(http_support.MAX_JSON_BODY_BYTES)}
         handler.rfile = io.BytesIO(raw)
-        self.assertEqual(main._read_json_body(handler), {"p": "x" * pad_len})
+        self.assertEqual(http_support._read_json_body(handler), {"p": "x" * pad_len})
 
 
 def make_hermes_item(tmdb_id, **extra):
@@ -156,32 +158,42 @@ class PosterEnrichmentTestCase(unittest.TestCase):
     def setUp(self):
         self.clock = FakeClock()
         self.client = FakeJellyseerr()
-        self._old_now = main._now
-        self._old_fetch = main._fetch_poster_path
-        self._old_key = main.JELLYSEERR_API_KEY
-        self._old_enabled = main.JELLYSEERR_ENABLED
-        self._old_jf_key = main.JELLYFIN_API_KEY
-        main._now = self.clock
-        main._fetch_poster_path = self.client
-        main.JELLYSEERR_API_KEY = "test-key"
-        main.JELLYSEERR_ENABLED = True
+        self._old_now = routes._now
+        self._old_fetch = routes._fetch_poster_path
+        self._old_key = config.JELLYSEERR_API_KEY
+        self._old_enabled = config.JELLYSEERR_ENABLED
+        self._old_jf_key = config.JELLYFIN_API_KEY
+        import config as settings
+
+        settings.JELLYSEERR_API_KEY = "test-key"
+        settings.JELLYSEERR_ENABLED = True
+        settings.JELLYFIN_API_KEY = ""
+        routes._now = self.clock
+        routes._fetch_poster_path = self.client
+        config.JELLYSEERR_API_KEY = "test-key"
+        config.JELLYSEERR_ENABLED = True
         # Keep Jellyfin enrichment in its no-key fallback branch.
-        main.JELLYFIN_API_KEY = ""
-        with main._poster_path_cache_lock:
-            main._poster_path_cache.clear()
+        config.JELLYFIN_API_KEY = ""
+        with routes._poster_path_cache_lock:
+            routes._poster_path_cache.clear()
         self.addCleanup(self._restore)
 
     def _restore(self):
-        main._now = self._old_now
-        main._fetch_poster_path = self._old_fetch
-        main.JELLYSEERR_API_KEY = self._old_key
-        main.JELLYSEERR_ENABLED = self._old_enabled
-        main.JELLYFIN_API_KEY = self._old_jf_key
-        with main._poster_path_cache_lock:
-            main._poster_path_cache.clear()
+        import config as settings
+
+        routes._now = self._old_now
+        routes._fetch_poster_path = self._old_fetch
+        settings.JELLYSEERR_API_KEY = self._old_key
+        settings.JELLYSEERR_ENABLED = self._old_enabled
+        settings.JELLYFIN_API_KEY = self._old_jf_key
+        config.JELLYSEERR_API_KEY = self._old_key
+        config.JELLYSEERR_ENABLED = self._old_enabled
+        config.JELLYFIN_API_KEY = self._old_jf_key
+        with routes._poster_path_cache_lock:
+            routes._poster_path_cache.clear()
 
     def resolve(self, pairs):
-        return main._resolve_poster_paths(pairs)
+        return routes._resolve_poster_paths(pairs)
 
 
 class TtlCacheTests(PosterEnrichmentTestCase):
@@ -222,7 +234,7 @@ class TtlCacheTests(PosterEnrichmentTestCase):
         # A successful call that returns no path is a miss, not a 24h cache.
         self.client.paths[("movie", 5)] = None
         self.resolve([("movie", 5)])
-        self.clock.advance(main.POSTER_NEGATIVE_TTL_SECONDS - 1)
+        self.clock.advance(routes.POSTER_NEGATIVE_TTL_SECONDS - 1)
         self.resolve([("movie", 5)])
         self.assertEqual(self.client.call_count(), 1)
         self.clock.advance(2)
@@ -234,7 +246,7 @@ class TtlCacheTests(PosterEnrichmentTestCase):
         first = self.resolve([("movie", 7)])
         self.assertIsNone(first[("movie", 7)])
 
-        self.clock.advance(main.POSTER_NEGATIVE_TTL_SECONDS + 1)
+        self.clock.advance(routes.POSTER_NEGATIVE_TTL_SECONDS + 1)
         second = self.resolve([("movie", 7)])
         self.assertEqual(second[("movie", 7)], "/movie-7.jpg")
         self.assertEqual(self.client.call_count(), 2)
@@ -250,10 +262,10 @@ class TtlCacheTests(PosterEnrichmentTestCase):
         self.resolve([("movie", 42)])
         self.assertEqual(self.client.call_count(), 1)
         # ...the single-lookup path serves it with zero additional calls.
-        self.assertEqual(main._jellyseerr_poster_path("movie", 42), "/movie-42.jpg")
+        self.assertEqual(routes._jellyseerr_poster_path("movie", 42), "/movie-42.jpg")
         self.assertEqual(self.client.call_count(), 1)
         # And a value cached by the single lookup is a batch hit too.
-        self.assertEqual(main._jellyseerr_poster_path("tv", 7), "/tv-7.jpg")
+        self.assertEqual(routes._jellyseerr_poster_path("tv", 7), "/tv-7.jpg")
         self.assertEqual(self.client.call_count(), 2)
         result = self.resolve([("tv", 7)])
         self.assertEqual(result[("tv", 7)], "/tv-7.jpg")
@@ -266,7 +278,7 @@ class ConcurrencyTests(PosterEnrichmentTestCase):
         pairs = [("movie", i) for i in range(1, 13)]
         result = self.resolve(pairs)
         self.assertEqual(len(result), 12)
-        self.assertLessEqual(self.client.peak_inflight, main.POSTER_ENRICH_CONCURRENCY)
+        self.assertLessEqual(self.client.peak_inflight, routes.POSTER_ENRICH_CONCURRENCY)
         # With 12 items and a per-call sleep the pool must actually parallelize.
         self.assertGreaterEqual(self.client.peak_inflight, 2)
 
@@ -288,7 +300,7 @@ class EnrichmentTests(PosterEnrichmentTestCase):
             make_hermes_item(2, poster_url="https://example.com/x.jpg"),
             make_hermes_item(3),
         ]
-        main._enrich_hermes_posters(items)
+        routes._enrich_hermes_posters(items)
         # Only item 3 needed a Jellyseerr call.
         self.assertEqual(self.client.call_count(), 1)
         self.assertEqual(items[0]["poster_url"], "https://image.tmdb.org/t/p/w342/persisted.jpg")
@@ -297,7 +309,7 @@ class EnrichmentTests(PosterEnrichmentTestCase):
 
     def test_warm_read_with_persisted_poster_path_makes_zero_calls(self):
         items = [make_hermes_item(i, poster_path=f"/p{i}.jpg") for i in range(1, 26)]
-        main._enrich_hermes_posters(items)
+        routes._enrich_hermes_posters(items)
         self.assertEqual(self.client.call_count(), 0)
         for item in items:
             i = item["tmdb_id"]
@@ -306,27 +318,37 @@ class EnrichmentTests(PosterEnrichmentTestCase):
     def test_enrichment_degrades_when_client_raises(self):
         self.client.fail_keys = {("movie", i) for i in range(1, 4)}
         items = [make_hermes_item(i) for i in range(1, 4)]
-        result = main._enrich_hermes_posters(items)  # must not raise
+        result = routes._enrich_hermes_posters(items)  # must not raise
         for item in result:
             self.assertIsNone(item["poster_url"])
             self.assertTrue(item["title"])  # title fallback intact
 
     def test_no_api_key_resolves_without_calls(self):
-        main.JELLYSEERR_API_KEY = ""
-        main.JELLYSEERR_ENABLED = False
+        import config as settings
+
+        settings.JELLYSEERR_API_KEY = ""
+        settings.JELLYSEERR_ENABLED = False
+        config.JELLYSEERR_API_KEY = ""
+        config.JELLYSEERR_ENABLED = False
         result = self.resolve([("movie", 1)])
         self.assertEqual(result, {("movie", 1): None})
         self.assertEqual(self.client.call_count(), 0)
 
     def test_disabled_resolution_logs_disabled_reason(self):
-        main.JELLYSEERR_ENABLED = False
+        import config as settings
+
+        settings.JELLYSEERR_ENABLED = False
+        config.JELLYSEERR_ENABLED = False
         output = io.StringIO()
         with redirect_stdout(output):
             self.resolve([("movie", 1)])
         self.assertIn("reason=disabled", output.getvalue())
 
     def test_missing_key_resolution_logs_no_api_key_reason(self):
-        main.JELLYSEERR_API_KEY = ""
+        import config as settings
+
+        settings.JELLYSEERR_API_KEY = ""
+        config.JELLYSEERR_API_KEY = ""
         output = io.StringIO()
         with redirect_stdout(output):
             self.resolve([("movie", 1)])
@@ -340,7 +362,7 @@ class TimingComparisonTests(PosterEnrichmentTestCase):
         self.client.sleep = 0.02
         cold_items = [make_hermes_item(i) for i in range(1, 26)]
         started = time.monotonic()
-        main._enrich_hermes_posters(cold_items)
+        routes._enrich_hermes_posters(cold_items)
         cold = time.monotonic() - started
         self.assertEqual(self.client.call_count(), 25)
         self.assertLess(cold, 0.35)
@@ -350,13 +372,13 @@ class TimingComparisonTests(PosterEnrichmentTestCase):
             make_hermes_item(i, poster_path=f"/movie-{i}.jpg") for i in range(1, 26)
         ]
         started = time.monotonic()
-        main._enrich_hermes_posters(warm_items)
+        routes._enrich_hermes_posters(warm_items)
         warm = time.monotonic() - started
         self.assertEqual(self.client.call_count(), 25)
         self.assertLess(warm, cold)
         print(
             f"\n[timing] cold 25-card enrich: {cold:.3f}s (25 fetches, bound "
-            f"{main.POSTER_ENRICH_CONCURRENCY}); warm: {warm:.4f}s (0 fetches)"
+            f"{routes.POSTER_ENRICH_CONCURRENCY}); warm: {warm:.4f}s (0 fetches)"
         )
 
 
@@ -366,20 +388,26 @@ class ApiResilienceTests(PosterEnrichmentTestCase):
         self.tmpdir = tempfile.mkdtemp(prefix="poster-api-test-")
         self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
         self.store = rs.RecommendationStore(os.path.join(self.tmpdir, "recommendations.json"))
-        self._old_store = main.RECOMMENDATIONS_STORE
-        main.RECOMMENDATIONS_STORE = self.store
+        self._old_store = config.RECOMMENDATIONS_STORE
+        import config as settings
+
+        settings.RECOMMENDATIONS_STORE = self.store
+        config.RECOMMENDATIONS_STORE = self.store
         self.addCleanup(self._restore_store)
-        self._old_generation_request_path = main.GENERATION_REQUEST_PATH
-        main.GENERATION_REQUEST_PATH = os.path.join(
+        self._old_generation_request_path = config.GENERATION_REQUEST_PATH
+        config.GENERATION_REQUEST_PATH = os.path.join(
             self.tmpdir, "generation-request.json"
         )
         self.addCleanup(self._restore_generation_request_path)
 
     def _restore_generation_request_path(self):
-        main.GENERATION_REQUEST_PATH = self._old_generation_request_path
+        config.GENERATION_REQUEST_PATH = self._old_generation_request_path
 
     def _restore_store(self):
-        main.RECOMMENDATIONS_STORE = self._old_store
+        import config as settings
+
+        settings.RECOMMENDATIONS_STORE = self._old_store
+        config.RECOMMENDATIONS_STORE = self._old_store
 
     def seed(self, items):
         def _apply(doc):
@@ -392,7 +420,7 @@ class ApiResilienceTests(PosterEnrichmentTestCase):
         self.seed([make_hermes_item(1), make_hermes_item(2, poster_path="/p2.jpg")])
         self.client.fail_keys = {("movie", 1)}
         handler = FakeHandler()
-        main.handle_discover_hermes_get(handler)
+        routes.handle_discover_hermes_get(handler)
         self.assertEqual(handler.status, 200)
         payload = handler.payload()
         self.assertTrue(payload["ok"])
@@ -415,7 +443,7 @@ class ApiResilienceTests(PosterEnrichmentTestCase):
                 ],
             }
         )
-        main.handle_discover_hermes_generations(handler)
+        routes.handle_discover_hermes_generations(handler)
         self.assertEqual(handler.status, 200)
         payload = handler.payload()
         self.assertTrue(payload["ok"])
@@ -428,15 +456,16 @@ class ApiResilienceTests(PosterEnrichmentTestCase):
 
     def test_generation_survives_metadata_outage(self):
         self.client.fail_keys = {("movie", 949)}
+        revision = self.store.load().get("revision", 0)
         handler = FakeHandler(
             {
-                "base_revision": 0,
+                "base_revision": revision,
                 "candidates": [
                     {"type": "movie", "title": "Heat", "tmdb_id": 949, "reason": "fixture"},
                 ],
             }
         )
-        main.handle_discover_hermes_generations(handler)
+        routes.handle_discover_hermes_generations(handler)
         self.assertEqual(handler.status, 200)
         payload = handler.payload()
         self.assertTrue(payload["ok"])

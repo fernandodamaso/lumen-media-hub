@@ -10,7 +10,8 @@ import unittest
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
-import main
+import config
+from server import ActionsHandler
 
 TOKEN = "test-actions-token"
 ALLOWED_ORIGIN = "http://localhost:3000"
@@ -23,22 +24,22 @@ class QbtActionsTestCase(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp(prefix="qbt-actions-test-")
         self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
 
-        self._old_token = main.ACTIONS_TOKEN
-        self._old_cors = main.CORS_ORIGINS
-        main.ACTIONS_TOKEN = TOKEN
-        main.CORS_ORIGINS = [ALLOWED_ORIGIN]
-        self.addCleanup(self._restore_main)
+        self._old_token = config.ACTIONS_TOKEN
+        self._old_cors = config.CORS_ORIGINS
+        config.ACTIONS_TOKEN = TOKEN
+        config.CORS_ORIGINS = [ALLOWED_ORIGIN]
+        self.addCleanup(self._restore_config)
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), main.ActionsHandler)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), ActionsHandler)
         self.port = self.server.server_address[1]
         self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self._thread.start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
 
-    def _restore_main(self):
-        main.ACTIONS_TOKEN = self._old_token
-        main.CORS_ORIGINS = self._old_cors
+    def _restore_config(self):
+        config.ACTIONS_TOKEN = self._old_token
+        config.CORS_ORIGINS = self._old_cors
 
     def _request(
         self,
@@ -70,8 +71,8 @@ class QbtActionsTestCase(unittest.TestCase):
             parsed = None
         return resp.status, parsed
 
-    @mock.patch("main.qbt_post")
-    @mock.patch("main.qbt_login")
+    @mock.patch("routes.qbittorrent.qbt_post")
+    @mock.patch("routes.qbittorrent.qbt_login")
     def test_valid_40_char_hash_forwards(self, mock_login, mock_post):
         mock_post.return_value = (200, "Ok.")
 
@@ -89,8 +90,8 @@ class QbtActionsTestCase(unittest.TestCase):
             "/api/v2/torrents/stop", {"hashes": HASH40}, mock.ANY
         )
 
-    @mock.patch("main.qbt_post")
-    @mock.patch("main.qbt_login")
+    @mock.patch("routes.qbittorrent.qbt_post")
+    @mock.patch("routes.qbittorrent.qbt_login")
     def test_valid_64_char_hash_forwards(self, mock_login, mock_post):
         mock_post.return_value = (200, "Ok.")
 
@@ -109,7 +110,7 @@ class QbtActionsTestCase(unittest.TestCase):
         )
 
     def test_empty_configured_token_rejects(self):
-        main.ACTIONS_TOKEN = ""
+        config.ACTIONS_TOKEN = ""
         status, body = self._request(
             "POST",
             "/qbt/torrents/stop",
@@ -164,8 +165,8 @@ class QbtActionsTestCase(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(body, {"ok": False, "error": "Invalid JSON"})
 
-    @mock.patch("main.qbt_post")
-    @mock.patch("main.qbt_login")
+    @mock.patch("routes.qbittorrent.qbt_post")
+    @mock.patch("routes.qbittorrent.qbt_login")
     def test_invalid_ids_rejected_before_qbt(self, mock_login, mock_post):
         invalid_ids = [
             "",
@@ -191,8 +192,8 @@ class QbtActionsTestCase(unittest.TestCase):
         mock_login.assert_not_called()
         mock_post.assert_not_called()
 
-    @mock.patch("main.qbt_post")
-    @mock.patch("main.qbt_login")
+    @mock.patch("routes.qbittorrent.qbt_post")
+    @mock.patch("routes.qbittorrent.qbt_login")
     def test_downstream_error_returns_502(self, mock_login, mock_post):
         mock_post.side_effect = RuntimeError("qBittorrent down")
 

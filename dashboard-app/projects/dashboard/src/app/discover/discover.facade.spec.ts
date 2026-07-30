@@ -749,6 +749,14 @@ class MockApi implements MediaStackApi {
   listWatchNext() {
     return Promise.resolve({ items: [] });
   }
+  getActivity() {
+    return Promise.resolve({
+      ok: true,
+      generatedAt: '',
+      sources: { sonarr: 'ok' as const, radarr: 'ok' as const },
+      items: [],
+    });
+  }
   getAutomationSummary() {
     return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [], availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const } });
   }

@@ -6,6 +6,7 @@ import { HttpMediaStackApi } from './http-media-stack-api';
 import {
   mapLiveAutomationSummary,
   mapLiveJellyfinItem,
+  mapLiveActivityFeed,
   mapLiveWatchNextItem,
   mapLiveSystemResourcesDisk,
   mapLiveTorrent,
@@ -416,6 +417,57 @@ describe('live-api.mappers', () => {
         sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
       }),
     ).toThrow(/invalid generatedAt/);
+  });
+
+  it('maps activity feeds and rejects malformed members', () => {
+    const feed = mapLiveActivityFeed({
+      ok: true,
+      generatedAt: '2026-07-30T00:20:00Z',
+      sources: { sonarr: 'ok', radarr: 'error' },
+      items: [
+        {
+          id: 'sonarr:48211',
+          source: 'sonarr',
+          kind: 'grabbed',
+          title: 'The Shōgun Court',
+          subtitle: 'S01E07 · 1080p WEB-DL',
+          timestamp: '2026-07-30T00:18:41Z',
+          href: 'http://localhost:8989/series/the-shogun-court',
+        },
+      ],
+    });
+    expect(feed).toEqual({
+      ok: true,
+      generatedAt: '2026-07-30T00:20:00Z',
+      sources: { sonarr: 'ok', radarr: 'error' },
+      items: [
+        {
+          id: 'sonarr:48211',
+          source: 'sonarr',
+          kind: 'grabbed',
+          title: 'The Shōgun Court',
+          subtitle: 'S01E07 · 1080p WEB-DL',
+          timestamp: '2026-07-30T00:18:41Z',
+          href: 'http://localhost:8989/series/the-shogun-court',
+        },
+      ],
+    });
+
+    expect(() =>
+      mapLiveActivityFeed({
+        ok: true,
+        sources: { sonarr: 'ok', radarr: 'ok' },
+        items: [{ id: 'sonarr:1', source: 'sonarr', kind: 'mystery', title: 'Show', timestamp: '2026-07-30T00:18:41Z' }],
+      }),
+    ).toThrow(/invalid kind/);
+
+    expect(() =>
+      mapLiveActivityFeed({
+        ok: true,
+        sources: { sonarr: 'ok', radarr: 'ok' },
+        items: [{ id: 'sonarr:1', source: 'prowlarr', kind: 'grabbed', title: 'Show', timestamp: '2026-07-30T00:18:41Z' }],
+      }),
+    ).toThrow(/invalid source/);
   });
 });
 
@@ -1356,5 +1408,55 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/jellyfin/watch-next');
     abort.abort();
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('GETs the activity feed and maps merged items', async () => {
+    const pending = api.getActivity();
+    const req = http.expectOne('/api/activity?limit=20');
+    req.flush({
+      ok: true,
+      generatedAt: '2026-07-30T00:20:00Z',
+      sources: { sonarr: 'ok', radarr: 'ok' },
+      items: [
+        {
+          id: 'sonarr:48211',
+          source: 'sonarr',
+          kind: 'grabbed',
+          title: 'The Shōgun Court',
+          subtitle: 'S01E07 · 1080p WEB-DL',
+          timestamp: '2026-07-30T00:18:41Z',
+          href: 'http://localhost:8989/series/the-shogun-court',
+        },
+      ],
+    });
+    const feed = await pending;
+    expect(feed.ok).toBe(true);
+    expect(feed.sources).toEqual({ sonarr: 'ok', radarr: 'ok' });
+    expect(feed.items).toHaveLength(1);
+    expect(feed.items[0]).toMatchObject({ id: 'sonarr:48211', kind: 'grabbed', title: 'The Shōgun Court' });
+  });
+
+  it('passes a clamped activity limit and keeps per-source error status', async () => {
+    const pending = api.getActivity(500);
+    const req = http.expectOne('/api/activity?limit=50');
+    req.flush({
+      ok: true,
+      generatedAt: '2026-07-30T00:20:00Z',
+      sources: { sonarr: 'error', radarr: 'ok' },
+      items: [],
+    });
+    const feed = await pending;
+    expect(feed.sources).toEqual({ sonarr: 'error', radarr: 'ok' });
+    expect(feed.items).toEqual([]);
+  });
+
+  it('rejects malformed activity members', async () => {
+    const pending = api.getActivity();
+    http.expectOne('/api/activity?limit=20').flush({
+      ok: true,
+      sources: { sonarr: 'ok', radarr: 'ok' },
+      items: [{ id: 'sonarr:1', source: 'sonarr', kind: 'mystery', title: 'Show', timestamp: '2026-07-30T00:18:41Z' }],
+    });
+    await expect(pending).rejects.toThrow(/invalid kind/);
   });
 });

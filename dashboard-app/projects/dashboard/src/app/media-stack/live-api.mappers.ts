@@ -18,6 +18,7 @@ import { MediaStackLibraryItemDto } from './wire/library';
 import { MediaStackWatchNextItemDto } from './wire/watch-next';
 import { MediaStackStorageVolumeDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
+import { MediaStackActivityFeedDto, MediaStackActivityItemDto, MediaStackActivityKindDto, MediaStackActivitySourceDto, MediaStackActivitySourceStatusDto } from './wire/activity';
 
 /** Validated live torrent member — required identity/state/progress fields are present. */
 interface ValidatedLiveQbtTorrent {
@@ -1021,4 +1022,69 @@ function optionalNullableFiniteNumber(
     throw new Error(`Malformed ${resource} response: member ${index} has invalid ${field}`);
   }
   return value;
+}
+
+/** Activity feed from GET /activity. */
+export interface LiveActivityFeed {
+  generatedAt?: string;
+  sources?: { sonarr?: string; radarr?: string };
+  items?: unknown[];
+}
+
+function activitySourceStatus(value: unknown): MediaStackActivitySourceStatusDto {
+  if (value === undefined || value === null) return 'unconfigured';
+  if (value === 'ok' || value === 'error' || value === 'unconfigured') return value;
+  throw new Error('Malformed activity response: invalid sources status');
+}
+
+function requireLiveActivityItem(raw: unknown, index = 0): MediaStackActivityItemDto {
+  if (!isRecord(raw)) {
+    throw new Error(`Malformed activity response: member ${index} is not an object`);
+  }
+  const id = raw['id'];
+  const title = raw['title'];
+  const timestamp = raw['timestamp'];
+  if (typeof id !== 'string' || !id.trim()) {
+    throw new Error(`Malformed activity response: member ${index} is missing id`);
+  }
+  if (typeof title !== 'string' || !title.trim()) {
+    throw new Error(`Malformed activity response: member ${index} is missing title`);
+  }
+  if (typeof timestamp !== 'string' || !timestamp.trim()) {
+    throw new Error(`Malformed activity response: member ${index} is missing timestamp`);
+  }
+  const source = raw['source'];
+  if (source !== 'sonarr' && source !== 'radarr') {
+    throw new Error(`Malformed activity response: member ${index} has invalid source`);
+  }
+  const resolvedSource: MediaStackActivitySourceDto = source;
+  const kind = raw['kind'];
+  if (kind !== 'grabbed' && kind !== 'imported' && kind !== 'deleted' && kind !== 'failed') {
+    throw new Error(`Malformed activity response: member ${index} has invalid kind`);
+  }
+  const resolvedKind: MediaStackActivityKindDto = kind;
+  return {
+    id,
+    source: resolvedSource,
+    kind: resolvedKind,
+    title,
+    subtitle: optionalString(raw, 'subtitle', index, 'activity') ?? '',
+    timestamp,
+    href: optionalNullableString(raw, 'href', index, 'activity') ?? null,
+  };
+}
+
+/** Validate GET /activity envelopes; soft ok:false feeds keep per-source status. */
+export function mapLiveActivityFeed(
+  live: LiveActivityFeed & { ok?: boolean },
+): MediaStackActivityFeedDto {
+  return {
+    ok: live.ok !== false,
+    generatedAt: mapGeneratedAt(live.generatedAt, 'Malformed activity response'),
+    sources: {
+      sonarr: activitySourceStatus(live.sources?.sonarr),
+      radarr: activitySourceStatus(live.sources?.radarr),
+    },
+    items: (live.items ?? []).map((item, index) => requireLiveActivityItem(item, index)),
+  };
 }

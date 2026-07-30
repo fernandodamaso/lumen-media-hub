@@ -291,6 +291,19 @@ describe('MockMediaStackApi', () => {
     expect(result.items).toEqual([]);
   });
 
+  it('serves an activity feed honoring the limit', async () => {
+    const api: MediaStackApi = createApi();
+    const feed = await api.getActivity();
+    expect(feed.ok).toBe(true);
+    expect(feed.sources).toEqual({ sonarr: 'ok', radarr: 'ok' });
+    expect(feed.items.length).toBeGreaterThanOrEqual(4);
+    expect(feed.items.some((item) => item.kind === 'imported')).toBe(true);
+    expect(feed.items.some((item) => item.kind === 'failed')).toBe(true);
+
+    const limited = await api.getActivity(2);
+    expect(limited.items).toHaveLength(2);
+  });
+
   it('provides mixed cron-log history covering failures, actionable, and quiet runs', async () => {
     const api: MediaStackApi = createApi();
     const response = await api.listCronLogs();

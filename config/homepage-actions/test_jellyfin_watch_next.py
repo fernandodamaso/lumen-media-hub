@@ -45,6 +45,14 @@ class WatchNextMappingTests(unittest.TestCase):
                 "image": None,
                 "playable": True,
                 "progressPercent": 18,
+                "year": None,
+                "rating": None,
+                "genres": [],
+                "overview": None,
+                "runtimeTicks": 10000,
+                "positionTicks": 1800,
+                "backdropUrl": None,
+                "thumbUrl": None,
                 "_sort_last_played": "",
                 "_sort_date": "",
             },
@@ -112,12 +120,14 @@ class WatchNextFetchTests(unittest.TestCase):
         unwatched_movies=None,
         unplayed_series=None,
         first_episode=None,
+        series_metadata=None,
     ):
         resume = resume if resume is not None else []
         next_up = next_up if next_up is not None else []
         unwatched_movies = unwatched_movies if unwatched_movies is not None else []
         unplayed_series = unplayed_series if unplayed_series is not None else []
         first_episode = first_episode if first_episode is not None else {}
+        series_metadata = series_metadata if series_metadata is not None else {}
 
         return mock.patch.multiple(
             "clients.jellyfin",
@@ -127,6 +137,11 @@ class WatchNextFetchTests(unittest.TestCase):
             _fetch_jellyfin_unplayed_series_raw=mock.Mock(return_value=unplayed_series),
             _fetch_first_playable_episode_for_series=mock.Mock(
                 side_effect=lambda series_id: first_episode.get(series_id)
+            ),
+            _get_series_metadata=mock.Mock(
+                side_effect=lambda series_id: series_metadata.get(
+                    series_id, jellyfin_client._empty_series_metadata()
+                )
             ),
         )
 
@@ -245,6 +260,152 @@ class WatchNextHandlerTests(unittest.TestCase):
         body = json.loads(handler.wfile.read().decode("utf-8"))
         self.assertFalse(body["ok"])
         handler.send_response.assert_called_with(503)
+
+
+class WatchNextMetadataTests(unittest.TestCase):
+    def setUp(self):
+        config._jellyfin_cache.clear()
+
+    def test_maps_movie_metadata_from_item(self):
+        movie = jellyfin_client._map_watch_next_item(
+            {
+                "Id": "mv-2",
+                "Type": "Movie",
+                "Name": "Dune",
+                "Path": "/movies/dune.mkv",
+                "ProductionYear": 2021,
+                "CommunityRating": 8.4,
+                "Genres": ["Sci-Fi", "Adventure"],
+                "Overview": "A mythic desert world.",
+                "BackdropImageTags": ["bd-1"],
+                "ImageTags": {"Primary": "p-1", "Thumb": "th-1"},
+                "RunTimeTicks": 9_960_000_000,
+                "UserData": {"Played": False, "PlaybackPositionTicks": 5_100_000_000},
+            }
+        )
+        self.assertEqual(movie["year"], 2021)
+        self.assertEqual(movie["rating"], 8.4)
+        self.assertEqual(movie["genres"], ["Sci-Fi", "Adventure"])
+        self.assertEqual(movie["overview"], "A mythic desert world.")
+        self.assertEqual(movie["runtimeTicks"], 9_960_000_000)
+        self.assertEqual(movie["positionTicks"], 5_100_000_000)
+        self.assertEqual(
+            movie["backdropUrl"],
+            f"{config.JELLYFIN_EXTERNAL_URL}/Items/mv-2/Images/Backdrop",
+        )
+        self.assertEqual(
+            movie["thumbUrl"],
+            f"{config.JELLYFIN_EXTERNAL_URL}/Items/mv-2/Images/Thumb",
+        )
+
+    def test_invalid_rating_and_genres_fall_back(self):
+        movie = jellyfin_client._map_watch_next_item(
+            {
+                "Id": "mv-3",
+                "Type": "Movie",
+                "Name": "Odd",
+                "Path": "/movies/odd.mkv",
+                "CommunityRating": 42,
+                "Genres": ["Drama", 7, ""],
+                "RunTimeTicks": 100,
+                "UserData": {"Played": False, "PlaybackPositionTicks": 1},
+            }
+        )
+        self.assertIsNone(movie["rating"])
+        self.assertEqual(movie["genres"], ["Drama"])
+        self.assertIsNone(movie["backdropUrl"])
+        self.assertIsNone(movie["thumbUrl"])
+
+    def test_series_metadata_fetch_maps_and_caches(self):
+        calls = []
+
+        def fake_get(path, query=None):
+            calls.append(path)
+            return {
+                "ProductionYear": 2015,
+                "CommunityRating": 8.3,
+                "Genres": ["Sci-Fi"],
+                "Overview": "Politics and survival.",
+                "BackdropImageTags": ["bd"],
+                "ImageTags": {"Thumb": "th"},
+            }
+
+        with mock.patch.object(jellyfin_client, "jellyfin_get", side_effect=fake_get):
+            first = jellyfin_client._get_series_metadata("series-1")
+            second = jellyfin_client._get_series_metadata("series-1")
+
+        self.assertEqual(calls, ["/Items/series-1"])
+        self.assertEqual(first["genres"], ["Sci-Fi"])
+        self.assertEqual(first["overview"], "Politics and survival.")
+        self.assertEqual(
+            first["backdropUrl"],
+            f"{config.JELLYFIN_EXTERNAL_URL}/Items/series-1/Images/Backdrop",
+        )
+        self.assertEqual(
+            first["thumbUrl"],
+            f"{config.JELLYFIN_EXTERNAL_URL}/Items/series-1/Images/Thumb",
+        )
+        self.assertEqual(second, first)
+
+    def test_series_metadata_missing_backdrop_returns_null(self):
+        with mock.patch.object(jellyfin_client, "jellyfin_get", return_value={"Genres": []}):
+            meta = jellyfin_client._get_series_metadata("series-2")
+        self.assertIsNone(meta["backdropUrl"])
+        self.assertIsNone(meta["thumbUrl"])
+        self.assertEqual(meta["genres"], [])
+
+    def test_series_metadata_failure_degrades_to_empty(self):
+        with mock.patch.object(jellyfin_client, "jellyfin_get", side_effect=RuntimeError("down")):
+            meta = jellyfin_client._get_series_metadata("series-3")
+        self.assertIsNone(meta["backdropUrl"])
+        self.assertIsNone(meta["thumbUrl"])
+        self.assertEqual(meta["genres"], [])
+
+
+class WatchNextEpisodeMetadataTests(unittest.TestCase):
+    def setUp(self):
+        config._jellyfin_cache.clear()
+
+    def test_episode_items_get_series_metadata(self):
+        episode = {
+            "Id": "ep-1",
+            "Type": "Episode",
+            "SeriesId": "series-1",
+            "SeriesName": "The Expanse",
+            "Name": "Jetsam",
+            "ParentIndexNumber": 4,
+            "IndexNumber": 2,
+            "Path": "/tv/jetsam.mkv",
+            "RunTimeTicks": 1000,
+            "UserData": {"Played": False, "PlaybackPositionTicks": 420},
+        }
+        meta = {
+            "year": 2015,
+            "rating": 8.3,
+            "genres": ["Sci-Fi"],
+            "overview": "Politics and survival.",
+            "backdropUrl": "http://jellyfin/Items/series-1/Images/Backdrop",
+            "thumbUrl": "http://jellyfin/Items/series-1/Images/Thumb",
+        }
+        resume_mock = mock.Mock(return_value=[episode])
+        with mock.patch.multiple(
+            "clients.jellyfin",
+            _fetch_jellyfin_resume_raw=resume_mock,
+            _fetch_jellyfin_next_up_raw=mock.Mock(return_value=[]),
+            _fetch_jellyfin_unwatched_movies_raw=mock.Mock(return_value=[]),
+            _fetch_jellyfin_unplayed_series_raw=mock.Mock(return_value=[]),
+            _fetch_first_playable_episode_for_series=mock.Mock(return_value=None),
+            _get_series_metadata=mock.Mock(return_value=meta),
+        ):
+            payload = jellyfin_client._fetch_watch_next_items()
+        item = payload["items"][0]
+        self.assertEqual(item["genres"], ["Sci-Fi"])
+        self.assertEqual(item["overview"], "Politics and survival.")
+        self.assertEqual(item["backdropUrl"], "http://jellyfin/Items/series-1/Images/Backdrop")
+        self.assertEqual(item["thumbUrl"], "http://jellyfin/Items/series-1/Images/Thumb")
+        self.assertEqual(item["runtimeTicks"], 1000)
+        self.assertEqual(item["positionTicks"], 420)
+        self.assertNotIn("_series_id", item)
 
 
 if __name__ == "__main__":

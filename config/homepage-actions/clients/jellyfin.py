@@ -331,7 +331,13 @@ def _get_series_metadata(series_id):
         if cached and now - cached["ts"] < settings.JELLYFIN_CACHE_TTL:
             return cached["payload"]
         try:
-            raw = jellyfin_get(f"/Items/{series_id}", {"Fields": SERIES_METADATA_FIELDS})
+            user_id = _jellyfin_user_id_for_queries()
+            path = (
+                f"/Users/{user_id}/Items/{series_id}"
+                if user_id
+                else f"/Items/{series_id}"
+            )
+            raw = jellyfin_get(path, {"Fields": SERIES_METADATA_FIELDS})
             payload = _map_series_metadata(raw, series_id)
         except Exception:
             payload = _empty_series_metadata()

@@ -330,11 +330,14 @@ class WatchNextMetadataTests(unittest.TestCase):
                 "ImageTags": {"Thumb": "th"},
             }
 
-        with mock.patch.object(jellyfin_client, "jellyfin_get", side_effect=fake_get):
+        with (
+            mock.patch.object(jellyfin_client, "jellyfin_get", side_effect=fake_get),
+            mock.patch.object(jellyfin_client, "_jellyfin_user_id_for_queries", return_value="user-42"),
+        ):
             first = jellyfin_client._get_series_metadata("series-1")
             second = jellyfin_client._get_series_metadata("series-1")
 
-        self.assertEqual(calls, ["/Items/series-1"])
+        self.assertEqual(calls, ["/Users/user-42/Items/series-1"])
         self.assertEqual(first["genres"], ["Sci-Fi"])
         self.assertEqual(first["overview"], "Politics and survival.")
         self.assertEqual(

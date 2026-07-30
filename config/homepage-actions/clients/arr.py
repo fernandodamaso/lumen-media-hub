@@ -252,9 +252,15 @@ def _bazarr_wanted_details():
     return ep_wanted, movie_wanted, errors
 
 
-ACTIVITY_HISTORY_PATH = (
+ACTIVITY_HISTORY_BASE = (
     "/api/v3/history?page=1&pageSize=25&sortKey=date&sortDirection=descending"
 )
+
+
+def _activity_history_path(source):
+    if source == "sonarr":
+        return f"{ACTIVITY_HISTORY_BASE}&includeSeries=true&includeEpisode=true"
+    return f"{ACTIVITY_HISTORY_BASE}&includeMovie=true"
 
 ACTIVITY_EVENT_KINDS = {
     "grabbed": "grabbed",
@@ -321,7 +327,7 @@ def _fetch_activity_items(source):
         base, api_key = settings.SONARR_URL, settings.SONARR_API_KEY
     else:
         base, api_key = settings.RADARR_URL, settings.RADARR_API_KEY
-    data = _arr_get(base, api_key, ACTIVITY_HISTORY_PATH)
+    data = _arr_get(base, api_key, _activity_history_path(source))
     records = data.get("records") if isinstance(data, dict) else None
     items = []
     for record in records or []:

@@ -82,6 +82,35 @@ class ActivityMappingTests(unittest.TestCase):
         self.assertEqual(mapped["subtitle"], "2021 · 2160p WEB-DL")
         self.assertEqual(mapped["href"], f"{config.RADARR_EXTERNAL_URL}/movie/dune-2021")
 
+    def test_sonarr_nested_series_episode_titles_preferred(self):
+        record = {
+            "id": 99,
+            "eventType": "grabbed",
+            "date": "2026-07-30T00:02:00Z",
+            "series": {"title": "Nested Show", "titleSlug": "nested-show"},
+            "episode": {"seasonNumber": 2, "episodeNumber": 5},
+            "sourceTitle": "Nested.Show.S02E05.1080p",
+            "quality": {"quality": {"name": "720p HDTV"}},
+        }
+        mapped = arr_client._map_activity_record("sonarr", record)
+        self.assertEqual(mapped["title"], "Nested Show")
+        self.assertEqual(mapped["subtitle"], "S02E05 · 720p HDTV")
+        self.assertEqual(mapped["href"], f"{config.SONARR_EXTERNAL_URL}/series/nested-show")
+
+    def test_radarr_nested_movie_title_preferred(self):
+        record = {
+            "id": 88,
+            "eventType": "grabbed",
+            "date": "2026-07-30T00:03:00Z",
+            "movie": {"title": "Nested Film", "year": 1999, "titleSlug": "nested-film-1999"},
+            "sourceTitle": "Nested.Film.1999.1080p",
+            "quality": {"quality": {"name": "1080p BluRay"}},
+        }
+        mapped = arr_client._map_activity_record("radarr", record)
+        self.assertEqual(mapped["title"], "Nested Film")
+        self.assertEqual(mapped["subtitle"], "1999 · 1080p BluRay")
+        self.assertEqual(mapped["href"], f"{config.RADARR_EXTERNAL_URL}/movie/nested-film-1999")
+
     def test_missing_nested_record_falls_back_to_source_title(self):
         record = {
             "id": 7,
@@ -107,9 +136,12 @@ class ActivityFeedBuildTests(unittest.TestCase):
         def fake_get(base, api_key, path):
             self.assertIn("sortKey=date", path)
             if "sonarr" in base:
+                self.assertIn("includeSeries=true", path)
+                self.assertIn("includeEpisode=true", path)
                 if sonarr_error:
                     raise RuntimeError("sonarr down")
                 return {"records": sonarr_records or []}
+            self.assertIn("includeMovie=true", path)
             if radarr_error:
                 raise RuntimeError("radarr down")
             return {"records": radarr_records or []}

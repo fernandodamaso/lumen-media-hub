@@ -22,7 +22,7 @@ const meta: Meta<MetricCardArgs> = {
     label: { control: 'text' },
     value: { control: 'text' },
     meta: { control: 'text' },
-    progress: { control: { type: 'range', min: 0, max: 100 } },
+    progress: { control: { type: 'number', min: 0, max: 100, step: 1 } },
     href: { control: 'text' },
     external: { control: 'boolean' },
   },

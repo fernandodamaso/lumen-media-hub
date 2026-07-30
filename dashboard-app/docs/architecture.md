@@ -7,7 +7,7 @@ Single Angular app (`dashboard`) owning the shell, feature boards, design system
 | Area | Role |
 |------|------|
 | `app/` shell | Bootstrap, routes, layout, navigation, environment providers |
-| `app/ui` | Design tokens, primitives, theme picker, Storybook stories |
+| `app/ui` | Design tokens (single Lumen palette), primitives, Storybook stories |
 | `app/media-stack` | `MediaStackApi` port, mock/HTTP adapters, providers, wire DTOs + mappers |
 | Feature folders | Domain/display models, facades, boards/pages for `dashboard`, `downloads`, `reports`, `discover`, `calendar`, `automation`; shared service-health and storage facades feed the home dashboard |
 
@@ -173,9 +173,9 @@ Multi-stage build: `node:22-alpine` compiles the production-live Angular build, 
 
 The container must be deployed on the same Docker network as `homepage-actions` (`media_media-net`) for DNS resolution of the upstream service name. The `${ACTIONS_TOKEN}` variable is substituted by the official Nginx entrypoint at container startup.
 
-## Themes
+## Design tokens
 
-Tokens live in [`app/ui/media-ui.scss`](../projects/dashboard/src/app/ui/media-ui.scss). Three dark themes: Nocturne, Tokyo Night, GitHub Dark Pro.
+Tokens live in [`app/ui/media-ui.scss`](../projects/dashboard/src/app/ui/media-ui.scss). One dark theme: **Lumen** — gold/violet accents on near-black, mapped onto the existing `--mm-*` token names. Fonts are self-hosted via Fontsource (`@fontsource-variable/fraunces`, `@fontsource/inter`, `@fontsource/jetbrains-mono`) through the `styles` arrays in `angular.json`.
 
 ## Contribution baseline
 

@@ -106,4 +106,4 @@ Data layer extended to support the new cards: `getStorageOverview`, `getLibraryS
 
 ## Out of scope (intentional)
 
-Light themes, responsive certification below 960px, and per-torrent download controls remain product non-goals. Deferred premium ideas: route view transitions, theme-picker swatches, poster art direction (hash-based duotone mesh gradients), URL-synced filter state, Reports KPI strip.
+Light themes, responsive certification below 960px, and per-torrent download controls remain product non-goals. Deferred premium ideas: route view transitions, poster art direction (hash-based duotone mesh gradients), URL-synced filter state, Reports KPI strip.

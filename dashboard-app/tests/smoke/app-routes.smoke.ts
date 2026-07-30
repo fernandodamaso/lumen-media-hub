@@ -26,16 +26,15 @@ test('unknown route falls back to dashboard', async ({ page }) => {
   await expect(page).toHaveTitle('Dashboard | Media Manager', { timeout: 15_000 });
 });
 
-test('theme selection persists across direct navigation', async ({ page }) => {
+test('applies the single Lumen palette with matching theme-color', async ({ page }) => {
   await page.goto('/');
-  const html = page.locator('html');
-
-  await page.getByRole('group', { name: 'Choose theme' }).getByRole('button', { name: 'Nocturne' }).click();
-  await expect(html).toHaveAttribute('data-theme', 'nocturne');
-
-  await page.goto('/reports');
-  await expect(page.getByRole('heading', { name: 'Reports', level: 1 }).first()).toBeVisible();
-  await expect(html).toHaveAttribute('data-theme', 'nocturne');
+  expect(await page.locator('html').getAttribute('data-theme')).toBeNull();
+  await expect.poll(async () =>
+    page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--mm-color-surface-0').trim(),
+    ),
+  ).toBe('#0a0a0f');
+  expect(await page.locator('meta[name="theme-color"]').getAttribute('content')).toBe('#0a0a0f');
 });
 
 test('sidebar navigation links are present', async ({ page }) => {
@@ -84,53 +83,4 @@ test('dashboard layout stays within the viewport at mobile and desktop widths', 
   await page.setViewportSize({ width: 1600, height: 900 });
   await expectNoHorizontalOverflow(page);
   await expectAutomationReadable(page);
-});
-
-const THEMES = ['nocturne', 'tokyo-night', 'github-dark-pro'] as const;
-const THEME_BUTTON: Record<(typeof THEMES)[number], string> = {
-  nocturne: 'Nocturne',
-  'tokyo-night': 'Tokyo Night',
-  'github-dark-pro': 'GitHub Dark Pro',
-};
-
-test('theme picker stays in sync with the applied theme and theme-color', async ({ page }) => {
-  await page.goto('/');
-  await page.evaluate(() => localStorage.removeItem('media-ui-theme'));
-  await page.reload();
-
-  const html = page.locator('html');
-  const picker = page.getByRole('group', { name: 'Choose theme' });
-  await expect(html).toHaveAttribute('data-theme', 'github-dark-pro');
-  await expect(picker.getByRole('button', { name: 'GitHub Dark Pro' })).toHaveAttribute('aria-pressed', 'true');
-
-  await expect.poll(async () =>
-    page.evaluate(() => {
-      const surface = getComputedStyle(document.documentElement)
-        .getPropertyValue('--mm-color-surface-0')
-        .trim();
-      const themeColor = document.querySelector('meta[name="theme-color"]')?.getAttribute('content');
-      return surface.length > 0 && surface === themeColor;
-    }),
-  ).toBe(true);
-
-  await page.evaluate(() => localStorage.setItem('media-ui-theme', 'tokyo-night'));
-  await page.reload();
-  await expect(html).toHaveAttribute('data-theme', 'tokyo-night');
-  await expect(picker.getByRole('button', { name: 'Tokyo Night' })).toHaveAttribute('aria-pressed', 'true');
-
-  for (const theme of THEMES) {
-    await picker.getByRole('button', { name: THEME_BUTTON[theme] }).click();
-    await expect(html).toHaveAttribute('data-theme', theme);
-    await expect(picker.getByRole('button', { name: THEME_BUTTON[theme] })).toHaveAttribute('aria-pressed', 'true');
-    await expect.poll(async () =>
-      page.evaluate(() => {
-        const surface = getComputedStyle(document.documentElement)
-          .getPropertyValue('--mm-color-surface-0')
-          .trim();
-        const themeColor = document.querySelector('meta[name="theme-color"]')?.getAttribute('content');
-        return surface.length > 0 && surface === themeColor;
-      }),
-    ).toBe(true);
-    expect(await page.evaluate(() => localStorage.getItem('media-ui-theme'))).toBe(theme);
-  }
 });

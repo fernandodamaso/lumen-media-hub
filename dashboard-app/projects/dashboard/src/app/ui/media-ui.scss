@@ -311,3 +311,23 @@ mm-button:focus-visible, button:focus-visible, select:focus-visible, a:focus-vis
   outline: 3px solid var(--mm-component-focus-ring);
   outline-offset: 3px;
 }
+
+/* Scroll reveal (mmReveal directive) */
+.mm-reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  transition:
+    opacity 0.7s ease,
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mm-reveal--in {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mm-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}

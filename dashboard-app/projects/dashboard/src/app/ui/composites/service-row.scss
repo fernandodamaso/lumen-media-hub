@@ -1,0 +1,62 @@
+.svc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--mm-component-divider);
+}
+.svc-row:last-of-type {
+  border-bottom: none;
+}
+.svc-ico {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font-family: var(--mm-font-display, 'Fraunces', Georgia, serif);
+  font-style: italic;
+  font-size: 14px;
+  background: var(--mm-component-control-bg);
+  border: 1px solid var(--mm-component-border);
+  color: var(--mm-semantic-accent);
+}
+.svc-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.svc-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.svc-sub {
+  font-size: 10.5px;
+  color: var(--mm-component-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+.svc-status {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.svc-status--healthy { color: var(--mm-semantic-success); }
+.svc-status--degraded { color: var(--mm-semantic-warning); }
+.svc-status--down { color: var(--mm-semantic-danger); }
+.svc-status--unknown { color: var(--mm-component-text-muted); }
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentcolor;
+}

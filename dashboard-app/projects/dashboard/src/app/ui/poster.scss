@@ -11,6 +11,14 @@
   border-radius: var(--mm-radius-md);
   background: var(--mm-component-card-bg);
   box-shadow: var(--mm-shadow-card);
+  transition:
+    transform 0.5s var(--mm-ease-out),
+    box-shadow 0.5s var(--mm-ease-out);
+}
+
+.mm-poster:hover {
+  transform: translateY(-6px);
+  box-shadow: var(--mm-shadow-card-hover);
 }
 
 .mm-poster--unframed {
@@ -88,8 +96,14 @@
 
 .mm-poster__rating {
   flex: none;
-  color: #f2cc60;
+  color: var(--mm-component-accent);
   font-size: var(--mm-text-xs);
   font-variant-numeric: tabular-nums;
   font-weight: 800;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mm-poster {
+    transition: none;
+  }
 }

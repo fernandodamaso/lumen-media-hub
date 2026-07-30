@@ -26,7 +26,7 @@ const meta: Meta<IconButtonArgs> = {
     props: args,
     moduleMetadata: { imports: [LucideRefreshCw] },
     template: `<mm-icon-button ${argsToTemplate(args)}>
-      <svg lucideRefreshCw [size]="14" aria-hidden="true"></svg>
+      <svg lucideRefreshCw [size]="16" aria-hidden="true"></svg>
     </mm-icon-button>`,
   }),
 };
@@ -49,10 +49,10 @@ export const PauseResume: Story = {
     moduleMetadata: { imports: [MmIconButton, LucidePause, LucidePlay] },
     template: `<div style="display:flex;gap:12px">
       <mm-icon-button label="Pause Afterlight">
-        <svg lucidePause [size]="14" aria-hidden="true"></svg>
+        <svg lucidePause [size]="16" aria-hidden="true"></svg>
       </mm-icon-button>
       <mm-icon-button label="Resume Afterlight">
-        <svg lucidePlay [size]="14" aria-hidden="true"></svg>
+        <svg lucidePlay [size]="16" aria-hidden="true"></svg>
       </mm-icon-button>
     </div>`,
   }),

@@ -6,15 +6,16 @@
   width: min(480px, calc(100vw - 48px));
   margin: auto;
   padding: 0;
-  border: 1px solid var(--mm-component-border);
-  border-radius: var(--mm-radius-lg);
-  background: var(--mm-component-surface);
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: var(--mm-radius-xl);
+  background: var(--mm-color-surface-2);
   color: var(--mm-component-text-primary);
-  box-shadow: var(--mm-shadow-card);
+  box-shadow: 0 30px 80px rgb(0 0 0 / 60%);
 }
 
 .mm-dialog::backdrop {
-  background: rgb(6 7 10 / 80%);
+  background: rgb(5 5 9 / 70%);
+  backdrop-filter: blur(6px);
 }
 
 .mm-dialog__head {
@@ -31,8 +32,9 @@
   align-items: center;
   gap: var(--mm-space-sm);
   margin: 0;
-  font-size: var(--mm-text-md);
-  font-weight: 600;
+  font-family: var(--mm-font-display);
+  font-size: 20px;
+  font-weight: 500;
 }
 
 .mm-dialog__dot {

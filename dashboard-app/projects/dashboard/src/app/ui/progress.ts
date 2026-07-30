@@ -26,7 +26,7 @@ export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premie
       width: 100%;
     }
     .mm-progress {
-      height: var(--mm-progress-height, 8px);
+      height: var(--mm-progress-height, 5px);
       overflow: hidden;
       flex: 1;
       border-radius: 999px;
@@ -37,7 +37,7 @@ export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premie
       min-width: var(--mm-progress-min-fill, 0);
       border-radius: inherit;
       position: relative;
-      background: linear-gradient(90deg, color-mix(in srgb, var(--mm-progress-tone, var(--mm-component-accent)) 70%, transparent), var(--mm-progress-tone, var(--mm-component-accent)));
+      background: linear-gradient(90deg, var(--mm-progress-tone, var(--mm-component-accent)), color-mix(in srgb, var(--mm-progress-tone, var(--mm-component-accent)) 62%, #fff));
       transition: width var(--mm-transition-normal);
     }
     .mm-progress--accent { --mm-progress-tone: var(--mm-component-accent); }

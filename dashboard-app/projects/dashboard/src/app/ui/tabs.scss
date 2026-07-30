@@ -1,0 +1,34 @@
+.mm-tabs {
+  display: flex;
+  gap: 18px;
+  border-bottom: 1px solid var(--mm-component-divider);
+}
+.mm-tabs__tab {
+  margin: 0;
+  padding: 10px 2px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--mm-component-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  position: relative;
+}
+.mm-tabs__tab--active {
+  color: var(--mm-component-text-primary);
+}
+.mm-tabs__tab--active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--mm-semantic-accent);
+  border-radius: 2px 2px 0 0;
+}
+.mm-tabs__tab:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
+}

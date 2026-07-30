@@ -1,12 +1,10 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { computed, signal } from '@angular/core';
+import { signal } from '@angular/core';
 import { provideRouter } from '@angular/router';
-import { groupCalendarEvents } from '../../calendar/calendar-format';
 import { vi } from 'vitest';
-import { formatRelativeTime } from '../../automation/automation-format';
-import { AutomationFacade, AutomationStatus } from '../../automation/automation.facade';
-import { ServiceHealthFacade, ServiceHealthStatus } from '../../automation/service-health.facade';
-import { CalendarFacade, CalendarRailEvent, CalendarStatus } from '../../calendar/calendar.facade';
+import { ServiceHealthFacade } from '../../automation/service-health.facade';
+import { AutomationFacade } from '../../automation/automation.facade';
+import { CalendarFacade } from '../../calendar/calendar.facade';
 import { DownloadsAction, DownloadsFacade, DownloadsStatus } from '../../downloads/downloads.facade';
 import { DownloadTorrent } from '../../downloads/downloads.models';
 import { LibraryStatsFacade, LibraryStatsStatus } from '../../library/library-stats.facade';
@@ -14,454 +12,64 @@ import { LibraryItemsFacade, LibraryItemsStatus } from '../../library/library-it
 import { WatchNextFacade, WatchNextStatus } from '../../library/watch-next.facade';
 import { WatchNextItem } from '../../library/watch-next.models';
 import { LibraryItem, LibraryStats } from '../../library/library.models';
-import { StorageFacade, StorageStatus } from '../../storage/storage.facade';
+import { StorageFacade } from '../../storage/storage.facade';
 import { StorageOverview } from '../../storage/storage.models';
-import { CronRun } from '../../reports/reports.models';
-import { AutomationSummary, summarizeAutomationHealth } from '../../automation/automation.models';
+import { ActivityFacade } from '../../right-rail/activity.facade';
+import { TrendingFacade, TrendingItem, TrendingStatus } from '../trending.facade';
+import { HeroFacade } from '../dashboard-hero/hero.facade';
 import { fixtureHost } from '../../../testing/fixture-host';
 import { DashboardPage } from './dashboard-page';
 
-describe('DashboardPage composition', () => {
-  let fixture: ComponentFixture<DashboardPage>;
-  let health: ReturnType<typeof createServiceHealthFacade>;
-  let library: ReturnType<typeof createLibraryStatsFacade>;
-  let libraryItems: ReturnType<typeof createLibraryItemsFacade>;
-  let watchNext: ReturnType<typeof createWatchNextFacade>;
-  let downloads: ReturnType<typeof createDownloadsFacade>;
-  let automation: ReturnType<typeof createAutomationFacade>;
-  let calendar: ReturnType<typeof createCalendarFacade>;
-  let storage: ReturnType<typeof createStorageFacade>;
+function watchNextItem(overrides: Partial<WatchNextItem> = {}): WatchNextItem {
+  return {
+    id: 'e1',
+    parentId: 's1',
+    title: 'Night Watch',
+    subtitle: 'S01E01 · Pilot',
+    kind: 'episode',
+    art: 'linear-gradient(#000, #111)',
+    artworkState: 'ok',
+    href: 'http://jf/web/index.html#!/details?id=e1',
+    playable: true,
+    progressPercent: 64,
+    year: 2026,
+    rating: 8.1,
+    genres: ['Drama'],
+    overview: '',
+    runtimeTicks: null,
+    positionTicks: null,
+    backdropUrl: null,
+    thumbUrl: 'http://jf/Items/e1/Images/Thumb',
+    ...overrides,
+  };
+}
 
-  beforeEach(() => {
-    health = createServiceHealthFacade();
-    library = createLibraryStatsFacade();
-    libraryItems = createLibraryItemsFacade();
-    watchNext = createWatchNextFacade();
-    downloads = createDownloadsFacade();
-    automation = createAutomationFacade();
-    calendar = createCalendarFacade();
-    storage = createStorageFacade();
+function libraryItem(overrides: Partial<LibraryItem> = {}): LibraryItem {
+  return {
+    id: 'lib-1',
+    title: 'After Us',
+    kind: 'series',
+    meta: '2026 · Series',
+    art: 'linear-gradient(#111, #222)',
+    overview: '',
+    href: null,
+    artworkState: 'ok',
+    playable: true,
+    ...overrides,
+  };
+}
 
-    TestBed.configureTestingModule({
-      imports: [DashboardPage],
-      providers: [
-        provideRouter([]),
-        { provide: ServiceHealthFacade, useValue: health },
-        { provide: LibraryStatsFacade, useValue: library },
-        { provide: LibraryItemsFacade, useValue: libraryItems },
-        { provide: WatchNextFacade, useValue: watchNext },
-      ],
-    });
-    TestBed.overrideComponent(DashboardPage, {
-      set: {
-        providers: [
-          { provide: DownloadsFacade, useValue: downloads },
-          { provide: AutomationFacade, useValue: automation },
-          { provide: CalendarFacade, useValue: calendar },
-          { provide: StorageFacade, useValue: storage },
-        ],
-      },
-    });
-    fixture = TestBed.createComponent(DashboardPage);
-  });
-
-  it('composes pagehead, metrics, and dashboard cards', () => {
-    setReady();
-    fixture.detectChanges();
-
-    const root = fixtureHost(fixture);
-    expect(root.querySelector('.pagehead h1')?.textContent).toContain('Dashboard');
-    expect(root.querySelector('.pagehead')?.textContent).toMatch(/download.? active/);
-    expect(root.querySelector('.metrics-row')).toBeTruthy();
-    expect(root.querySelector('mm-attention-banner')).toBeNull();
-
-    const grid = root.querySelector('[data-testid="dashboard-grid"]');
-    expect(grid).toBeTruthy();
-
-    const regions = Array.from(root.querySelectorAll('[data-region]')).map(
-      (node) => node.getAttribute('data-region'),
-    );
-    expect(regions).toEqual(['library', 'upcoming', 'downloads', 'automation']);
-
-    expect(root.querySelector('#library-heading')?.textContent).toContain('Library');
-    expect(root.querySelector('#upcoming-heading')?.textContent).toContain('Upcoming');
-    expect(root.querySelector('#downloads-heading')?.textContent).toContain('Downloads');
-    expect(root.querySelector('#automation-heading')?.textContent).toContain('Connected services');
-  });
-
-  it('declares a twelve-column dashboard grid with card spans', () => {
-    fixture.detectChanges();
-    const styles = dashboardStyles();
-
-    expect(styles).toContain('grid-template-columns: repeat(12, minmax(0, 1fr))');
-    expect(styles).toContain('grid-column: span 8');
-    expect(styles).toContain('grid-column: span 4');
-    expect(styles).toContain('grid-column: span 7');
-    expect(styles).toContain('grid-column: span 5');
-    expect(styles).toContain('container-type: inline-size');
-    expect(styles).toContain('gap: 18px');
-  });
-
-  it('collapses the grid to full-width cards on smaller viewports', () => {
-    fixture.detectChanges();
-    const styles = dashboardStyles();
-    expect(styles).toContain('@container (max-width: 959px)');
-    expect(styles).toMatch(/@container \(max-width: 959px\)[\s\S]*grid-column:\s*span 12;/);
-    expect(styles).toContain('@container (max-width: 639px)');
-  });
-
-  it('keeps other regions usable when one feature fails', () => {
-    library.status.set('error');
-    library.error.set('Library stats offline');
-    libraryItems.status.set('ready');
-    health.status.set('ready');
-    health.summary.set({
-      generatedAt: new Date().toISOString(),
-      services: [{ id: 'jellyfin', name: 'Jellyfin', status: 'healthy', detail: '', latencyMs: 10 }],
-      problems: [],
-      preview: [],
-      availability: { services: 'present', preview: 'empty', problems: 'empty' },
-    });
-    downloads.status.set('ready');
-    downloads.torrents.set([torrent()]);
-    automation.status.set('ready');
-    calendar.status.set('empty');
-    watchNext.status.set('ready');
-    storage.status.set('ready');
-    storage.overview.set(storageOverview());
-    fixture.detectChanges();
-
-    const root = fixtureHost(fixture);
-    expect(root.querySelector('.metrics-row')?.textContent).toContain('Library');
-    expect(root.querySelector('.metrics-row')?.textContent).toContain('—');
-    expect(root.querySelector('[data-region="downloads"]')).toBeTruthy();
-    expect(root.querySelector('[data-region="upcoming"]')).toBeTruthy();
-    expect(root.querySelector('[data-region="automation"]')).toBeTruthy();
-    expect(root.querySelector('[data-testid="dashboard-grid"]')).toBeTruthy();
-  });
-
-  it('shows shimmer skeletons in the metrics row while the dashboard gate is active', () => {
-    library.status.set('loading');
-    libraryItems.status.set('loading');
-    watchNext.status.set('loading');
-    downloads.status.set('loading');
-    health.status.set('loading');
-    storage.status.set('loading');
-    calendar.status.set('loading');
-    fixture.detectChanges();
-
-    const root = fixtureHost(fixture);
-    const metrics = root.querySelector('.metrics-row');
-    expect(metrics?.querySelectorAll('mm-skeleton').length).toBeGreaterThan(0);
-    expect(metrics?.querySelectorAll('.metric-card--skeleton')).toHaveLength(4);
-    expect(metrics?.textContent).not.toMatch(/0 downloads active/);
-    expect(metrics?.textContent).not.toMatch(/0\s*\/\s*0/);
-  });
-
-  it('keeps metric skeletons until all core facades leave loading', () => {
-    library.status.set('ready');
-    library.stats.set({ movies: 12, series: 3, availability: 'complete' });
-    libraryItems.status.set('ready');
-    health.status.set('ready');
-    health.summary.set({
-      generatedAt: new Date().toISOString(),
-      services: [{ id: 'jellyfin', name: 'Jellyfin', status: 'healthy', detail: '', latencyMs: 10 }],
-      problems: [],
-      preview: [],
-      availability: { services: 'present', preview: 'empty', problems: 'empty' },
-    });
-    storage.status.set('ready');
-    storage.overview.set(storageOverview());
-    calendar.status.set('ready');
-    watchNext.status.set('ready');
-    downloads.status.set('loading');
-    fixture.detectChanges();
-
-    const metrics = fixtureHost(fixture).querySelector('.metrics-row');
-    expect(metrics?.querySelectorAll('.metric-card--skeleton')).toHaveLength(4);
-    expect(fixture.componentInstance.isLoading()).toBe(true);
-  });
-
-  it('exposes coordinated card reveal markup while the dashboard gate is active', () => {
-    library.status.set('loading');
-    libraryItems.status.set('loading');
-    watchNext.status.set('loading');
-    downloads.status.set('loading');
-    health.status.set('loading');
-    storage.status.set('loading');
-    calendar.status.set('loading');
-    fixture.detectChanges();
-
-    const root = fixtureHost(fixture);
-    expect(root.querySelector('[data-testid="library-card"] .card__skeleton')).toBeTruthy();
-    expect(root.querySelector('[data-testid="library-card"] .card__chrome-skeleton')).toBeTruthy();
-    expect(root.querySelector('[data-testid="library-card"] .card__foot-skeleton')).toBeTruthy();
-    expect(root.querySelector('[data-testid="library-card"] .card__inner')).toBeTruthy();
-  });
-
-  it('shows ready card content when a sibling facade is still loading (D2)', () => {
-    library.status.set('loading');
-    library.stats.set(null);
-    libraryItems.status.set('loading');
-    watchNext.status.set('loading');
-    // Health is ready with data
-    health.status.set('ready');
-    health.summary.set({
-      generatedAt: new Date().toISOString(),
-      services: [{ id: 'jellyfin', name: 'Jellyfin', status: 'healthy', detail: '', latencyMs: 10 }],
-      problems: [],
-      preview: [],
-      availability: { services: 'present', preview: 'empty', problems: 'empty' },
-    });
-    downloads.status.set('ready');
-    downloads.torrents.set([torrent()]);
-    downloads.summary.set({ active: 1, total: 1, downloaded: 50, size: 100, downloadRate: 10, uploadRate: 2 });
-    automation.status.set('ready');
-    automation.tasks.set([cronRun()]);
-    calendar.status.set('empty');
-    watchNext.status.set('loading');
-    storage.status.set('ready');
-    storage.overview.set(storageOverview());
-    fixture.detectChanges();
-
-    const root = fixtureHost(fixture);
-    // Library is loading — its skeleton content must be visible (not display:none)
-    const libSkeletonMain = root.querySelector('[data-testid="library-card"] .card__skeleton-main');
-    expect(libSkeletonMain).toBeTruthy();
-    expect(window.getComputedStyle(libSkeletonMain as HTMLElement).display).toBe('grid');
-    // Health is ready — its content should not be hidden
-    const healthCard = root.querySelector('[data-testid="automation-card"]');
-    expect(healthCard?.textContent).toContain('Connected services');
-    expect(healthCard?.textContent).toContain('Jellyfin');
-    // Downloads is ready — its torrent list should be visible
-    expect(root.querySelector('[data-testid="downloads-card"] .torrent-list')).toBeTruthy();
-    // The grid itself is always rendered
-    expect(root.querySelector('[data-testid="dashboard-grid"]')).toBeTruthy();
-  });
-
-  it('shows error state in one card while another card is still loading (D2)', () => {
-    library.status.set('loading');
-    libraryItems.status.set('loading');
-    watchNext.status.set('loading');
-    // Downloads hits error while library loads
-    downloads.status.set('error');
-    downloads.error.set('Connection lost');
-    health.status.set('ready');
-    health.summary.set({
-      generatedAt: new Date().toISOString(),
-      services: [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: '', latencyMs: 12 }],
-      problems: [],
-      preview: [],
-      availability: { services: 'present', preview: 'empty', problems: 'empty' },
-    });
-    automation.status.set('ready');
-    automation.tasks.set([cronRun()]);
-    calendar.status.set('empty');
-    watchNext.status.set('loading');
-    storage.status.set('ready');
-    storage.overview.set(storageOverview());
-    fixture.detectChanges();
-
-    const root = fixtureHost(fixture);
-    const libSkeletonMain = root.querySelector('[data-testid="library-card"] .card__skeleton-main');
-    expect(libSkeletonMain).toBeTruthy();
-    expect(window.getComputedStyle(libSkeletonMain as HTMLElement).display).toBe('grid');
-    expect(root.querySelector('[data-testid="downloads-card"] mm-state-card')?.textContent).toContain('Connection lost');
-  });
-
-  it('keeps card region headings visible while its facade is loading (D3)', () => {
-    library.status.set('loading');
-    library.stats.set(null);
-    libraryItems.status.set('loading');
-    watchNext.status.set('loading');
-    // Other facades ready so the class-based loader is irrelevant
-    health.status.set('loading');
-    downloads.status.set('loading');
-    automation.status.set('ready');
-    automation.tasks.set([cronRun()]);
-    calendar.status.set('empty');
-    storage.status.set('ready');
-    storage.overview.set(storageOverview());
-    fixture.detectChanges();
-
-    const root = fixtureHost(fixture);
-    // The h2 that labels the card via aria-labelledby must not be hidden
-    const heading = root.querySelector('#library-heading');
-    expect(heading).toBeTruthy();
-    expect(heading?.classList.contains('card__heading')).toBe(true);
-    expect(window.getComputedStyle(heading as HTMLElement).visibility).not.toBe('hidden');
-  });
-
-  it('clears the dashboard loading gate when core facades are ready', () => {
-    setReady();
-    libraryItems.status.set('ready');
-    fixture.detectChanges();
-    expect(fixture.componentInstance.isLoading()).toBe(false);
-  });
-
-  it('renders regions immediately without an entrance animation', () => {
-    fixture.detectChanges();
-    const styles = dashboardStyles();
-    expect(styles).not.toMatch(/@keyframes[\s\S]*region-enter/);
-    expect(styles).not.toContain('animation: region-enter');
-    expect(fixtureHost(fixture).querySelectorAll('.region')).toHaveLength(4);
-  });
-
-  it('falls back syncedAt to lastFetchedAt when generatedAt is empty', () => {
-    setReady();
-    health.summary.set({
-      generatedAt: '',
-      services: [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: '', latencyMs: 10 }],
-      problems: [],
-      preview: [],
-      availability: { services: 'present', preview: 'empty', problems: 'empty' },
-    });
-    storage.overview.set({
-      generatedAt: '',
-      volumes: storageOverview().volumes,
-    });
-    health.lastFetchedAt.set('2026-07-22T11:00:00Z');
-    library.lastFetchedAt.set('');
-    downloads.lastFetchedAt.set('');
-    storage.lastFetchedAt.set('');
-    calendar.lastFetchedAt.set('');
-    automation.lastFetchedAt.set('');
-    fixture.detectChanges();
-
-    expect(fixture.componentInstance.syncedAt()).toBe(formatRelativeTime('2026-07-22T11:00:00Z'));
-  });
-
-  it('refreshes all dashboard facades from onRefresh', () => {
-    setReady();
-    fixture.detectChanges();
-    fixture.componentInstance.onRefresh();
-    expect(health.refresh).toHaveBeenCalled();
-    expect(library.refresh).toHaveBeenCalled();
-    expect(libraryItems.refresh).toHaveBeenCalled();
-    expect(watchNext.refresh).toHaveBeenCalled();
-    expect(downloads.refresh).toHaveBeenCalled();
-    expect(storage.refresh).toHaveBeenCalled();
-    expect(calendar.refresh).toHaveBeenCalled();
-    expect(automation.refresh).toHaveBeenCalled();
-  });
-
-  it('starts dashboard-only polling on create and stops it on destroy', () => {
-    fixture.detectChanges();
-    expect(downloads.startPolling).toHaveBeenCalledTimes(1);
-    expect(storage.startPolling).toHaveBeenCalledTimes(1);
-    expect(calendar.startPolling).toHaveBeenCalledTimes(1);
-    expect(automation.startPolling).toHaveBeenCalledTimes(1);
-    expect(health.startPolling).not.toHaveBeenCalled();
-
-    fixture.destroy();
-    expect(downloads.stopPolling).toHaveBeenCalledTimes(1);
-    expect(storage.stopPolling).toHaveBeenCalledTimes(1);
-    expect(calendar.stopPolling).toHaveBeenCalledTimes(1);
-    expect(automation.stopPolling).toHaveBeenCalledTimes(1);
-  });
-
-  it('prefers health generatedAt over a newer health lastFetchedAt', () => {
-    setReady();
-    health.summary.set({
-      generatedAt: '2026-07-22T12:00:00Z',
-      services: [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: '', latencyMs: 10 }],
-      problems: [],
-      preview: [],
-      availability: { services: 'present', preview: 'empty', problems: 'empty' },
-    });
-    storage.overview.set({
-      generatedAt: '2026-07-22T09:00:00Z',
-      volumes: storageOverview().volumes,
-    });
-    health.lastFetchedAt.set('2026-07-22T12:30:00Z');
-    library.lastFetchedAt.set('2026-07-22T11:00:00Z');
-    downloads.lastFetchedAt.set('2026-07-22T11:15:00Z');
-    storage.lastFetchedAt.set('2026-07-22T09:30:00Z');
-    automation.lastFetchedAt.set('2026-07-22T11:30:00Z');
-    calendar.lastFetchedAt.set('2026-07-22T11:45:00Z');
-    fixture.detectChanges();
-
-    expect(fixture.componentInstance.syncedAt()).toBe(formatRelativeTime('2026-07-22T12:00:00Z'));
-  });
-
-  it('prefers the newest freshness timestamp across dashboard facades', () => {
-    setReady();
-    health.summary.set({
-      generatedAt: '2026-07-22T10:00:00Z',
-      services: [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: '', latencyMs: 10 }],
-      problems: [],
-      preview: [],
-      availability: { services: 'present', preview: 'empty', problems: 'empty' },
-    });
-    storage.overview.set({
-      generatedAt: '2026-07-22T09:00:00Z',
-      volumes: storageOverview().volumes,
-    });
-    health.lastFetchedAt.set('2026-07-22T10:30:00Z');
-    library.lastFetchedAt.set('2026-07-22T11:00:00Z');
-    downloads.lastFetchedAt.set('2026-07-22T11:15:00Z');
-    storage.lastFetchedAt.set('2026-07-22T09:30:00Z');
-    automation.lastFetchedAt.set('2026-07-22T11:30:00Z');
-    calendar.lastFetchedAt.set('2026-07-22T12:00:00Z');
-    fixture.detectChanges();
-
-    expect(fixture.componentInstance.syncedAt()).toBe(formatRelativeTime('2026-07-22T12:00:00Z'));
-  });
-
-  function setReady(): void {
-    health.status.set('ready');
-    libraryItems.status.set('ready');
-    watchNext.status.set('ready');
-    watchNext.items.set([
-      {
-        id: 'e1',
-        parentId: 's1',
-        title: 'Night Watch',
-        subtitle: 'S01E01 · Pilot',
-        kind: 'episode',
-        art: 'linear-gradient(#000, #111)',
-        artworkState: 'ok',
-        href: null,
-        playable: true,
-        progressPercent: 0,
-        year: null,
-        rating: null,
-        genres: [],
-        overview: null,
-        runtimeTicks: null,
-        positionTicks: null,
-        backdropUrl: null,
-        thumbUrl: null,
-      },
-    ]);
-    health.summary.set({
-      generatedAt: new Date().toISOString(),
-      services: [
-        { id: 'jellyfin', name: 'Jellyfin', status: 'healthy', detail: '', latencyMs: 18 },
-        { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: '2 warnings', latencyMs: 350 },
-      ],
-      problems: [{ id: 'p1', summary: 'Prowlarr warning', serviceId: 'prowlarr', severity: 'actionable' }],
-      preview: [],
-      availability: { services: 'present', preview: 'empty', problems: 'present' },
-    });
-    library.status.set('ready');
-    library.stats.set({ movies: 428, series: 76, availability: 'complete' });
-    downloads.status.set('ready');
-    downloads.torrents.set([torrent()]);
-    downloads.summary.set({ active: 1, total: 1, downloaded: 50, size: 100, downloadRate: 10, uploadRate: 2 });
-    automation.status.set('ready');
-    automation.tasks.set([cronRun()]);
-    calendar.status.set('ready');
-    calendar.events.set([calendarEvent()]);
-    storage.status.set('ready');
-    storage.overview.set(storageOverview());
-  }
-});
-
-function dashboardStyles(): string {
-  return Array.from(document.querySelectorAll('style'))
-    .map((node) => node.textContent)
-    .join('\n');
+function trendingItem(overrides: Partial<TrendingItem> = {}): TrendingItem {
+  return {
+    id: 'trakt-tv-1',
+    title: 'Wasteland',
+    year: 2026,
+    type: 'tv',
+    posterUrl: null,
+    rating: null,
+    rank: 1,
+    ...overrides,
+  };
 }
 
 function torrent(): DownloadTorrent {
@@ -479,172 +87,210 @@ function torrent(): DownloadTorrent {
   };
 }
 
-function calendarEvent(): CalendarRailEvent {
-  return {
-    id: 'ep-1',
-    title: 'Cowboy Bebop',
-    subtitle: 'S1E1',
-    time: '18:00',
-    kind: 'episode',
-    status: 'pending',
-    airDate: '2026-07-12T18:00:00Z',
-    href: 'http://localhost:8989/series/cowboy-bebop',
+describe('DashboardPage composition', () => {
+  let fixture: ComponentFixture<DashboardPage>;
+  let watchNext: {
+    status: ReturnType<typeof signal<WatchNextStatus>>;
+    items: ReturnType<typeof signal<WatchNextItem[]>>;
+    totalCount: ReturnType<typeof signal<number>>;
+    error: ReturnType<typeof signal<string>>;
+    refresh: ReturnType<typeof vi.fn>;
   };
-}
+  let libraryItems: {
+    status: ReturnType<typeof signal<LibraryItemsStatus>>;
+    items: ReturnType<typeof signal<LibraryItem[]>>;
+    error: ReturnType<typeof signal<string>>;
+    refresh: ReturnType<typeof vi.fn>;
+  };
+  let libraryStats: {
+    status: ReturnType<typeof signal<LibraryStatsStatus>>;
+    stats: ReturnType<typeof signal<LibraryStats | null>>;
+    error: ReturnType<typeof signal<string>>;
+    refresh: ReturnType<typeof vi.fn>;
+  };
+  let trending: {
+    status: ReturnType<typeof signal<TrendingStatus>>;
+    items: ReturnType<typeof signal<TrendingItem[]>>;
+    error: ReturnType<typeof signal<string>>;
+    refresh: ReturnType<typeof vi.fn>;
+  };
+  let downloads: Record<string, unknown>;
+  let storage: Record<string, unknown>;
+  let calendar: Record<string, unknown>;
+  let automation: Record<string, unknown>;
+  let activity: Record<string, unknown>;
+  let health: Record<string, unknown>;
 
-function cronRun(): CronRun {
-  return {
-    id: 'run-1',
-    jobId: 'watchdog',
-    jobTitle: 'Watchdog',
-    status: 'ok',
-    triage: 'quiet' as const,
-    timestamp: new Date().toISOString(),
-    detail: 'All services are healthy',
-    fatal: null,
-    applied: null,
-    exitCode: null,
-    schedule: 'Monitoring',
-  };
-}
+  beforeEach(() => {
+    watchNext = {
+      status: signal<WatchNextStatus>('ready'),
+      items: signal<WatchNextItem[]>([watchNextItem()]),
+      totalCount: signal(1),
+      error: signal(''),
+      refresh: vi.fn(),
+    };
+    libraryItems = {
+      status: signal<LibraryItemsStatus>('ready'),
+      items: signal<LibraryItem[]>([libraryItem()]),
+      error: signal(''),
+      refresh: vi.fn(),
+    };
+    libraryStats = {
+      status: signal<LibraryStatsStatus>('ready'),
+      stats: signal<LibraryStats | null>({ movies: 428, series: 76, availability: 'complete' }),
+      error: signal(''),
+      refresh: vi.fn(),
+    };
+    trending = {
+      status: signal<TrendingStatus>('ready'),
+      items: signal<TrendingItem[]>([trendingItem(), trendingItem({ id: 'trakt-movie-2', title: 'Frontline', type: 'movie', rank: 2 })]),
+      error: signal(''),
+      refresh: vi.fn(),
+    };
+    downloads = {
+      status: signal<DownloadsStatus>('ready'),
+      torrents: signal<DownloadTorrent[]>([torrent()]),
+      error: signal(''),
+      notice: signal(''),
+      pendingAction: signal<DownloadsAction | null>(null),
+      pendingTorrentId: signal<string | null>(null),
+      summary: signal({ active: 1, total: 1, downloaded: 50, size: 100, downloadRate: 10, uploadRate: 2 }),
+      canPauseAll: signal(true),
+      canResumeAll: signal(false),
+      startPolling: vi.fn(),
+      stopPolling: vi.fn(),
+      refresh: vi.fn(),
+      runAction: vi.fn(),
+      runTorrentAction: vi.fn(),
+    };
+    storage = {
+      status: signal('ready'),
+      overview: signal<StorageOverview | null>({
+        generatedAt: '',
+        volumes: [{ id: 'media', label: 'Media library', kind: 'library', usedBytes: 5 * 1024 ** 3, totalBytes: 10 * 1024 ** 3 }],
+      }),
+      volumes: signal([{ id: 'media', label: 'Media library', kind: 'library', usedBytes: 5 * 1024 ** 3, totalBytes: 10 * 1024 ** 3 }]),
+      refresh: vi.fn(),
+    };
+    calendar = { status: signal('ready'), refresh: vi.fn() };
+    automation = { status: signal('ready'), refresh: vi.fn() };
+    activity = { status: signal('ready'), refresh: vi.fn() };
+    health = {
+      status: signal('ready'),
+      services: signal([{ id: 'jellyfin', name: 'Jellyfin', status: 'healthy', detail: '', latencyMs: 10 }]),
+      health: signal({ overall: 'healthy' as const, actionableCount: 0 }),
+      refresh: vi.fn(),
+    };
 
-function storageOverview(): StorageOverview {
-  return {
-    generatedAt: new Date().toISOString(),
-    volumes: [
-      { id: 'media', label: 'Media library', kind: 'library', usedBytes: 4.8 * 1024 ** 4, totalBytes: 7.2 * 1024 ** 4 },
-      { id: 'downloads', label: 'Downloads', kind: 'downloads', usedBytes: 324 * 1024 ** 3, totalBytes: 1 * 1024 ** 4 },
-      { id: 'cache', label: 'Cache & temp', kind: 'cache', usedBytes: 68 * 1024 ** 3, totalBytes: 500 * 1024 ** 3 },
-    ],
-  };
-}
+    TestBed.configureTestingModule({
+      imports: [DashboardPage],
+      providers: [
+        provideRouter([]),
+        { provide: ServiceHealthFacade, useValue: health },
+        { provide: LibraryStatsFacade, useValue: libraryStats },
+        { provide: LibraryItemsFacade, useValue: libraryItems },
+        { provide: WatchNextFacade, useValue: watchNext },
+        { provide: TrendingFacade, useValue: trending },
+        { provide: DownloadsFacade, useValue: downloads },
+        { provide: StorageFacade, useValue: storage },
+        { provide: CalendarFacade, useValue: calendar },
+        { provide: AutomationFacade, useValue: automation },
+        { provide: ActivityFacade, useValue: activity },
+        { provide: HeroFacade, useValue: { view: signal(null) } },
+      ],
+    });
+    fixture = TestBed.createComponent(DashboardPage);
+  });
 
-function createServiceHealthFacade() {
-  const summary = signal<AutomationSummary | null>(null);
-  const lastFetchedAt = signal('');
-  return {
-    status: signal<ServiceHealthStatus>('loading'),
-    summary,
-    services: computed(() => summary()?.services ?? []),
-    problems: computed(() => summary()?.problems ?? []),
-    generatedAt: computed(() => summary()?.generatedAt ?? ''),
-    lastFetchedAt,
-    health: computed(() => {
-      const current = summary();
-      return current
-        ? summarizeAutomationHealth(current)
-        : { overall: 'unknown' as const, actionableCount: 0 };
-    }),
-    error: signal(''),
-    startPolling: vi.fn(),
-    refresh: vi.fn(),
-  };
-}
+  it('renders the hero above the stat strip when a candidate qualifies', () => {
+    fixture.detectChanges();
+    const hero = fixtureHost(fixture).querySelector('mm-dashboard-hero');
+    const strip = fixtureHost(fixture).querySelector('mm-stat-strip');
+    expect(hero).toBeTruthy();
+    expect(strip).toBeTruthy();
+    const children = Array.from(fixtureHost(fixture).children);
+    expect(children.indexOf(hero as Element)).toBeLessThan(children.indexOf(strip as Element));
+  });
 
-function createLibraryStatsFacade() {
-  return {
-    status: signal<LibraryStatsStatus>('loading'),
-    stats: signal<LibraryStats | null>(null),
-    error: signal(''),
-    availability: signal<'complete' | 'partial'>('complete'),
-    refreshing: signal(false),
-    lastFetchedAt: signal(''),
-    refresh: vi.fn(),
-  };
-}
+  it('renders stat strip, three rails, and the downloads section', () => {
+    fixture.detectChanges();
+    const root = fixtureHost(fixture);
 
-function createWatchNextFacade() {
-  return {
-    status: signal<WatchNextStatus>('loading'),
-    items: signal<WatchNextItem[]>([]),
-    error: signal(''),
-    refreshing: signal(false),
-    lastFetchedAt: signal(''),
-    movies: signal<WatchNextItem[]>([]),
-    series: signal<WatchNextItem[]>([]),
-    movieCount: signal(0),
-    seriesCount: signal(0),
-    totalCount: signal(0),
-    refresh: vi.fn(),
-  };
-}
+    expect(root.querySelector('h1')?.textContent).toContain('Dashboard');
+    expect(root.querySelector('mm-stat-strip')).toBeTruthy();
 
-function createLibraryItemsFacade() {
-  return {
-    status: signal<LibraryItemsStatus>('loading'),
-    items: signal<LibraryItem[]>([]),
-    error: signal(''),
-    availability: signal<'complete' | 'partial'>('complete'),
-    refreshing: signal(false),
-    lastFetchedAt: signal(''),
-    movieCount: signal(0),
-    seriesCount: signal(0),
-    totalCount: signal(0),
-    refresh: vi.fn(),
-  };
-}
+    const headings = Array.from(root.querySelectorAll('.rail-head h2')).map((node) => node.textContent.trim());
+    expect(headings).toEqual(['Continue Watching', 'Trending Now', 'Recently Added']);
+    expect(root.querySelector('#downloads h2')?.textContent).toContain('Downloads');
+    expect(root.querySelector('[data-testid="dashboard-grid"]')).toBeNull();
+  });
 
-function createDownloadsFacade() {
-  return {
-    status: signal<DownloadsStatus>('loading'),
-    torrents: signal<DownloadTorrent[]>([]),
-    error: signal(''),
-    notice: signal(''),
-    pendingAction: signal<DownloadsAction | null>(null),
-    pendingTorrentId: signal<string | null>(null),
-    summary: signal({ active: 0, total: 0, downloaded: 0, size: 0, downloadRate: 0, uploadRate: 0 }),
-    nextAction: signal<DownloadsAction | null>(null),
-    canPauseAll: signal(false),
-    canResumeAll: signal(false),
-    lastFetchedAt: signal(''),
-    startPolling: vi.fn(),
-    stopPolling: vi.fn(),
-    refresh: vi.fn(),
-    runAction: vi.fn(),
-    runTorrentAction: vi.fn(),
-  };
-}
+  it('renders continue-watching cards with art, subtitle, and progress', () => {
+    fixture.detectChanges();
+    const card = fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .cw-card');
+    expect(card?.getAttribute('href')).toContain('details?id=e1');
+    expect(card?.textContent).toContain('Night Watch');
+    expect(card?.textContent).toContain('S01E01 · Pilot');
+    const art = card?.querySelector('.cw-card__art') as HTMLElement;
+    expect(art.style.background).toContain('Thumb');
+    const bar = card?.querySelector('.cw-bar i') as HTMLElement;
+    expect(bar.style.width).toBe('64%');
+  });
 
-function createAutomationFacade() {
-  return {
-    status: signal<AutomationStatus>('loading'),
-    summary: signal<AutomationSummary | null>(null),
-    error: signal(''),
-    health: signal({ overall: 'unknown' as const, actionableCount: 0 }),
-    tasks: signal<CronRun[]>([]),
-    latestRuns: signal<CronRun[]>([]),
-    lastFetchedAt: signal(''),
-    startPolling: vi.fn(),
-    stopPolling: vi.fn(),
-    refresh: vi.fn(),
-  };
-}
+  it('shows an empty state for continue watching when nothing is in progress', () => {
+    watchNext.status.set('empty');
+    watchNext.items.set([]);
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] mm-state-card')?.textContent).toContain(
+      'Nothing in progress',
+    );
+  });
 
-function createCalendarFacade() {
-  const events = signal<CalendarRailEvent[]>([]);
-  return {
-    status: signal<CalendarStatus>('loading'),
-    events,
-    groups: computed(() => groupCalendarEvents(events())),
-    error: signal(''),
-    lastFetchedAt: signal(''),
-    startPolling: vi.fn(),
-    stopPolling: vi.fn(),
-    refresh: vi.fn(),
-  };
-}
+  it('renders trending posters with rail-local rank badges', () => {
+    fixture.detectChanges();
+    const posters = fixtureHost(fixture).querySelectorAll('[data-testid="trending-rail"] .poster-card');
+    expect(posters).toHaveLength(2);
+    expect(posters[0].querySelector('.poster-card__rank')?.textContent).toBe('1');
+    expect(posters[1].querySelector('.poster-card__rank')?.textContent).toBe('2');
+    expect(posters[1].textContent).toContain('Frontline');
+    expect(posters[1].textContent).toContain('Film');
+  });
 
-function createStorageFacade() {
-  const overview = signal<StorageOverview | null>(null);
-  return {
-    status: signal<StorageStatus>('loading'),
-    overview,
-    volumes: computed(() => overview()?.volumes ?? []),
-    generatedAt: computed(() => overview()?.generatedAt ?? ''),
-    error: signal(''),
-    lastFetchedAt: signal(''),
-    startPolling: vi.fn(),
-    stopPolling: vi.fn(),
-    refresh: vi.fn(),
-  };
-}
+  it('renders recently added landscape cards', () => {
+    fixture.detectChanges();
+    const card = fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .cw-card');
+    expect(card?.textContent).toContain('After Us');
+    expect(card?.textContent).toContain('2026 · Series');
+  });
+
+  it('renders the downloads queue with per-item pause and pause-all actions', () => {
+    fixture.detectChanges();
+    const root = fixtureHost(fixture);
+    expect(root.querySelector('#downloads .dl-item')?.textContent).toContain('Signal Drift');
+
+    const pauseItem = root.querySelector('#downloads .dl-item mm-icon-button button') as HTMLButtonElement;
+    pauseItem.click();
+    expect(downloads['runTorrentAction']).toHaveBeenCalledWith('a', 'pause');
+
+    const pauseAll = root.querySelector('[data-testid="downloads-pause-all"] button') as HTMLButtonElement;
+    pauseAll.click();
+    expect(downloads['runAction']).toHaveBeenCalledWith('pause');
+  });
+
+  it('starts downloads polling on create and stops it on destroy; shell facades stay untouched', () => {
+    fixture.detectChanges();
+    expect(downloads['startPolling']).toHaveBeenCalledTimes(1);
+    expect(storage['startPolling']).toBeUndefined();
+
+    fixture.destroy();
+    expect(downloads['stopPolling']).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes all dashboard facades from onRefresh', () => {
+    fixture.detectChanges();
+    fixture.componentInstance.onRefresh();
+    for (const facade of [health, libraryStats, libraryItems, watchNext, trending, downloads, storage, calendar, automation, activity]) {
+      expect(facade.refresh).toHaveBeenCalled();
+    }
+  });
+});

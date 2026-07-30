@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 
 import { routes } from './app.routes';
+import { ActivityFacade } from './right-rail/activity.facade';
 import { AutomationFacade } from './automation/automation.facade';
 import { CalendarFacade } from './calendar/calendar.facade';
 import { DownloadsFacade } from './downloads/downloads.facade';
@@ -22,5 +23,6 @@ export const appConfig: ApplicationConfig = {
     LibraryStatsFacade,
     StorageFacade,
     AutomationFacade,
+    ActivityFacade,
   ],
 };

@@ -1,0 +1,4 @@
+.mm-radio { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+.mm-radio input { position: absolute; opacity: 0; width: 0; height: 0; }
+.mm-radio__dot { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--mm-component-border); }
+.mm-radio input:checked + .mm-radio__dot { border-color: var(--mm-component-accent); box-shadow: inset 0 0 0 4px var(--mm-component-accent); }

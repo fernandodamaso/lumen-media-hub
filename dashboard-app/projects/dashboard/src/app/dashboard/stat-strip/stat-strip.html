@@ -1,0 +1,59 @@
+<div class="stat-strip" [attr.aria-busy]="loading()">
+  @if (loading()) {
+    @for (i of skeletons; track i) {
+      <div class="stat-chip stat-chip--skeleton" aria-hidden="true">
+        <mm-skeleton variant="rect" width="36px" height="36px" />
+        <span class="stat-chip__copy">
+          <mm-skeleton variant="text" width="64px" height="10px" />
+          <mm-skeleton variant="text" width="88px" height="17px" />
+        </span>
+      </div>
+    }
+  } @else {
+    <a class="stat-chip" routerLink="/library">
+      <span class="stat-ico"><svg lucideLibrary [size]="16" aria-hidden="true"></svg></span>
+      <span class="stat-chip__copy">
+        <span class="l">Library</span>
+        <span class="v">{{ libraryValue() }}</span>
+        <span class="s">{{ librarySub() }}</span>
+      </span>
+      <span class="go" aria-hidden="true">›</span>
+    </a>
+    <a class="stat-chip" href="#downloads">
+      <span class="stat-ico stat-ico--v"><svg lucideDownload [size]="16" aria-hidden="true"></svg></span>
+      <span class="stat-chip__copy">
+        <span class="l">Active downloads</span>
+        <span class="v">{{ downloadsValue() }}</span>
+        <span class="s">{{ downloadsSub() }}</span>
+      </span>
+      <span class="go" aria-hidden="true">›</span>
+    </a>
+    <a class="stat-chip" routerLink="/library">
+      <span class="stat-ico"><svg lucideBookmark [size]="16" aria-hidden="true"></svg></span>
+      <span class="stat-chip__copy">
+        <span class="l">Watch next</span>
+        <span class="v">{{ watchNextValue() }}</span>
+        <span class="s">Titles queued</span>
+      </span>
+      <span class="go" aria-hidden="true">›</span>
+    </a>
+    <a class="stat-chip" routerLink="/reports">
+      <span class="stat-ico"><svg lucideHardDrive [size]="16" aria-hidden="true"></svg></span>
+      <span class="stat-chip__copy">
+        <span class="l">Storage</span>
+        <span class="v">{{ storageValue() }}</span>
+        <span class="s">{{ storageSub() }}</span>
+      </span>
+      <span class="go" aria-hidden="true">›</span>
+    </a>
+    <a class="stat-chip" routerLink="/reports">
+      <span class="stat-ico stat-ico--g"><svg lucideActivity [size]="16" aria-hidden="true"></svg></span>
+      <span class="stat-chip__copy">
+        <span class="l">Services</span>
+        <span class="v">{{ servicesValue() }}</span>
+        <span class="s">{{ servicesSub() }}</span>
+      </span>
+      <span class="go" aria-hidden="true">›</span>
+    </a>
+  }
+</div>

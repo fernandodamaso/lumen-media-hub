@@ -4,7 +4,7 @@ import { MmProgress } from './index';
 type ProgressArgs = {
   value: number;
   label: string;
-  tone: 'accent' | 'success' | 'warning' | 'info' | 'premiere';
+  tone: 'accent' | 'success' | 'warning' | 'info' | 'premiere' | 'violet';
   showLabel: boolean;
 };
 
@@ -15,7 +15,7 @@ const meta: Meta<ProgressArgs> = {
   argTypes: {
     value: { control: { type: 'range', min: 0, max: 100, step: 1 } },
     label: { control: 'text' },
-    tone: { control: 'select', options: ['accent', 'success', 'warning', 'info', 'premiere'] },
+    tone: { control: 'select', options: ['accent', 'success', 'warning', 'info', 'premiere', 'violet'] },
     showLabel: { control: 'boolean' },
   },
   args: {
@@ -52,12 +52,13 @@ export const Tones: Story = {
       <mm-progress [value]="71" label="Warning" tone="warning" />
       <mm-progress [value]="33" label="Info" tone="info" />
       <mm-progress [value]="90" label="Premiere" tone="premiere" />
+      <mm-progress [value]="55" label="Violet" tone="violet" />
     </div>`,
   }),
   play: ({ canvasElement }) => {
     const bars = canvasElement.querySelectorAll('[role="progressbar"]');
-    if (bars.length !== 5) throw new Error(`Expected 5 progress bars, found ${bars.length}`);
-    for (const tone of ['accent', 'success', 'warning', 'info', 'premiere']) {
+    if (bars.length !== 6) throw new Error(`Expected 6 progress bars, found ${bars.length}`);
+    for (const tone of ['accent', 'success', 'warning', 'info', 'premiere', 'violet']) {
       if (!canvasElement.querySelector(`.mm-progress--${tone}`)) {
         throw new Error(`Missing progress tone class: ${tone}`);
       }

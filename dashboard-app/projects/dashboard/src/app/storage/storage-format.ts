@@ -46,11 +46,3 @@ export function formatStorageBytes(bytes: number): string {
   const value = bytes / 1024 ** index;
   return `${index >= 3 ? value.toFixed(1) : value.toFixed(0)} ${units[index]}`;
 }
-
-export type StorageVolumeTone = 'accent' | 'info' | 'premiere';
-
-export const STORAGE_VOLUME_TONE: Record<StorageVolumeKind, StorageVolumeTone> = {
-  library: 'premiere',
-  downloads: 'info',
-  cache: 'accent',
-};

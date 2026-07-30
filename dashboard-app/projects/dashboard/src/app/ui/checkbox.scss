@@ -1,0 +1,5 @@
+.mm-checkbox { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+.mm-checkbox input { position: absolute; opacity: 0; width: 0; height: 0; }
+.mm-checkbox__box { width: 18px; height: 18px; border-radius: 5px; border: 1px solid var(--mm-component-border); background: var(--mm-component-card-bg); }
+.mm-checkbox input:checked + .mm-checkbox__box { background: var(--mm-component-accent); border-color: var(--mm-component-accent); }
+.mm-checkbox--disabled { opacity: 0.55; cursor: not-allowed; }

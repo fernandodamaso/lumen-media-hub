@@ -23,6 +23,7 @@ import { WatchNextFacade } from '../library/watch-next.facade';
 import { LibraryStatsFacade } from '../library/library-stats.facade';
 import { SERVICE_LINK_BASES } from '../media-stack/media-stack-api.providers';
 import { StorageFacade } from '../storage/storage.facade';
+import { ActivityFacade } from '../right-rail/activity.facade';
 import { refreshDashboardData } from '../dashboard/dashboard-refresh';
 
 export type CommandPaletteItem = {
@@ -145,6 +146,7 @@ export class CommandPalette {
             storage: this.injector.get(StorageFacade),
             calendar: this.injector.get(CalendarFacade),
             automation: this.injector.get(AutomationFacade),
+            activity: this.injector.get(ActivityFacade),
           }),
       },
       {

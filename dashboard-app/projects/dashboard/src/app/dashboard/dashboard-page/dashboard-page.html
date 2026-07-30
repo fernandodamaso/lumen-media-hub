@@ -1,87 +1,233 @@
-<header class="pagehead">
-  <div>
-    <h1>Dashboard</h1>
-    <p class="pagehead__sub">
-      {{ pageheadDate() }} ·
-      <span class="pagehead__accent">{{ downloadsMeta() }}</span>
-    </p>
-  </div>
-  <div class="pagehead__actions">
-    <mm-button label="Add media" icon="plus" (click)="onAddMedia()" />
-  </div>
-</header>
+<h1 class="visually-hidden">Dashboard</h1>
 
-<div class="metrics-row">
-  <mm-metric-card
-    iconName="folder"
-    tone="premiere"
-    label="Library"
-    [value]="libraryTotal()"
-    [meta]="libraryMeta()"
-    [href]="jellyfinLibraryHref()"
-    [external]="true"
-    [loading]="isLoading()"
-  />
-  <mm-metric-card
-    iconName="download"
-    tone="info"
-    label="Downloads"
-    [value]="downloads.summary().active"
-    [meta]="downloadsMeta()"
-    href="#downloads-region"
-    [loading]="isLoading()"
-  />
-  <mm-metric-card
-    iconName="activity"
-    tone="success"
-    label="Services"
-    [value]="servicesValue()"
-    [meta]="servicesStatus()"
-    href="#automation-region"
-    [loading]="isLoading()"
-  />
-  <mm-metric-card
-    iconName="hard-drive"
-    tone="warning"
-    label="Storage"
-    [value]="storagePercent() + '%'"
-    [meta]="storageMeta()"
-    [progress]="storagePercent()"
-    href="#automation-region"
-    [loading]="isLoading()"
-  />
-</div>
+<mm-dashboard-hero />
 
 @if (libraryNotice()) {
-  <p class="metrics-notice" role="status" aria-live="polite">{{ libraryNotice() }}</p>
+  <p class="dashboard-notice" role="status" aria-live="polite">{{ libraryNotice() }}</p>
 }
 
-<div class="dashboard-grid" data-testid="dashboard-grid">
-  <div class="dashboard-grid__cell dashboard-grid__cell--library region" data-region="library" style="--i: 0">
-    <mm-library-card />
-  </div>
-  <div
-    class="dashboard-grid__cell dashboard-grid__cell--upcoming region"
-    id="upcoming-region"
-    data-region="upcoming"
-    style="--i: 1"
+<mm-stat-strip mmReveal />
+
+<section class="rail-section" data-testid="cw-rail">
+  <mm-media-rail
+    title="Continue Watching"
+    [count]="continueWatchingCount()"
+    linkTo="/library"
+    linkLabel="View all"
   >
-    <mm-upcoming-card />
-  </div>
-  <div
-    class="dashboard-grid__cell dashboard-grid__cell--downloads region"
-    id="downloads-region"
-    data-region="downloads"
-    style="--i: 2"
-  >
-    <mm-downloads-card />
-  </div>
-  <div
-    class="dashboard-grid__cell dashboard-grid__cell--automation region"
-    id="automation-region"
-    data-region="automation"
-    style="--i: 3"
-  >
-    <mm-automation-card />
-  </div>
-</div>
+    @switch (watchNext.status()) {
+      @case ('loading') {
+        @for (i of railSkeletons; track i) {
+          <div class="cw-card cw-card--skeleton" aria-hidden="true"><mm-skeleton variant="rect" /></div>
+        }
+      }
+      @case ('error') {
+        <mm-state-card kind="error" tone="danger" title="Watch next unavailable" [message]="watchNext.error()">
+          <mm-button label="Try again" (click)="watchNext.refresh({ initial: true })" />
+        </mm-state-card>
+      }
+      @case ('empty') {
+        <mm-state-card kind="empty" title="Nothing in progress" message="Start something in Jellyfin and it will show up here." />
+      }
+      @default {
+        @for (item of continueWatching(); track item.id) {
+          <a
+            class="cw-card"
+            [attr.href]="item.href"
+            [attr.target]="item.href ? '_blank' : null"
+            rel="noreferrer"
+            [attr.aria-label]="'Continue ' + item.title"
+          >
+            <div class="cw-card__art" [style.background]="cardArt(item)"></div>
+            <div class="cw-shade" aria-hidden="true"></div>
+            <span class="cw-play" aria-hidden="true">
+              <svg lucidePlay [size]="15"></svg>
+            </span>
+            <div class="cw-info">
+              <div class="cw-name">{{ item.title }}</div>
+              @if (item.subtitle) {
+                <div class="cw-sub">{{ item.subtitle }}</div>
+              }
+              <div class="cw-bar" aria-hidden="true"><i [style.width.%]="item.progressPercent"></i></div>
+            </div>
+          </a>
+        }
+      }
+    }
+  </mm-media-rail>
+</section>
+
+<section class="rail-section" data-testid="trending-rail">
+  <mm-media-rail title="Trending Now" count="This week" linkTo="/discover" linkLabel="Charts">
+    @switch (trending.status()) {
+      @case ('loading') {
+        @for (i of railSkeletons; track i) {
+          <div class="poster-card poster-card--skeleton" aria-hidden="true">
+            <mm-skeleton variant="rect" width="158px" height="237px" />
+          </div>
+        }
+      }
+      @case ('error') {
+        <mm-state-card kind="error" tone="danger" title="Trending unavailable" [message]="trending.error()">
+          <mm-button label="Try again" (click)="trending.refresh({ initial: true })" />
+        </mm-state-card>
+      }
+      @case ('empty') {
+        <mm-state-card kind="empty" title="No trending titles" message="Trakt has no trending titles right now." />
+      }
+      @default {
+        @for (item of trending.items(); track item.id) {
+          <article class="poster-card">
+            <div class="poster-card__frame">
+              @if (item.posterUrl) {
+                <img [src]="item.posterUrl" [alt]="item.title" loading="lazy" decoding="async" />
+              }
+              <span class="poster-card__rank">{{ item.rank }}</span>
+            </div>
+            <div class="poster-card__name">{{ item.title }}</div>
+            <div class="poster-card__sub">{{ trendingSub(item) }}</div>
+          </article>
+        }
+      }
+    }
+  </mm-media-rail>
+</section>
+
+<section class="rail-section" data-testid="recent-rail">
+  <mm-media-rail title="Recently Added" count="Latest arrivals" linkTo="/library" linkLabel="Library">
+    @switch (libraryItems.status()) {
+      @case ('loading') {
+        @for (i of railSkeletons; track i) {
+          <div class="cw-card cw-card--skeleton" aria-hidden="true"><mm-skeleton variant="rect" /></div>
+        }
+      }
+      @case ('error') {
+        <mm-state-card kind="error" tone="danger" title="Library unavailable" [message]="libraryItems.error()">
+          <mm-button label="Try again" (click)="libraryItems.refresh({ initial: true })" />
+        </mm-state-card>
+      }
+      @case ('empty') {
+        <mm-state-card kind="empty" title="Library is empty" message="New arrivals will appear here." />
+      }
+      @default {
+        @for (item of recentItems(); track item.id) {
+          <a
+            class="cw-card"
+            [attr.href]="item.href"
+            [attr.target]="item.href ? '_blank' : null"
+            rel="noreferrer"
+            [attr.aria-label]="'Open ' + item.title"
+          >
+            <div class="cw-card__art" [style.background]="cardArt(item)"></div>
+            <div class="cw-shade" aria-hidden="true"></div>
+            <div class="cw-info">
+              <div class="cw-name">{{ item.title }}</div>
+              <div class="cw-sub">{{ item.meta }}</div>
+            </div>
+          </a>
+        }
+      }
+    }
+  </mm-media-rail>
+</section>
+
+<section class="downloads-section" id="downloads" aria-labelledby="downloads-heading" mmReveal>
+  <header class="section-head">
+    <h2 id="downloads-heading">Downloads</h2>
+    @if (downloads.status() !== 'empty') {
+      @let downRate = formatRateParts(downloads.summary().downloadRate);
+      @let upRate = formatRateParts(downloads.summary().uploadRate);
+      <div class="dl-stats">
+        <span class="dl-stat">
+          <span class="dl-stat__label">Down</span>
+          <span class="num">{{ downRate.value }}</span>
+          <span class="dl-stat__unit">{{ downRate.unit }}</span>
+        </span>
+        <span class="dl-stat">
+          <span class="dl-stat__label">Up</span>
+          <span class="num">{{ upRate.value }}</span>
+          <span class="dl-stat__unit">{{ upRate.unit }}</span>
+        </span>
+        <div class="dl-actions">
+          <mm-button
+            data-testid="downloads-pause-all"
+            label="Pause all"
+            variant="quiet"
+            icon="pause"
+            [disabled]="!downloads.canPauseAll() || downloads.pendingAction() !== null"
+            [busy]="downloads.pendingAction() === 'pause'"
+            (click)="runAction('pause')"
+          />
+          <mm-button
+            label="Resume all"
+            variant="gold"
+            icon="play"
+            [disabled]="!downloads.canResumeAll() || downloads.pendingAction() !== null"
+            [busy]="downloads.pendingAction() === 'resume'"
+            (click)="runAction('resume')"
+          />
+        </div>
+      </div>
+    }
+  </header>
+
+  @if (downloads.notice()) {
+    <mm-status tone="warning" [announce]="true">{{ downloads.notice() }}</mm-status>
+  }
+  @if (downloads.error() && downloads.status() !== 'error') {
+    <mm-status tone="warning" [announce]="true">{{ downloads.error() }}</mm-status>
+  }
+
+  @switch (downloads.status()) {
+    @case ('loading') {
+      <div class="torrent-list" aria-hidden="true">
+        @for (i of torrentSkeletons; track i) {
+          <div class="dl-item dl-item--skeleton">
+            <mm-skeleton variant="text" width="60%" height="14px" />
+            <mm-skeleton variant="text" height="6px" />
+            <mm-skeleton variant="text" width="40%" height="12px" />
+          </div>
+        }
+      </div>
+    }
+    @case ('error') {
+      <mm-state-card kind="error" tone="danger" title="Downloads unavailable" [message]="downloads.error()">
+        <mm-button label="Try again" (click)="retryDownloads()" />
+      </mm-state-card>
+    }
+    @case ('empty') {
+      <mm-state-card kind="empty" [centered]="true" title="No active downloads" message="Your queue is clear. New downloads will appear here." />
+    }
+    @default {
+      <div class="torrent-list" aria-live="polite">
+        @for (group of groups(); track group.state) {
+          <p class="section-label">{{ group.label }} · <span>{{ group.torrents.length }}</span></p>
+          @for (torrent of group.torrents; track torrent.id) {
+            <mm-download-item
+              [name]="torrent.name"
+              [category]="torrent.category"
+              [state]="torrent.state"
+              [progress]="torrent.progress"
+              [stateLabel]="stateLabel(torrent.state)"
+              [pillClass]="statePillClass(torrent.state)"
+              [progressTone]="torrent.state === 'seeding' ? 'success' : (torrent.state === 'downloading' ? 'info' : 'muted')"
+              [downloadedLabel]="formatBytes(torrent.downloaded)"
+              [sizeLabel]="formatBytes(torrent.size)"
+              [downloadRateLabel]="downRateText(torrent.downloadRate)"
+              [uploadRateLabel]="downRateText(torrent.uploadRate)"
+              [etaLabel]="torrent.eta ? formatEta(torrent.eta) + ' left' : (torrent.progress >= 100 ? 'Complete' : '—')"
+              [actionDisabled]="downloads.pendingTorrentId() === torrent.id"
+              [actionBusy]="downloads.pendingTorrentId() === torrent.id"
+              (actionToggle)="runTorrentAction(torrent.id, torrent.state === 'paused' ? 'resume' : 'pause')"
+            />
+          }
+        }
+      </div>
+      <footer class="section-foot">
+        @if (qbittorrentHref(); as href) {
+          <a class="link-arrow" [href]="href" target="_blank" rel="noreferrer">Open qBittorrent →</a>
+        }
+      </footer>
+    }
+  }
+</section>

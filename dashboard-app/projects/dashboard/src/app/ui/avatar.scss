@@ -1,0 +1,23 @@
+.mm-avatar {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  font-weight: 700;
+  border: 2px solid var(--mm-component-card-bg);
+  background: var(--mm-component-control-bg);
+  color: var(--mm-component-text-secondary);
+}
+.mm-avatar--sm { width: 28px; height: 28px; font-size: 11px; }
+.mm-avatar--md { width: 36px; height: 36px; font-size: 13px; }
+.mm-avatar--lg { width: 48px; height: 48px; font-size: 16px; }
+.mm-avatar--gold { background: color-mix(in srgb, var(--mm-semantic-accent) 22%, transparent); color: var(--mm-semantic-accent); }
+.mm-avatar--green { background: color-mix(in srgb, var(--mm-semantic-success) 18%, transparent); color: var(--mm-semantic-success); }
+.mm-avatar--violet { background: color-mix(in srgb, var(--mm-semantic-premiere) 18%, transparent); color: var(--mm-semantic-premiere); }
+
+.mm-avatar-stack {
+  display: flex;
+  align-items: center;
+}
+.mm-avatar-stack ::ng-deep .mm-avatar + .mm-avatar {
+  margin-left: -10px;
+}

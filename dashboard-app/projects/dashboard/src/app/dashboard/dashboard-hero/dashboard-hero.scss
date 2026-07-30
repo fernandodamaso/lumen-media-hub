@@ -1,0 +1,128 @@
+.hero {
+  position: relative;
+  min-height: 380px;
+  display: flex;
+  align-items: flex-end;
+  border-radius: var(--mm-radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--mm-component-border);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 50%);
+}
+.hero__bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 30%;
+  transform: scale(1.04);
+}
+.hero__scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to top, rgb(8 8 13 / 92%) 6%, rgb(8 8 13 / 45%) 42%, rgb(8 8 13 / 10%) 70%),
+    linear-gradient(95deg, rgb(8 8 13 / 75%) 0%, transparent 60%);
+}
+.hero__in {
+  position: relative;
+  width: 100%;
+  max-width: 620px;
+  padding: 32px 34px 26px;
+}
+.hero__kicker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-size: 10.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--mm-semantic-accent);
+  font-weight: 700;
+}
+.hero__kicker::before {
+  content: '';
+  width: 26px;
+  height: 1px;
+  background: var(--mm-semantic-accent);
+}
+.hero h1 {
+  margin: 0 0 10px;
+  font-family: var(--mm-font-display, 'Fraunces', Georgia, serif);
+  font-weight: 400;
+  font-size: clamp(34px, 3.6vw, 50px);
+  line-height: 1.04;
+  letter-spacing: 0.01em;
+}
+.hero h1 em {
+  font-style: italic;
+  color: var(--mm-semantic-accent);
+}
+.hero__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 12.5px;
+  color: var(--mm-component-text-secondary);
+}
+.hero__overview {
+  margin: 0 0 20px;
+  max-width: 480px;
+  font-size: 13.5px;
+  font-weight: 300;
+  color: var(--mm-component-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.hero__btns {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.hero__btns a {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border-radius: 11px;
+  padding: 11px 22px;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s,
+    background 0.2s;
+}
+.hero__btns a:hover {
+  transform: translateY(-2px);
+}
+.btn-play {
+  background: var(--mm-semantic-accent);
+  color: var(--mm-semantic-on-accent);
+  box-shadow: 0 8px 26px color-mix(in srgb, var(--mm-semantic-accent) 30%, transparent);
+}
+.btn-ghost {
+  background: rgb(255 255 255 / 9%);
+  color: var(--mm-component-text-primary);
+  border: 1px solid rgb(255 255 255 / 16%);
+  backdrop-filter: blur(8px);
+}
+.btn-ghost:hover {
+  background: rgb(255 255 255 / 15%);
+}
+.hero__prog {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11.5px;
+  color: var(--mm-component-text-secondary);
+}
+.hero__prog mm-progress {
+  flex: 1;
+  max-width: 230px;
+}

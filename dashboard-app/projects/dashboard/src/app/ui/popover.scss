@@ -1,0 +1,29 @@
+.mm-popover {
+  position: relative;
+  display: inline-block;
+}
+.mm-popover__trigger {
+  padding: 8px 14px;
+  border: 1px solid var(--mm-component-border);
+  border-radius: 11px;
+  background: var(--mm-component-control-bg);
+  color: var(--mm-component-text-primary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.mm-popover__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 220px;
+  padding: 14px;
+  border: 1px solid var(--mm-component-border);
+  border-radius: 14px;
+  background: var(--mm-component-card-bg);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 45%);
+  z-index: 20;
+  color: var(--mm-component-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}

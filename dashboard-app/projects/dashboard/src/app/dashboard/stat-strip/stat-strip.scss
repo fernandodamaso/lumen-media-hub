@@ -1,0 +1,93 @@
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.stat-chip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 18px;
+  background: var(--mm-component-card-bg);
+  border: 1px solid var(--mm-component-border);
+  border-radius: var(--mm-radius-md);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform 0.25s,
+    border-color 0.25s;
+}
+.stat-chip:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--mm-component-accent) 30%, transparent);
+}
+.stat-chip:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
+}
+.stat-chip--skeleton:hover {
+  transform: none;
+  border-color: var(--mm-component-border);
+}
+
+.stat-ico {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--mm-component-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mm-component-accent) 25%, transparent);
+  color: var(--mm-component-accent);
+}
+.stat-ico--v {
+  background: color-mix(in srgb, var(--mm-component-premiere) 12%, transparent);
+  border-color: color-mix(in srgb, var(--mm-component-premiere) 30%, transparent);
+  color: var(--mm-component-premiere);
+}
+.stat-ico--g {
+  background: color-mix(in srgb, var(--mm-component-success) 10%, transparent);
+  border-color: color-mix(in srgb, var(--mm-component-success) 28%, transparent);
+  color: var(--mm-component-success);
+}
+
+.stat-chip__copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stat-chip .l {
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mm-component-text-muted);
+  font-weight: 700;
+}
+.stat-chip .v {
+  font-family: var(--mm-font-display, 'Fraunces', Georgia, serif);
+  font-size: 19px;
+  line-height: 1.2;
+}
+.stat-chip .s {
+  font-size: 11px;
+  color: var(--mm-component-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stat-chip .go {
+  margin-left: auto;
+  color: var(--mm-component-text-muted);
+  font-size: 14px;
+  transition:
+    transform 0.2s,
+    color 0.2s;
+}
+.stat-chip:hover .go {
+  transform: translateX(3px);
+  color: var(--mm-component-accent);
+}

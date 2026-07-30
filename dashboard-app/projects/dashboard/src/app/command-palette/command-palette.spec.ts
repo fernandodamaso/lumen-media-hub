@@ -12,6 +12,7 @@ import { LibraryItemsFacade } from '../library/library-items.facade';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 import { WatchNextFacade } from '../library/watch-next.facade';
 import { LibraryStatsFacade } from '../library/library-stats.facade';
+import { ActivityFacade } from '../right-rail/activity.facade';
 import { StorageFacade } from '../storage/storage.facade';
 import { CommandPalette } from './command-palette';
 
@@ -57,6 +58,7 @@ describe('CommandPalette', () => {
         { provide: StorageFacade, useValue: { refresh: vi.fn() } },
         { provide: CalendarFacade, useValue: { refresh: vi.fn() } },
         { provide: AutomationFacade, useValue: { refresh: vi.fn() } },
+        { provide: ActivityFacade, useValue: { refresh: vi.fn() } },
       ],
     });
     fixture = TestBed.createComponent(CommandPalette);
@@ -121,6 +123,7 @@ describe('CommandPalette', () => {
         { provide: StorageFacade, useValue: { refresh: vi.fn() } },
         { provide: CalendarFacade, useValue: { refresh: vi.fn() } },
         { provide: AutomationFacade, useValue: { refresh: vi.fn() } },
+        { provide: ActivityFacade, useValue: { refresh: vi.fn() } },
       ],
     });
     fixture = TestBed.createComponent(CommandPalette);

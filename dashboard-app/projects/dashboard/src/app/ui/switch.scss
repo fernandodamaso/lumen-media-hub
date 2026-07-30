@@ -1,0 +1,7 @@
+.mm-switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+.mm-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.mm-switch__track { width: 42px; height: 24px; border-radius: 999px; background: var(--mm-component-border); display: inline-flex; align-items: center; padding: 3px; transition: background 0.2s; }
+.mm-switch--on .mm-switch__track { background: var(--mm-component-accent); }
+.mm-switch__thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.2s; }
+.mm-switch--on .mm-switch__thumb { transform: translateX(18px); }
+.mm-switch--disabled { opacity: 0.55; cursor: not-allowed; }

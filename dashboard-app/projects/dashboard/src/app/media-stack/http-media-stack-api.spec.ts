@@ -307,6 +307,66 @@ describe('live-api.mappers', () => {
     ).toThrow(/missing progressPercent/);
   });
 
+  it('maps watch-next metadata and defaults missing fields to null', () => {
+    const rich = mapLiveWatchNextItem({
+      id: 'ep-1',
+      parentId: 'series-1',
+      title: 'The Expanse',
+      subtitle: 'S04E02 · Jetsam',
+      kind: 'episode',
+      progressPercent: 42,
+      year: 2015,
+      rating: 8.3,
+      genres: ['Sci-Fi', 'Adventure'],
+      overview: 'Politics and survival.',
+      runtimeTicks: 3_600_000_000,
+      positionTicks: 1_500_000_000,
+      backdropUrl: 'http://jellyfin/Items/series-1/Images/Backdrop',
+      thumbUrl: 'http://jellyfin/Items/series-1/Images/Thumb',
+    });
+    expect(rich).toMatchObject({
+      year: 2015,
+      rating: 8.3,
+      genres: ['Sci-Fi', 'Adventure'],
+      overview: 'Politics and survival.',
+      runtimeTicks: 3_600_000_000,
+      positionTicks: 1_500_000_000,
+      backdropUrl: 'http://jellyfin/Items/series-1/Images/Backdrop',
+      thumbUrl: 'http://jellyfin/Items/series-1/Images/Thumb',
+    });
+
+    const sparse = mapLiveWatchNextItem({
+      id: 'mv-1',
+      parentId: null,
+      title: 'Dune',
+      subtitle: '',
+      kind: 'movie',
+      progressPercent: 18,
+    });
+    expect(sparse).toMatchObject({
+      year: null,
+      rating: null,
+      genres: [],
+      overview: null,
+      runtimeTicks: null,
+      positionTicks: null,
+      backdropUrl: null,
+      thumbUrl: null,
+    });
+
+    expect(() =>
+      mapLiveWatchNextItem({
+        id: 'mv-2',
+        parentId: null,
+        title: 'Dune',
+        subtitle: '',
+        kind: 'movie',
+        progressPercent: 18,
+        genres: ['Drama', 7],
+      }),
+    ).toThrow(/invalid genres/);
+  });
+
   it('maps queue-only Sonarr degradation into queue problems when nothing is missing', () => {
     const dto = mapLiveAutomationSummary({
       ok: true,

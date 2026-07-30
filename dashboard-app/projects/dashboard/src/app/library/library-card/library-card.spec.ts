@@ -158,6 +158,14 @@ function item(
     href: null,
     playable: true,
     progressPercent: kind === 'movie' ? 12 : 0,
+    year: null,
+    rating: null,
+    genres: [],
+    overview: null,
+    runtimeTicks: null,
+    positionTicks: null,
+    backdropUrl: null,
+    thumbUrl: null,
   };
 }
 

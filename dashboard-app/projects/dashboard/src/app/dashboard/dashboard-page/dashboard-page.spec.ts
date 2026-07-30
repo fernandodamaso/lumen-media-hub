@@ -424,6 +424,14 @@ describe('DashboardPage composition', () => {
         href: null,
         playable: true,
         progressPercent: 0,
+        year: null,
+        rating: null,
+        genres: [],
+        overview: null,
+        runtimeTicks: null,
+        positionTicks: null,
+        backdropUrl: null,
+        thumbUrl: null,
       },
     ]);
     health.summary.set({

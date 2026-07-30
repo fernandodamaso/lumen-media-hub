@@ -67,5 +67,13 @@ function episode(id: string, title: string, subtitle: string, progressPercent: n
     href: null,
     playable: true,
     progressPercent,
+    year: null,
+    rating: null,
+    genres: [],
+    overview: null,
+    runtimeTicks: null,
+    positionTicks: null,
+    backdropUrl: null,
+    thumbUrl: null,
   };
 }

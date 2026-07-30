@@ -68,6 +68,14 @@ interface LiveWatchNextItem {
   image?: string | null;
   playable?: boolean;
   progressPercent?: number;
+  year?: number | null;
+  rating?: number | null;
+  genres?: string[];
+  overview?: string | null;
+  runtimeTicks?: number | null;
+  positionTicks?: number | null;
+  backdropUrl?: string | null;
+  thumbUrl?: string | null;
 }
 
 interface ValidatedLiveWatchNextItem {
@@ -79,6 +87,14 @@ interface ValidatedLiveWatchNextItem {
   image?: string | null;
   playable?: boolean;
   progressPercent: number;
+  year: number | null;
+  rating: number | null;
+  genres: string[];
+  overview: string | null;
+  runtimeTicks: number | null;
+  positionTicks: number | null;
+  backdropUrl: string | null;
+  thumbUrl: string | null;
 }
 
 export interface LiveWatchNextListResponse {
@@ -401,6 +417,14 @@ function requireLiveWatchNextItem(raw: unknown, index = 0): ValidatedLiveWatchNe
     image: optionalNullableString(raw, 'image', index, 'watch-next'),
     playable,
     progressPercent,
+    year: optionalNullableFiniteNumber(raw, 'year', index, 'watch-next') ?? null,
+    rating: optionalNullableFiniteNumber(raw, 'rating', index, 'watch-next') ?? null,
+    genres: optionalStringArray(raw, 'genres', index, 'watch-next') ?? [],
+    overview: optionalNullableString(raw, 'overview', index, 'watch-next') ?? null,
+    runtimeTicks: optionalNullableFiniteNumber(raw, 'runtimeTicks', index, 'watch-next') ?? null,
+    positionTicks: optionalNullableFiniteNumber(raw, 'positionTicks', index, 'watch-next') ?? null,
+    backdropUrl: optionalNullableString(raw, 'backdropUrl', index, 'watch-next') ?? null,
+    thumbUrl: optionalNullableString(raw, 'thumbUrl', index, 'watch-next') ?? null,
   };
 }
 
@@ -417,6 +441,14 @@ export function mapLiveWatchNextItem(raw: unknown, index = 0): MediaStackWatchNe
     artworkState: posterUrl ? 'ok' : 'missing',
     playable: validated.playable,
     progressPercent: validated.progressPercent,
+    year: validated.year,
+    rating: validated.rating,
+    genres: [...validated.genres],
+    overview: validated.overview,
+    runtimeTicks: validated.runtimeTicks,
+    positionTicks: validated.positionTicks,
+    backdropUrl: validated.backdropUrl,
+    thumbUrl: validated.thumbUrl,
   };
 }
 
@@ -945,6 +977,20 @@ function requireDiscoverRequestState(
     throw new Error(`Malformed ${resource} response: member ${index} has invalid request_state`);
   }
   return 'requested';
+}
+
+function optionalStringArray(
+  raw: Record<string, unknown>,
+  field: string,
+  index: number,
+  resource: string,
+): string[] | undefined {
+  const value = raw[field];
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw new Error(`Malformed ${resource} response: member ${index} has invalid ${field}`);
+  }
+  return value as string[];
 }
 
 function optionalNullableString(

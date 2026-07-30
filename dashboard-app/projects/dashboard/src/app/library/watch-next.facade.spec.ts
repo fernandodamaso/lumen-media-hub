@@ -14,6 +14,14 @@ const episode = (id: string, title: string, progressPercent = 0): WatchNextItem 
   href: null,
   playable: true,
   progressPercent,
+  year: null,
+  rating: null,
+  genres: [],
+  overview: null,
+  runtimeTicks: null,
+  positionTicks: null,
+  backdropUrl: null,
+  thumbUrl: null,
 });
 
 const movie = (id: string, title: string, progressPercent = 10): WatchNextItem => ({
@@ -27,6 +35,14 @@ const movie = (id: string, title: string, progressPercent = 10): WatchNextItem =
   href: null,
   playable: true,
   progressPercent,
+  year: null,
+  rating: null,
+  genres: [],
+  overview: null,
+  runtimeTicks: null,
+  positionTicks: null,
+  backdropUrl: null,
+  thumbUrl: null,
 });
 
 describe('WatchNextFacade', () => {

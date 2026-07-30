@@ -84,6 +84,7 @@ describe('app/ui primitives', () => {
 
     expect(button?.className).toContain('mm-button');
     expect(button?.className).toContain('mm-button--quiet');
+    expect(button?.querySelector('.mm-button__spinner')).toBeTruthy();
     expect(button?.getAttribute('aria-busy')).toBe('true');
   });
 
@@ -136,6 +137,18 @@ describe('app/ui primitives', () => {
       .join('\n');
     expect(css).toContain('mm-button--gold');
     expect(css).toContain('mm-button--ghost');
+  });
+
+  it('applies button size modifiers', () => {
+    const sm = TestBed.createComponent(MmButton);
+    sm.componentRef.setInput('size', 'sm');
+    sm.detectChanges();
+    expect(fixtureHost(sm).querySelector('button')?.className).toContain('mm-button--sm');
+
+    const lg = TestBed.createComponent(MmButton);
+    lg.componentRef.setInput('size', 'lg');
+    lg.detectChanges();
+    expect(fixtureHost(lg).querySelector('button')?.className).toContain('mm-button--lg');
   });
 
   it('keeps the status base class alongside its tone class without a live region by default', () => {

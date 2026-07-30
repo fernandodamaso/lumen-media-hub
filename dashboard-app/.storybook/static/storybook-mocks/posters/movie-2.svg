@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="200" height="300">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#312e81"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+  </defs>
+  <rect width="200" height="300" fill="url(#bg)"/>
+  <text x="100" y="150" fill="#b6abff" font-family="Georgia, serif" font-size="12" text-anchor="middle">Mirror Shard</text>
+</svg>

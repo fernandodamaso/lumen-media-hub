@@ -8,4 +8,5 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 })
 export class MmCard {
   readonly labelledBy = input('');
+  readonly footerActionsAlign = input<'start' | 'center' | 'end'>('end');
 }

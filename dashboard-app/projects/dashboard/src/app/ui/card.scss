@@ -52,6 +52,26 @@
   flex-shrink: 0;
 }
 
+.mm-card__footer--actions-end .mm-card__actions {
+  margin-inline-start: auto;
+}
+
+.mm-card__footer--actions-start {
+  justify-content: flex-start;
+}
+
+.mm-card__footer--actions-start .mm-card__actions {
+  margin-inline-start: 0;
+}
+
+.mm-card__footer--actions-center {
+  justify-content: center;
+}
+
+.mm-card__footer--actions-center .mm-card__actions {
+  margin-inline-start: 0;
+}
+
 .mm-card__body {
   min-width: 0;
   padding: 20px;

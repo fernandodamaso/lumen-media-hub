@@ -3,6 +3,7 @@ import { MmButton, MmCard } from './index';
 
 type CardArgs = {
   labelledBy: string;
+  footerActionsAlign: 'start' | 'center' | 'end';
 };
 
 const meta: Meta<CardArgs> = {
@@ -11,9 +12,11 @@ const meta: Meta<CardArgs> = {
   tags: ['autodocs'],
   argTypes: {
     labelledBy: { control: 'text' },
+    footerActionsAlign: { control: 'select', options: ['start', 'center', 'end'] },
   },
   args: {
     labelledBy: 'card-heading',
+    footerActionsAlign: 'end',
   },
   render: (args) => ({
     props: args,
@@ -134,6 +137,34 @@ export const FooterContentOnly: Story = {
     if (getComputedStyle(footer).display === 'none') throw new Error('Footer content should be visible');
     if (!footer.textContent.includes('Footer content only')) throw new Error('Footer content missing');
   },
+};
+
+export const FooterActionsStart: Story = {
+  args: { footerActionsAlign: 'start', labelledBy: '' },
+  render: (args) => ({
+    props: args,
+    moduleMetadata: { imports: [MmCard, MmButton] },
+    template: `<div style="max-width:420px">
+      <mm-card ${argsToTemplate(args)}>
+        <p>Footer actions aligned start (app extension).</p>
+        <mm-button mm-card-footer-actions label="Action" variant="quiet" />
+      </mm-card>
+    </div>`,
+  }),
+};
+
+export const FooterActionsCenter: Story = {
+  args: { footerActionsAlign: 'center', labelledBy: '' },
+  render: (args) => ({
+    props: args,
+    moduleMetadata: { imports: [MmCard, MmButton] },
+    template: `<div style="max-width:420px">
+      <mm-card ${argsToTemplate(args)}>
+        <p>Footer actions aligned center (app extension).</p>
+        <mm-button mm-card-footer-actions label="Action" variant="quiet" />
+      </mm-card>
+    </div>`,
+  }),
 };
 
 export const FooterActionsOnly: Story = {

@@ -4,6 +4,7 @@ import { MmButton } from './index';
 type ButtonArgs = {
   label: string;
   variant: 'primary' | 'quiet' | 'success' | 'warning' | 'danger' | 'gold' | 'ghost';
+  size: 'sm' | 'md' | 'lg';
   disabled: boolean;
   busy: boolean;
   type: 'button' | 'submit';
@@ -21,11 +22,13 @@ const meta: Meta<ButtonArgs> = {
     },
     disabled: { control: 'boolean' },
     busy: { control: 'boolean' },
+    size: { control: 'select', options: ['sm', 'md', 'lg'] },
     type: { control: 'select', options: ['button', 'submit'] },
   },
   args: {
     label: 'Continue',
     variant: 'primary',
+    size: 'md',
     disabled: false,
     busy: false,
     type: 'button',
@@ -87,6 +90,18 @@ export const Disabled: Story = {
 
 export const Loading: Story = {
   args: { label: 'Saving', busy: true },
+};
+
+export const Small: Story = {
+  args: { label: 'Resume all', variant: 'quiet', size: 'sm' },
+};
+
+export const Large: Story = {
+  args: { label: 'Play', variant: 'gold', size: 'lg' },
+};
+
+export const ChipLike: Story = {
+  args: { label: 'Resume all', variant: 'gold', size: 'sm' },
 };
 
 export const KeyboardFocus: Story = {

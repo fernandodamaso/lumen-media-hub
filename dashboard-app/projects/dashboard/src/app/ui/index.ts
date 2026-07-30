@@ -7,6 +7,4 @@ export * from './progress';
 export * from './skeleton';
 export * from './state-card';
 export * from './status';
-export * from './theme-picker';
-export * from './theme.service';
 export * from './tooltip';

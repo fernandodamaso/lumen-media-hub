@@ -7,7 +7,6 @@ import {
   LucideLibrary,
   LucideSearch,
 } from '@lucide/angular';
-import { MmThemePicker, ThemeService } from '@app/ui';
 
 import { ServiceHealthFacade } from './automation/service-health.facade';
 import { CommandPalette } from './command-palette/command-palette';
@@ -20,7 +19,6 @@ import { environment } from '../environments/environment';
     RouterLink,
     RouterLinkActive,
     RouterOutlet,
-    MmThemePicker,
     CommandPalette,
     LucideLayoutDashboard,
     LucideLibrary,
@@ -33,7 +31,6 @@ import { environment } from '../environments/environment';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class App {
-  readonly themeService = inject(ThemeService);
   private readonly health = inject(ServiceHealthFacade);
   private readonly libraryItems = inject(LibraryItemsFacade);
   readonly modeLabel = environment.modeLabel;

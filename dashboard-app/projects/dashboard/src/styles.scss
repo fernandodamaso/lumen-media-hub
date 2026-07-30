@@ -79,13 +79,3 @@ h1 {
   color: var(--mm-semantic-text-muted);
   font-size: 13px;
 }
-
-@media (max-width: 560px) {
-  mm-theme-picker select {
-    min-height: 44px;
-  }
-
-  mm-theme-picker .picker__saved {
-    font-size: 12px;
-  }
-}

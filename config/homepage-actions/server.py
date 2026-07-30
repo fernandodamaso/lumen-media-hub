@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config
 from http_support import _reject_mutating, _reject_post, send_json, send_options
-from routes import arr, automation, discover, jellyfin, qbittorrent, reports, resources, service_links
+from routes import activity, arr, automation, discover, jellyfin, qbittorrent, reports, resources, service_links
 
 
 class ActionsHandler(BaseHTTPRequestHandler):
@@ -29,6 +29,8 @@ class ActionsHandler(BaseHTTPRequestHandler):
             jellyfin.handle_jellyfin_watch_next(self)
         elif path == "/arr/library":
             arr.handle_arr_library(self)
+        elif path == "/activity":
+            activity.handle_activity_feed(self, query)
         elif path == "/sonarr/missing-count":
             arr.handle_sonarr_missing_count(self)
         elif path == "/sonarr/series-count":

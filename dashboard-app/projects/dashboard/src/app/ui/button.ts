@@ -30,7 +30,7 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideRefreshC
 })
 export class MmButton {
   readonly label = input('Continue');
-  readonly variant = input<'primary' | 'quiet' | 'success' | 'warning' | 'danger'>('primary');
+  readonly variant = input<'primary' | 'quiet' | 'success' | 'warning' | 'danger' | 'gold' | 'ghost'>('primary');
   readonly icon = input<'pause' | 'play' | 'plus' | 'refresh' | 'external-link' | ''>('');
   readonly disabled = input(false);
   readonly busy = input(false);

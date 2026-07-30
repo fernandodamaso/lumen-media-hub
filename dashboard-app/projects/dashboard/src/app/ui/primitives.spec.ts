@@ -110,6 +110,34 @@ describe('app/ui primitives', () => {
     expect(button?.textContent).toContain('View issues');
   });
 
+  it('exposes the gold and ghost button variants', () => {
+    const gold = TestBed.createComponent(MmButton);
+    gold.componentRef.setInput('variant', 'gold');
+    gold.componentRef.setInput('label', 'Add media');
+    gold.detectChanges();
+    const goldButton = fixtureHost(gold).querySelector('button');
+    expect(goldButton?.className).toContain('mm-button--gold');
+    expect(goldButton?.textContent).toContain('Add media');
+
+    const ghost = TestBed.createComponent(MmButton);
+    ghost.componentRef.setInput('variant', 'ghost');
+    ghost.componentRef.setInput('label', 'Details');
+    ghost.detectChanges();
+    const ghostButton = fixtureHost(ghost).querySelector('button');
+    expect(ghostButton?.className).toContain('mm-button--ghost');
+    expect(ghostButton?.textContent).toContain('Details');
+  });
+
+  it('defines gold and ghost variant styles', () => {
+    const fixture = TestBed.createComponent(MmButton);
+    fixture.detectChanges();
+    const css = Array.from(document.head.querySelectorAll('style'))
+      .map((style) => style.textContent)
+      .join('\n');
+    expect(css).toContain('mm-button--gold');
+    expect(css).toContain('mm-button--ghost');
+  });
+
   it('keeps the status base class alongside its tone class without a live region by default', () => {
     const fixture = TestBed.createComponent(MmStatus);
     fixture.componentRef.setInput('tone', 'danger');

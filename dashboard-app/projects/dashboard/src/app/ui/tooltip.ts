@@ -35,8 +35,8 @@ export type MmTooltipTone = 'default' | 'accent';
       padding: 8px 14px;
       border: 1px solid rgb(255 255 255 / 12%);
       border-radius: 9px;
-      background: var(--mm-color-surface-2);
-      box-shadow: 0 8px 26px rgb(0 0 0 / 50%);
+      background: var(--mm-color-surface-elev2);
+      box-shadow: var(--mm-shadow-overlay);
       color: var(--mm-component-text-primary);
       font: 500 12px/1.25 var(--mm-font-body);
       text-align: center;
@@ -45,8 +45,8 @@ export type MmTooltipTone = 'default' | 'accent';
       pointer-events: none;
       transform: translate(-50%, 4px);
       transition:
-        opacity var(--mm-transition-fast),
-        transform var(--mm-transition-fast);
+        opacity 0.2s,
+        transform 0.2s;
     }
 
     .mm-tooltip__bubble::after {
@@ -54,12 +54,10 @@ export type MmTooltipTone = 'default' | 'accent';
       position: absolute;
       left: 50%;
       top: 100%;
-      width: 8px;
-      height: 8px;
-      border-right: 1px solid rgb(255 255 255 / 12%);
-      border-bottom: 1px solid rgb(255 255 255 / 12%);
-      background: inherit;
-      transform: translate(-50%, -50%) rotate(45deg);
+      border-width: 5px;
+      border-style: solid;
+      border-color: var(--mm-color-surface-elev2) transparent transparent transparent;
+      transform: translateX(-50%);
     }
 
     :host.mm-tooltip--bottom .mm-tooltip__bubble {
@@ -69,17 +67,23 @@ export type MmTooltipTone = 'default' | 'accent';
     }
 
     :host.mm-tooltip--bottom .mm-tooltip__bubble::after {
-      top: 0;
-      border-right: 0;
-      border-bottom: 0;
-      border-left: 1px solid rgb(255 255 255 / 12%);
-      border-top: 1px solid rgb(255 255 255 / 12%);
+      top: auto;
+      bottom: 100%;
+      border-color: transparent transparent var(--mm-color-surface-elev2) transparent;
     }
 
     :host.mm-tooltip--accent .mm-tooltip__bubble {
       border-color: rgb(212 169 78 / 40%);
-      background: color-mix(in srgb, var(--mm-component-accent) 14%, var(--mm-color-surface-2));
+      background: color-mix(in srgb, var(--mm-component-accent) 14%, var(--mm-color-surface-elev2));
       color: var(--mm-component-accent);
+    }
+
+    :host.mm-tooltip--accent .mm-tooltip__bubble::after {
+      border-color: color-mix(in srgb, var(--mm-component-accent) 14%, var(--mm-color-surface-elev2)) transparent transparent transparent;
+    }
+
+    :host.mm-tooltip--bottom.mm-tooltip--accent .mm-tooltip__bubble::after {
+      border-color: transparent transparent color-mix(in srgb, var(--mm-component-accent) 14%, var(--mm-color-surface-elev2)) transparent;
     }
 
     :host:hover .mm-tooltip__bubble,

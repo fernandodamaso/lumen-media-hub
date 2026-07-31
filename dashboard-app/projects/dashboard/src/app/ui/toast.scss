@@ -1,7 +1,7 @@
 .mm-toast-host {
   position: fixed;
-  right: 20px;
-  bottom: 20px;
+  right: 28px;
+  bottom: 28px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -10,24 +10,28 @@
 }
 .mm-toast {
   pointer-events: auto;
-  min-width: 260px;
-  max-width: 360px;
-  padding: 12px 36px 12px 14px;
+  min-width: 300px;
+  max-width: 380px;
+  padding: 12px 36px 12px 16px;
   border-radius: 12px;
   border: 1px solid var(--mm-component-border);
-  background: var(--mm-component-card-bg);
-  box-shadow: 0 16px 40px rgb(0 0 0 / 45%);
+  border-left: var(--mm-toast-edge-w) solid var(--mm-component-border);
+  background: var(--mm-color-surface-elev2);
+  box-shadow: var(--mm-shadow-overlay);
   position: relative;
-  animation: mm-toast-in 0.35s ease;
+  animation: mm-toast-in 0.4s var(--mm-ease-emphasized) forwards;
 }
 .mm-toast--gold {
-  border-color: color-mix(in srgb, var(--mm-semantic-accent) 35%, transparent);
+  border-left-color: var(--mm-semantic-accent);
 }
 .mm-toast--success {
-  border-color: color-mix(in srgb, var(--mm-semantic-success) 35%, transparent);
+  border-left-color: var(--mm-semantic-success);
 }
 .mm-toast--error {
-  border-color: color-mix(in srgb, var(--mm-semantic-danger) 35%, transparent);
+  border-left-color: var(--mm-semantic-danger);
+}
+.mm-toast--hide {
+  animation: mm-toast-out 0.35s ease forwards;
 }
 .mm-toast__title {
   font-size: 13px;
@@ -51,8 +55,30 @@
   color: var(--mm-component-text-muted);
   font-size: 16px;
   cursor: pointer;
+  transition: background var(--mm-transition-fast), color var(--mm-transition-fast);
+}
+.mm-toast__close:hover {
+  background: var(--mm-component-muted-bg);
+  color: var(--mm-component-text-primary);
+}
+.mm-toast__close:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
 }
 @keyframes mm-toast-in {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateX(40px); }
   to { opacity: 1; transform: none; }
+}
+@keyframes mm-toast-out {
+  to { opacity: 0; transform: translateX(40px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mm-toast {
+    animation: none;
+  }
+  .mm-toast--hide {
+    animation: none;
+    opacity: 0;
+  }
 }

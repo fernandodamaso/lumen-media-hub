@@ -9,6 +9,7 @@ export * from './skeleton';
 export * from './state-card';
 export * from './status';
 export * from './tooltip';
+export * from './live-indicator';
 export * from './composites';
 export * from './input';
 export * from './checkbox';

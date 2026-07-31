@@ -11,12 +11,12 @@ const meta: Meta<MmDropdown> = {
       {
         label: 'Library',
         items: [
-          { id: 'scan', label: 'Scan disk' },
-          { id: 'refresh', label: 'Refresh metadata' },
+          { id: 'scan', label: 'Scan disk', icon: 'scan' },
+          { id: 'refresh', label: 'Refresh metadata', icon: 'refresh' },
         ],
       },
       {
-        items: [{ id: 'delete', label: 'Remove files', danger: true, separatorBefore: true }],
+        items: [{ id: 'delete', label: 'Remove files', icon: 'trash', danger: true, separatorBefore: true }],
       },
     ],
   },
@@ -25,3 +25,10 @@ export default meta;
 type Story = StoryObj<MmDropdown>;
 
 export const Default: Story = {};
+
+export const Open: Story = {
+  play: ({ canvasElement }) => {
+    const trigger = canvasElement.querySelector<HTMLButtonElement>('.mm-dropdown__trigger');
+    trigger?.click();
+  },
+};

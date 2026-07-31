@@ -7,6 +7,7 @@ export interface MmToastMessage {
   title: string;
   body?: string;
   tone: MmToastTone;
+  hidden?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -30,6 +31,9 @@ export class MmToastService {
   }
 
   dismiss(id: string): void {
-    this.messages.update((list) => list.filter((item) => item.id !== id));
+    this.messages.update((list) => list.map((item) => (item.id === id ? { ...item, hidden: true } : item)));
+    window.setTimeout(() => {
+      this.messages.update((list) => list.filter((item) => item.id !== id));
+    }, 400);
   }
 }

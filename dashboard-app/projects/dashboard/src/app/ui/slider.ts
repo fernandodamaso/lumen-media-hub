@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, model } from '@angular/core';
 
+// ponytail: default aria-label removes the need for a visible label in every demo/story.
+
 @Component({
   selector: 'mm-slider',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -13,7 +15,9 @@ import { ChangeDetectionStrategy, Component, computed, input, model } from '@ang
         [step]="step()"
         [disabled]="disabled()"
         [value]="value()"
+        [style.--fill]="fillPercent() + '%'"
         (input)="onInput($event)"
+        [attr.aria-label]="ariaLabel()"
         [attr.aria-valuenow]="value()"
         [attr.aria-valuemin]="min()"
         [attr.aria-valuemax]="max()"
@@ -31,6 +35,7 @@ export class MmSlider {
   readonly step = input(1);
   readonly disabled = input(false);
   readonly showValue = input(true);
+  readonly ariaLabel = input('Slider');
   readonly value = model(42);
   readonly fillPercent = computed(() => {
     const span = this.max() - this.min();

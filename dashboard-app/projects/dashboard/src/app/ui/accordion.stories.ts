@@ -20,3 +20,11 @@ export const MultiOpen: Story = {};
 export const SingleOpen: Story = {
   args: { singleOpen: true },
 };
+
+export const FirstOpen: Story = {
+  args: { singleOpen: false },
+  play: ({ canvasElement }) => {
+    const trigger = canvasElement.querySelector<HTMLButtonElement>('.mm-accordion__trigger');
+    trigger?.click();
+  },
+};

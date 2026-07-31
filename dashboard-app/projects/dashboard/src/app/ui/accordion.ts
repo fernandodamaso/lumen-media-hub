@@ -22,11 +22,18 @@ export interface MmAccordionItem {
             (click)="toggle(item.id)"
           >
             <span>{{ item.title }}</span>
-            <svg lucideChevronDown [size]="16" aria-hidden="true"></svg>
+            <svg lucideChevronDown [size]="15" aria-hidden="true"></svg>
           </button>
-          @if (isOpen(item.id)) {
-            <div class="mm-accordion__panel">{{ item.content }}</div>
-          }
+          <div
+            class="mm-accordion__panel"
+            [class.mm-accordion__panel--open]="isOpen(item.id)"
+            [attr.aria-hidden]="!isOpen(item.id)"
+            [attr.inert]="isOpen(item.id) ? null : ''"
+          >
+            <div class="mm-accordion__clip">
+              <div class="mm-accordion__body">{{ item.content }}</div>
+            </div>
+          </div>
         </div>
       }
     </div>

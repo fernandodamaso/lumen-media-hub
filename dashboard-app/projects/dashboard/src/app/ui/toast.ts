@@ -7,7 +7,11 @@ import { MmToastService } from './toast.service';
   template: `
     <div class="mm-toast-host" aria-live="polite" aria-relevant="additions">
       @for (toast of toasts.messages(); track toast.id) {
-        <div class="mm-toast mm-toast--{{ toast.tone }}" role="status">
+        <div
+          class="mm-toast mm-toast--{{ toast.tone }}"
+          [class.mm-toast--hide]="toast.hidden"
+          role="status"
+        >
           <div class="mm-toast__title">{{ toast.title }}</div>
           @if (toast.body) {
             <div class="mm-toast__body">{{ toast.body }}</div>

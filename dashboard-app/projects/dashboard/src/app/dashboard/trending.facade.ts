@@ -43,6 +43,7 @@ export class TrendingFacade {
     this.destroyRef.onDestroy(() => {
       this.requestId++;
     });
+    void this.refresh({ initial: true });
   }
 
   async refresh(options: { initial?: boolean; signal?: AbortSignal } = {}): Promise<void> {

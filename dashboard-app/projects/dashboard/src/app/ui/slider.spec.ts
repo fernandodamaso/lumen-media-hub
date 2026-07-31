@@ -11,4 +11,12 @@ describe('MmSlider', () => {
     input.dispatchEvent(new Event('input'));
     expect(fixture.componentInstance.value()).toBe(75);
   });
+
+  it('drives the fill track from the value', () => {
+    const fixture = TestBed.createComponent(MmSlider);
+    fixture.componentInstance.value.set(75);
+    fixture.detectChanges();
+    const input = fixtureHost(fixture).querySelector('input') as HTMLInputElement;
+    expect(input.style.getPropertyValue('--fill')).toBe('75%');
+  });
 });

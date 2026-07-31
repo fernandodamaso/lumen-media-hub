@@ -29,7 +29,3 @@ type Story = StoryObj;
 export const Default: Story = {
   decorators: [applicationConfig({ providers: [provideRouter([]), { provide: HeroFacade, useValue: { view: signal(view) } }] })],
 };
-
-export const NoCandidate: Story = {
-  decorators: [applicationConfig({ providers: [provideRouter([]), { provide: HeroFacade, useValue: { view: signal(null) } }] })],
-};

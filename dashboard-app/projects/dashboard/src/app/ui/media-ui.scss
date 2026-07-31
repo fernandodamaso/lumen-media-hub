@@ -16,7 +16,7 @@
   /* Ink */
   --mm-color-ink-0: #f3f0ea;
   --mm-color-ink-1: #9a97a3;
-  --mm-color-ink-2: #5c5a66;
+  --mm-color-ink-2: #94919d;  // ponytail: lightened from Lumen #5c5a66 to meet WCAG AA on #0a0a0f
 
   /* Surfaces */
   --mm-color-surface-0: #0a0a0f;
@@ -69,6 +69,14 @@
   --mm-text-heading: 15px;
   --mm-transition-fast: 0.15s ease;
   --mm-transition-normal: 0.2s ease;
+
+  /* Lumen overlay / motion primitives */
+  --mm-color-surface-elev2: #17161f;
+  --mm-color-surface-tip: #1c1b24;
+  --mm-ease-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+  --mm-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --mm-shadow-overlay: 0 16px 44px rgb(0 0 0 / 55%);
+  --mm-toast-edge-w: 3px;
   --mm-semantic-text-primary: var(--mm-color-ink-0);
   --mm-semantic-text-secondary: var(--mm-color-ink-1);
   --mm-semantic-text-muted: var(--mm-color-ink-2);

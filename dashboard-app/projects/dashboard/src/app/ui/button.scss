@@ -141,6 +141,33 @@
   }
 }
 
+.mm-button--chip {
+  min-height: 0;
+  padding: 7px 16px;
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: var(--mm-radius-pill);
+  background: transparent;
+  color: var(--mm-component-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: none;
+}
+.mm-button--chip:hover:not(:disabled) {
+  border-color: rgb(255 255 255 / 32%);
+  color: var(--mm-component-text-primary);
+  transform: none;
+}
+.mm-button--chip.solid,
+.mm-button--chip.mm-button--chip-solid {
+  background: var(--mm-component-accent);
+  border-color: var(--mm-component-accent);
+  color: var(--mm-component-on-accent);
+}
+.mm-button--chip.solid:hover:not(:disabled),
+.mm-button--chip.mm-button--chip-solid:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
 .mm-button--sm {
   min-height: 34px;
   padding: 9px 20px;

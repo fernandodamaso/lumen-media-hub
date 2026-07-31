@@ -26,6 +26,20 @@ describe('TrendingFacade', () => {
     listTraktDiscover = vi.fn<(type: string) => Promise<ExternalDiscover>>();
   });
 
+  it('auto-loads trending on construction', async () => {
+    listTraktDiscover.mockImplementation((type: string): Promise<ExternalDiscover> =>
+      Promise.resolve(type === 'shows' ? discover([item('Show A', 1)]) : discover([item('Movie A', 11)])),
+    );
+    const facade = setup();
+    await vi.waitFor(() => {
+      expect(facade.status()).toBe('ready');
+    });
+
+    expect(listTraktDiscover).toHaveBeenCalledWith('shows', undefined);
+    expect(listTraktDiscover).toHaveBeenCalledWith('movies', undefined);
+    expect(facade.items().map((entry) => entry.title)).toEqual(['Show A', 'Movie A']);
+  });
+
   it('interleaves trending shows and movies by rank', async () => {
     listTraktDiscover.mockImplementation((type: string): Promise<ExternalDiscover> =>
       Promise.resolve(
@@ -35,7 +49,9 @@ describe('TrendingFacade', () => {
       ),
     );
     const facade = setup();
-    await facade.refresh({ initial: true });
+    await vi.waitFor(() => {
+      expect(facade.status()).toBe('ready');
+    });
 
     expect(facade.status()).toBe('ready');
     expect(facade.items().map((entry) => entry.title)).toEqual([

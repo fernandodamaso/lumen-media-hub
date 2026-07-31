@@ -12,4 +12,17 @@ describe('MmToastService', () => {
     expect(service.messages()).toHaveLength(0);
     vi.useRealTimers();
   });
+
+  it('marks toast as hidden before removal', () => {
+    vi.useFakeTimers();
+    const service = TestBed.inject(MmToastService);
+    service.show('Saved');
+    const id = service.messages()[0].id;
+    service.dismiss(id);
+    expect(service.messages()).toHaveLength(1);
+    expect(service.messages()[0].hidden).toBe(true);
+    vi.advanceTimersByTime(400);
+    expect(service.messages()).toHaveLength(0);
+    vi.useRealTimers();
+  });
 });

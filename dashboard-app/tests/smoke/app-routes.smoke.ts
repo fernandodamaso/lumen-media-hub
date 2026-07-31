@@ -56,10 +56,10 @@ async function expectNoHorizontalOverflow(page: import('@playwright/test').Page)
 
 async function expectAutomationReadable(page: import('@playwright/test').Page): Promise<void> {
   const readable = await page.evaluate(() => {
-    const region = document.querySelector('#automation-region');
+    const region = document.querySelector('[data-testid="rr-health"]');
     if (!region) return false;
     const regionBox = region.getBoundingClientRect();
-    const names = [...region.querySelectorAll('.svc__name')];
+    const names = [...region.querySelectorAll('.svc-name')];
     if (names.length === 0) return false;
     return names.every((name) => {
       const box = name.getBoundingClientRect();
@@ -75,6 +75,8 @@ test('dashboard layout stays within the viewport at mobile and desktop widths', 
 
   await expectNoHorizontalOverflow(page);
   await expect(page.getByRole('button', { name: 'Add media' })).toBeVisible();
+  await expect(page.locator('.dl-stats')).toBeVisible();
+  expect(await page.locator('.dl-stats').evaluate((element) => element.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await expectNoHorizontalOverflow(page);

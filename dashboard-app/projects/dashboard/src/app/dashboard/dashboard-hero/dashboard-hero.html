@@ -1,6 +1,6 @@
 @if (view(); as hero) {
   <section class="hero" mmReveal [attr.aria-label]="'Featured: ' + hero.title">
-    <img class="hero__bg" [src]="hero.backdropUrl" alt="" />
+    <div class="hero__bg" [style.background]="heroBackground(hero.backdropUrl)" aria-hidden="true"></div>
     <div class="hero__scrim" aria-hidden="true"></div>
     <div class="hero__in">
       <p class="hero__kicker">{{ hero.kicker }}</p>

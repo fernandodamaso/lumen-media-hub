@@ -56,6 +56,7 @@ describe('MmReveal', () => {
 
   afterEach(() => {
     (window as unknown as { IntersectionObserver: unknown }).IntersectionObserver = originalObserver;
+    vi.restoreAllMocks();
   });
 
   it('starts hidden and reveals when the element intersects', () => {
@@ -73,6 +74,18 @@ describe('MmReveal', () => {
     FakeIntersectionObserver.instances[0].trigger(true);
     fixture.detectChanges();
     expect(target.classList.contains('mm-reveal--in')).toBe(true);
+    expect(FakeIntersectionObserver.instances[0].disconnected).toBe(true);
+  });
+
+  it('reveals immediately when already in the viewport at observation time', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(0, 40, 320, 120),
+    );
+    const fixture = TestBed.createComponent(RevealHost);
+    fixture.detectChanges();
+    const target = fixtureHost(fixture).querySelector('[data-testid="target"]');
+
+    expect(target?.classList.contains('mm-reveal--in')).toBe(true);
     expect(FakeIntersectionObserver.instances[0].disconnected).toBe(true);
   });
 

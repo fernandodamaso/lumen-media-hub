@@ -43,7 +43,9 @@ describe('DashboardHero', () => {
     const root = fixtureHost(fixture);
 
     expect(root.querySelector('.hero__kicker')?.textContent).toContain('Featured');
-    expect(root.querySelector<HTMLImageElement>('.hero__bg')?.getAttribute('src')).toBe(heroView.backdropUrl);
+    expect(root.querySelector<HTMLElement>('.hero__bg')?.style.background).toContain(
+      `url("${heroView.backdropUrl}")`,
+    );
 
     const heading = root.querySelector('h1');
     expect(heading?.textContent).toContain('Ashes of the');

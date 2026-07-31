@@ -235,6 +235,18 @@
   gap: 10px;
 }
 
+@media (max-width: 560px) {
+  .dl-stats {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .dl-actions {
+    margin-left: auto;
+  }
+}
+
 .section-label {
   margin: 14px 0 8px;
   font-size: 10.5px;

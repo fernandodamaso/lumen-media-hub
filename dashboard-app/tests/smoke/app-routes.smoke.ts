@@ -75,6 +75,8 @@ test('dashboard layout stays within the viewport at mobile and desktop widths', 
 
   await expectNoHorizontalOverflow(page);
   await expect(page.getByRole('button', { name: 'Add media' })).toBeVisible();
+  await expect(page.locator('.dl-stats')).toBeVisible();
+  expect(await page.locator('.dl-stats').evaluate((element) => element.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await expectNoHorizontalOverflow(page);

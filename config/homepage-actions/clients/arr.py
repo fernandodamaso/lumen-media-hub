@@ -7,6 +7,7 @@ import urllib.request
 
 import config as settings
 import time
+from datetime import datetime, timezone
 from recommendations_store import RecommendationError
 
 def _arr_get(base, api_key, path):
@@ -249,3 +250,113 @@ def _bazarr_wanted_details():
         errors.append(f"movies: {e}")
 
     return ep_wanted, movie_wanted, errors
+
+
+ACTIVITY_HISTORY_BASE = (
+    "/api/v3/history?page=1&pageSize=25&sortKey=date&sortDirection=descending"
+)
+
+
+def _activity_history_path(source):
+    if source == "sonarr":
+        return f"{ACTIVITY_HISTORY_BASE}&includeSeries=true&includeEpisode=true"
+    return f"{ACTIVITY_HISTORY_BASE}&includeMovie=true"
+
+ACTIVITY_EVENT_KINDS = {
+    "grabbed": "grabbed",
+    "downloadFolderImported": "imported",
+    "seriesFolderImported": "imported",
+    "movieFolderImported": "imported",
+    "episodeFileDeleted": "deleted",
+    "movieFileDeleted": "deleted",
+    "downloadFailed": "failed",
+}
+
+
+def _activity_quality(record):
+    quality = record.get("quality")
+    if not isinstance(quality, dict):
+        return ""
+    name = (quality.get("quality") or {}).get("name")
+    return name if isinstance(name, str) else ""
+
+
+def _map_activity_record(source, record):
+    kind = ACTIVITY_EVENT_KINDS.get(record.get("eventType"))
+    if not kind:
+        return None
+    timestamp = record.get("date")
+    if not isinstance(timestamp, str) or not timestamp.strip():
+        return None
+    if source == "sonarr":
+        series = record.get("series") or {}
+        title = series.get("title") or record.get("sourceTitle") or "Unknown"
+        episode = record.get("episode") or {}
+        season = episode.get("seasonNumber")
+        number = episode.get("episodeNumber")
+        code = ""
+        if isinstance(season, int) and isinstance(number, int):
+            code = f"S{season:02d}E{number:02d}"
+        subtitle = " · ".join(part for part in (code, _activity_quality(record)) if part)
+        slug = series.get("titleSlug")
+        href = f"{settings.SONARR_EXTERNAL_URL}/series/{slug}" if slug else None
+    else:
+        movie = record.get("movie") or {}
+        title = movie.get("title") or record.get("sourceTitle") or "Unknown"
+        year = movie.get("year")
+        subtitle = " · ".join(
+            part
+            for part in (str(year) if isinstance(year, int) else "", _activity_quality(record))
+            if part
+        )
+        slug = movie.get("titleSlug")
+        href = f"{settings.RADARR_EXTERNAL_URL}/movie/{slug}" if slug else None
+    return {
+        "id": f"{source}:{record.get('id')}",
+        "source": source,
+        "kind": kind,
+        "title": title,
+        "subtitle": subtitle,
+        "timestamp": timestamp,
+        "href": href,
+    }
+
+
+def _fetch_activity_items(source):
+    if source == "sonarr":
+        base, api_key = settings.SONARR_URL, settings.SONARR_API_KEY
+    else:
+        base, api_key = settings.RADARR_URL, settings.RADARR_API_KEY
+    data = _arr_get(base, api_key, _activity_history_path(source))
+    records = data.get("records") if isinstance(data, dict) else None
+    items = []
+    for record in records or []:
+        if not isinstance(record, dict):
+            continue
+        mapped = _map_activity_record(source, record)
+        if mapped:
+            items.append(mapped)
+    return items
+
+
+def _build_activity_feed():
+    """Merge Sonarr + Radarr history; per-source degradation, never raises per-source."""
+    sources = {}
+    items = []
+    for source in ("sonarr", "radarr"):
+        configured = settings.SONARR_API_KEY if source == "sonarr" else settings.RADARR_API_KEY
+        if not configured:
+            sources[source] = "unconfigured"
+            continue
+        try:
+            items.extend(_fetch_activity_items(source))
+            sources[source] = "ok"
+        except Exception:
+            sources[source] = "error"
+    items.sort(key=lambda item: item["timestamp"], reverse=True)
+    return {
+        "ok": any(status == "ok" for status in sources.values()),
+        "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "sources": sources,
+        "items": items,
+    }

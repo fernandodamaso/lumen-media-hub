@@ -29,25 +29,24 @@ export type MmTooltipTone = 'default' | 'accent';
       position: absolute;
       left: 50%;
       z-index: 20;
-      bottom: calc(100% + 8px);
+      bottom: calc(100% + 10px);
       width: max-content;
       max-width: min(220px, 70vw);
-      padding: 5px 8px;
-      border: 1px solid var(--mm-component-border);
-      border-radius: var(--mm-radius-sm);
-      background: var(--mm-component-raised-bg);
-      box-shadow: var(--mm-shadow-card);
+      padding: 8px 14px;
+      border: 1px solid rgb(255 255 255 / 12%);
+      border-radius: 9px;
+      background: var(--mm-color-surface-elev2);
+      box-shadow: var(--mm-shadow-overlay);
       color: var(--mm-component-text-primary);
-      font: 600 11.5px/1.25 var(--mm-font-body);
-      letter-spacing: 0.01em;
+      font: 500 12px/1.25 var(--mm-font-body);
       text-align: center;
       white-space: nowrap;
       opacity: 0;
       pointer-events: none;
-      transform: translate(-50%, 2px);
+      transform: translate(-50%, 4px);
       transition:
-        opacity var(--mm-transition-fast),
-        transform var(--mm-transition-fast);
+        opacity 0.2s,
+        transform 0.2s;
     }
 
     .mm-tooltip__bubble::after {
@@ -55,32 +54,36 @@ export type MmTooltipTone = 'default' | 'accent';
       position: absolute;
       left: 50%;
       top: 100%;
-      width: 8px;
-      height: 8px;
-      border-right: 1px solid var(--mm-component-border);
-      border-bottom: 1px solid var(--mm-component-border);
-      background: inherit;
-      transform: translate(-50%, -50%) rotate(45deg);
+      border-width: 5px;
+      border-style: solid;
+      border-color: var(--mm-color-surface-elev2) transparent transparent transparent;
+      transform: translateX(-50%);
     }
 
     :host.mm-tooltip--bottom .mm-tooltip__bubble {
-      top: calc(100% + 8px);
+      top: calc(100% + 10px);
       bottom: auto;
-      transform: translate(-50%, -2px);
+      transform: translate(-50%, -4px);
     }
 
     :host.mm-tooltip--bottom .mm-tooltip__bubble::after {
-      top: 0;
-      border-right: 0;
-      border-bottom: 0;
-      border-left: 1px solid var(--mm-component-border);
-      border-top: 1px solid var(--mm-component-border);
+      top: auto;
+      bottom: 100%;
+      border-color: transparent transparent var(--mm-color-surface-elev2) transparent;
     }
 
     :host.mm-tooltip--accent .mm-tooltip__bubble {
-      border-color: color-mix(in srgb, var(--mm-component-accent) 45%, var(--mm-component-border));
-      background: color-mix(in srgb, var(--mm-component-accent) 18%, var(--mm-component-card-bg));
-      color: var(--mm-component-accent-strong);
+      border-color: rgb(212 169 78 / 40%);
+      background: color-mix(in srgb, var(--mm-component-accent) 14%, var(--mm-color-surface-elev2));
+      color: var(--mm-component-accent);
+    }
+
+    :host.mm-tooltip--accent .mm-tooltip__bubble::after {
+      border-color: color-mix(in srgb, var(--mm-component-accent) 14%, var(--mm-color-surface-elev2)) transparent transparent transparent;
+    }
+
+    :host.mm-tooltip--bottom.mm-tooltip--accent .mm-tooltip__bubble::after {
+      border-color: transparent transparent color-mix(in srgb, var(--mm-component-accent) 14%, var(--mm-color-surface-elev2)) transparent;
     }
 
     :host:hover .mm-tooltip__bubble,

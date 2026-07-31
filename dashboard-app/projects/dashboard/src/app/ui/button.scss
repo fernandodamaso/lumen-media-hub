@@ -11,8 +11,8 @@
   min-height: 40px;
   gap: var(--mm-space-sm);
   border: 0;
-  border-radius: var(--mm-radius-sm);
-  padding: 8px 14px;
+  border-radius: var(--mm-radius-pill);
+  padding: 10px 22px;
   background: var(--mm-component-accent);
   color: var(--mm-component-on-accent);
   cursor: pointer;
@@ -20,21 +20,18 @@
   white-space: nowrap;
   transition:
     background var(--mm-transition-fast),
+    box-shadow var(--mm-transition-normal),
+    filter var(--mm-transition-fast),
     opacity var(--mm-transition-fast),
-    transform var(--mm-transition-fast);
-}
-
-.mm-button--primary {
-  background: var(--mm-component-accent);
-  color: var(--mm-component-on-accent);
+    transform var(--mm-transition-normal);
 }
 
 .mm-button:hover:not(:disabled) {
-  background: var(--mm-component-accent-strong);
+  transform: translateY(-2px);
 }
 
 .mm-button:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: translateY(0);
 }
 
 .mm-button:focus-visible {
@@ -42,16 +39,44 @@
   outline-offset: 2px;
 }
 
+/* Bone-white spotlight (Lumen .btn-primary) */
+.mm-button--primary {
+  background: var(--mm-component-text-primary);
+  color: var(--mm-color-accent-ink);
+  box-shadow: 0 8px 30px rgb(255 255 255 / 14%);
+}
+
+.mm-button--primary:hover:not(:disabled) {
+  box-shadow: 0 12px 38px rgb(255 255 255 / 22%);
+}
+
+/* Gold — the single most valuable action on screen (Lumen .btn-gold) */
+.mm-button--gold {
+  background: var(--mm-component-accent);
+  color: var(--mm-component-on-accent);
+  box-shadow: 0 8px 30px rgb(212 169 78 / 25%);
+}
+
+.mm-button--gold:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+/* Translucent + blur (Lumen .btn-ghost) */
+.mm-button--ghost {
+  background: rgb(255 255 255 / 8%);
+  color: var(--mm-component-text-primary);
+  border: 1px solid rgb(255 255 255 / 16%);
+  backdrop-filter: blur(8px);
+}
+
+.mm-button--ghost:hover:not(:disabled) {
+  background: rgb(255 255 255 / 14%);
+}
+
 .mm-button--quiet {
   @include control.quiet-surface;
 
   color: var(--mm-component-text-primary);
-  transition:
-    background var(--mm-transition-fast),
-    border-color var(--mm-transition-fast),
-    color var(--mm-transition-fast),
-    opacity var(--mm-transition-fast),
-    transform var(--mm-transition-fast);
 }
 
 .mm-button--quiet:hover:not(:disabled) {
@@ -78,22 +103,81 @@
   background: color-mix(in srgb, var(--mm-component-warning) 82%, #000);
 }
 
+/* Translucent destructive (Lumen .btn-danger) */
 .mm-button--danger {
-  background: var(--mm-component-danger);
-  color: var(--mm-component-on-danger);
+  background: rgb(248 113 113 / 12%);
+  color: var(--mm-component-danger);
+  border: 1px solid rgb(248 113 113 / 30%);
 }
 
 .mm-button--danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--mm-component-danger) 82%, #000);
+  background: rgb(248 113 113 / 20%);
 }
 
 .mm-button:disabled {
   cursor: not-allowed;
-  opacity: 0.65;
+  opacity: 0.4;
+  transform: none;
+  box-shadow: none;
 }
 
 .mm-button[aria-busy='true'] {
   cursor: wait;
+}
+
+.mm-button__spinner {
+  display: block;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .mm-button__spinner {
+    animation: mm-button-spin 0.8s linear infinite;
+  }
+}
+
+@keyframes mm-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.mm-button--chip {
+  min-height: 0;
+  padding: 7px 16px;
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: var(--mm-radius-pill);
+  background: transparent;
+  color: var(--mm-component-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: none;
+}
+.mm-button--chip:hover:not(:disabled) {
+  border-color: rgb(255 255 255 / 32%);
+  color: var(--mm-component-text-primary);
+  transform: none;
+}
+.mm-button--chip.solid,
+.mm-button--chip.mm-button--chip-solid {
+  background: var(--mm-component-accent);
+  border-color: var(--mm-component-accent);
+  color: var(--mm-component-on-accent);
+}
+.mm-button--chip.solid:hover:not(:disabled),
+.mm-button--chip.mm-button--chip-solid:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.mm-button--sm {
+  min-height: 34px;
+  padding: 9px 20px;
+  font-size: 13px;
+}
+
+.mm-button--lg {
+  min-height: 48px;
+  padding: 17px 38px;
+  font-size: 15.5px;
 }
 
 @media (max-width: 900px), (pointer: coarse) {

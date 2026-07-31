@@ -33,6 +33,14 @@ export const mapWatchNextItem = (dto: MediaStackWatchNextItemDto): WatchNextItem
     href: null,
     playable: dto.playable !== false,
     progressPercent,
+    year: dto.year ?? null,
+    rating: dto.rating ?? null,
+    genres: dto.genres ? [...dto.genres] : [],
+    overview: dto.overview ?? null,
+    runtimeTicks: dto.runtimeTicks ?? null,
+    positionTicks: dto.positionTicks ?? null,
+    backdropUrl: dto.backdropUrl ?? null,
+    thumbUrl: dto.thumbUrl ?? null,
   };
 };
 

@@ -10,7 +10,16 @@
         (error)="onImageError()"
       />
     }
+    @if (tag()) {
+      <span
+        class="mm-poster__tag"
+        [class.mm-poster__tag--success]="tagTone() === 'success'"
+      >{{ tag() }}</span>
+    }
     <div class="mm-poster__overlay">
+      @if (episode()) {
+        <div class="mm-poster__episode">{{ episode() }}</div>
+      }
       <div class="mm-poster__head">
         <strong>{{ title() }}</strong>
         @if (rating() !== null && rating() !== undefined) {
@@ -19,5 +28,10 @@
       </div>
       <small>{{ meta() }}</small>
     </div>
+    @if (progress() !== null && progress() !== undefined) {
+      <div class="mm-poster__progress" aria-hidden="true">
+        <div class="mm-poster__progress-bar" [style.width.%]="progress()"></div>
+      </div>
+    }
   </div>
 </div>

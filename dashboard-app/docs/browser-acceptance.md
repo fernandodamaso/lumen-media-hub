@@ -16,13 +16,11 @@ Verified 2026-07-16 during the Nocturne ops-console redesign on the main dashboa
 - [x] Header, metric cards, attention banner, and 3-column grid (downloads/runs, calendar, health/storage) render at 1920├ù1080
 - [x] Layout adapts cleanly at 1440├ù900 without header wrapping or clipped controls
 - [x] Grid remains readable with representative mock content
-- [x] Theme picker is usable from the sidebar footer
 
-## Themes
+## Appearance
 
-- [x] Switch Nocturne ΓåÆ Tokyo Night ΓåÆ GitHub Dark Pro; UI tokens update
-- [x] Reload keeps the selected theme (`media-ui-theme`)
-- [ ] Light themes remain out of scope; only dark themes are implemented
+- [x] Single Lumen theme (dark, gold/violet); no theme picker
+- [x] Reload renders the Lumen palette (no per-user theme state)
 
 ## Keyboard focus
 
@@ -60,6 +58,6 @@ Verified 2026-07-16 during the Nocturne ops-console redesign on the main dashboa
 ## Local showcase gate
 
 - [x] Clean instructions in README suffice for `npm ci` + `npm start`
-- [x] Screenshots in `docs/screenshots/` match home, Discover, Reports, Storybook, and a non-default theme
+- [x] Screenshots in `docs/screenshots/` match home, Discover, Reports, and Storybook
 - [x] `npm run lint`, unit tests, canonical `npm run build`, `build:storybook`, and `test:storybook` succeed
 - [x] Obsolete `build:pages` target/script/provider removed

@@ -10,6 +10,9 @@ const config = {
   ignoreDependencies: [
     '@compodoc/compodoc',
     '@eslint/js',
+    '@fontsource-variable/fraunces',
+    '@fontsource/inter',
+    '@fontsource/jetbrains-mono',
     'stylelint-config-standard',
   ],
   ignoreBinaries: ['magenta,blue', 'storybook-static'],

@@ -1,0 +1,61 @@
+.mm-popover {
+  position: relative;
+  display: inline-block;
+}
+.mm-popover__trigger {
+  padding: 8px 14px;
+  border: 1px solid var(--mm-component-border);
+  border-radius: 11px;
+  background: var(--mm-component-control-bg);
+  color: var(--mm-component-text-primary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background var(--mm-transition-fast),
+    border-color var(--mm-transition-fast);
+}
+.mm-popover__trigger:hover {
+  background: var(--mm-component-control-hover-bg);
+  border-color: var(--mm-component-control-hover-border);
+}
+.mm-popover__panel {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 14px;
+  border: 1px solid var(--mm-component-border);
+  border-radius: 14px;
+  background: var(--mm-color-surface-elev2);
+  box-shadow: var(--mm-shadow-overlay);
+  z-index: 20;
+  color: var(--mm-component-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(6px) scale(0.97);
+  transition:
+    opacity 0.2s,
+    transform 0.2s var(--mm-ease-emphasized),
+    visibility 0.2s;
+}
+.mm-popover__panel--open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+.mm-popover__panel:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mm-popover__panel {
+    transition: none;
+  }
+}

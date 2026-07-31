@@ -9,10 +9,10 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideRefreshC
     [type]="type()"
     [disabled]="disabled() || busy()"
     [attr.aria-busy]="busy() || null"
-    [class]="'mm-button mm-button--' + variant()"
+    [class]="'mm-button mm-button--' + variant() + ' mm-button--' + size() + (solid() ? ' solid' : '')"
   >
     @if (busy()) {
-      <svg lucideLoaderCircle [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+      <svg class="mm-button__spinner" lucideLoaderCircle [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
     } @else if (icon() === 'pause') {
       <svg lucidePause [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
     } @else if (icon() === 'play') {
@@ -30,9 +30,11 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideRefreshC
 })
 export class MmButton {
   readonly label = input('Continue');
-  readonly variant = input<'primary' | 'quiet' | 'success' | 'warning' | 'danger'>('primary');
+  readonly variant = input<'primary' | 'quiet' | 'success' | 'warning' | 'danger' | 'gold' | 'ghost' | 'chip'>('primary');
   readonly icon = input<'pause' | 'play' | 'plus' | 'refresh' | 'external-link' | ''>('');
   readonly disabled = input(false);
   readonly busy = input(false);
+  readonly size = input<'sm' | 'md' | 'lg'>('md');
   readonly type = input<'button' | 'submit'>('button');
+  readonly solid = input(false);
 }

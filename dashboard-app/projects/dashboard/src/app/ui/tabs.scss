@@ -1,0 +1,69 @@
+.mm-tabs__list {
+  display: flex;
+  gap: 18px;
+  border-bottom: 1px solid var(--mm-component-divider);
+}
+.mm-tabs__tab {
+  position: relative;
+  margin: 0;
+  padding: 10px 2px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--mm-component-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--mm-transition-fast);
+}
+.mm-tabs__tab:hover {
+  color: var(--mm-component-text-primary);
+}
+.mm-tabs__tab--active {
+  color: var(--mm-semantic-accent);
+}
+.mm-tabs__tab::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--mm-semantic-accent);
+  border-radius: 2px 2px 0 0;
+  transform: scaleX(0);
+  transition: transform 0.3s var(--mm-ease-emphasized);
+}
+.mm-tabs__tab--active::after {
+  transform: scaleX(1);
+}
+.mm-tabs__tab:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
+}
+.mm-tabs__panel {
+  padding-top: 16px;
+}
+:host ::ng-deep .mm-tab-panel {
+  display: none;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: mm-tab-panel-fade 0.4s ease forwards;
+}
+:host ::ng-deep .mm-tab-panel--active {
+  display: block;
+}
+@keyframes mm-tab-panel-fade {
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :host ::ng-deep .mm-tab-panel {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .mm-tabs__tab::after {
+    transition: none;
+  }
+}

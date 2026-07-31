@@ -1,0 +1,37 @@
+@if (view(); as hero) {
+  <section class="hero" mmReveal [attr.aria-label]="'Featured: ' + hero.title">
+    <div class="hero__bg" [style.background]="heroBackground(hero.backdropUrl)" aria-hidden="true"></div>
+    <div class="hero__scrim" aria-hidden="true"></div>
+    <div class="hero__in">
+      <p class="hero__kicker">{{ hero.kicker }}</p>
+      <h1>
+        @if (hero.titleParts.head) { {{ hero.titleParts.head }} }<em>{{ hero.titleParts.tail }}</em>
+      </h1>
+      <div class="hero__meta">
+        @for (segment of hero.meta; track segment) {
+          <span>{{ segment }}</span>
+          @if (!$last) { <span aria-hidden="true">·</span> }
+        }
+      </div>
+      @if (hero.overview) {
+        <p class="hero__overview">{{ hero.overview }}</p>
+      }
+      <div class="hero__btns">
+        @if (hero.playHref; as href) {
+          <a class="btn-play" data-testid="hero-play" [href]="href" target="_blank" rel="noreferrer">
+            <svg lucidePlay [size]="13" aria-hidden="true"></svg>Play
+          </a>
+        }
+        <a class="btn-ghost" data-testid="hero-details" routerLink="/library">
+          <svg lucideInfo [size]="13" aria-hidden="true"></svg>Details
+        </a>
+      </div>
+      @if (hero.progressPercent > 0) {
+        <div class="hero__prog">
+          <mm-progress [value]="hero.progressPercent" [showLabel]="false" [label]="hero.title + ' watch progress'" />
+          <span>{{ hero.remainingLabel }}</span>
+        </div>
+      }
+    </div>
+  </section>
+}

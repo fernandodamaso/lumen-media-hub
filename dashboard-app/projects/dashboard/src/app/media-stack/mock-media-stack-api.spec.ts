@@ -2,6 +2,7 @@ import { vi } from 'vitest';
 import { summarizeDownloads } from '../downloads/downloads.models';
 import { MediaStackApi } from './media-stack-api';
 import { MockMediaStackApi, MOCK_SYNC_FAILED_HERMES_ID } from './mock-media-stack-api';
+import { formatRemainingLabel, formatRuntimeTicks } from '../dashboard/dashboard-hero/hero.facade';
 
 function createApi(): MockMediaStackApi {
   const api = new MockMediaStackApi();
@@ -284,11 +285,37 @@ describe('MockMediaStackApi', () => {
     expect(result.items.some((item) => item.artworkState === 'missing')).toBe(true);
   });
 
+  it('keeps Demo watch-next durations aligned with progress percentages', async () => {
+    const api = createApi();
+    const result = await api.listWatchNext();
+    const expanse = result.items.find((item) => item.id === 'jf-expanse-s04e02');
+    if (!expanse || expanse.positionTicks === null || expanse.runtimeTicks === null) {
+      throw new Error('Demo Expanse watch-next item missing ticks');
+    }
+
+    expect(expanse.positionTicks / expanse.runtimeTicks).toBeCloseTo(expanse.progressPercent / 100);
+    expect(formatRuntimeTicks(expanse.runtimeTicks)).toBe('45m');
+    expect(formatRemainingLabel(expanse.runtimeTicks, expanse.positionTicks)).toBe('26m remaining');
+  });
+
   it('returns an empty watch-next list in the empty demo scenario', async () => {
     const api = createApi();
     api.setWatchNextScenario('empty');
     const result = await api.listWatchNext();
     expect(result.items).toEqual([]);
+  });
+
+  it('serves an activity feed honoring the limit', async () => {
+    const api: MediaStackApi = createApi();
+    const feed = await api.getActivity();
+    expect(feed.ok).toBe(true);
+    expect(feed.sources).toEqual({ sonarr: 'ok', radarr: 'ok' });
+    expect(feed.items.length).toBeGreaterThanOrEqual(4);
+    expect(feed.items.some((item) => item.kind === 'imported')).toBe(true);
+    expect(feed.items.some((item) => item.kind === 'failed')).toBe(true);
+
+    const limited = await api.getActivity(2);
+    expect(limited.items).toHaveLength(2);
   });
 
   it('provides mixed cron-log history covering failures, actionable, and quiet runs', async () => {

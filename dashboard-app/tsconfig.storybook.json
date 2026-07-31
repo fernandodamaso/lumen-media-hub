@@ -7,6 +7,8 @@
     ".storybook/**/*.ts",
     "projects/dashboard/src/app/ui/**/*.stories.ts",
     "projects/dashboard/src/app/dashboard/**/*.stories.ts",
-    "projects/dashboard/src/app/library/**/*.stories.ts"
+    "projects/dashboard/src/app/library/**/*.stories.ts",
+    "projects/dashboard/src/app/topbar/**/*.stories.ts",
+    "projects/dashboard/src/app/right-rail/**/*.stories.ts"
   ]
 }

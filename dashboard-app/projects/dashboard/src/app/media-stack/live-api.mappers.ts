@@ -18,6 +18,7 @@ import { MediaStackLibraryItemDto } from './wire/library';
 import { MediaStackWatchNextItemDto } from './wire/watch-next';
 import { MediaStackStorageVolumeDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
+import { MediaStackActivityFeedDto, MediaStackActivityItemDto, MediaStackActivityKindDto, MediaStackActivitySourceDto, MediaStackActivitySourceStatusDto } from './wire/activity';
 
 /** Validated live torrent member — required identity/state/progress fields are present. */
 interface ValidatedLiveQbtTorrent {
@@ -68,6 +69,14 @@ interface LiveWatchNextItem {
   image?: string | null;
   playable?: boolean;
   progressPercent?: number;
+  year?: number | null;
+  rating?: number | null;
+  genres?: string[];
+  overview?: string | null;
+  runtimeTicks?: number | null;
+  positionTicks?: number | null;
+  backdropUrl?: string | null;
+  thumbUrl?: string | null;
 }
 
 interface ValidatedLiveWatchNextItem {
@@ -79,6 +88,14 @@ interface ValidatedLiveWatchNextItem {
   image?: string | null;
   playable?: boolean;
   progressPercent: number;
+  year: number | null;
+  rating: number | null;
+  genres: string[];
+  overview: string | null;
+  runtimeTicks: number | null;
+  positionTicks: number | null;
+  backdropUrl: string | null;
+  thumbUrl: string | null;
 }
 
 export interface LiveWatchNextListResponse {
@@ -401,6 +418,14 @@ function requireLiveWatchNextItem(raw: unknown, index = 0): ValidatedLiveWatchNe
     image: optionalNullableString(raw, 'image', index, 'watch-next'),
     playable,
     progressPercent,
+    year: optionalNullableFiniteNumber(raw, 'year', index, 'watch-next') ?? null,
+    rating: optionalNullableFiniteNumber(raw, 'rating', index, 'watch-next') ?? null,
+    genres: optionalStringArray(raw, 'genres', index, 'watch-next') ?? [],
+    overview: optionalNullableString(raw, 'overview', index, 'watch-next') ?? null,
+    runtimeTicks: optionalNullableFiniteNumber(raw, 'runtimeTicks', index, 'watch-next') ?? null,
+    positionTicks: optionalNullableFiniteNumber(raw, 'positionTicks', index, 'watch-next') ?? null,
+    backdropUrl: optionalNullableString(raw, 'backdropUrl', index, 'watch-next') ?? null,
+    thumbUrl: optionalNullableString(raw, 'thumbUrl', index, 'watch-next') ?? null,
   };
 }
 
@@ -417,6 +442,14 @@ export function mapLiveWatchNextItem(raw: unknown, index = 0): MediaStackWatchNe
     artworkState: posterUrl ? 'ok' : 'missing',
     playable: validated.playable,
     progressPercent: validated.progressPercent,
+    year: validated.year,
+    rating: validated.rating,
+    genres: [...validated.genres],
+    overview: validated.overview,
+    runtimeTicks: validated.runtimeTicks,
+    positionTicks: validated.positionTicks,
+    backdropUrl: validated.backdropUrl,
+    thumbUrl: validated.thumbUrl,
   };
 }
 
@@ -947,6 +980,20 @@ function requireDiscoverRequestState(
   return 'requested';
 }
 
+function optionalStringArray(
+  raw: Record<string, unknown>,
+  field: string,
+  index: number,
+  resource: string,
+): string[] | undefined {
+  const value = raw[field];
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw new Error(`Malformed ${resource} response: member ${index} has invalid ${field}`);
+  }
+  return value as string[];
+}
+
 function optionalNullableString(
   raw: Record<string, unknown>,
   field: string,
@@ -975,4 +1022,69 @@ function optionalNullableFiniteNumber(
     throw new Error(`Malformed ${resource} response: member ${index} has invalid ${field}`);
   }
   return value;
+}
+
+/** Activity feed from GET /activity. */
+export interface LiveActivityFeed {
+  generatedAt?: string;
+  sources?: { sonarr?: string; radarr?: string };
+  items?: unknown[];
+}
+
+function activitySourceStatus(value: unknown): MediaStackActivitySourceStatusDto {
+  if (value === undefined || value === null) return 'unconfigured';
+  if (value === 'ok' || value === 'error' || value === 'unconfigured') return value;
+  throw new Error('Malformed activity response: invalid sources status');
+}
+
+function requireLiveActivityItem(raw: unknown, index = 0): MediaStackActivityItemDto {
+  if (!isRecord(raw)) {
+    throw new Error(`Malformed activity response: member ${index} is not an object`);
+  }
+  const id = raw['id'];
+  const title = raw['title'];
+  const timestamp = raw['timestamp'];
+  if (typeof id !== 'string' || !id.trim()) {
+    throw new Error(`Malformed activity response: member ${index} is missing id`);
+  }
+  if (typeof title !== 'string' || !title.trim()) {
+    throw new Error(`Malformed activity response: member ${index} is missing title`);
+  }
+  if (typeof timestamp !== 'string' || !timestamp.trim()) {
+    throw new Error(`Malformed activity response: member ${index} is missing timestamp`);
+  }
+  const source = raw['source'];
+  if (source !== 'sonarr' && source !== 'radarr') {
+    throw new Error(`Malformed activity response: member ${index} has invalid source`);
+  }
+  const resolvedSource: MediaStackActivitySourceDto = source;
+  const kind = raw['kind'];
+  if (kind !== 'grabbed' && kind !== 'imported' && kind !== 'deleted' && kind !== 'failed') {
+    throw new Error(`Malformed activity response: member ${index} has invalid kind`);
+  }
+  const resolvedKind: MediaStackActivityKindDto = kind;
+  return {
+    id,
+    source: resolvedSource,
+    kind: resolvedKind,
+    title,
+    subtitle: optionalString(raw, 'subtitle', index, 'activity') ?? '',
+    timestamp,
+    href: optionalNullableString(raw, 'href', index, 'activity') ?? null,
+  };
+}
+
+/** Validate GET /activity envelopes; soft ok:false feeds keep per-source status. */
+export function mapLiveActivityFeed(
+  live: LiveActivityFeed & { ok?: boolean },
+): MediaStackActivityFeedDto {
+  return {
+    ok: live.ok !== false,
+    generatedAt: mapGeneratedAt(live.generatedAt, 'Malformed activity response'),
+    sources: {
+      sonarr: activitySourceStatus(live.sources?.sonarr),
+      radarr: activitySourceStatus(live.sources?.radarr),
+    },
+    items: (live.items ?? []).map((item, index) => requireLiveActivityItem(item, index)),
+  };
 }

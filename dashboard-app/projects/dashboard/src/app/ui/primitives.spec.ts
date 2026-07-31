@@ -1,8 +1,7 @@
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { vi } from 'vitest';
 import { fixtureHost } from '../../testing/fixture-host';
-import { MmButton, MmCard, MmIconButton, MmPoster, MmProgress, MmStateCard, MmStatus, MmThemePicker, MmTooltip } from './index';
+import { MmButton, MmCard, MmIconButton, MmPoster, MmProgress, MmStateCard, MmStatus, MmTooltip } from './index';
 
 @Component({
   standalone: true,
@@ -76,10 +75,6 @@ class FooterActionsOnlyCardHost {}
 class ContainerRegionsHost {}
 
 describe('app/ui primitives', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('renders button content and preserves its base and variant classes', () => {
     const fixture = TestBed.createComponent(MmButton);
     fixture.componentRef.setInput('variant', 'quiet');
@@ -89,6 +84,7 @@ describe('app/ui primitives', () => {
 
     expect(button?.className).toContain('mm-button');
     expect(button?.className).toContain('mm-button--quiet');
+    expect(button?.querySelector('.mm-button__spinner')).toBeTruthy();
     expect(button?.getAttribute('aria-busy')).toBe('true');
   });
 
@@ -113,6 +109,46 @@ describe('app/ui primitives', () => {
 
     expect(button?.className).toContain('mm-button--danger');
     expect(button?.textContent).toContain('View issues');
+  });
+
+  it('exposes the gold and ghost button variants', () => {
+    const gold = TestBed.createComponent(MmButton);
+    gold.componentRef.setInput('variant', 'gold');
+    gold.componentRef.setInput('label', 'Add media');
+    gold.detectChanges();
+    const goldButton = fixtureHost(gold).querySelector('button');
+    expect(goldButton?.className).toContain('mm-button--gold');
+    expect(goldButton?.textContent).toContain('Add media');
+
+    const ghost = TestBed.createComponent(MmButton);
+    ghost.componentRef.setInput('variant', 'ghost');
+    ghost.componentRef.setInput('label', 'Details');
+    ghost.detectChanges();
+    const ghostButton = fixtureHost(ghost).querySelector('button');
+    expect(ghostButton?.className).toContain('mm-button--ghost');
+    expect(ghostButton?.textContent).toContain('Details');
+  });
+
+  it('defines gold and ghost variant styles', () => {
+    const fixture = TestBed.createComponent(MmButton);
+    fixture.detectChanges();
+    const css = Array.from(document.head.querySelectorAll('style'))
+      .map((style) => style.textContent)
+      .join('\n');
+    expect(css).toContain('mm-button--gold');
+    expect(css).toContain('mm-button--ghost');
+  });
+
+  it('applies button size modifiers', () => {
+    const sm = TestBed.createComponent(MmButton);
+    sm.componentRef.setInput('size', 'sm');
+    sm.detectChanges();
+    expect(fixtureHost(sm).querySelector('button')?.className).toContain('mm-button--sm');
+
+    const lg = TestBed.createComponent(MmButton);
+    lg.componentRef.setInput('size', 'lg');
+    lg.detectChanges();
+    expect(fixtureHost(lg).querySelector('button')?.className).toContain('mm-button--lg');
   });
 
   it('keeps the status base class alongside its tone class without a live region by default', () => {
@@ -199,28 +235,6 @@ describe('app/ui primitives', () => {
 
     expect(host.querySelector('article')).toBeNull();
     expect(host.querySelector('.mm-poster')?.tagName).toBe('DIV');
-  });
-
-  it('clears the theme picker saved-state timeout on destroy', async () => {
-    vi.useFakeTimers();
-    try {
-      const fixture = TestBed.createComponent(MmThemePicker);
-      fixture.detectChanges();
-      const picker = fixture.componentInstance;
-      const tokyo = [...fixtureHost(fixture).querySelectorAll('button')].find((button) =>
-        button.textContent.includes('Tokyo Night'),
-      ) as HTMLButtonElement;
-
-      tokyo.click();
-      fixture.detectChanges();
-      expect(picker.justSaved()).toBe(true);
-
-      fixture.destroy();
-      await vi.advanceTimersByTimeAsync(2000);
-      expect(picker.justSaved()).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('keeps shared buttons at least 40px high', () => {
@@ -350,25 +364,6 @@ describe('app/ui primitives', () => {
     const button = fixtureHost(fixture).querySelector('button');
 
     expect(button?.getAttribute('aria-pressed')).toBeNull();
-  });
-
-  it('keeps the theme picker selection aligned with the applied theme', () => {
-    const fixture = TestBed.createComponent(MmThemePicker);
-    const picker = fixture.componentInstance;
-    picker.themeService.setTheme('tokyo-night');
-    fixture.detectChanges();
-    const buttons = () => [...fixtureHost(fixture).querySelectorAll('button')];
-
-    expect(document.documentElement.dataset['theme']).toBe('tokyo-night');
-    expect(buttons().find((button) => button.textContent.includes('Tokyo Night'))?.classList.contains('is-active')).toBe(
-      true,
-    );
-
-    picker.themeService.setTheme('github-dark-pro');
-    fixture.detectChanges();
-    expect(buttons().find((button) => button.textContent.includes('GitHub Dark'))?.classList.contains('is-active')).toBe(
-      true,
-    );
   });
 
   it('lets the primary button receive keyboard focus', () => {

@@ -17,6 +17,7 @@ import {
   LibraryStats,
 } from '../library/library.models';
 import { WatchNextResult } from '../library/watch-next.models';
+import { ActivityFeed } from '../activity/activity.models';
 import { AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
@@ -31,6 +32,7 @@ export interface MediaStackApi {
   getArrLibrary(signal?: AbortSignal): Promise<ArrLibrary>;
   listLibraryItems(filter?: { kind?: LibraryItemKind }, signal?: AbortSignal): Promise<LibraryListResult>;
   listWatchNext(signal?: AbortSignal): Promise<WatchNextResult>;
+  getActivity(limit?: number, signal?: AbortSignal): Promise<ActivityFeed>;
   getLibraryStats(signal?: AbortSignal): Promise<LibraryStats>;
   getStorageOverview(signal?: AbortSignal): Promise<StorageOverview>;
   getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary>;

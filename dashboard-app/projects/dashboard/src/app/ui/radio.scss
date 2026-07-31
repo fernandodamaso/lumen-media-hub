@@ -1,0 +1,63 @@
+:host {
+  display: inline-flex;
+}
+.mm-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.mm-radio input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.mm-radio__dot {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid rgb(255 255 255 / 28%);
+  background: var(--mm-component-card-bg);
+  transition: all 0.2s;
+  flex: none;
+}
+.mm-radio__dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--mm-component-accent);
+  transform: scale(0);
+  transition: transform 0.2s var(--mm-ease-spring);
+}
+.mm-radio input:checked + .mm-radio__dot {
+  border-color: var(--mm-component-accent);
+}
+.mm-radio input:checked + .mm-radio__dot::after {
+  transform: scale(1);
+}
+.mm-radio input:focus-visible + .mm-radio__dot {
+  box-shadow: 0 0 0 3px rgb(212 169 78 / 25%);
+}
+.mm-radio__label {
+  color: var(--mm-component-text-secondary);
+  transition: color var(--mm-transition-fast);
+}
+.mm-radio input:checked ~ .mm-radio__label {
+  color: var(--mm-component-text-primary);
+}
+.mm-radio--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mm-radio__dot::after {
+    transition: none;
+  }
+}

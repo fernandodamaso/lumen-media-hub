@@ -1,8 +1,7 @@
 import { provideRouter } from '@angular/router';
 import { applicationConfig, type Preview } from '@storybook/angular';
 
-function applyTheme(theme: string): void {
-  document.documentElement.dataset['theme'] = theme;
+function applySurface(): void {
   document.documentElement.style.background = 'var(--mm-semantic-surface-page)';
   document.documentElement.style.color = 'var(--mm-semantic-text-primary)';
   document.body.style.background = 'var(--mm-semantic-surface-page)';
@@ -13,26 +12,12 @@ function applyTheme(theme: string): void {
 }
 
 const preview: Preview = {
-  globalTypes: {
-    theme: {
-      description: 'Global dashboard UI theme',
-      defaultValue: 'github-dark-pro',
-      toolbar: {
-        icon: 'paintbrush',
-        items: [
-          { value: 'nocturne', title: 'Nocturne' },
-          { value: 'tokyo-night', title: 'Tokyo Night' },
-          { value: 'github-dark-pro', title: 'GitHub Dark Pro' },
-        ],
-      },
-    },
-  },
   decorators: [
     applicationConfig({
       providers: [provideRouter([])],
     }),
-    (story, context) => {
-      applyTheme(String(context.globals['theme'] ?? 'github-dark-pro'));
+    (story) => {
+      applySurface();
       return story();
     },
   ],

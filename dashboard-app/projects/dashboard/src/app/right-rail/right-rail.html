@@ -1,0 +1,122 @@
+<section class="rail-sec" data-testid="rr-upcoming" aria-labelledby="rr-upcoming-heading">
+  <h3 id="rr-upcoming-heading">
+    Upcoming Releases
+    @if (calendarHref(); as href) {
+      <a class="link" [href]="href" target="_blank" rel="noreferrer">View Calendar ›</a>
+    }
+  </h3>
+  @switch (calendar.status()) {
+    @case ('loading') {
+      <div class="rail-skeletons" aria-hidden="true">
+        @for (i of skeletonRows; track i) {
+          <div class="up-skeleton">
+            <mm-skeleton variant="rect" width="40px" height="56px" />
+            <div class="up-copy">
+              <mm-skeleton variant="text" width="72%" height="13px" />
+              <mm-skeleton variant="text" width="48%" height="11px" />
+            </div>
+          </div>
+        }
+      </div>
+    }
+    @case ('error') {
+      <p class="rail-note rail-note--danger">Calendar is unavailable right now.</p>
+    }
+    @case ('empty') {
+      <p class="rail-note">Nothing scheduled.</p>
+    }
+    @default {
+      @for (event of upcoming(); track event.id) {
+        <mm-upcoming-item
+          [title]="event.title"
+          [subtitle]="event.subtitle"
+          [airDateLabel]="formatAirDate(event.airDate)"
+          [whenLabel]="whenLabel(event)"
+          [ready]="event.status === 'available'"
+          [art]="event.art ?? fallbackArt"
+          [href]="event.href"
+        />
+      }
+    }
+  }
+</section>
+
+<section class="rail-sec" data-testid="rr-activity" aria-labelledby="rr-activity-heading">
+  <h3 id="rr-activity-heading">Recent Activity</h3>
+  @if (activity.degradedSources().length) {
+    <p class="rail-note rail-note--warning">
+      {{ activity.degradedSources().join(', ') }} unavailable — showing partial activity.
+    </p>
+  }
+  @switch (activity.status()) {
+    @case ('loading') {
+      <div class="rail-skeletons" aria-hidden="true">
+        @for (i of skeletonRows; track i) {
+          <div class="act-row">
+            <mm-skeleton variant="rect" width="28px" height="28px" />
+            <div class="act-copy">
+              <mm-skeleton variant="text" width="80%" height="12px" />
+              <mm-skeleton variant="text" width="55%" height="10px" />
+            </div>
+          </div>
+        }
+      </div>
+    }
+    @case ('error') {
+      <p class="rail-note rail-note--danger">Recent activity is unavailable right now.</p>
+    }
+    @case ('empty') {
+      <p class="rail-note">No activity yet.</p>
+    }
+    @default {
+      @for (item of activity.items(); track item.id) {
+        <div class="act-row">
+          <span class="act-ico" [class]="'act-ico--' + activityTone(item)" aria-hidden="true">
+            @switch (item.kind) {
+              @case ('grabbed') { <svg lucideDownload [size]="13"></svg> }
+              @case ('imported') { <svg lucideCircleCheck [size]="13"></svg> }
+              @case ('deleted') { <svg lucideTrash2 [size]="13"></svg> }
+              @case ('failed') { <svg lucideCircleAlert [size]="13"></svg> }
+            }
+          </span>
+          <div class="act-copy">
+            @if (item.href) {
+              <a class="act-txt" [href]="item.href" target="_blank" rel="noreferrer">{{ item.title }}</a>
+            } @else {
+              <div class="act-txt">{{ item.title }}</div>
+            }
+            <div class="act-sub">{{ item.subtitle }}</div>
+          </div>
+          <span class="act-time">{{ formatWhen(item.timestamp) }}</span>
+        </div>
+      }
+    }
+  }
+</section>
+
+<section class="rail-sec" data-testid="rr-health" aria-labelledby="rr-health-heading">
+  <h3 id="rr-health-heading">Service Health</h3>
+  @if (health.error()) {
+    <p class="rail-note rail-note--warning">{{ health.error() }}</p>
+  }
+  @if (services().length) {
+    @for (service of services(); track service.id) {
+      <mm-service-row
+        [name]="service.name"
+        [detail]="service.detail || statusLabel(service.status)"
+        [status]="service.status"
+        [statusLabel]="statusLabel(service.status)"
+        [initial]="serviceInitial(service.name)"
+      />
+    }
+  } @else {
+    <p class="rail-note">Service status is unavailable.</p>
+  }
+  @if (allGood()) {
+    <div class="all-good" data-testid="rr-all-good">
+      <span class="dot dot--ok" aria-hidden="true"></span>
+      All services are running smoothly.
+      <a class="link" routerLink="/reports">View Reports ›</a>
+    </div>
+  }
+</section>

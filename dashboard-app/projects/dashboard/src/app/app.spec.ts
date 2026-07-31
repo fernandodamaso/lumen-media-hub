@@ -9,6 +9,7 @@ import { fixtureHost } from '../testing/fixture-host';
 import { App } from './app';
 import { routes } from './app.routes';
 import { provideHttpClient } from '@angular/common/http';
+import { ActivityFacade } from './right-rail/activity.facade';
 import { AutomationFacade } from './automation/automation.facade';
 import { summarizeAutomationHealth } from './automation/automation.models';
 import { ServiceHealthFacade } from './automation/service-health.facade';
@@ -28,6 +29,7 @@ function provideCommandPaletteFacadeMocks() {
     LibraryStatsFacade,
     StorageFacade,
     AutomationFacade,
+    ActivityFacade,
   ];
 }
 
@@ -60,7 +62,9 @@ describe('App shell', () => {
     expect(root.querySelector('.brand')?.textContent).toContain('Media Manager');
     expect(root.querySelector('.demo-badge')?.textContent).toContain('Demo');
     expect(root.querySelectorAll('.sidebar__nav a')).toHaveLength(4);
-    expect(root.querySelector('[data-testid="search-trigger"]')).toBeTruthy();
+    expect(root.querySelector('[data-testid="search-trigger"]')).toBeNull();
+    expect(root.querySelector('[data-testid="topbar-search"]')).toBeTruthy();
+    expect(root.querySelector('mm-right-rail')).toBeTruthy();
     expect(root.querySelectorAll('.service-link')).toHaveLength(0);
     expect(root.querySelector('router-outlet')).toBeTruthy();
   });
@@ -80,16 +84,73 @@ describe('App shell', () => {
     expect(pill?.textContent).toMatch(/need attention/);
   });
 
-  it('opens the command palette signal from the search trigger', async () => {
+  it('opens the command palette signal from the topbar search pill', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     expect(fixture.componentInstance.commandPaletteOpen()).toBe(false);
 
-    const trigger = fixtureHost(fixture).querySelector('[data-testid="search-trigger"]') as HTMLButtonElement;
+    const trigger = fixtureHost(fixture).querySelector('[data-testid="topbar-search"]') as HTMLButtonElement;
     trigger.click();
     await Promise.resolve();
     fixture.detectChanges();
     expect(fixture.componentInstance.commandPaletteOpen()).toBe(true);
+  });
+
+  it('shows the storage mini-card once a library volume is loaded', async () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelector('[data-testid="storage-mini-card"]')).toBeNull();
+
+    const storage = TestBed.inject(StorageFacade);
+    await storage.refresh({ initial: true });
+    fixture.detectChanges();
+
+    const card = fixtureHost(fixture).querySelector('[data-testid="storage-mini-card"]');
+    expect(card).toBeTruthy();
+    expect(card?.textContent).toContain('Storage');
+    expect(card?.textContent).toContain('Manage storage');
+  });
+
+  it('keeps shell-owned polling armed across Dashboard → Library → Dashboard navigation', async () => {
+    const calendar = TestBed.inject(CalendarFacade);
+    const automation = TestBed.inject(AutomationFacade);
+    const storage = TestBed.inject(StorageFacade);
+    const activity = TestBed.inject(ActivityFacade);
+    const downloads = TestBed.inject(DownloadsFacade);
+    const calendarStart = vi.spyOn(calendar, 'startPolling');
+    const calendarStop = vi.spyOn(calendar, 'stopPolling');
+    const automationStop = vi.spyOn(automation, 'stopPolling');
+    const storageStop = vi.spyOn(storage, 'stopPolling');
+    const activityStop = vi.spyOn(activity, 'stopPolling');
+    const downloadsStart = vi.spyOn(downloads, 'startPolling');
+    const downloadsStop = vi.spyOn(downloads, 'stopPolling');
+
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    expect(calendarStart).toHaveBeenCalledTimes(1);
+
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl('/');
+    fixture.detectChanges();
+    expect(downloadsStart).toHaveBeenCalledTimes(1);
+
+    await calendar.refresh({ initial: true });
+    const statusOnDashboard = calendar.status();
+    expect(statusOnDashboard === 'ready' || statusOnDashboard === 'empty').toBe(true);
+
+    await router.navigateByUrl('/library');
+    fixture.detectChanges();
+    expect(downloadsStop).toHaveBeenCalledTimes(1);
+    expect(calendarStop).not.toHaveBeenCalled();
+    expect(automationStop).not.toHaveBeenCalled();
+    expect(storageStop).not.toHaveBeenCalled();
+    expect(activityStop).not.toHaveBeenCalled();
+
+    await router.navigateByUrl('/');
+    fixture.detectChanges();
+    expect(downloadsStart).toHaveBeenCalledTimes(2);
+    expect(calendarStart).toHaveBeenCalledTimes(1);
+    expect(calendar.status()).toBe(statusOnDashboard);
   });
 
   it('labels the status pill from problem count when services are otherwise healthy', () => {

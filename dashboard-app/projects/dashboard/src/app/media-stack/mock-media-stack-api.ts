@@ -13,6 +13,8 @@ import {
 import { DownloadTorrent } from '../downloads/downloads.models';
 import { LibraryItem, LibraryItemKind, LibraryListResult, LibraryStats } from '../library/library.models';
 import { WatchNextResult } from '../library/watch-next.models';
+import { ActivityFeed } from '../activity/activity.models';
+import { mapActivityFeed } from '../activity/activity-format';
 import { AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
@@ -40,6 +42,7 @@ import { MediaStackLibraryItemDto, MediaStackLibraryStatsDto } from './wire/libr
 import { MediaStackWatchNextItemDto } from './wire/watch-next';
 import { MediaStackStorageOverviewDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
+import { MediaStackActivityFeedDto } from './wire/activity';
 
 const KIB = 1024;
 const MIB = 1024 * KIB;
@@ -73,6 +76,14 @@ const DEMO_WATCH_NEXT: MediaStackWatchNextItemDto[] = [
     posterUrl: 'linear-gradient(145deg, #1e3a5f, #0b1220 70%)',
     playable: true,
     progressPercent: 42,
+    year: 2015,
+    rating: 8.3,
+    genres: ['Sci-Fi', 'Adventure'],
+    overview: 'Politics and survival between Earth, Mars, and the Belt.',
+    runtimeTicks: 27_000_000_000,
+    positionTicks: 11_340_000_000,
+    backdropUrl: 'linear-gradient(160deg, #1e3a5f, #0b1220 60%)',
+    thumbUrl: 'linear-gradient(160deg, #1e3a5f, #0b1220 60%)',
   },
   {
     id: 'jf-blue-hour-s02e03',
@@ -83,6 +94,14 @@ const DEMO_WATCH_NEXT: MediaStackWatchNextItemDto[] = [
     posterUrl: 'linear-gradient(145deg, #312e81, #0f172a 70%)',
     playable: true,
     progressPercent: 0,
+    year: 2023,
+    rating: 7.8,
+    genres: ['Crime', 'Drama'],
+    overview: 'Late-night cases in a city that never fully wakes.',
+    runtimeTicks: 31_200_000_000,
+    positionTicks: null,
+    backdropUrl: 'linear-gradient(160deg, #312e81, #0f172a 60%)',
+    thumbUrl: 'linear-gradient(160deg, #312e81, #0f172a 60%)',
   },
   {
     id: 'jf-dune-resume',
@@ -93,6 +112,14 @@ const DEMO_WATCH_NEXT: MediaStackWatchNextItemDto[] = [
     posterUrl: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
     playable: true,
     progressPercent: 18,
+    year: 2021,
+    rating: 8.4,
+    genres: ['Sci-Fi', 'Adventure'],
+    overview: 'A mythic desert world and the fight for its spice.',
+    runtimeTicks: 93_600_000_000,
+    positionTicks: 16_848_000_000,
+    backdropUrl: 'linear-gradient(160deg, #8b5a2b, #1a1410 60%)',
+    thumbUrl: 'linear-gradient(160deg, #8b5a2b, #1a1410 60%)',
   },
   {
     id: 'jf-night-transit-resume',
@@ -103,6 +130,14 @@ const DEMO_WATCH_NEXT: MediaStackWatchNextItemDto[] = [
     artworkState: 'missing',
     playable: true,
     progressPercent: 6,
+    year: 2026,
+    rating: null,
+    genres: ['Thriller'],
+    overview: null,
+    runtimeTicks: 66_000_000_000,
+    positionTicks: 3_960_000_000,
+    backdropUrl: null,
+    thumbUrl: null,
   },
 ];
 
@@ -394,6 +429,24 @@ function demoCronLogs(now = Date.now()): MediaStackCronLogsDto {
           },
         ],
       },
+    ],
+  };
+}
+
+/** Demo activity is relative to now so the right-rail "xm ago" column stays fresh. */
+function demoActivityFeed(now = Date.now()): MediaStackActivityFeedDto {
+  const ago = (minutes: number): string => new Date(now - minutes * 60_000).toISOString();
+  return {
+    ok: true,
+    generatedAt: new Date(now).toISOString(),
+    sources: { sonarr: 'ok', radarr: 'ok' },
+    items: [
+      { id: 'sonarr:48211', source: 'sonarr', kind: 'imported', title: 'Cowboy Bebop', subtitle: 'S01E05 · 1080p WEB-DL', timestamp: ago(4), href: 'http://localhost:8989/series/cowboy-bebop' },
+      { id: 'radarr:9021', source: 'radarr', kind: 'grabbed', title: 'Dune', subtitle: '2021 · 2160p WEB-DL', timestamp: ago(11), href: 'http://localhost:7878/movie/dune-2021' },
+      { id: 'sonarr:48190', source: 'sonarr', kind: 'grabbed', title: 'The Blue Hour', subtitle: 'S02E03 · 1080p HDTV', timestamp: ago(26), href: 'http://localhost:8989/series/the-blue-hour' },
+      { id: 'radarr:9014', source: 'radarr', kind: 'imported', title: 'Orbit Station', subtitle: '2024 · 1080p BluRay', timestamp: ago(63), href: 'http://localhost:7878/movie/orbit-station' },
+      { id: 'sonarr:48102', source: 'sonarr', kind: 'failed', title: 'Silent Wave', subtitle: 'S01E06 · 1080p WEB-DL', timestamp: ago(140), href: 'http://localhost:8989/series/silent-wave' },
+      { id: 'radarr:8990', source: 'radarr', kind: 'deleted', title: 'Dust Road', subtitle: '2025 · 720p HDTV', timestamp: ago(320), href: null },
     ],
   };
 }
@@ -747,6 +800,12 @@ export class MockMediaStackApi implements MediaStackApi {
       return this.withLatency(mapWatchNextResult([]));
     }
     return this.withLatency(mapWatchNextResult(this.watchNextItems.map((item) => ({ ...item }))));
+  }
+
+  getActivity(limit = 20, _signal?: AbortSignal): Promise<ActivityFeed> {
+    const clamped = Number.isFinite(limit) ? Math.max(1, Math.min(50, Math.floor(limit))) : 20;
+    const feed = demoActivityFeed();
+    return this.withLatency(mapActivityFeed({ ...feed, items: feed.items.slice(0, clamped) }));
   }
 
   getLibraryStats(_signal?: AbortSignal): Promise<LibraryStats> {

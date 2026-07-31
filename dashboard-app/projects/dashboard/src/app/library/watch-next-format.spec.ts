@@ -95,4 +95,52 @@ describe('watch-next format', () => {
     expect(item.art).toBe(DEFAULT_LIBRARY_ART);
     expect(item.artworkState).toBe('missing');
   });
+
+  it('passes through hero metadata with null defaults', () => {
+    const rich = mapWatchNextItem({
+      id: 'mv-1',
+      parentId: null,
+      title: 'Dune',
+      subtitle: '',
+      kind: 'movie',
+      progressPercent: 18,
+      year: 2021,
+      rating: 8.4,
+      genres: ['Sci-Fi'],
+      overview: 'A mythic desert world.',
+      runtimeTicks: 9_960_000_000,
+      positionTicks: 5_100_000_000,
+      backdropUrl: 'http://jellyfin/Items/mv-1/Images/Backdrop',
+      thumbUrl: 'http://jellyfin/Items/mv-1/Images/Thumb',
+    });
+    expect(rich).toMatchObject({
+      year: 2021,
+      rating: 8.4,
+      genres: ['Sci-Fi'],
+      overview: 'A mythic desert world.',
+      runtimeTicks: 9_960_000_000,
+      positionTicks: 5_100_000_000,
+      backdropUrl: 'http://jellyfin/Items/mv-1/Images/Backdrop',
+      thumbUrl: 'http://jellyfin/Items/mv-1/Images/Thumb',
+    });
+
+    const sparse = mapWatchNextItem({
+      id: 'mv-2',
+      parentId: null,
+      title: 'Night Transit',
+      subtitle: '',
+      kind: 'movie',
+      progressPercent: 6,
+    });
+    expect(sparse).toMatchObject({
+      year: null,
+      rating: null,
+      genres: [],
+      overview: null,
+      runtimeTicks: null,
+      positionTicks: null,
+      backdropUrl: null,
+      thumbUrl: null,
+    });
+  });
 });

@@ -115,15 +115,9 @@ Open [http://127.0.0.1:3000/](http://127.0.0.1:3000/). The override container ru
 
 All six checks run independently: one failure does not kill the others. Commit hook and CI both enforce `npm run quality`. Tests and build run after quality in CI.
 
-## Themes
+## Appearance
 
-Dark themes only (light themes are out of scope):
-
-- **Nocturne** (default)
-- **Tokyo Night**
-- **GitHub Dark Pro**
-
-Switch from the top-bar theme picker; preference persists in `localStorage` (`media-ui-theme`).
+Single dark theme — **Lumen** (gold/violet on near-black). Fonts (Fraunces, Inter, JetBrains Mono) are self-hosted via Fontsource; the old multi-theme picker and `media-ui-theme` persistence are removed.
 
 ## Architecture
 
@@ -133,7 +127,7 @@ See [docs/architecture.md](docs/architecture.md) for the port ΓåÆ adapter Γ�
 
 - **Unit / integration:** Vitest via `ng test` (facades, boards, pages, shell navigation, API boundary).
 - **Storybook:** Interactive review via `npm run storybook`. CI runs `build:storybook` then `test:storybook` (play functions + a11y).
-- **Browser acceptance:** Playwright verifies direct routes, fallback routing, titles, theme persistence, and shell navigation via `npm run test:smoke`. The broader manual desktop checklist remains in [docs/browser-acceptance.md](docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
+- **Browser acceptance:** Playwright verifies direct routes, fallback routing, titles, the Lumen palette, and shell navigation via `npm run test:smoke`. The broader manual desktop checklist remains in [docs/browser-acceptance.md](docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
 
 ## Screenshots
 

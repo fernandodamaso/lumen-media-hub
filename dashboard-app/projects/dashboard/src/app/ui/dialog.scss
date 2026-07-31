@@ -3,26 +3,75 @@
 }
 
 .mm-dialog {
-  width: min(480px, calc(100vw - 48px));
+  width: min(460px, calc(100vw - 48px));
   margin: auto;
   padding: 0;
-  border: 1px solid var(--mm-component-border);
-  border-radius: var(--mm-radius-lg);
-  background: var(--mm-component-surface);
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: var(--mm-radius-xl);
+  background: var(--mm-color-surface-2);
   color: var(--mm-component-text-primary);
-  box-shadow: var(--mm-shadow-card);
+  box-shadow: 0 30px 80px rgb(0 0 0 / 60%);
+  opacity: 0;
+  transform: translateY(16px) scale(0.97);
+  transition:
+    opacity 0.3s var(--mm-ease-out),
+    transform 0.3s var(--mm-ease-emphasized),
+    display 0.3s allow-discrete,
+    overlay 0.3s allow-discrete;
+}
+
+.mm-dialog[open] {
+  opacity: 1;
+  transform: none;
+}
+
+@starting-style {
+  .mm-dialog[open] {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
 }
 
 .mm-dialog::backdrop {
-  background: rgb(6 7 10 / 80%);
+  background: rgb(5 5 9 / 70%);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition:
+    opacity 0.3s var(--mm-ease-out),
+    display 0.3s allow-discrete,
+    overlay 0.3s allow-discrete;
 }
+
+.mm-dialog[open]::backdrop {
+  opacity: 1;
+}
+
+@starting-style {
+  .mm-dialog[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mm-dialog {
+    transform: none;
+    transition: opacity 0.01ms, display 0.01ms allow-discrete, overlay 0.01ms allow-discrete;
+  }
+
+  @starting-style {
+    .mm-dialog[open] {
+      transform: none;
+    }
+  }
+}
+
 
 .mm-dialog__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--mm-space-md);
-  padding: var(--mm-space-md) var(--mm-space-md) var(--mm-space-sm);
+  padding: var(--mm-space-md);
   border-bottom: 1px solid var(--mm-component-border);
 }
 
@@ -31,8 +80,9 @@
   align-items: center;
   gap: var(--mm-space-sm);
   margin: 0;
-  font-size: var(--mm-text-md);
-  font-weight: 600;
+  font-family: var(--mm-font-display);
+  font-size: 20px;
+  font-weight: 500;
 }
 
 .mm-dialog__dot {
@@ -80,7 +130,15 @@
   gap: var(--mm-space-md);
   max-height: 60vh;
   overflow: auto;
-  padding: var(--mm-space-sm) var(--mm-space-md) var(--mm-space-md);
+  padding: var(--mm-space-md);
+}
+
+.mm-dialog__body > :first-child {
+  margin-block-start: 0;
+}
+
+.mm-dialog__body > :last-child {
+  margin-block-end: 0;
 }
 
 .mm-dialog__foot {

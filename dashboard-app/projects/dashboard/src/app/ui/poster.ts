@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
 
+export type MmPosterTagTone = 'accent' | 'success';
+
 @Component({
   selector: 'mm-poster',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -12,6 +14,10 @@ export class MmPoster {
   readonly rating = input<number | null>(null);
   readonly imageUrl = input<string | null | undefined>(null);
   readonly framed = input(true);
+  readonly episode = input<string | null>(null);
+  readonly tag = input<string | null>(null);
+  readonly tagTone = input<MmPosterTagTone>('accent');
+  readonly progress = input<number | null>(null);
   readonly art = input(
     'linear-gradient(145deg, color-mix(in srgb, var(--mm-component-accent) 28%, var(--mm-component-card-bg)), var(--mm-component-card-bg) 72%)',
   );

@@ -4,7 +4,12 @@
     <div class="mm-card__actions"><ng-content select="[mm-card-header-actions]" /></div>
   </header>
   <div class="mm-card__body"><ng-content /></div>
-  <footer class="mm-card__footer">
+  <footer
+    class="mm-card__footer"
+    [class.mm-card__footer--actions-start]="footerActionsAlign() === 'start'"
+    [class.mm-card__footer--actions-center]="footerActionsAlign() === 'center'"
+    [class.mm-card__footer--actions-end]="footerActionsAlign() === 'end'"
+  >
     <div class="mm-card__footer-content"><ng-content select="[mm-card-footer]" /></div>
     <div class="mm-card__actions"><ng-content select="[mm-card-footer-actions]" /></div>
   </footer>

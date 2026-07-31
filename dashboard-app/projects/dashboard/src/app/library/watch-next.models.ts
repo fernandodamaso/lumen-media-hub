@@ -18,6 +18,16 @@ export interface WatchNextItem {
   playable: boolean;
   /** Normalized inclusive percentage from 0 to 100. */
   progressPercent: number;
+  /** Series year for episodes (series identity), else item year. */
+  year: number | null;
+  rating: number | null;
+  genres: string[];
+  overview: string | null;
+  runtimeTicks: number | null;
+  positionTicks: number | null;
+  /** Backdrop art URL; null when the item/series has no backdrop. */
+  backdropUrl: string | null;
+  thumbUrl: string | null;
 }
 
 export interface WatchNextResult {

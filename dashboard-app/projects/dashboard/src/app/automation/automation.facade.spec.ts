@@ -404,6 +404,14 @@ class MockApi implements MediaStackApi {
   listWatchNext() {
     return Promise.resolve({ items: [] });
   }
+  getActivity() {
+    return Promise.resolve({
+      ok: true,
+      generatedAt: '',
+      sources: { sonarr: 'ok' as const, radarr: 'ok' as const },
+      items: [],
+    });
+  }
   listHermesRecommendations() {
     return Promise.resolve({ ok: true, items: [] });
   }

@@ -1,80 +1,61 @@
-:root[data-theme="nocturne"] {
+/// Lumen design tokens — single dark theme.
+/// Lumen source values (design-system.html / compact.html) are mapped onto the
+/// existing `--mm-*` names so every consumer keeps working:
+///   ink-0/1/2      → Lumen ink / ink-dim / ink-faint
+///   surface-0/1/2  → Lumen bg / bg-soft / elev-1 (raised, dialogs, tooltips)
+///   line           → Lumen panel border rgba(255,255,255,.07)
+///   panel/-strong  → NEW: Lumen translucent panel fills (.035 / .06 white)
+///   accent         → Lumen gold; accent-strong → gold at hover brightness
+///   info/premiere  → Lumen violet (Lumen has no separate info hue)
+///   on-*           → Lumen bg #0a0a0f
+///   focus-ring     → Lumen gold at 60% alpha
+
+:root {
   color-scheme: dark;
-  --mm-color-ink-0: #e8eaf2;
-  --mm-color-ink-1: #9aa0b6;
-  --mm-color-ink-2: #60647a;
-  --mm-color-surface-0: #0d0e13;
-  --mm-color-surface-1: #16171f;
-  --mm-color-surface-2: #1c1e28;
-  --mm-color-line: rgb(255 255 255 / 5.5%);
-  --mm-color-accent: #7c8aff;
-  --mm-color-accent-strong: #93a1ff;
-  --mm-color-accent-ink: #0d0e13;
+
+  /* Ink */
+  --mm-color-ink-0: #f3f0ea;
+  --mm-color-ink-1: #9a97a3;
+  --mm-color-ink-2: #94919d;  // ponytail: lightened from Lumen #5c5a66 to meet WCAG AA on #0a0a0f
+
+  /* Surfaces */
+  --mm-color-surface-0: #0a0a0f;
+  --mm-color-surface-1: #101018;
+  --mm-color-surface-2: #14131c;
+  --mm-color-line: rgb(255 255 255 / 7%);
+  --mm-color-panel: rgb(255 255 255 / 3.5%);
+  --mm-color-panel-strong: rgb(255 255 255 / 6%);
+
+  /* Accents */
+  --mm-color-accent: #d4a94e;
+  --mm-color-accent-strong: #e5b654;
+  --mm-color-accent-ink: #0a0a0f;
   --mm-color-success: #4ade80;
   --mm-color-warning: #fbbf24;
   --mm-color-danger: #f87171;
-  --mm-color-info: #7c8aff;
-  --mm-color-premiere: #939dff;
-  --mm-color-on-success: #0d0e13;
-  --mm-color-on-warning: #0d0e13;
-  --mm-color-on-danger: #0d0e13;
-  --mm-focus-ring: #b5c0ff;
-}
+  --mm-color-info: #8b7cf6;
+  --mm-color-premiere: #8b7cf6;
+  --mm-color-on-success: #0a0a0f;
+  --mm-color-on-warning: #0a0a0f;
+  --mm-color-on-danger: #0a0a0f;
+  --mm-focus-ring: rgb(212 169 78 / 60%);
 
-:root[data-theme="tokyo-night"] {
-  color-scheme: dark;
-  --mm-color-ink-0: #e6e9f2;
-  --mm-color-ink-1: #a9b1c6;
-  --mm-color-ink-2: #737d98;
-  --mm-color-surface-0: #16161e;
-  --mm-color-surface-1: #1f2335;
-  --mm-color-surface-2: #292e42;
-  --mm-color-line: #3b4261;
-  --mm-color-accent: #7aa2f7;
-  --mm-color-accent-strong: #bb9af7;
-  --mm-color-accent-ink: #111321;
-  --mm-color-success: #73daca;
-  --mm-color-warning: #e0af68;
-  --mm-color-danger: #f7768e;
-  --mm-color-info: #7aa2f7;
-  --mm-color-premiere: #bb9af7;
-  --mm-color-on-success: #111321;
-  --mm-color-on-warning: #111321;
-  --mm-color-on-danger: #111321;
-  --mm-focus-ring: #c0caf5;
-}
-
-:root, :root[data-theme="github-dark-pro"] {
-  color-scheme: dark;
-  --mm-color-ink-0: #f0f3f6;
-  --mm-color-ink-1: #b1bac4;
-  --mm-color-ink-2: #8c959f;
-  --mm-color-surface-0: #0d1117;
-  --mm-color-surface-1: #161b22;
-  --mm-color-surface-2: #21262d;
-  --mm-color-line: #30363d;
-  --mm-color-accent: #58a6ff;
-  --mm-color-accent-strong: #79c0ff;
-  --mm-color-accent-ink: #071321;
-  --mm-color-success: #3fb950;
-  --mm-color-warning: #d29922;
-  --mm-color-danger: #f85149;
-  --mm-color-info: #58a6ff;
-  --mm-color-premiere: #d2a8ff;
-  --mm-color-on-success: #0d1117;
-  --mm-color-on-warning: #0d1117;
-  --mm-color-on-danger: #0d1117;
-  --mm-focus-ring: #79c0ff;
-}
-
-:root {
+  /* Typography (fonts self-hosted via Fontsource, see angular.json styles) */
   --mm-font-body: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mm-font-display: 'Fraunces Variable', 'Fraunces', georgia, serif;
   --mm-font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --mm-radius-sm: 6px;
-  --mm-radius-md: 10px;
-  --mm-radius-lg: 12px;
-  --mm-shadow-card: 0 1px 2px rgb(0 0 0 / 20%);
-  --mm-shadow-card-hover: 0 1px 2px rgb(0 0 0 / 20%);
+
+  /* Radii — Lumen r-xs 8 / r-sm 12 / r-md 16 / r-lg 22 / pill */
+  --mm-radius-sm: 8px;
+  --mm-radius-md: 12px;
+  --mm-radius-lg: 16px;
+  --mm-radius-xl: 22px;
+  --mm-radius-pill: 999px;
+
+  /* Elevation — Lumen: deep, soft, never grey */
+  --mm-shadow-card: 0 10px 34px rgb(0 0 0 / 50%);
+  --mm-shadow-card-hover: 0 24px 54px rgb(0 0 0 / 65%);
+
   --mm-space-xs: 4px;
   --mm-space-sm: 8px;
   --mm-space-md: 16px;
@@ -88,13 +69,21 @@
   --mm-text-heading: 15px;
   --mm-transition-fast: 0.15s ease;
   --mm-transition-normal: 0.2s ease;
+
+  /* Lumen overlay / motion primitives */
+  --mm-color-surface-elev2: #17161f;
+  --mm-color-surface-tip: #1c1b24;
+  --mm-ease-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+  --mm-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --mm-shadow-overlay: 0 16px 44px rgb(0 0 0 / 55%);
+  --mm-toast-edge-w: 3px;
   --mm-semantic-text-primary: var(--mm-color-ink-0);
   --mm-semantic-text-secondary: var(--mm-color-ink-1);
   --mm-semantic-text-muted: var(--mm-color-ink-2);
   --mm-semantic-text-inverse: var(--mm-color-accent-ink);
   --mm-semantic-surface-page: var(--mm-color-surface-0);
-  --mm-semantic-surface-card: var(--mm-color-surface-1);
-  --mm-semantic-surface-control: var(--mm-color-surface-2);
+  --mm-semantic-surface-card: var(--mm-color-panel);
+  --mm-semantic-surface-control: var(--mm-color-panel-strong);
   --mm-semantic-border-default: var(--mm-color-line);
   --mm-semantic-accent: var(--mm-color-accent);
   --mm-semantic-accent-strong: var(--mm-color-accent-strong);
@@ -145,6 +134,53 @@
   --mm-component-on-danger: var(--mm-semantic-on-danger);
   --mm-component-focus-ring: var(--mm-semantic-focus);
   --mm-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* ---------- Lumen global chrome ---------- */
+
+::selection {
+  background: var(--mm-color-accent);
+  color: var(--mm-color-accent-ink);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--mm-color-surface-0);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #26252f;
+  border-radius: 999px;
+}
+
+/* Glow-field backdrop (compact.html): violet top-left, gold bottom-right */
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  z-index: -1;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+body::before {
+  top: -30%;
+  left: -5%;
+  width: 55vw;
+  height: 55vw;
+  background: radial-gradient(circle, rgb(139 124 246 / 7%), transparent 60%);
+}
+
+body::after {
+  right: -10%;
+  bottom: -35%;
+  width: 50vw;
+  height: 50vw;
+  background: radial-gradient(circle, rgb(212 169 78 / 6%), transparent 60%);
 }
 
 .card__head {
@@ -279,7 +315,27 @@
   }
 }
 
-mm-button:focus-visible, mm-theme-picker:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible {
+mm-button:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible {
   outline: 3px solid var(--mm-component-focus-ring);
   outline-offset: 3px;
+}
+
+/* Scroll reveal (mmReveal directive) */
+.mm-reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  transition:
+    opacity 0.7s ease,
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mm-reveal--in {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mm-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }

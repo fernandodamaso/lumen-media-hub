@@ -1,0 +1,26 @@
+.mm-separator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--mm-component-text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.mm-separator::before, .mm-separator::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgb(255 255 255 / 8%);
+}
+.mm-separator[aria-orientation="vertical"] {
+  flex-direction: column;
+  width: 1px;
+  min-height: 34px;
+}
+.mm-separator[aria-orientation="vertical"]::before,
+.mm-separator[aria-orientation="vertical"]::after {
+  flex: none;
+  width: 1px;
+  height: 100%;
+}

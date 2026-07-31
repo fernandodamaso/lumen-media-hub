@@ -14,6 +14,14 @@ const episode = (id: string, title: string, progressPercent = 0): WatchNextItem 
   href: null,
   playable: true,
   progressPercent,
+  year: null,
+  rating: null,
+  genres: [],
+  overview: null,
+  runtimeTicks: null,
+  positionTicks: null,
+  backdropUrl: null,
+  thumbUrl: null,
 });
 
 const movie = (id: string, title: string, progressPercent = 10): WatchNextItem => ({
@@ -27,6 +35,14 @@ const movie = (id: string, title: string, progressPercent = 10): WatchNextItem =
   href: null,
   playable: true,
   progressPercent,
+  year: null,
+  rating: null,
+  genres: [],
+  overview: null,
+  runtimeTicks: null,
+  positionTicks: null,
+  backdropUrl: null,
+  thumbUrl: null,
 });
 
 describe('WatchNextFacade', () => {
@@ -144,6 +160,14 @@ class MockApi implements MediaStackApi {
     return this.failure
       ? Promise.reject(new Error('offline'))
       : Promise.resolve({ items: [...this.result.items] });
+  }
+  getActivity() {
+    return Promise.resolve({
+      ok: true,
+      generatedAt: '',
+      sources: { sonarr: 'ok' as const, radarr: 'ok' as const },
+      items: [],
+    });
   }
   getLibraryStats() {
     return Promise.resolve({ movies: 0, series: 0, availability: 'complete' as const });

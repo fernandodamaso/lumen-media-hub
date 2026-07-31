@@ -1,184 +1,176 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
-import { Router } from '@angular/router';
-import { MmButton } from '@app/ui';
+import { LucidePlay } from '@lucide/angular';
+import { MmButton, MmDownloadItem, MmReveal, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { AutomationFacade } from '../../automation/automation.facade';
 import { ServiceHealthFacade } from '../../automation/service-health.facade';
 import { CalendarFacade } from '../../calendar/calendar.facade';
-import { UpcomingCard } from '../../calendar/upcoming-card';
-import { DownloadsFacade } from '../../downloads/downloads.facade';
-import { DownloadsCard } from '../../downloads/downloads-card';
-import { JELLYFIN_LINK_BASES } from '../../library/library.models';
-import { LibraryCard } from '../../library/library-card/library-card';
+import { DownloadsAction, DownloadsFacade } from '../../downloads/downloads.facade';
+import {
+  formatBytes,
+  formatEta,
+  formatRate,
+  formatRateParts,
+  groupTorrents,
+  StatusTone,
+  TORRENT_STATE_VIEW,
+} from '../../downloads/downloads-format';
+import { TorrentState } from '../../downloads/downloads.models';
+import {
+  JELLYFIN_LINK_BASES,
+  LibraryItem,
+  resolveJellyfinItemLink,
+} from '../../library/library.models';
 import { LibraryItemsFacade } from '../../library/library-items.facade';
-import { WatchNextFacade } from '../../library/watch-next.facade';
 import { LibraryStatsFacade } from '../../library/library-stats.facade';
+import { WatchNextFacade } from '../../library/watch-next.facade';
+import { WatchNextItem } from '../../library/watch-next.models';
+import { SERVICE_LINK_BASES } from '../../media-stack/media-stack-api.providers';
+import { ActivityFacade } from '../../right-rail/activity.facade';
 import { StorageFacade } from '../../storage/storage.facade';
-import { formatRelativeTime } from '../../automation/automation-format';
-import { formatStorageBytes } from '../../storage/storage-format';
-import { AutomationCard } from '../automation-card/automation-card';
 import { refreshDashboardData } from '../dashboard-refresh';
-import { MetricCard } from '../metric-card/metric-card';
+import { DashboardHero } from '../dashboard-hero/dashboard-hero';
+import { MediaRail } from '../media-rail/media-rail';
+import { StatStrip } from '../stat-strip/stat-strip';
+import { TrendingFacade } from '../trending.facade';
+import { discoverPosterFallback } from '../../discover/discover-format';
+
+const RAIL_LIMIT = 10;
 
 @Component({
   selector: 'mm-dashboard-page',
   imports: [
-    AutomationCard,
-    DownloadsCard,
-    LibraryCard,
-    MetricCard,
     MmButton,
-    UpcomingCard,
+    MmDownloadItem,
+    MmReveal,
+    MmSkeleton,
+    MmStateCard,
+    MmStatus,
+    DashboardHero,
+    MediaRail,
+    StatStrip,
+    LucidePlay,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './dashboard-page.html',
   styleUrl: './dashboard-page.scss',
 })
 export class DashboardPage {
-  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly linkBases = inject(SERVICE_LINK_BASES);
   private readonly jellyfinBases = inject(JELLYFIN_LINK_BASES);
-  readonly health = inject(ServiceHealthFacade);
-  readonly library = inject(LibraryStatsFacade);
-  private readonly libraryItems = inject(LibraryItemsFacade);
-  private readonly watchNext = inject(WatchNextFacade);
-  readonly downloads = inject(DownloadsFacade);
-  readonly storage = inject(StorageFacade);
+  private readonly health = inject(ServiceHealthFacade);
+  private readonly libraryStats = inject(LibraryStatsFacade);
   private readonly calendar = inject(CalendarFacade);
   private readonly automation = inject(AutomationFacade);
+  private readonly activity = inject(ActivityFacade);
+  readonly libraryItems = inject(LibraryItemsFacade);
+  readonly watchNext = inject(WatchNextFacade);
+  readonly trending = inject(TrendingFacade);
+  readonly downloads = inject(DownloadsFacade);
+  private readonly storage = inject(StorageFacade);
 
-  readonly isLoading = computed(
-    () =>
-      this.libraryItems.status() === 'loading' ||
-      this.watchNext.status() === 'loading' ||
-      this.library.status() === 'loading' ||
-      this.downloads.status() === 'loading' ||
-      this.calendar.status() === 'loading' ||
-      this.health.status() === 'loading' ||
-      this.storage.status() === 'loading',
-  );
+  readonly railSkeletons = [0, 1, 2, 3];
+  readonly torrentSkeletons = [0, 1];
 
-  constructor() {
-    // Dashboard owns dashboard-only polling; App owns service-health polling separately.
-    this.downloads.startPolling();
-    this.storage.startPolling();
-    this.calendar.startPolling();
-    this.automation.startPolling();
-    this.destroyRef.onDestroy(() => {
-      this.downloads.stopPolling();
-      this.storage.stopPolling();
-      this.calendar.stopPolling();
-      this.automation.stopPolling();
-    });
-  }
-
-  readonly syncedAt = computed(() => {
-    const candidates = [
-      this.health.generatedAt() || this.health.lastFetchedAt(),
-      this.storage.generatedAt() || this.storage.lastFetchedAt(),
-      this.library.lastFetchedAt(),
-      this.downloads.lastFetchedAt(),
-      this.calendar.lastFetchedAt(),
-      this.automation.lastFetchedAt(),
-    ];
-    const newest = newestIsoTimestamp(candidates);
-    return newest ? formatRelativeTime(newest) : '';
+  readonly continueWatching = computed(() => this.watchNext.items().slice(0, RAIL_LIMIT));
+  readonly continueWatchingCount = computed(() => {
+    const total = this.watchNext.totalCount();
+    return total === 1 ? '1 in progress' : `${total} in progress`;
   });
-
-  readonly pageheadDate = computed(() => {
-    const now = new Date();
-    return now.toLocaleDateString(undefined, {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-    });
-  });
-
-  readonly libraryTotal = computed(() => {
-    const stats = this.library.stats();
-    if (!stats) return '—';
-    return String(stats.movies + stats.series);
-  });
-
-  readonly libraryMeta = computed(() => {
-    const stats = this.library.stats();
-    if (!stats) return null;
-    return `${stats.movies} movies · ${stats.series} series`;
-  });
+  readonly recentItems = computed(() => this.libraryItems.items().slice(0, RAIL_LIMIT));
+  readonly groups = computed(() => groupTorrents(this.downloads.torrents()));
 
   readonly libraryNotice = computed(() => {
-    if (this.library.error() && this.library.status() === 'ready') {
-      return this.library.error();
+    if (this.libraryStats.error() && this.libraryStats.status() === 'ready') {
+      return this.libraryStats.error();
     }
     return '';
   });
 
-  readonly downloadsMeta = computed(() => {
-    const active = this.downloads.summary().active;
-    return active === 1 ? '1 download active' : `${active} downloads active`;
-  });
+  readonly formatBytes = formatBytes;
+  readonly formatRate = formatRate;
+  readonly formatRateParts = formatRateParts;
+  readonly formatEta = formatEta;
 
-  readonly servicesStatus = computed(() => {
-    const overall = this.health.health().overall;
-    if (overall === 'healthy') return 'Healthy';
-    if (overall === 'degraded') return 'Degraded';
-    return 'Issues';
-  });
-
-  readonly servicesValue = computed(() => {
-    const services = this.health.services();
-    const total = services.length;
-    const healthy = services.filter((service) => service.status === 'healthy').length;
-    return `${healthy} / ${total}`;
-  });
-
-  readonly storageMeta = computed(() => {
-    const volumes = this.storage.volumes();
-    const library = volumes.find((volume) => volume.kind === 'library');
-    if (!library) return null;
-    return `${formatStorageBytes(library.usedBytes)} used · ${formatStorageBytes(library.totalBytes - library.usedBytes)} free`;
-  });
-
-  readonly storagePercent = computed(() => {
-    const volumes = this.storage.volumes();
-    const library = volumes.find((volume) => volume.kind === 'library');
-    if (!library || !library.totalBytes) return 0;
-    return Math.min(100, Math.round((library.usedBytes / library.totalBytes) * 100));
-  });
-
-  jellyfinLibraryHref(): string | null {
-    const base = this.jellyfinBases.jellyfinBase?.replace(/\/$/, '');
-    return base ? `${base}/web/index.html#!/movies.html` : null;
+  downRateText(bytesPerSecond: number): string {
+    return formatRate(bytesPerSecond);
   }
 
-  onAddMedia(): void {
-    void this.router.navigate(['/discover']);
+  constructor() {
+    // Dashboard owns downloads polling only; shell facades are polled by App.
+    this.downloads.startPolling();
+    this.destroyRef.onDestroy(() => {
+      this.downloads.stopPolling();
+    });
+  }
+
+  /** Landscape card art: Jellyfin thumb when available, else the item's gradient art. */
+  cardArt(item: WatchNextItem | LibraryItem): string {
+    if ('thumbUrl' in item && item.thumbUrl) {
+      return item.thumbUrl.includes('gradient(') || item.thumbUrl.startsWith('url(')
+        ? item.thumbUrl
+        : `url("${item.thumbUrl}") center / cover no-repeat`;
+    }
+    return item.art;
+  }
+
+  trendingArt(item: { title: string }): string {
+    return discoverPosterFallback(item.title);
+  }
+
+  trendingSub(item: { year: number | null; type: 'movie' | 'tv' }): string {
+    const kind = item.type === 'movie' ? 'Film' : 'Series';
+    return item.year ? `${item.year} · ${kind}` : kind;
+  }
+
+  qbittorrentHref(): string | null {
+    const base = this.linkBases.qbittorrent?.replace(/\/$/, '');
+    return base ? `${base}/` : null;
+  }
+
+  stateLabel(state: TorrentState): string {
+    return TORRENT_STATE_VIEW[state].label;
+  }
+
+  statePillClass(state: TorrentState): string {
+    const tone = TORRENT_STATE_VIEW[state].tone;
+    const map: Record<StatusTone, string> = {
+      info: 'pill--accent',
+      success: 'pill--green',
+      warning: 'pill--amber',
+      danger: 'pill--danger',
+    };
+    return map[tone];
+  }
+
+  runAction(action: DownloadsAction): void {
+    void this.downloads.runAction(action);
+  }
+
+  runTorrentAction(id: string, action: DownloadsAction): void {
+    void this.downloads.runTorrentAction(id, action);
+  }
+
+  retryDownloads(): void {
+    void this.downloads.refresh();
   }
 
   onRefresh(): void {
     void refreshDashboardData({
       health: this.health,
       libraryItems: this.libraryItems,
-      libraryStats: this.library,
+      libraryStats: this.libraryStats,
       watchNext: this.watchNext,
       downloads: this.downloads,
       storage: this.storage,
       calendar: this.calendar,
       automation: this.automation,
+      activity: this.activity,
+      trending: this.trending,
     });
   }
-}
 
-function newestIsoTimestamp(candidates: readonly string[]): string {
-  let newest = '';
-  let newestMs = Number.NEGATIVE_INFINITY;
-  for (const value of candidates) {
-    if (!value) continue;
-    const ms = Date.parse(value);
-    if (Number.isNaN(ms)) continue;
-    if (ms >= newestMs) {
-      newestMs = ms;
-      newest = value;
-    }
+  mediaHref(item: Pick<WatchNextItem | LibraryItem, 'href' | 'id' | 'playable'>): string | null {
+    return item.href ?? resolveJellyfinItemLink(item, this.jellyfinBases);
   }
-  return newest;
 }

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
-export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premiere' | 'muted';
+export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premiere' | 'violet' | 'muted';
 
 @Component({
   selector: 'mm-progress',
@@ -26,7 +26,7 @@ export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premie
       width: 100%;
     }
     .mm-progress {
-      height: var(--mm-progress-height, 8px);
+      height: var(--mm-progress-height, 5px);
       overflow: hidden;
       flex: 1;
       border-radius: 999px;
@@ -37,15 +37,16 @@ export type MmProgressTone = 'accent' | 'success' | 'warning' | 'info' | 'premie
       min-width: var(--mm-progress-min-fill, 0);
       border-radius: inherit;
       position: relative;
-      background: linear-gradient(90deg, color-mix(in srgb, var(--mm-progress-tone, var(--mm-component-accent)) 70%, transparent), var(--mm-progress-tone, var(--mm-component-accent)));
-      transition: width var(--mm-transition-normal);
+      background: linear-gradient(90deg, var(--mm-progress-start, var(--mm-component-accent)), var(--mm-progress-end, var(--mm-component-accent)));
+      transition: width 1s var(--mm-ease-emphasized);
     }
-    .mm-progress--accent { --mm-progress-tone: var(--mm-component-accent); }
-    .mm-progress--success { --mm-progress-tone: var(--mm-component-success); }
-    .mm-progress--warning { --mm-progress-tone: var(--mm-component-warning); }
-    .mm-progress--info { --mm-progress-tone: var(--mm-component-info); }
-    .mm-progress--premiere { --mm-progress-tone: var(--mm-component-premiere); }
-    .mm-progress--muted { --mm-progress-tone: var(--mm-component-border); }
+    .mm-progress--accent { --mm-progress-start: var(--mm-component-accent); --mm-progress-end: #f0cf8a; }
+    .mm-progress--success { --mm-progress-start: var(--mm-component-success); --mm-progress-end: #86efb0; }
+    .mm-progress--warning { --mm-progress-start: var(--mm-component-warning); --mm-progress-end: #f5d78e; }
+    .mm-progress--info { --mm-progress-start: var(--mm-component-info); --mm-progress-end: #b6abff; }
+    .mm-progress--premiere { --mm-progress-start: var(--mm-component-premiere); --mm-progress-end: #b6abff; }
+    .mm-progress--violet { --mm-progress-start: var(--mm-component-premiere); --mm-progress-end: #b6abff; }
+    .mm-progress--muted { --mm-progress-start: var(--mm-component-border); --mm-progress-end: var(--mm-component-border); }
     @keyframes shimmer {
       from { background-position: 180% 0; }
       to { background-position: -80% 0; }

@@ -43,6 +43,13 @@ def _jellyfin_image_url(item_id, image_tag=None):
     return url
 
 
+def _jellyfin_typed_image_url(item_id, image_type):
+    """Browser-facing URL for non-Primary art (Backdrop/Thumb), same anonymous pattern."""
+    if not item_id:
+        return None
+    return f"{settings.JELLYFIN_EXTERNAL_URL}/Items/{item_id}/Images/{image_type}"
+
+
 def _jellyfin_user_id_for_queries():
     if settings.JELLYFIN_USER_ID:
         return settings.JELLYFIN_USER_ID
@@ -204,7 +211,8 @@ WATCH_NEXT_UNSTARTED_SERIES_LOOKUP_LIMIT = 60
 WATCH_NEXT_FIELDS = (
     "UserData,RunTimeTicks,SeriesName,ParentId,SeasonId,IndexNumber,"
     "ParentIndexNumber,ImageTags,Path,SeriesId,MediaType,Type,Name,"
-    "DateCreated,DateLastContentAdded"
+    "DateCreated,DateLastContentAdded,ProductionYear,CommunityRating,"
+    "Genres,Overview,BackdropImageTags"
 )
 
 
@@ -231,6 +239,126 @@ def _progress_percent(user_data, runtime_ticks):
     if runtime <= 0:
         return 1
     return _clamp_progress_percent(position / runtime * 100)
+
+
+def _watch_next_rating(raw):
+    rating = raw.get("CommunityRating")
+    if isinstance(rating, bool) or not isinstance(rating, (int, float)) or not 0 <= rating <= 10:
+        return None
+    return rating
+
+
+def _watch_next_genres(raw):
+    genres = raw.get("Genres")
+    if not isinstance(genres, list):
+        return []
+    return [g.strip() for g in genres if isinstance(g, str) and g.strip()]
+
+
+def _watch_next_ticks(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
+def _watch_next_item_metadata(raw):
+    """Hero/art metadata resolved from the item's own Jellyfin record."""
+    item_id = raw.get("Id")
+    image_tags = raw.get("ImageTags") or {}
+    return {
+        "year": raw.get("ProductionYear"),
+        "rating": _watch_next_rating(raw),
+        "genres": _watch_next_genres(raw),
+        "overview": raw.get("Overview") or None,
+        "runtimeTicks": _watch_next_ticks(raw.get("RunTimeTicks")),
+        "positionTicks": _watch_next_ticks((raw.get("UserData") or {}).get("PlaybackPositionTicks")),
+        "backdropUrl": (
+            _jellyfin_typed_image_url(item_id, "Backdrop") if raw.get("BackdropImageTags") else None
+        ),
+        "thumbUrl": (
+            _jellyfin_typed_image_url(item_id, "Thumb") if image_tags.get("Thumb") else None
+        ),
+    }
+
+
+SERIES_METADATA_FIELDS = (
+    "ProductionYear,CommunityRating,Genres,Overview,BackdropImageTags,ImageTags"
+)
+
+
+def _empty_series_metadata():
+    return {
+        "year": None,
+        "rating": None,
+        "genres": [],
+        "overview": None,
+        "backdropUrl": None,
+        "thumbUrl": None,
+    }
+
+
+def _map_series_metadata(raw, series_id):
+    image_tags = raw.get("ImageTags") or {}
+    return {
+        "year": raw.get("ProductionYear"),
+        "rating": _watch_next_rating(raw),
+        "genres": _watch_next_genres(raw),
+        "overview": raw.get("Overview") or None,
+        "backdropUrl": (
+            _jellyfin_typed_image_url(series_id, "Backdrop")
+            if raw.get("BackdropImageTags")
+            else None
+        ),
+        "thumbUrl": (
+            _jellyfin_typed_image_url(series_id, "Thumb") if image_tags.get("Thumb") else None
+        ),
+    }
+
+
+def _get_series_metadata(series_id):
+    """Cached /Items/{seriesId} metadata for episode hero art; never raises."""
+    if not series_id:
+        return _empty_series_metadata()
+    cache_key = f"series-meta:{series_id}"
+    now = time.monotonic()
+    cached = settings._jellyfin_cache.get(cache_key)
+    if cached and now - cached["ts"] < settings.JELLYFIN_CACHE_TTL:
+        return cached["payload"]
+
+    lock = _jellyfin_lock_for(cache_key)
+    with lock:
+        cached = settings._jellyfin_cache.get(cache_key)
+        if cached and now - cached["ts"] < settings.JELLYFIN_CACHE_TTL:
+            return cached["payload"]
+        try:
+            user_id = _jellyfin_user_id_for_queries()
+            path = (
+                f"/Users/{user_id}/Items/{series_id}"
+                if user_id
+                else f"/Items/{series_id}"
+            )
+            raw = jellyfin_get(path, {"Fields": SERIES_METADATA_FIELDS})
+            payload = _map_series_metadata(raw, series_id)
+        except Exception:
+            payload = _empty_series_metadata()
+        settings._jellyfin_cache[cache_key] = {"ts": time.monotonic(), "payload": payload}
+        return payload
+
+
+def _apply_series_metadata(item, meta):
+    """Overlay series-level presentation fields onto an episode watch-next item."""
+    if meta["year"] is not None:
+        item["year"] = meta["year"]
+    if meta["rating"] is not None:
+        item["rating"] = meta["rating"]
+    if meta["genres"]:
+        item["genres"] = meta["genres"]
+    if meta["overview"]:
+        item["overview"] = meta["overview"]
+    if meta["backdropUrl"]:
+        item["backdropUrl"] = meta["backdropUrl"]
+    if meta["thumbUrl"]:
+        item["thumbUrl"] = meta["thumbUrl"]
 
 
 def _format_episode_subtitle(raw):
@@ -305,6 +433,7 @@ def _map_watch_next_item(raw, force_progress=None):
             "image": _watch_next_image(raw),
             "playable": True,
             "progressPercent": progress,
+            **_watch_next_item_metadata(raw),
             "_sort_last_played": last_played,
             "_sort_date": sort_date,
         }
@@ -322,6 +451,7 @@ def _map_watch_next_item(raw, force_progress=None):
         "image": _watch_next_image(raw),
         "playable": True,
         "progressPercent": progress,
+        **_watch_next_item_metadata(raw),
         "_sort_last_played": last_played,
         "_sort_date": sort_date,
         "_series_id": series_id,
@@ -532,6 +662,9 @@ def _fetch_watch_next_items():
     items = movies + list(episodes_by_series.values())
     _sort_watch_next_items(items)
     items = items[:WATCH_NEXT_ITEM_LIMIT]
+    for item in items:
+        if item["kind"] == "episode":
+            _apply_series_metadata(item, _get_series_metadata(item["_series_id"]))
     return {"ok": True, "items": [_strip_watch_next_sort_keys(item) for item in items]}
 
 

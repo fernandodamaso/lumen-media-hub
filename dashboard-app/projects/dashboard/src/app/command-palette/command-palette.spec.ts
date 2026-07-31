@@ -12,16 +12,20 @@ import { LibraryItemsFacade } from '../library/library-items.facade';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 import { WatchNextFacade } from '../library/watch-next.facade';
 import { LibraryStatsFacade } from '../library/library-stats.facade';
+import { ActivityFacade } from '../right-rail/activity.facade';
 import { StorageFacade } from '../storage/storage.facade';
 import { CommandPalette } from './command-palette';
+import { TrendingFacade } from '../dashboard/trending.facade';
 
 describe('CommandPalette', () => {
   let fixture: ComponentFixture<CommandPalette>;
   let router: Router;
-  let downloads: { runAction: ReturnType<typeof vi.fn> };
+  let downloads: { runAction: ReturnType<typeof vi.fn>; refresh: ReturnType<typeof vi.fn> };
+  let trending: { refresh: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
-    downloads = { runAction: vi.fn(() => Promise.resolve()) };
+    downloads = { runAction: vi.fn(() => Promise.resolve()), refresh: vi.fn(() => Promise.resolve()) };
+    trending = { refresh: vi.fn(() => Promise.resolve()) };
     const watchNextFacade = { items: signal([]), refresh: vi.fn() };
     TestBed.configureTestingModule({
       imports: [CommandPalette],
@@ -57,6 +61,8 @@ describe('CommandPalette', () => {
         { provide: StorageFacade, useValue: { refresh: vi.fn() } },
         { provide: CalendarFacade, useValue: { refresh: vi.fn() } },
         { provide: AutomationFacade, useValue: { refresh: vi.fn() } },
+        { provide: ActivityFacade, useValue: { refresh: vi.fn() } },
+        { provide: TrendingFacade, useValue: trending },
       ],
     });
     fixture = TestBed.createComponent(CommandPalette);
@@ -117,10 +123,11 @@ describe('CommandPalette', () => {
         },
         { provide: ServiceHealthFacade, useValue: { refresh: vi.fn() } },
         { provide: LibraryStatsFacade, useValue: { refresh: vi.fn() } },
-        { provide: DownloadsFacade, useValue: { runAction: vi.fn(() => Promise.resolve()) } },
+        { provide: DownloadsFacade, useValue: { runAction: vi.fn(() => Promise.resolve()), refresh: vi.fn() } },
         { provide: StorageFacade, useValue: { refresh: vi.fn() } },
         { provide: CalendarFacade, useValue: { refresh: vi.fn() } },
         { provide: AutomationFacade, useValue: { refresh: vi.fn() } },
+        { provide: ActivityFacade, useValue: { refresh: vi.fn() } },
       ],
     });
     fixture = TestBed.createComponent(CommandPalette);
@@ -174,5 +181,11 @@ describe('CommandPalette', () => {
     fixture.detectChanges();
     fixture.componentInstance.onDocumentKeydown(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(openChange).toHaveBeenCalledWith(false);
+  });
+
+  it('refreshes trending once through the shared refresh path', async () => {
+    const refresh = fixture.componentInstance.items().find((item) => item.id === 'action-refresh');
+    await refresh?.run();
+    expect(trending.refresh).toHaveBeenCalledTimes(1);
   });
 });

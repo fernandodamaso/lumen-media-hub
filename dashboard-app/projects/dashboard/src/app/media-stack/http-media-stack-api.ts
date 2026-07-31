@@ -21,6 +21,8 @@ import {
   LibraryStats,
 } from '../library/library.models';
 import { WatchNextResult } from '../library/watch-next.models';
+import { ActivityFeed } from '../activity/activity.models';
+import { mapActivityFeed } from '../activity/activity-format';
 import { AutomationService, AutomationSummary } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
@@ -43,8 +45,10 @@ import { MediaStackCronLogsDto } from './wire/cron';
 import { MediaStackDiscoverActionDto, MediaStackExternalDiscoverDto, MediaStackHermesDiscoverDto } from './wire/discover';
 import {
   LiveAutomationSummary,
+  LiveActivityFeed,
   LiveJellyfinListResponse,
   LiveWatchNextListResponse,
+  mapLiveActivityFeed,
   mapLiveAutomationSummary,
   mapLiveJellyfinItem,
   mapLiveWatchNextItem,
@@ -165,6 +169,16 @@ export class HttpMediaStackApi implements MediaStackApi {
       mapWatchNextItem(mapLiveWatchNextItem(item, index)),
     );
     return { items };
+  }
+
+  async getActivity(limit = 20, signal?: AbortSignal): Promise<ActivityFeed> {
+    const clamped = Number.isFinite(limit) ? Math.max(1, Math.min(50, Math.floor(limit))) : 20;
+    const data = await this.getRaw<unknown>(`/activity?limit=${clamped}`, signal);
+    const envelope = requireSoftEnvelope<OkEnvelope & LiveActivityFeed>(
+      data,
+      'Malformed activity response',
+    );
+    return mapActivityFeed(mapLiveActivityFeed(envelope));
   }
 
   private async listLibraryItemsByKind(

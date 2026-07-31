@@ -14,4 +14,10 @@ import { HeroFacade } from './hero.facade';
 export class DashboardHero {
   private readonly hero = inject(HeroFacade);
   readonly view = this.hero.view;
+
+  heroBackground(value: string): string {
+    return value.includes('gradient(') || value.startsWith('url(')
+      ? value
+      : `url("${value}") center / cover no-repeat`;
+  }
 }

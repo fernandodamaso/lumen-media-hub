@@ -237,6 +237,15 @@ describe('DashboardPage composition', () => {
     expect(bar.style.width).toBe('64%');
   });
 
+  it('keeps Demo gradients as gradients instead of treating them as image URLs', () => {
+    watchNext.items.set([watchNextItem({ thumbUrl: 'linear-gradient(90deg, #123, #456)' })]);
+    fixture.detectChanges();
+
+    expect((fixtureHost(fixture).querySelector('.cw-card__art') as HTMLElement).style.background).toContain(
+      'linear-gradient',
+    );
+  });
+
   it('shows an empty state for continue watching when nothing is in progress', () => {
     watchNext.status.set('empty');
     watchNext.items.set([]);
@@ -254,6 +263,7 @@ describe('DashboardPage composition', () => {
     expect(posters[1].querySelector('.poster-card__rank')?.textContent).toBe('2');
     expect(posters[1].textContent).toContain('Frontline');
     expect(posters[1].textContent).toContain('Film');
+    expect((posters[0].querySelector('.poster-card__art') as HTMLElement).style.background).toContain('linear-gradient');
   });
 
   it('renders recently added landscape cards', () => {

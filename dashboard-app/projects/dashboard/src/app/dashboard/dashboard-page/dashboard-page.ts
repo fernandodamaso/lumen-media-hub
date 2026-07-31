@@ -28,6 +28,7 @@ import { DashboardHero } from '../dashboard-hero/dashboard-hero';
 import { MediaRail } from '../media-rail/media-rail';
 import { StatStrip } from '../stat-strip/stat-strip';
 import { TrendingFacade } from '../trending.facade';
+import { discoverPosterFallback } from '../../discover/discover-format';
 
 const RAIL_LIMIT = 10;
 
@@ -93,6 +94,7 @@ export class DashboardPage {
   constructor() {
     // Dashboard owns downloads polling only; shell facades are polled by App.
     this.downloads.startPolling();
+    void this.trending.refresh({ initial: true });
     this.destroyRef.onDestroy(() => {
       this.downloads.stopPolling();
     });
@@ -101,9 +103,15 @@ export class DashboardPage {
   /** Landscape card art: Jellyfin thumb when available, else the item's gradient art. */
   cardArt(item: WatchNextItem | LibraryItem): string {
     if ('thumbUrl' in item && item.thumbUrl) {
-      return `url("${item.thumbUrl}") center / cover no-repeat`;
+      return item.thumbUrl.includes('gradient(') || item.thumbUrl.startsWith('url(')
+        ? item.thumbUrl
+        : `url("${item.thumbUrl}") center / cover no-repeat`;
     }
     return item.art;
+  }
+
+  trendingArt(item: { title: string }): string {
+    return discoverPosterFallback(item.title);
   }
 
   trendingSub(item: { year: number | null; type: 'movie' | 'tv' }): string {

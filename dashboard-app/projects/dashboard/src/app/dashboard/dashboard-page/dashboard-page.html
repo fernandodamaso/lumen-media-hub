@@ -81,6 +81,8 @@
             <div class="poster-card__frame">
               @if (item.posterUrl) {
                 <img [src]="item.posterUrl" [alt]="item.title" loading="lazy" decoding="async" />
+              } @else {
+                <div class="poster-card__art" [style.background]="trendingArt(item)" aria-hidden="true"></div>
               }
               <span class="poster-card__rank">{{ item.rank }}</span>
             </div>

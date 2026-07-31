@@ -38,7 +38,8 @@ def handle_activity_feed(handler, query):
     try:
         cached = _get_activity_cached()
     except Exception as e:
-        send_json(handler, 502, {"ok": False, "error": str(e)})
+        print(f"[activity] feed failed: {e}", flush=True)
+        send_json(handler, 502, {"ok": False, "error": "Activity feed is temporarily unavailable"})
         return
     if cached["sources"].get("sonarr") == "error" and cached["sources"].get("radarr") == "error":
         send_json(

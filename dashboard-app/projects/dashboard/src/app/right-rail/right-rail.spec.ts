@@ -54,6 +54,7 @@ describe('RightRail', () => {
   const activityFeed = signal<ActivityFeed | null>(null);
   const activityStatus = signal<ActivityStatus>('loading');
   const automationSummary = signal<AutomationSummary | null>(null);
+  const healthError = signal('');
 
   beforeEach(() => {
     calendarEvents.set([]);
@@ -61,6 +62,7 @@ describe('RightRail', () => {
     activityFeed.set(null);
     activityStatus.set('loading');
     automationSummary.set(null);
+    healthError.set('');
 
     TestBed.configureTestingModule({
       imports: [RightRail],
@@ -106,7 +108,7 @@ describe('RightRail', () => {
                 ? summarizeAutomationHealth(summary)
                 : { overall: 'unknown' as const, actionableCount: 0 };
             }),
-            error: signal(''),
+            error: healthError,
             refresh: vi.fn(),
           },
         },
@@ -176,6 +178,18 @@ describe('RightRail', () => {
     automationSummary.set(summaryWith(['healthy', 'degraded']));
     fixture.detectChanges();
     expect(fixtureHost(fixture).querySelector('[data-testid="rr-all-good"]')).toBeNull();
+  });
+
+  it('shows a health warning while retaining the healthy snapshot rows', () => {
+    automationSummary.set(summaryWith(['healthy', 'healthy']));
+    healthError.set('Could not refresh service health. Showing last loaded status.');
+    const fixture = TestBed.createComponent(RightRail);
+    fixture.detectChanges();
+
+    const section = fixtureHost(fixture).querySelector('[data-testid="rr-health"]');
+    expect(section?.querySelector('.rail-note--warning')?.textContent).toContain('Could not refresh');
+    expect(section?.querySelectorAll('mm-service-row')).toHaveLength(2);
+    expect(section?.querySelector('[data-testid="rr-all-good"]')).toBeNull();
   });
 
   it('renders skeletons while sections load', () => {

@@ -290,6 +290,18 @@ class ActivityHandlerTests(unittest.TestCase):
             activity_routes.handle_activity_feed(_CaptureHandler(), {})
         build.assert_called_once()
 
+    def test_unexpected_exception_logs_server_side_and_returns_static_error(self):
+        with (
+            mock.patch.object(activity_routes, "_get_activity_cached", side_effect=RuntimeError("secret-token")),
+            mock.patch("builtins.print") as log,
+        ):
+            handler = _CaptureHandler()
+            activity_routes.handle_activity_feed(handler, {})
+        self.assertEqual(handler.status, 502)
+        self.assertEqual(handler.body(), {"ok": False, "error": "Activity feed is temporarily unavailable"})
+        self.assertNotIn("secret-token", json.dumps(handler.body()))
+        log.assert_called_once_with("[activity] feed failed: secret-token", flush=True)
+
 
 if __name__ == "__main__":
     unittest.main()

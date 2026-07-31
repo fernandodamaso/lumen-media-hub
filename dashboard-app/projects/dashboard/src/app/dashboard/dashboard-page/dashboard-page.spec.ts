@@ -11,7 +11,7 @@ import { LibraryStatsFacade, LibraryStatsStatus } from '../../library/library-st
 import { LibraryItemsFacade, LibraryItemsStatus } from '../../library/library-items.facade';
 import { WatchNextFacade, WatchNextStatus } from '../../library/watch-next.facade';
 import { WatchNextItem } from '../../library/watch-next.models';
-import { LibraryItem, LibraryStats } from '../../library/library.models';
+import { JELLYFIN_LINK_BASES, LibraryItem, LibraryStats } from '../../library/library.models';
 import { StorageFacade } from '../../storage/storage.facade';
 import { StorageOverview } from '../../storage/storage.models';
 import { ActivityFacade } from '../../right-rail/activity.facade';
@@ -196,6 +196,7 @@ describe('DashboardPage composition', () => {
         { provide: CalendarFacade, useValue: calendar },
         { provide: AutomationFacade, useValue: automation },
         { provide: ActivityFacade, useValue: activity },
+        { provide: JELLYFIN_LINK_BASES, useValue: { jellyfinBase: 'http://jf.local' } },
         { provide: HeroFacade, useValue: { view: signal(null) } },
       ],
     });
@@ -290,6 +291,7 @@ describe('DashboardPage composition', () => {
   it('starts downloads polling on create and stops it on destroy; shell facades stay untouched', () => {
     fixture.detectChanges();
     expect(downloads['startPolling']).toHaveBeenCalledTimes(1);
+    expect(trending.refresh).not.toHaveBeenCalled();
     expect(storage['startPolling']).toBeUndefined();
 
     fixture.destroy();
@@ -300,7 +302,36 @@ describe('DashboardPage composition', () => {
     fixture.detectChanges();
     fixture.componentInstance.onRefresh();
     for (const facade of [health, libraryStats, libraryItems, watchNext, trending, downloads, storage, calendar, automation, activity]) {
-      expect(facade.refresh).toHaveBeenCalled();
+      expect(facade.refresh).toHaveBeenCalledTimes(1);
     }
+  });
+
+  it('resolves dashboard media links, preserves explicit hrefs, and leaves unavailable items inert', () => {
+    watchNext.items.set([watchNextItem({ href: null })]);
+    libraryItems.items.set([libraryItem({ href: null })]);
+    fixture.detectChanges();
+
+    expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .cw-card')?.getAttribute('href')).toBe(
+      'http://jf.local/web/index.html#!/details?id=e1',
+    );
+    expect(fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .cw-card')?.getAttribute('href')).toBe(
+      'http://jf.local/web/index.html#!/details?id=lib-1',
+    );
+
+    watchNext.items.set([watchNextItem({ href: 'http://explicit/episode' })]);
+    libraryItems.items.set([libraryItem({ href: 'http://explicit/series' })]);
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .cw-card')?.getAttribute('href')).toBe(
+      'http://explicit/episode',
+    );
+    expect(fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .cw-card')?.getAttribute('href')).toBe(
+      'http://explicit/series',
+    );
+
+    watchNext.items.set([watchNextItem({ id: 'unknown', href: null, playable: false })]);
+    libraryItems.items.set([libraryItem({ id: 'unknown', href: null, playable: false })]);
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .cw-card')?.getAttribute('href')).toBeNull();
+    expect(fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .cw-card')?.getAttribute('href')).toBeNull();
   });
 });

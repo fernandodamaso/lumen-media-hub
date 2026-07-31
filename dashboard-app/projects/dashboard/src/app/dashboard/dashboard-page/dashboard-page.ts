@@ -15,7 +15,11 @@ import {
   TORRENT_STATE_VIEW,
 } from '../../downloads/downloads-format';
 import { TorrentState } from '../../downloads/downloads.models';
-import { LibraryItem } from '../../library/library.models';
+import {
+  JELLYFIN_LINK_BASES,
+  LibraryItem,
+  resolveJellyfinItemLink,
+} from '../../library/library.models';
 import { LibraryItemsFacade } from '../../library/library-items.facade';
 import { LibraryStatsFacade } from '../../library/library-stats.facade';
 import { WatchNextFacade } from '../../library/watch-next.facade';
@@ -53,6 +57,7 @@ const RAIL_LIMIT = 10;
 export class DashboardPage {
   private readonly destroyRef = inject(DestroyRef);
   private readonly linkBases = inject(SERVICE_LINK_BASES);
+  private readonly jellyfinBases = inject(JELLYFIN_LINK_BASES);
   private readonly health = inject(ServiceHealthFacade);
   private readonly libraryStats = inject(LibraryStatsFacade);
   private readonly calendar = inject(CalendarFacade);
@@ -94,7 +99,6 @@ export class DashboardPage {
   constructor() {
     // Dashboard owns downloads polling only; shell facades are polled by App.
     this.downloads.startPolling();
-    void this.trending.refresh({ initial: true });
     this.destroyRef.onDestroy(() => {
       this.downloads.stopPolling();
     });
@@ -152,7 +156,6 @@ export class DashboardPage {
   }
 
   onRefresh(): void {
-    void this.trending.refresh();
     void refreshDashboardData({
       health: this.health,
       libraryItems: this.libraryItems,
@@ -163,6 +166,11 @@ export class DashboardPage {
       calendar: this.calendar,
       automation: this.automation,
       activity: this.activity,
+      trending: this.trending,
     });
+  }
+
+  mediaHref(item: Pick<WatchNextItem | LibraryItem, 'href' | 'id' | 'playable'>): string | null {
+    return item.href ?? resolveJellyfinItemLink(item, this.jellyfinBases);
   }
 }

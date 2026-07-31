@@ -68,7 +68,7 @@ export function buildHeroView(item: WatchNextItem, bases: JellyfinLinkBases = {}
   // Episodes present series identity; the episode code leads the meta line.
   if (item.kind === 'episode' && item.subtitle) meta.push(formatEpisodeCode(item.subtitle));
   if (item.year) meta.push(String(item.year));
-  if (item.rating) meta.push(`★ ${item.rating.toFixed(1)}`);
+  if (item.rating != null) meta.push(`★ ${item.rating.toFixed(1)}`);
   const runtime = formatRuntimeTicks(item.runtimeTicks);
   if (runtime) meta.push(runtime);
   if (item.genres.length) meta.push(item.genres.slice(0, 2).join(', '));

@@ -25,6 +25,7 @@ import { SERVICE_LINK_BASES } from '../media-stack/media-stack-api.providers';
 import { StorageFacade } from '../storage/storage.facade';
 import { ActivityFacade } from '../right-rail/activity.facade';
 import { refreshDashboardData } from '../dashboard/dashboard-refresh';
+import { TrendingFacade } from '../dashboard/trending.facade';
 
 export type CommandPaletteItem = {
   id: string;
@@ -147,6 +148,7 @@ export class CommandPalette {
             calendar: this.injector.get(CalendarFacade),
             automation: this.injector.get(AutomationFacade),
             activity: this.injector.get(ActivityFacade),
+            trending: this.injector.get(TrendingFacade),
           }),
       },
       {

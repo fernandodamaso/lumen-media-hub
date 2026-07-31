@@ -44,7 +44,7 @@ export class RightRail {
   readonly services = computed(() => [...this.health.services()].sort(compareAutomationServices));
 
   readonly allGood = computed(
-    () => this.services().length > 0 && this.health.health().overall === 'healthy',
+    () => !this.health.error() && this.services().length > 0 && this.health.health().overall === 'healthy',
   );
 
   calendarHref(): string | null {

@@ -78,6 +78,10 @@ describe('hero rules', () => {
     expect(view.playHref).toBe('http://jf/web/index.html#!/details?id=id-1');
   });
 
+  it('displays a zero rating', () => {
+    expect(buildHeroView(item({ rating: 0 }), {}).meta).toContain('★ 0.0');
+  });
+
   it('presents series identity for episodes with the episode code in meta', () => {
     const view = buildHeroView(
       item({

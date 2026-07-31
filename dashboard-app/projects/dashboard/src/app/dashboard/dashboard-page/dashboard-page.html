@@ -31,10 +31,11 @@
       }
       @default {
         @for (item of continueWatching(); track item.id) {
+          @let href = mediaHref(item);
           <a
             class="cw-card"
-            [attr.href]="item.href"
-            [attr.target]="item.href ? '_blank' : null"
+            [attr.href]="href"
+            [attr.target]="href ? '_blank' : null"
             rel="noreferrer"
             [attr.aria-label]="'Continue ' + item.title"
           >
@@ -113,10 +114,11 @@
       }
       @default {
         @for (item of recentItems(); track item.id) {
+          @let href = mediaHref(item);
           <a
             class="cw-card"
-            [attr.href]="item.href"
-            [attr.target]="item.href ? '_blank' : null"
+            [attr.href]="href"
+            [attr.target]="href ? '_blank' : null"
             rel="noreferrer"
             [attr.aria-label]="'Open ' + item.title"
           >

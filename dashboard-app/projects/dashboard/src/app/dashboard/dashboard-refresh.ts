@@ -7,6 +7,7 @@ import { LibraryStatsFacade } from '../library/library-stats.facade';
 import { WatchNextFacade } from '../library/watch-next.facade';
 import { ActivityFacade } from '../right-rail/activity.facade';
 import { StorageFacade } from '../storage/storage.facade';
+import { TrendingFacade } from './trending.facade';
 
 /** Facades refreshed by a single manual dashboard refresh (no poll loops started). */
 export type DashboardRefreshDeps = {
@@ -19,6 +20,7 @@ export type DashboardRefreshDeps = {
   calendar: CalendarFacade;
   automation: AutomationFacade;
   activity: ActivityFacade;
+  trending: TrendingFacade;
 };
 
 /** Refresh every dashboard data source exactly once (matches dashboard page manual refresh). */
@@ -33,5 +35,6 @@ export async function refreshDashboardData(deps: DashboardRefreshDeps): Promise<
     deps.calendar.refresh(),
     deps.automation.refresh(),
     deps.activity.refresh(),
+    deps.trending.refresh(),
   ]);
 }

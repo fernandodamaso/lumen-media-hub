@@ -6,6 +6,7 @@ describe('refreshDashboardData', () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
     const watchNextRefresh = vi.fn().mockResolvedValue(undefined);
     const activityRefresh = vi.fn().mockResolvedValue(undefined);
+    const trendingRefresh = vi.fn().mockResolvedValue(undefined);
     const deps = {
       health: { refresh },
       libraryItems: { refresh },
@@ -16,6 +17,7 @@ describe('refreshDashboardData', () => {
       calendar: { refresh },
       automation: { refresh },
       activity: { refresh: activityRefresh },
+      trending: { refresh: trendingRefresh },
     } as unknown as DashboardRefreshDeps;
 
     await refreshDashboardData(deps);
@@ -23,5 +25,6 @@ describe('refreshDashboardData', () => {
     expect(refresh).toHaveBeenCalledTimes(7);
     expect(watchNextRefresh).toHaveBeenCalledTimes(1);
     expect(activityRefresh).toHaveBeenCalledTimes(1);
+    expect(trendingRefresh).toHaveBeenCalledTimes(1);
   });
 });

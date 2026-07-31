@@ -347,6 +347,10 @@ def _get_series_metadata(series_id):
 
 def _apply_series_metadata(item, meta):
     """Overlay series-level presentation fields onto an episode watch-next item."""
+    if meta["year"] is not None:
+        item["year"] = meta["year"]
+    if meta["rating"] is not None:
+        item["rating"] = meta["rating"]
     if meta["genres"]:
         item["genres"] = meta["genres"]
     if meta["overview"]:
@@ -656,11 +660,11 @@ def _fetch_watch_next_items():
             break
 
     items = movies + list(episodes_by_series.values())
+    _sort_watch_next_items(items)
+    items = items[:WATCH_NEXT_ITEM_LIMIT]
     for item in items:
         if item["kind"] == "episode":
             _apply_series_metadata(item, _get_series_metadata(item["_series_id"]))
-    _sort_watch_next_items(items)
-    items = items[:WATCH_NEXT_ITEM_LIMIT]
     return {"ok": True, "items": [_strip_watch_next_sort_keys(item) for item in items]}
 
 

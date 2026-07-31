@@ -96,6 +96,9 @@
 
 <section class="rail-sec" data-testid="rr-health" aria-labelledby="rr-health-heading">
   <h3 id="rr-health-heading">Service Health</h3>
+  @if (health.error()) {
+    <p class="rail-note rail-note--warning">{{ health.error() }}</p>
+  }
   @if (services().length) {
     @for (service of services(); track service.id) {
       <mm-service-row

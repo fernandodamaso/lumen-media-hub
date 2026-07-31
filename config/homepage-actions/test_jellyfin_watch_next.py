@@ -249,6 +249,40 @@ class WatchNextFetchTests(unittest.TestCase):
             payload = jellyfin_client._fetch_watch_next_items()
         self.assertEqual(payload, {"ok": True, "items": []})
 
+    def test_series_metadata_only_fetches_for_sorted_watch_next_slice(self):
+        episodes = [
+            {
+                "Id": f"ep-{index:02d}",
+                "Type": "Episode",
+                "SeriesId": f"series-{index:02d}",
+                "SeriesName": "Show",
+                "Name": f"Episode {index}",
+                "ParentIndexNumber": 1,
+                "IndexNumber": index,
+                "Path": f"/tv/show/s01e{index:02d}.mkv",
+                "RunTimeTicks": 1000,
+                "UserData": {"Played": False, "PlaybackPositionTicks": 100},
+                "DateLastContentAdded": f"2026-07-{index + 1:02d}T00:00:00Z",
+            }
+            for index in range(41)
+        ]
+        metadata = mock.Mock(side_effect=lambda series_id: {
+            **jellyfin_client._empty_series_metadata(),
+            "year": int(series_id[-2:]),
+        })
+        with (
+            mock.patch.object(jellyfin_client, "_fetch_jellyfin_resume_raw", return_value=episodes),
+            mock.patch.object(jellyfin_client, "_fetch_jellyfin_next_up_raw", return_value=[]),
+            mock.patch.object(jellyfin_client, "_fetch_jellyfin_unwatched_movies_raw", return_value=[]),
+            mock.patch.object(jellyfin_client, "_fetch_jellyfin_unplayed_series_raw", return_value=[]),
+            mock.patch.object(jellyfin_client, "_get_series_metadata", metadata),
+        ):
+            payload = jellyfin_client._fetch_watch_next_items()
+
+        self.assertEqual([item["id"] for item in payload["items"]], [f"ep-{index:02d}" for index in range(40, 0, -1)])
+        self.assertEqual(metadata.call_count, 40)
+        self.assertEqual([call.args[0] for call in metadata.call_args_list], [f"series-{index:02d}" for index in range(40, 0, -1)])
+
 
 class WatchNextHandlerTests(unittest.TestCase):
     def test_returns_503_without_api_key(self):
@@ -364,6 +398,15 @@ class WatchNextMetadataTests(unittest.TestCase):
         self.assertIsNone(meta["thumbUrl"])
         self.assertEqual(meta["genres"], [])
 
+    def test_series_metadata_overlays_non_null_year_and_rating_only(self):
+        item = {"year": 2020, "rating": 7.1, "genres": [], "overview": None, "backdropUrl": None, "thumbUrl": None}
+        jellyfin_client._apply_series_metadata(
+            item,
+            {"year": None, "rating": None, "genres": [], "overview": None, "backdropUrl": None, "thumbUrl": None},
+        )
+        self.assertEqual(item["year"], 2020)
+        self.assertEqual(item["rating"], 7.1)
+
 
 class WatchNextEpisodeMetadataTests(unittest.TestCase):
     def setUp(self):
@@ -402,6 +445,8 @@ class WatchNextEpisodeMetadataTests(unittest.TestCase):
         ):
             payload = jellyfin_client._fetch_watch_next_items()
         item = payload["items"][0]
+        self.assertEqual(item["year"], 2015)
+        self.assertEqual(item["rating"], 8.3)
         self.assertEqual(item["genres"], ["Sci-Fi"])
         self.assertEqual(item["overview"], "Politics and survival.")
         self.assertEqual(item["backdropUrl"], "http://jellyfin/Items/series-1/Images/Backdrop")

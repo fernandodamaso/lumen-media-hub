@@ -30,16 +30,23 @@ export class MmReveal implements AfterViewInit, OnDestroy {
     this.observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          this.revealed.set(true);
-          this.observer?.disconnect();
+          this.reveal();
         }
       },
       { threshold: 0.1 },
     );
     this.observer.observe(this.host.nativeElement);
+
+    const rect = this.host.nativeElement.getBoundingClientRect();
+    if (rect.bottom > 0 && rect.top < window.innerHeight) this.reveal();
   }
 
   ngOnDestroy(): void {
+    this.observer?.disconnect();
+  }
+
+  private reveal(): void {
+    this.revealed.set(true);
     this.observer?.disconnect();
   }
 }

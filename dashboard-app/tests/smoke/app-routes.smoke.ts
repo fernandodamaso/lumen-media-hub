@@ -56,10 +56,10 @@ async function expectNoHorizontalOverflow(page: import('@playwright/test').Page)
 
 async function expectAutomationReadable(page: import('@playwright/test').Page): Promise<void> {
   const readable = await page.evaluate(() => {
-    const region = document.querySelector('#automation-region');
+    const region = document.querySelector('[data-testid="rr-health"]');
     if (!region) return false;
     const regionBox = region.getBoundingClientRect();
-    const names = [...region.querySelectorAll('.svc__name')];
+    const names = [...region.querySelectorAll('.svc-name')];
     if (names.length === 0) return false;
     return names.every((name) => {
       const box = name.getBoundingClientRect();

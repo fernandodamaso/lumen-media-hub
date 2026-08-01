@@ -1,23 +1,17 @@
 <section class="page-intro">
   <p class="eyebrow">Workspace</p>
-  <h1>Reports</h1>
+  <div class="page-intro__row">
+    <h1>Reports</h1>
+    <mm-button
+      label="Refresh"
+      variant="quiet"
+      [busy]="facade.refreshing()"
+      [disabled]="facade.refreshing()"
+      (click)="refresh()"
+    />
+  </div>
   <p class="lede">Failed and actionable automation runs first; expand quiet successes when needed.</p>
 </section>
-
-<div class="toolbar">
-  @if (facade.generatedAt()) {
-    <p class="generated" aria-live="polite">Generated {{ formatGeneratedAt(facade.generatedAt()) }}</p>
-  } @else {
-    <p class="generated muted">Waiting for first load…</p>
-  }
-  <mm-button
-    label="Refresh"
-    variant="quiet"
-    [busy]="facade.refreshing()"
-    [disabled]="facade.refreshing()"
-    (click)="refresh()"
-  />
-</div>
 
 @if (facade.error() && facade.status() !== 'error') {
   <p class="refresh-error" role="status" aria-live="polite">

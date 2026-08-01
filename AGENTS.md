@@ -114,14 +114,17 @@ Component resources stay co-located in folders named after the component:
 ```text
 dashboard/
   dashboard-page/
-  automation-card/
-  metric-card/
+  dashboard-hero/
+  media-rail/
+  stat-strip/
   dashboard-refresh.ts
 
 library/
   library-page/
-  library-card/
   library-poster-grid/
+
+topbar/
+right-rail/
 ```
 
 Keep each component's `.ts`, `.html`, `.scss`, `.spec.ts`, and Storybook story together when present. Keep facades, models, formatters, and tests with their owning feature. Smaller features such as `calendar`, `automation`, and `discover` may remain flat. `ui` is the shared design-system boundary, and `media-stack` owns transport/API concerns.

@@ -6,10 +6,11 @@ Single Angular app (`dashboard`) owning the shell, feature boards, design system
 
 | Area | Role |
 |------|------|
-| `app/` shell | Bootstrap, routes, layout, navigation, environment providers |
+| `app/` shell | Bootstrap, routes, layout, navigation, shell-owned polling, environment providers |
 | `app/ui` | Design tokens (single Lumen palette), primitives, Storybook stories |
 | `app/media-stack` | `MediaStackApi` port, mock/HTTP adapters, providers, wire DTOs + mappers |
-| Feature folders | Domain/display models, facades, boards/pages for `dashboard`, `downloads`, `reports`, `discover`, `calendar`, `automation`; shared service-health and storage facades feed the home dashboard |
+| Feature folders | Domain/display models, facades, and pages for `dashboard`, `library`, `downloads`, `reports`, `discover`, `calendar`, `automation`, and `activity` |
+| Shell presentation | `topbar` and `right-rail` own the persistent presentation outside routed page content |
 
 ## Frontend organization
 
@@ -21,13 +22,15 @@ generic `components`, `pages`, or `widgets` folders:
 projects/dashboard/src/app/
   dashboard/
     dashboard-page/
-    automation-card/
-    metric-card/
+    dashboard-hero/
+    media-rail/
+    stat-strip/
     dashboard-refresh.ts
   library/
     library-page/
-    library-card/
     library-poster-grid/
+  topbar/
+  right-rail/
   calendar/       flat feature folder
   automation/     flat feature folder
   discover/       flat feature folder
@@ -42,6 +45,18 @@ and feature-specific transformations remain with their owning feature.
 The application is standalone and does not use NgModules. Do not introduce
 generic root-level type folders unless a real architectural boundary requires
 one.
+
+## Shell and dashboard composition
+
+`App` owns the persistent sidebar navigation, `Topbar`, `RightRail`, command
+palette, shell status, and shell-scoped polling. `topbar/` and `right-rail/`
+are presentation-owned shell features; they are not route pages.
+
+The home route is composed by `DashboardPage` from the `DashboardHero`,
+`StatStrip`, three `MediaRail` instances (Continue Watching, Trending Now, and
+Recently Added), and the Downloads section. The right rail presents Upcoming
+Releases, Recent Activity, and Service Health. Dashboard-only download polling
+is owned and stopped by `DashboardPage`; shell polling remains with `App`.
 
 ## Data flow
 
@@ -80,14 +95,15 @@ Library, automation, and service-health facades stay as separate stores. Do not 
 
 | Facade | Provider scope | Consumers | Init owner | Polling owner | Stop behavior |
 |--------|----------------|-----------|------------|---------------|---------------|
-| `ServiceHealthFacade` | `providedIn: 'root'` | App shell attention, dashboard metrics/automation card | App ctor `startPolling` | App (app-wide, 60s) | Runs for app lifetime (no public stop) |
+| `ServiceHealthFacade` | `providedIn: 'root'` | App shell attention and right-rail health | App ctor `startPolling` | App (app-wide, 60s) | Runs for app lifetime (no public stop) |
 | `LibraryItemsFacade` | `providedIn: 'root'` | App shell count, `/library`, dashboard refresh, command palette | Facade ctor initial `refresh` | None (manual / dashboard refresh) | Request-id bump on newer refresh |
-| `WatchNextFacade` | `providedIn: 'root'` | Library card, dashboard refresh | Facade ctor initial `refresh` | None | Request-id bump |
-| `LibraryStatsFacade` | `app.config` singleton | Dashboard metrics, dashboard refresh | Facade ctor initial `refresh` | None | Request-id bump |
-| `DownloadsFacade` | `app.config` singleton | Downloads card, dashboard metrics/refresh, command palette actions | `DashboardPage` `startPolling` | DashboardPage (10s) | `DashboardPage` destroy → `stopPolling` |
-| `StorageFacade` | `app.config` singleton | Automation card, dashboard metrics/refresh | `DashboardPage` `startPolling` | DashboardPage (60s) | `DashboardPage` destroy → `stopPolling` |
-| `CalendarFacade` | `app.config` singleton | Upcoming card, dashboard refresh | `DashboardPage` `startPolling` | DashboardPage (60s) | `DashboardPage` destroy → `stopPolling` |
-| `AutomationFacade` | `app.config` singleton | Dashboard refresh / syncedAt (cron logs); health UI via `ServiceHealthFacade` | `DashboardPage` `startPolling` | DashboardPage (60s); does **not** start health polling | `DashboardPage` destroy → `stopPolling` |
+| `WatchNextFacade` | `providedIn: 'root'` | Dashboard hero, Library page, dashboard refresh | Facade ctor initial `refresh` | None | Request-id bump |
+| `LibraryStatsFacade` | `app.config` singleton | Stat strip and dashboard refresh | Facade ctor initial `refresh` | None | Request-id bump |
+| `DownloadsFacade` | `app.config` singleton | Downloads section, stat strip, dashboard refresh, command palette actions | `DashboardPage` `startPolling` | DashboardPage (10s) | `DashboardPage` destroy → `stopPolling` |
+| `StorageFacade` | `app.config` singleton | App shell storage card, stat strip, dashboard refresh | `App` `startPolling` | App (60s) | Runs for app lifetime |
+| `CalendarFacade` | `app.config` singleton | Right-rail upcoming releases, dashboard refresh | `App` `startPolling` | App (60s) | Runs for app lifetime |
+| `ActivityFacade` | `app.config` singleton | Right-rail recent activity | `App` `startPolling` | App (60s) | Runs for app lifetime |
+| `AutomationFacade` | `app.config` singleton | Dashboard refresh and synced state | `App` `startPolling` | App (60s) | Runs for app lifetime |
 | `DiscoverFacade` | Page `providers` | Discover page | Page / tab change | Discover page (Hermes 30s / external 60s) | Page destroy → `stopPolling` |
 | `ReportsFacade` | Page `providers` | Reports page | Page `load` | None | Request-id bump |
 
@@ -131,6 +147,7 @@ npm run test:smoke
 | `/api/jellyfin/watch-next` | GET | User-specific next episodes and in-progress movies (`progressPercent` 0–100) |
 | `/api/sonarr/calendar` | GET | Upcoming calendar events |
 | `/api/arr/library` | GET | Series/movie library index |
+| `/api/activity` | GET | Recent activity feed for the right rail |
 | `/api/automation/summary` | GET | Service health and warnings |
 | `/api/cron/logs` | GET | Automation run logs |
 | `/api/discover/hermes` | GET | Hermes recommendations |
@@ -144,7 +161,8 @@ Storage uses `/system/resources` (not `/storage/overview`) and labels the volume
 
 | Path | Feature |
 |------|---------|
-| `/` | Nocturne ops dashboard: metrics, attention banner, active downloads, recent automation runs, upcoming calendar, service health, storage overview |
+| `/` | Lumen home: hero, stat strip, Continue Watching, Trending Now, Recently Added, downloads, and shell right rail |
+| `/library` | Library poster grid and movie/series filter |
 | `/reports` | Cron log triage |
 | `/discover` | Hermes / Jellyseerr / Trakt |
 | `/dashboard` | Redirects to `/` |

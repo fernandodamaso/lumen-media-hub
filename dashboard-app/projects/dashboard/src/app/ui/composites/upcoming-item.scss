@@ -35,6 +35,9 @@
 .up-sub {
   font-size: 11px;
   color: var(--mm-component-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .up-when {
   margin-left: auto;

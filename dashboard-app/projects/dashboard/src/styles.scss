@@ -30,6 +30,8 @@ select {
 html,
 body {
   font-family: var(--mm-font-body);
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -38,6 +40,17 @@ body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Media rails: hide horizontal scrollbars (Angular encapsulation skips ::-webkit-scrollbar). */
+.rail {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.rail::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 h1,

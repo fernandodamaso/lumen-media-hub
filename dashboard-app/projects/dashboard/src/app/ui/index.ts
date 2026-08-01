@@ -12,6 +12,7 @@ export * from './tooltip';
 export * from './live-indicator';
 export * from './composites';
 export * from './input';
+export * from './search-trigger';
 export * from './checkbox';
 export * from './radio';
 export * from './switch';

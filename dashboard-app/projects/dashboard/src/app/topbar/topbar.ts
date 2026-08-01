@@ -1,18 +1,21 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
-import { LucidePanelRight, LucideSearch } from '@lucide/angular';
-import { MmButton, MmIconButton } from '@app/ui';
+import { LucidePanelRight } from '@lucide/angular';
+import { MmButton, MmIconButton, MmSearchTrigger } from '@app/ui';
 
 @Component({
   selector: 'mm-topbar',
-  imports: [MmButton, MmIconButton, LucidePanelRight, LucideSearch],
+  imports: [MmButton, MmIconButton, MmSearchTrigger, LucidePanelRight],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="topbar">
-      <button type="button" class="search-pill" data-testid="topbar-search" (click)="searchOpen.emit()">
-        <svg lucideSearch [size]="14" aria-hidden="true"></svg>
-        <span class="search-pill__placeholder">Search movies, shows, people…</span>
-        <kbd>{{ shortcutLabel() }}</kbd>
-      </button>
+      <mm-search-trigger
+        class="topbar__search"
+        testId="topbar-search"
+        placeholder="Search movies, shows, people…"
+        ariaLabel="Open search"
+        [shortcutLabel]="shortcutLabel()"
+        (activated)="searchOpen.emit()"
+      />
       <div class="topbar__actions">
         <mm-icon-button
           class="rail-toggle"

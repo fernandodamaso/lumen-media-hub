@@ -1,17 +1,21 @@
 :host { display: block; }
-.toolbar {
+
+.page-intro {
+  max-width: none;
+}
+
+.page-intro__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin: 28px 0 18px;
 }
-.generated {
-  margin: 0;
-  color: var(--mm-component-text-secondary);
-  font-size: 13px;
+
+.page-intro .lede {
+  max-width: 680px;
+  margin-bottom: 18px;
 }
-.generated.muted { color: var(--mm-component-text-muted); }
+
 .refresh-error, .health { margin: 0 0 14px; }
 .run-list { display: grid; gap: 10px; }
 .run {
@@ -119,7 +123,7 @@
 }
 .quiet-list { margin-top: 12px; }
 @media (max-width: 700px) {
-  .toolbar { flex-direction: column; align-items: start; }
+  .page-intro__row { flex-direction: column; align-items: start; }
   .run-head { grid-template-columns: minmax(0, 1fr) auto; }
   .run-time { grid-column: 1 / -1; }
 }

@@ -36,13 +36,19 @@ mm-right-rail {
 }
 
 .sidebar {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  z-index: 20;
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  box-sizing: border-box;
+  width: 228px;
   min-width: 0;
-  height: 100dvh;
+  height: 100vh;
   padding: 22px 16px;
   overflow: hidden auto;
   border-right: 1px solid var(--mm-component-divider);
@@ -196,24 +202,6 @@ mm-right-rail {
     color-mix(in srgb, var(--mm-semantic-accent) 55%, #fff)
   );
 }
-.mini-card__manage {
-  display: block;
-  margin-top: 12px;
-  padding: 8px;
-  border: 1px solid var(--mm-component-border);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--mm-component-text-primary) 6%, transparent);
-  color: var(--mm-component-text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  text-align: center;
-  text-decoration: none;
-  transition: color var(--mm-transition-fast), border-color var(--mm-transition-fast);
-}
-.mini-card__manage:hover {
-  color: var(--mm-component-text-primary);
-  border-color: color-mix(in srgb, var(--mm-component-text-primary) 18%, transparent);
-}
 
 .status-pill {
   display: flex;
@@ -250,6 +238,8 @@ mm-right-rail {
 }
 
 .content {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
   width: 100%;
   max-width: none;
@@ -258,17 +248,28 @@ mm-right-rail {
   overflow-x: clip;
 }
 
+mm-right-rail {
+  grid-column: 3;
+  grid-row: 1;
+}
+
 @media (max-width: 1240px) {
   .shell { grid-template-columns: 228px minmax(0, 1fr); }
   mm-right-rail { display: none; }
+  .content { grid-column: 2; }
 }
 
 @media (max-width: 900px) {
   .shell { grid-template-columns: minmax(0, 1fr); }
   .sidebar {
     position: static;
+    inset: auto;
+    z-index: auto;
+    grid-column: 1;
+    grid-row: 1;
     flex-flow: row wrap;
     align-items: center;
+    width: auto;
     height: auto;
     gap: 8px;
     padding: 8px 24px;
@@ -276,13 +277,18 @@ mm-right-rail {
     border-right: 0;
     border-bottom: 1px solid var(--mm-component-border);
   }
+  .content {
+    grid-column: 1;
+    grid-row: 2;
+    padding: 24px;
+  }
+  mm-right-rail { display: none; }
   .sidebar__header { flex: none; padding: 0 8px 0 0; }
   .sidebar__nav { flex-direction: row; align-items: center; flex: 1; }
   .sidebar__footer { width: auto; margin-top: 0; margin-left: auto; flex-direction: row; align-items: center; }
   .sidebar__nav a { flex: none; min-height: 44px; }
   .mini-card { display: none; }
   .status-pill { white-space: nowrap; }
-  .content { padding: 24px; }
 }
 
 @media (max-width: 560px) {

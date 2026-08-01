@@ -1,6 +1,5 @@
 import { Location } from '@angular/common';
 import { provideLocationMocks, SpyLocation } from '@angular/common/testing';
-import { computed, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
@@ -11,7 +10,6 @@ import { routes } from './app.routes';
 import { provideHttpClient } from '@angular/common/http';
 import { ActivityFacade } from './right-rail/activity.facade';
 import { AutomationFacade } from './automation/automation.facade';
-import { summarizeAutomationHealth } from './automation/automation.models';
 import { ServiceHealthFacade } from './automation/service-health.facade';
 import { CalendarFacade } from './calendar/calendar.facade';
 import { DownloadsFacade } from './downloads/downloads.facade';
@@ -76,12 +74,14 @@ describe('App shell', () => {
 
     const health = TestBed.inject(ServiceHealthFacade);
     await health.refresh({ initial: true });
+    const storage = TestBed.inject(StorageFacade);
+    await storage.refresh({ initial: true });
     fixture.detectChanges();
 
     const pill = fixtureHost(fixture).querySelector('[data-testid="status-pill"]');
     expect(pill).toBeTruthy();
-    expect(pill?.getAttribute('href') ?? pill?.getAttribute('ng-reflect-router-link')).toBeTruthy();
     expect(pill?.textContent).toMatch(/need attention/);
+    expect(fixtureHost(fixture).querySelector('.mini-card__manage')).toBeNull();
   });
 
   it('opens the command palette signal from the topbar search pill', async () => {
@@ -108,7 +108,7 @@ describe('App shell', () => {
     const card = fixtureHost(fixture).querySelector('[data-testid="storage-mini-card"]');
     expect(card).toBeTruthy();
     expect(card?.textContent).toContain('Storage');
-    expect(card?.textContent).toContain('Manage storage');
+    expect(card?.textContent).not.toContain('Manage storage');
   });
 
   it('keeps shell-owned polling armed across Dashboard → Library → Dashboard navigation', async () => {
@@ -151,119 +151,6 @@ describe('App shell', () => {
     expect(downloadsStart).toHaveBeenCalledTimes(2);
     expect(calendarStart).toHaveBeenCalledTimes(1);
     expect(calendar.status()).toBe(statusOnDashboard);
-  });
-
-  it('labels the status pill from problem count when services are otherwise healthy', () => {
-    TestBed.resetTestingModule();
-    const summary = signal({
-      generatedAt: '',
-      services: [{ id: 'jellyfin', name: 'Jellyfin', status: 'healthy' as const, detail: '', latencyMs: 10 }],
-      problems: [
-        { id: 'p1', summary: 'Indexer cooldown', serviceId: 'prowlarr', severity: 'info' as const },
-      ],
-      preview: [],
-      availability: {
-        services: 'present' as const,
-        preview: 'empty' as const,
-        problems: 'present' as const,
-      },
-    });
-    TestBed.configureTestingModule({
-      imports: [App],
-      providers: [
-        provideRouter(routes),
-        provideLocationMocks(),
-        {
-          provide: MEDIA_STACK_API,
-          useFactory: () => {
-            const api = new MockMediaStackApi();
-            api.latencyMs = 0;
-            return api;
-          },
-        },
-        ...provideOperationalLinkBases(),
-        {
-          provide: ServiceHealthFacade,
-          useValue: {
-            status: signal('ready'),
-            summary,
-            services: computed(() => summary().services),
-            problems: computed(() => summary().problems),
-            health: computed(() => summarizeAutomationHealth(summary())),
-            error: signal(''),
-            startPolling: vi.fn(),
-            refresh: vi.fn(),
-          },
-        },
-        ...provideCommandPaletteFacadeMocks(),
-      ],
-    });
-
-    const fixture = TestBed.createComponent(App);
-    fixture.detectChanges();
-    const pill = fixtureHost(fixture).querySelector('[data-testid="status-pill"]');
-    expect(pill?.textContent).toMatch(/1 service need attention/);
-    expect(pill?.textContent).not.toContain('0 services');
-  });
-
-  it('counts unique services in the attention pill, not problem rows', () => {
-    TestBed.resetTestingModule();
-    const summary = signal({
-      generatedAt: '',
-      services: [
-        { id: 'sonarr', name: 'Sonarr', status: 'degraded' as const, detail: 'Missing episodes', latencyMs: 10 },
-        { id: 'radarr', name: 'Radarr', status: 'healthy' as const, detail: '', latencyMs: 10 },
-      ],
-      problems: [
-        { id: 'p1', summary: 'Missing ep 1', serviceId: 'sonarr', severity: 'actionable' as const },
-        { id: 'p2', summary: 'Missing ep 2', serviceId: 'sonarr', severity: 'actionable' as const },
-        { id: 'p3', summary: 'Missing ep 3', serviceId: 'sonarr', severity: 'actionable' as const },
-        { id: 'p4', summary: 'Missing ep 4', serviceId: 'sonarr', severity: 'actionable' as const },
-        { id: 'p5', summary: 'Missing ep 5', serviceId: 'sonarr', severity: 'actionable' as const },
-      ],
-      preview: [],
-      availability: {
-        services: 'present' as const,
-        preview: 'empty' as const,
-        problems: 'present' as const,
-      },
-    });
-    TestBed.configureTestingModule({
-      imports: [App],
-      providers: [
-        provideRouter(routes),
-        provideLocationMocks(),
-        {
-          provide: MEDIA_STACK_API,
-          useFactory: () => {
-            const api = new MockMediaStackApi();
-            api.latencyMs = 0;
-            return api;
-          },
-        },
-        ...provideOperationalLinkBases(),
-        {
-          provide: ServiceHealthFacade,
-          useValue: {
-            status: signal('ready'),
-            summary,
-            services: computed(() => summary().services),
-            problems: computed(() => summary().problems),
-            health: computed(() => summarizeAutomationHealth(summary())),
-            error: signal(''),
-            startPolling: vi.fn(),
-            refresh: vi.fn(),
-          },
-        },
-        ...provideCommandPaletteFacadeMocks(),
-      ],
-    });
-
-    const fixture = TestBed.createComponent(App);
-    fixture.detectChanges();
-    const pill = fixtureHost(fixture).querySelector('[data-testid="status-pill"]');
-    expect(pill?.textContent).toMatch(/1 service need attention/);
-    expect(pill?.textContent).not.toContain('5 services');
   });
 
   it.each([

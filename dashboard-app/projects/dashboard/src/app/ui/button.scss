@@ -30,6 +30,11 @@
   transform: translateY(-2px);
 }
 
+.mm-button--flat-hover:hover:not(:disabled),
+.mm-button--flat-hover:active:not(:disabled) {
+  transform: none;
+}
+
 .mm-button:active:not(:disabled) {
   transform: translateY(0);
 }

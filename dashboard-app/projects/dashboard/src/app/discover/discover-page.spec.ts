@@ -194,6 +194,19 @@ describe('DiscoverPage', () => {
     expect(root.textContent).not.toContain('Try again');
   });
 
+  it('does not show a toolbar Refresh control on the Hermes tab', () => {
+    facade.status.set('ready');
+    facade.tab.set('hermes');
+    facade.visibleItems.set([card({ title: 'Signal Drift' })]);
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    const refreshButtons = Array.from(root.querySelectorAll('button')).filter((button) =>
+      button.textContent.trim() === 'Refresh',
+    );
+    expect(refreshButtons).toHaveLength(0);
+  });
+
   it('resets the visible limit when source filters change but not on refresh', () => {
     facade.status.set('ready');
     facade.tab.set('hermes');

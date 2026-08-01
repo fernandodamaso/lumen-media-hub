@@ -94,7 +94,7 @@ export class App {
   });
 
   constructor() {
-    // App owns polling for every shell-consumed facade: status pill, sidebar storage, right rail.
+    // App owns polling for every shell-consumed facade: shell alerts, sidebar storage, right rail.
     this.health.startPolling();
     this.calendar.startPolling();
     this.automation.startPolling();

@@ -12,7 +12,7 @@ export type ActivityStatus = 'loading' | 'ready' | 'empty' | 'error';
 
 const REFRESH_ERROR = 'Could not refresh activity. Showing last loaded activity.';
 const LOAD_ERROR = 'Recent activity is temporarily unavailable. Try again.';
-const ACTIVITY_LIMIT = 12;
+const ACTIVITY_LIMIT = 5;
 
 @Injectable()
 export class ActivityFacade {

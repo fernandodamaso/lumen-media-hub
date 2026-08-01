@@ -72,9 +72,14 @@ export class DashboardPage {
   readonly railSkeletons = [0, 1, 2, 3];
   readonly torrentSkeletons = [0, 1];
 
-  readonly continueWatching = computed(() => this.watchNext.items().slice(0, RAIL_LIMIT));
+  readonly continueWatching = computed(() =>
+    this.watchNext
+      .items()
+      .filter((item) => item.progressPercent > 0)
+      .slice(0, RAIL_LIMIT),
+  );
   readonly continueWatchingCount = computed(() => {
-    const total = this.watchNext.totalCount();
+    const total = this.watchNext.items().filter((item) => item.progressPercent > 0).length;
     return total === 1 ? '1 in progress' : `${total} in progress`;
   });
   readonly recentItems = computed(() => this.libraryItems.items().slice(0, RAIL_LIMIT));

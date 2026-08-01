@@ -18,8 +18,8 @@
         </button>
       }
     </div>
-    <div class="toolbar-actions">
-      @if (facade.tab() === 'hermes') {
+    @if (facade.tab() === 'hermes') {
+      <div class="toolbar-actions">
         <mm-button
           label="Request more"
           icon="plus"
@@ -28,9 +28,8 @@
           [busy]="facade.requestingMore()"
           (click)="requestMore()"
         />
-      }
-      <mm-button label="Refresh" icon="refresh" variant="quiet" (click)="refresh()" />
-    </div>
+      </div>
+    }
   </div>
 
   <div class="discover-controls__secondary">

@@ -85,6 +85,11 @@
   width: 100%;
 }
 
+.discover-card__badges ::ng-deep .mm-status--success {
+  --mm-status-border: color-mix(in srgb, var(--mm-component-success) 50%, transparent);
+  --mm-status-bg: color-mix(in srgb, var(--mm-component-success) 24%, transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .discover-card {
     transition: none;

@@ -1,7 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { MmButton, MmStateCard, MmStatus } from '@app/ui';
-import { cronStatusView, formatGeneratedAt, formatRunTimestamp } from './reports-format';
+import { cronStatusView, formatRunTimestamp } from './reports-format';
 import { ReportsFacade } from './reports.facade';
 
 @Component({
@@ -14,7 +14,6 @@ import { ReportsFacade } from './reports.facade';
 })
 export class ReportsPage {
   readonly facade = inject(ReportsFacade);
-  readonly formatGeneratedAt = formatGeneratedAt;
   readonly formatRunTimestamp = formatRunTimestamp;
   readonly statusView = cronStatusView;
 

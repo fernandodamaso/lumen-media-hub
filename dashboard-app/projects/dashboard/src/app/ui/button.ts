@@ -9,7 +9,7 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideRefreshC
     [type]="type()"
     [disabled]="disabled() || busy()"
     [attr.aria-busy]="busy() || null"
-    [class]="'mm-button mm-button--' + variant() + ' mm-button--' + size() + (solid() ? ' solid' : '')"
+    [class]="'mm-button mm-button--' + variant() + ' mm-button--' + size() + (solid() ? ' solid' : '') + (liftOnHover() ? '' : ' mm-button--flat-hover')"
   >
     @if (busy()) {
       <svg class="mm-button__spinner" lucideLoaderCircle [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
@@ -37,4 +37,6 @@ export class MmButton {
   readonly size = input<'sm' | 'md' | 'lg'>('md');
   readonly type = input<'button' | 'submit'>('button');
   readonly solid = input(false);
+  /** When false, hover keeps the button on the same baseline (matches icon controls). */
+  readonly liftOnHover = input(true);
 }

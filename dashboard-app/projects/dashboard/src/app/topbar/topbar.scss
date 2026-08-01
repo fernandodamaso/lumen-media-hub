@@ -56,6 +56,12 @@
   gap: 12px;
 }
 
+.rail-toggle {
+  @media (max-width: 1240px) {
+    display: none;
+  }
+}
+
 @media (max-width: 560px) {
   .search-pill__placeholder {
     display: none;

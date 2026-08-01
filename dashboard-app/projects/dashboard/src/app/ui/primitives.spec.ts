@@ -366,6 +366,18 @@ describe('app/ui primitives', () => {
     expect(button?.getAttribute('aria-pressed')).toBeNull();
   });
 
+  it('exposes optional expanded state and controlled target', () => {
+    const fixture = TestBed.createComponent(MmIconButton);
+    fixture.componentRef.setInput('label', 'Hide activity rail');
+    fixture.componentRef.setInput('expanded', true);
+    fixture.componentRef.setInput('ariaControls', 'activity-rail');
+    fixture.detectChanges();
+    const button = fixtureHost(fixture).querySelector('button');
+
+    expect(button?.getAttribute('aria-expanded')).toBe('true');
+    expect(button?.getAttribute('aria-controls')).toBe('activity-rail');
+  });
+
   it('lets the primary button receive keyboard focus', () => {
     const fixture = TestBed.createComponent(MmButton);
     fixture.componentRef.setInput('label', 'Focus me');

@@ -96,6 +96,32 @@ describe('App shell', () => {
     expect(fixture.componentInstance.commandPaletteOpen()).toBe(true);
   });
 
+  it('toggles the activity rail without removing it from the shell', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const root = fixtureHost(fixture);
+    const shell = root.querySelector('.shell') as HTMLElement;
+    const rail = root.querySelector('mm-right-rail');
+    const toggle = root.querySelector('[data-testid="topbar-toggle-rail"] button') as HTMLButtonElement;
+
+    expect(fixture.componentInstance.rightRailOpen()).toBe(true);
+    expect(shell.classList.contains('shell--rail-collapsed')).toBe(false);
+    expect(rail?.id).toBe('activity-rail');
+
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.rightRailOpen()).toBe(false);
+    expect(shell.classList.contains('shell--rail-collapsed')).toBe(true);
+    expect(root.querySelector('mm-right-rail')).toBe(rail);
+
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.rightRailOpen()).toBe(true);
+    expect(shell.classList.contains('shell--rail-collapsed')).toBe(false);
+  });
+
   it('shows the storage mini-card once a library volume is loaded', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();

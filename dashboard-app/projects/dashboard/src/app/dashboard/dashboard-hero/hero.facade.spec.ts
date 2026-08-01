@@ -103,7 +103,7 @@ describe('hero rules', () => {
 });
 
 describe('HeroFacade', () => {
-  it('derives the view from the first qualifying watch-next item and hides otherwise', () => {
+  it('derives the first qualifying watch-next item and hides otherwise', () => {
     const items = signal<WatchNextItem[]>([item({ backdropUrl: null })]);
     TestBed.configureTestingModule({
       providers: [
@@ -114,7 +114,19 @@ describe('HeroFacade', () => {
     const facade = TestBed.inject(HeroFacade);
     expect(facade.view()).toBeNull();
 
-    items.set([item({ id: 'winner' })]);
+    items.set([item({ id: 'winner' }), item({ id: 'second' })]);
     expect(facade.view()?.id).toBe('winner');
+  });
+
+  it('uses only the first eligible item for the static hero', () => {
+    const items = signal<WatchNextItem[]>([item({ id: 'first' }), item({ id: 'second' })]);
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: WatchNextFacade, useValue: { items } },
+        { provide: JELLYFIN_LINK_BASES, useValue: { jellyfinBase: 'http://jf' } },
+      ],
+    });
+
+    expect(TestBed.inject(HeroFacade).view()?.id).toBe('first');
   });
 });

@@ -63,11 +63,11 @@
 </section>
 
 <section class="rail-section" data-testid="trending-rail">
-  <mm-media-rail title="Trending Now" count="This week" linkTo="/discover" linkLabel="Charts">
+  <mm-media-rail title="Trending in Trakt" count="This week" linkTo="/discover" linkLabel="Charts">
     @switch (trending.status()) {
       @case ('loading') {
         @for (i of railSkeletons; track i) {
-          <div class="poster-card poster-card--skeleton" aria-hidden="true">
+          <div class="trending-poster--skeleton" aria-hidden="true">
             <mm-skeleton variant="rect" width="158px" height="237px" />
           </div>
         }
@@ -82,18 +82,17 @@
       }
       @default {
         @for (item of trending.items(); track item.id) {
-          <article class="poster-card">
-            <div class="poster-card__frame">
-              @if (item.posterUrl) {
-                <img [src]="item.posterUrl" [alt]="item.title" loading="lazy" decoding="async" />
-              } @else {
-                <div class="poster-card__art" [style.background]="trendingArt(item)" aria-hidden="true"></div>
-              }
-              <span class="poster-card__rank">{{ item.rank }}</span>
-            </div>
-            <div class="poster-card__name">{{ item.title }}</div>
-            <div class="poster-card__sub">{{ trendingSub(item) }}</div>
-          </article>
+          <mm-poster
+            class="trending-poster"
+            [title]="item.title"
+            [meta]="trendingSub(item)"
+            [rating]="item.rating"
+            [imageUrl]="item.posterUrl"
+            [art]="trendingArt(item)"
+            [tag]="item.rank.toString()"
+            [href]="item.href"
+            [linkLabel]="'Open ' + item.title + ' on Trakt'"
+          />
         }
       }
     }

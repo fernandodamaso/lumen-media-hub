@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
 import { LucidePlay } from '@lucide/angular';
-import { MmButton, MmDownloadItem, MmReveal, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
+import { MmButton, MmDownloadItem, MmPoster, MmReveal, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { AutomationFacade } from '../../automation/automation.facade';
 import { ServiceHealthFacade } from '../../automation/service-health.facade';
 import { CalendarFacade } from '../../calendar/calendar.facade';
@@ -41,6 +41,7 @@ const RAIL_LIMIT = 10;
   imports: [
     MmButton,
     MmDownloadItem,
+    MmPoster,
     MmReveal,
     MmSkeleton,
     MmStateCard,

@@ -1155,6 +1155,7 @@ def _map_trakt_result(raw, item_type):
         "title": title,
         "year": year,
         "tmdb_id": tmdb_id,
+        "trakt_slug": ids.get("slug"),
         "overview": overview,
         "poster_url": poster_url,
         "rating": rating,

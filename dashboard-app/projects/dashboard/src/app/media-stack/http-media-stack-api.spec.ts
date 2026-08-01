@@ -1020,6 +1020,20 @@ describe('HttpMediaStackApi', () => {
     await expect(more).resolves.toMatchObject({ ok: true, queued: true });
   });
 
+  it('preserves trakt_slug through live transport mapping', async () => {
+    const trakt = api.listTraktDiscover('shows');
+    http
+      .expectOne('/api/discover/trakt?type=shows')
+      .flush({
+        ok: true,
+        items: [{ type: 'tv', title: 'Severance', tmdb_id: 95396, trakt_slug: 'severance', poster_url: null, rating: null }],
+      });
+    const result = await trakt;
+    expect(result.ok).toBe(true);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].trakt_slug).toBe('severance');
+  });
+
   it('returns soft ok:false envelopes for discover actions and cron logs', async () => {
     const feedback = api.submitHermesFeedback('missing', 'liked');
     http.expectOne('/api/discover/hermes/missing').flush({ ok: false, error: 'Recommendation not found' });

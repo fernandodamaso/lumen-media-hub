@@ -176,7 +176,7 @@ See [dashboard-app/docs/architecture.md](dashboard-app/docs/architecture.md) for
 
 - **Unit / integration:** Vitest via `ng test` (facades, boards, pages, shell navigation, API boundary).
 - **Storybook:** Interactive review via `npm run storybook`. CI runs `build:storybook` then `test:storybook` (play functions + a11y).
-- **Browser acceptance:** Playwright verifies direct routes, fallback routing, titles, the Lumen palette, responsive shell navigation, and the 390px, 1440px, and 1600px layouts via `npm run test:smoke`. The broader checklist remains in [dashboard-app/docs/browser-acceptance.md](dashboard-app/docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
+- **Browser acceptance:** Playwright verifies direct routes, fallback routing, titles, the Lumen palette, responsive shell navigation, and the 390px, 1440px, and 1600px layouts via `npm run test:smoke`. Loading / empty / failure isolation that cannot be selected in Demo UI is covered by the named unit specs beside each feature.
 
 ## Non-goals
 

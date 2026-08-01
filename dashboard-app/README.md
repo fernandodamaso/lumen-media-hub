@@ -13,65 +13,15 @@ Open [http://localhost:4200/](http://localhost:4200/). Default startup uses in-p
 
 | Route | Surface |
 |-------|---------|
-| `/` | Nocturne ops dashboard: metrics, attention banner, active downloads, recent runs, upcoming calendar, service health, storage |
+| `/` | Lumen home: dashboard hero, stat strip, Continue Watching, Trending Now, Recently Added, downloads, and shell rails |
+| `/library` | Library poster grid with movie/series filtering |
 | `/reports` | Status-weighted automation / cron triage |
 | `/discover` | Hermes, Jellyseerr, and Trakt recommendations |
-| Storybook | Design-system showcase ΓÇö `npm run storybook` ΓåÆ [http://localhost:6006/](http://localhost:6006/) |
+| Storybook | Design-system showcase - `npm run storybook` -> [http://localhost:6006/](http://localhost:6006/) |
 
-## Production deployment (Docker)
+## Stack and Live development
 
-The production-live build is containerized with Nginx as reverse proxy. It must run on the same Docker network as the `homepage-actions` backend (typically `media_media-net`).
-
-```bash
-docker compose up -d --build dashboard
-```
-
-Compose uses [`Dockerfile`](Dockerfile) for the single production-live build.
-
-The image is deployed through Docker Compose alongside the backend services. For local verification with an existing Compose setup:
-
-```bash
-docker run --rm -p 3000:80 \
-  --network media_media-net \
-  -e ACTIONS_TOKEN=... \
-  media-dashboard-angular:local
-```
-
-Open [http://127.0.0.1:3000/](http://127.0.0.1:3000/).
-
-### Media stack cutover (`D:\media`)
-
-Production dashboard on the stack is the Compose-built local Angular image.
-
-| Phase | Command / check |
-|-------|-----------------|
-| Build and deploy | `docker compose up -d --build dashboard` from the repo root |
-| Staging (done) | Compose service `dashboard-angular-stage` on `127.0.0.1:3001` — removed after M4 |
-| Production | `dashboard` service uses the Compose-built `media-dashboard-angular:local` image on `:3000` |
-| Smoke against stack | `SMOKE_BASE_URL=http://127.0.0.1:3000 npm run test:smoke` (from this repo; does not start `ng serve`) |
-
-**Request flow:**
-
-```
-Browser → http://127.0.0.1:3000
-  → Angular Nginx
-    /        → Angular static files
-    /api/*   → homepage-actions:8085/* (with X-Actions-Token header)
-```
-
-- Nginx strips `/api` via trailing-slash `proxy_pass`.
-- `ACTIONS_TOKEN` is injected by Compose/Nginx from the container environment and never emitted into JavaScript, HTML, or source maps.
-- The browser never sees the token and never connects directly to backend services.
-
-## Live development (Docker hot reload)
-
-Official Live development uses the Compose override from the **repo root** so hot reload publishes on **`:3000`**. Requires the stack running, `ACTIONS_TOKEN` in `.env`, and Docker Compose **2.24.4+**:
-
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard
-```
-
-Open [http://127.0.0.1:3000/](http://127.0.0.1:3000/). The override container runs `npm run start:live` with [projects/dashboard/proxy.conf.js](projects/dashboard/proxy.conf.js) and Compose env (`ACTIONS_TOKEN`, `LIVE_API_PROXY_TARGET`). Keep those scripts for the container; do not treat host `npm run start:live` as a supported workflow.
+This README stays frontend-focused. Install, Compose, production deployment, Live development, proxying, and token-security details live in the [root README](../README.md).
 
 ## Scripts
 
@@ -117,38 +67,21 @@ All six checks run independently: one failure does not kill the others. Commit h
 
 ## Appearance
 
-Single dark theme — **Lumen** (gold/violet on near-black). Fonts (Fraunces, Inter, JetBrains Mono) are self-hosted via Fontsource; the old multi-theme picker and `media-ui-theme` persistence are removed.
+Single dark theme — **Lumen** (gold/violet on near-black). Fonts (Fraunces, Inter, and JetBrains Mono) are self-hosted via Fontsource. There is no user theme selection or persisted theme state.
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for the port ΓåÆ adapter ΓåÆ facade ΓåÆ page flow, Demo/Live modes, and operational link policy.
+See [docs/architecture.md](docs/architecture.md) for the port -> adapter -> facade -> page flow, Demo/Live modes, and operational link policy.
 
 ## Testing
 
 - **Unit / integration:** Vitest via `ng test` (facades, boards, pages, shell navigation, API boundary).
 - **Storybook:** Interactive review via `npm run storybook`. CI runs `build:storybook` then `test:storybook` (play functions + a11y).
-- **Browser acceptance:** Playwright verifies direct routes, fallback routing, titles, the Lumen palette, and shell navigation via `npm run test:smoke`. The broader manual desktop checklist remains in [docs/browser-acceptance.md](docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
-
-## Screenshots
-
-Representative Demo captures (local showcase):
-
-| Home | Discover |
-|------|----------|
-| ![Home dashboard](docs/screenshots/home.png) | ![Discover](docs/screenshots/discover.png) |
-
-| Reports | Tokyo Night |
-|---------|-------------|
-| ![Reports](docs/screenshots/reports.png) | ![Tokyo Night theme](docs/screenshots/theme-tokyo-night.png) |
-
-![Storybook gallery](docs/screenshots/storybook.png)
-
-The Home dashboard was rebuilt to the Nocturne ops-console spec (fixed 285px sidebar, 12-column grid, metric cards, service health, storage overview). Screenshots are regenerated after each major visual pass; see [docs/screenshots/README.md](docs/screenshots/README.md).
+- **Browser acceptance:** Playwright verifies direct routes, fallback routing, titles, the Lumen palette, responsive shell navigation, and the 390px, 1440px, and 1600px layouts via `npm run test:smoke`. The broader checklist remains in [docs/browser-acceptance.md](docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
 
 ## Non-goals
 
 - Published to npm/hosting (private self-hosted Docker deployment)
-- Light themes or responsive certification
 - Backend rewrite or secrets in this repo
 
 ## Verification

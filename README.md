@@ -59,7 +59,8 @@ Open [http://localhost:4200/](http://localhost:4200/). Default startup uses in-p
 
 | Route | Surface |
 |-------|---------|
-| `/` | Nocturne ops dashboard: metrics, attention banner, active downloads, recent runs, upcoming calendar, service health, storage |
+| `/` | Lumen home: dashboard hero, stat strip, Continue Watching, Trending Now, Recently Added, downloads, and shell rails |
+| `/library` | Library poster grid with movie/series filtering |
 | `/reports` | Status-weighted automation / cron triage |
 | `/discover` | Hermes, Jellyseerr, and Trakt recommendations |
 | Storybook | Design-system showcase — `npm run storybook` → [http://localhost:6006/](http://localhost:6006/) |
@@ -163,15 +164,9 @@ The override container still runs `npm run start:live` internally (with `proxy.c
 
 All six checks run independently: one failure does not kill the others. Commit hook and CI both enforce `npm run quality`. Tests and build run after quality in CI.
 
-## Themes
+## Appearance
 
-Dark themes only (light themes are out of scope):
-
-- **Nocturne** (default)
-- **Tokyo Night**
-- **GitHub Dark Pro**
-
-Switch from the top-bar theme picker; preference persists in `localStorage` (`media-ui-theme`).
+The application uses one dark theme: **Lumen**, with gold and violet accents on a near-black surface. Fonts (Fraunces, Inter, and JetBrains Mono) are self-hosted via Fontsource. There is no user theme selection or persisted theme state.
 
 ## Architecture
 
@@ -181,28 +176,11 @@ See [dashboard-app/docs/architecture.md](dashboard-app/docs/architecture.md) for
 
 - **Unit / integration:** Vitest via `ng test` (facades, boards, pages, shell navigation, API boundary).
 - **Storybook:** Interactive review via `npm run storybook`. CI runs `build:storybook` then `test:storybook` (play functions + a11y).
-- **Browser acceptance:** Playwright verifies direct routes, fallback routing, titles, theme persistence, and shell navigation via `npm run test:smoke`. The broader manual desktop checklist remains in [dashboard-app/docs/browser-acceptance.md](dashboard-app/docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
-
-## Screenshots
-
-Representative Demo captures (local showcase):
-
-| Home | Discover |
-|------|----------|
-| ![Home dashboard](dashboard-app/docs/screenshots/home.png) | ![Discover](dashboard-app/docs/screenshots/discover.png) |
-
-| Reports | Tokyo Night |
-|---------|-------------|
-| ![Reports](dashboard-app/docs/screenshots/reports.png) | ![Tokyo Night theme](dashboard-app/docs/screenshots/theme-tokyo-night.png) |
-
-![Storybook gallery](dashboard-app/docs/screenshots/storybook.png)
-
-The Home dashboard was rebuilt to the Nocturne ops-console spec (fixed 285px sidebar, 12-column grid, metric cards, service health, storage overview). Screenshots are regenerated after each major visual pass; see [dashboard-app/docs/screenshots/README.md](dashboard-app/docs/screenshots/README.md).
+- **Browser acceptance:** Playwright verifies direct routes, fallback routing, titles, the Lumen palette, responsive shell navigation, and the 390px, 1440px, and 1600px layouts via `npm run test:smoke`. The broader checklist remains in [dashboard-app/docs/browser-acceptance.md](dashboard-app/docs/browser-acceptance.md). Loading / empty / failure isolation that cannot be selected in Demo UI is covered by named unit specs listed there.
 
 ## Non-goals
 
 - Published to npm/hosting (private self-hosted Docker deployment)
-- Light themes or responsive certification
 - Backend rewrite or secrets in this repo
 
 ## Verification

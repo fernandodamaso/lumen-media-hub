@@ -102,6 +102,8 @@ test('right rail toggle exposes its target and follows responsive motion rules',
 
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(await rail.evaluate((element) => getComputedStyle(element).transitionProperty)).toContain('visibility');
+  expect(await rail.evaluate((element) => getComputedStyle(element).transitionDelay)).toContain('0.2s');
   await expect.poll(async () => rail.evaluate((element) => getComputedStyle(element).visibility)).toBe('hidden');
 
   await page.emulateMedia({ reducedMotion: 'reduce' });

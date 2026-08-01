@@ -46,7 +46,7 @@ describe('Topbar', () => {
 
     let button = fixtureHost(fixture).querySelector('[data-testid="topbar-toggle-rail"] button') as HTMLButtonElement;
     expect(button.getAttribute('aria-label')).toBe('Hide activity rail');
-    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(button.getAttribute('aria-pressed')).toBeNull();
     expect(button.getAttribute('aria-expanded')).toBe('true');
     expect(button.getAttribute('aria-controls')).toBe('activity-rail');
 
@@ -57,15 +57,6 @@ describe('Topbar', () => {
     fixture.detectChanges();
     button = fixtureHost(fixture).querySelector('[data-testid="topbar-toggle-rail"] button') as HTMLButtonElement;
     expect(button.getAttribute('aria-label')).toBe('Show activity rail');
-    expect(button.getAttribute('aria-pressed')).toBe('false');
     expect(button.getAttribute('aria-expanded')).toBe('false');
-  });
-
-  it('omits the rail toggle when it is not visible', () => {
-    const fixture = TestBed.createComponent(Topbar);
-    fixture.componentRef.setInput('railToggleVisible', false);
-    fixture.detectChanges();
-
-    expect(fixtureHost(fixture).querySelector('[data-testid="topbar-toggle-rail"]')).toBeNull();
   });
 });

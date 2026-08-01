@@ -55,7 +55,7 @@ mm-right-rail {
   transition:
     opacity var(--mm-transition-normal),
     transform var(--mm-transition-normal),
-    visibility 0s linear var(--mm-transition-normal);
+    visibility 0s linear 0.2s;
 }
 
 .sidebar {

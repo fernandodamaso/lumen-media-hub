@@ -14,20 +14,16 @@ import { MmButton, MmIconButton } from '@app/ui';
         <kbd>{{ shortcutLabel() }}</kbd>
       </button>
       <div class="topbar__actions">
-        @if (railToggleVisible()) {
-          <mm-icon-button
-            class="rail-toggle"
-            data-testid="topbar-toggle-rail"
-            [label]="railOpen() ? 'Hide activity rail' : 'Show activity rail'"
-            [toggle]="true"
-            [pressed]="railOpen()"
-            [expanded]="railOpen()"
-            [ariaControls]="'activity-rail'"
-            (click)="railToggle.emit()"
-          >
-            <svg lucidePanelRight [size]="16" aria-hidden="true"></svg>
-          </mm-icon-button>
-        }
+        <mm-icon-button
+          class="rail-toggle"
+          data-testid="topbar-toggle-rail"
+          [label]="railOpen() ? 'Hide activity rail' : 'Show activity rail'"
+          [expanded]="railOpen()"
+          [ariaControls]="'activity-rail'"
+          (click)="railToggle.emit()"
+        >
+          <svg lucidePanelRight [size]="16" aria-hidden="true"></svg>
+        </mm-icon-button>
         <mm-button
           data-testid="topbar-add-media"
           label="Add media"
@@ -43,7 +39,6 @@ import { MmButton, MmIconButton } from '@app/ui';
 export class Topbar {
   readonly shortcutLabel = input('Ctrl+K');
   readonly railOpen = input(true);
-  readonly railToggleVisible = input(true);
   readonly searchOpen = output();
   readonly addMedia = output();
   readonly railToggle = output();

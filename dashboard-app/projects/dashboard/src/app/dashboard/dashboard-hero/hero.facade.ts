@@ -93,11 +93,9 @@ export class HeroFacade {
   private readonly watchNext = inject(WatchNextFacade);
   private readonly jellyfinBases = inject(JELLYFIN_LINK_BASES);
 
-  readonly featured = computed(() => selectHeroCandidate(this.watchNext.items()));
-
   /** Null when no candidate qualifies — the hero hides gracefully. */
   readonly view = computed<HeroView | null>(() => {
-    const candidate = this.featured();
+    const candidate = selectHeroCandidate(this.watchNext.items());
     return candidate ? buildHeroView(candidate, this.jellyfinBases) : null;
   });
 }

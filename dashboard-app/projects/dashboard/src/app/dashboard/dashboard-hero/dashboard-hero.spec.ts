@@ -62,6 +62,7 @@ describe('DashboardHero', () => {
 
     expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('52');
     expect(root.querySelector('.hero__prog')?.textContent).toContain('1h 21m remaining');
+    expect(root.querySelector('.hero-dots')).toBeNull();
   });
 
   it('hides the progress row when nothing has been watched', () => {
@@ -69,5 +70,18 @@ describe('DashboardHero', () => {
     const fixture = TestBed.createComponent(DashboardHero);
     fixture.detectChanges();
     expect(fixtureHost(fixture).querySelector('.hero__prog')).toBeNull();
+  });
+
+  it('renders one static hero from the facade view', () => {
+    view.set(heroView);
+    const fixture = TestBed.createComponent(DashboardHero);
+    fixture.detectChanges();
+    const root = fixtureHost(fixture);
+
+    expect(root.querySelectorAll('.hero')).toHaveLength(1);
+    expect(root.querySelectorAll('.hero__bg')).toHaveLength(1);
+    expect(root.querySelector('.hero__slide')).toBeNull();
+    expect(root.querySelector('.hero-dots')).toBeNull();
+    expect(root.querySelector('[role="tab"]')).toBeNull();
   });
 });

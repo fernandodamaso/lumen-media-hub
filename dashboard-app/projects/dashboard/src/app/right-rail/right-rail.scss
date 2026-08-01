@@ -1,12 +1,9 @@
 :host {
-  position: sticky;
-  top: 0;
   display: flex;
   flex-direction: column;
   gap: 26px;
-  height: 100dvh;
+  min-width: 0;
   padding: 22px 18px;
-  overflow-y: auto;
   border-left: 1px solid var(--mm-component-divider);
   background: color-mix(in srgb, var(--mm-semantic-surface-page) 50%, transparent);
   backdrop-filter: blur(12px);
@@ -67,6 +64,7 @@
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  min-width: 0;
   padding: 9px 0;
   border-bottom: 1px solid var(--mm-component-divider);
 }
@@ -100,6 +98,9 @@
   font-weight: 500;
   line-height: 1.4;
   text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 a.act-txt:hover {
   color: var(--mm-semantic-accent);
@@ -108,6 +109,9 @@ a.act-txt:hover {
   font-size: 10.5px;
   color: var(--mm-component-text-muted);
   margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .act-time {
   margin-left: auto;

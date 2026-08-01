@@ -21,9 +21,18 @@
 .shell {
   display: grid;
   grid-template-columns: 228px minmax(0, 1fr) 296px;
+  width: 100%;
+  max-width: 100%;
   min-height: 100dvh;
+  overflow-x: clip;
   background: var(--mm-semantic-surface-page);
   color: var(--mm-semantic-text-primary);
+}
+
+/* Right rail is a normal grid column (matches compact.html) — not its own scrollport. */
+mm-right-rail {
+  min-width: 0;
+  max-width: 296px;
 }
 
 .sidebar {
@@ -32,9 +41,10 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  min-width: 0;
   height: 100dvh;
   padding: 22px 16px;
-  overflow-y: auto;
+  overflow: hidden auto;
   border-right: 1px solid var(--mm-component-divider);
   background: color-mix(in srgb, var(--mm-semantic-surface-page) 50%, transparent);
   backdrop-filter: blur(12px);
@@ -44,6 +54,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
   padding: 0 10px;
 }
 .sidebar__nav {
@@ -96,15 +107,16 @@
 .brand {
   display: inline-flex;
   align-items: center;
+  min-width: 0;
   min-height: 40px;
   gap: 11px;
   color: inherit;
-  white-space: nowrap;
   text-decoration: none;
 }
 .brand-mark {
   display: grid;
   place-items: center;
+  flex: none;
   width: 32px;
   height: 32px;
   border-radius: 10px;
@@ -119,12 +131,16 @@
   box-shadow: 0 4px 16px color-mix(in srgb, var(--mm-semantic-accent) 30%, transparent);
 }
 .brand__text {
+  overflow: hidden;
   font-family: var(--mm-font-display, 'Fraunces', Georgia, serif);
   font-size: 18px;
   font-weight: 500;
   letter-spacing: 0.05em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .demo-badge {
+  flex: none;
   border: 1px solid color-mix(in srgb, var(--mm-component-accent) 30%, transparent);
   border-radius: 6px;
   padding: 3px 7px;
@@ -236,9 +252,10 @@
 .content {
   min-width: 0;
   width: 100%;
-  max-width: 1560px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
   padding: 20px 26px 60px;
+  overflow-x: clip;
 }
 
 @media (max-width: 1240px) {
@@ -255,7 +272,7 @@
     height: auto;
     gap: 8px;
     padding: 8px 24px;
-    overflow: auto;
+    overflow: auto hidden;
     border-right: 0;
     border-bottom: 1px solid var(--mm-component-border);
   }

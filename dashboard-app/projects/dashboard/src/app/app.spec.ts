@@ -58,7 +58,7 @@ describe('App shell', () => {
     const root = fixtureHost(fixture);
 
     expect(root.querySelector('.brand')?.textContent).toContain('Media Manager');
-    expect(root.querySelector('.demo-badge')).toBeNull();
+    expect(root.querySelector('.demo-badge')?.textContent).toContain('Demo');
     expect(root.querySelectorAll('.sidebar__nav a')).toHaveLength(4);
     expect(root.querySelector('[data-testid="search-trigger"]')).toBeNull();
     expect(root.querySelector('[data-testid="topbar-search"]')).toBeTruthy();
@@ -67,9 +67,10 @@ describe('App shell', () => {
     expect(root.querySelector('router-outlet')).toBeTruthy();
   });
 
-  it('does not render the retired status pill or manage-storage link', async () => {
+  it('shows a status pill when services need attention', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelector('[data-testid="status-pill"]')).toBeNull();
 
     const health = TestBed.inject(ServiceHealthFacade);
     await health.refresh({ initial: true });
@@ -77,7 +78,9 @@ describe('App shell', () => {
     await storage.refresh({ initial: true });
     fixture.detectChanges();
 
-    expect(fixtureHost(fixture).querySelector('[data-testid="status-pill"]')).toBeNull();
+    const pill = fixtureHost(fixture).querySelector('[data-testid="status-pill"]');
+    expect(pill).toBeTruthy();
+    expect(pill?.textContent).toMatch(/need attention/);
     expect(fixtureHost(fixture).querySelector('.mini-card__manage')).toBeNull();
   });
 

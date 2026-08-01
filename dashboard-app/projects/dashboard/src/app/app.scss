@@ -27,12 +27,35 @@
   overflow-x: clip;
   background: var(--mm-semantic-surface-page);
   color: var(--mm-semantic-text-primary);
+  transition: grid-template-columns var(--mm-transition-normal);
 }
 
 /* Right rail is a normal grid column (matches compact.html) — not its own scrollport. */
 mm-right-rail {
   min-width: 0;
   max-width: 296px;
+  opacity: 1;
+  transform: translateX(0);
+  visibility: visible;
+  transition:
+    opacity var(--mm-transition-normal),
+    transform var(--mm-transition-normal),
+    visibility 0s linear;
+}
+
+.shell--rail-collapsed {
+  grid-template-columns: 228px minmax(0, 1fr) 0;
+}
+
+.shell--rail-collapsed mm-right-rail {
+  opacity: 0;
+  transform: translateX(12px);
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--mm-transition-normal),
+    transform var(--mm-transition-normal),
+    visibility 0s linear var(--mm-transition-normal);
 }
 
 .sidebar {
@@ -296,6 +319,14 @@ mm-right-rail {
   .demo-badge { display: none; }
   .sidebar { padding-inline: 16px; }
   .content { padding: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell,
+  mm-right-rail,
+  .shell--rail-collapsed mm-right-rail {
+    transition: none;
+  }
 }
 
 @media (pointer: coarse) {

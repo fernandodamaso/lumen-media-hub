@@ -1,5 +1,5 @@
 <a class="skip-link" href="#main-content">Skip to main content</a>
-<div class="shell">
+<div class="shell" [class.shell--rail-collapsed]="!rightRailOpen()">
   <nav class="sidebar" aria-label="Primary navigation">
     <div class="sidebar__header">
       <a class="brand" routerLink="/" aria-label="Media Manager home">
@@ -58,13 +58,15 @@
   <main id="main-content" class="content">
     <mm-topbar
       [shortcutLabel]="shortcutLabel"
+      [railOpen]="rightRailOpen()"
       (searchOpen)="openCommandPalette()"
       (addMedia)="onAddMedia()"
+      (railToggle)="toggleRightRail()"
     />
     <router-outlet />
   </main>
 
-  <mm-right-rail />
+  <mm-right-rail id="activity-rail" />
 </div>
 
 <mm-command-palette [open]="commandPaletteOpen()" (openChange)="commandPaletteOpen.set($event)" />

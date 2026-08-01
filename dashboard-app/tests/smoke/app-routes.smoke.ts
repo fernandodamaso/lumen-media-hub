@@ -86,3 +86,29 @@ test('dashboard layout stays within the viewport at mobile and desktop widths', 
   await expectNoHorizontalOverflow(page);
   await expectAutomationReadable(page);
 });
+
+test('right rail toggle exposes its target and follows responsive motion rules', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+
+  const toggle = page.locator('[data-testid="topbar-toggle-rail"] button');
+  const rail = page.locator('#activity-rail');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggle).toHaveAttribute('aria-controls', 'activity-rail');
+  await expect(rail).toBeVisible();
+  expect(await page.locator('.shell').evaluate((element) => getComputedStyle(element).transitionProperty)).toContain(
+    'grid-template-columns',
+  );
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect.poll(async () => rail.evaluate((element) => getComputedStyle(element).visibility)).toBe('hidden');
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.reload();
+  expect(await page.locator('.shell').evaluate((element) => getComputedStyle(element).transitionDuration)).toBe('0s');
+
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await expect(toggle).toBeHidden();
+  await expect(rail).toBeHidden();
+});

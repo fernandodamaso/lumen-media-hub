@@ -51,6 +51,7 @@ export class App {
   readonly shortcutLabel = navigator.platform.toLowerCase().includes('mac') ? '⌘K' : 'Ctrl+K';
   readonly libraryCount = computed(() => this.libraryItems.totalCount());
   readonly commandPaletteOpen = signal(false);
+  readonly rightRailOpen = signal(true);
 
   readonly hasAttention = computed(
     () =>
@@ -108,6 +109,10 @@ export class App {
     queueMicrotask(() => {
       this.commandPaletteOpen.set(true);
     });
+  }
+
+  toggleRightRail(): void {
+    this.rightRailOpen.update((open) => !open);
   }
 
   onAddMedia(): void {

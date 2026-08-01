@@ -125,6 +125,11 @@ describe('ReportsPage', () => {
     facade.runs.set([makeRun({ id: 'quiet-1', jobTitle: 'Weekly validate', status: 'ok', triage: 'quiet' })]);
     fixture.detectChanges();
 
+    const root = fixtureHost(fixture);
+    expect(root.textContent).not.toContain('Generated');
+    expect(root.querySelector('.toolbar')).toBeNull();
+    expect(root.querySelector('.page-intro__row mm-button')).toBeTruthy();
+
     findButton('Refresh').click();
     await fixture.whenStable();
     expect(facade.refresh).toHaveBeenCalled();

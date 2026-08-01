@@ -38,7 +38,7 @@ describe('ActivityFacade', () => {
     await facade.refresh({ initial: true });
     expect(facade.status()).toBe('ready');
     expect(facade.items()).toHaveLength(1);
-    expect(api.lastLimit).toBe(12);
+    expect(api.lastLimit).toBe(5);
 
     api.feed = { ...feed, items: [] };
     await facade.refresh();

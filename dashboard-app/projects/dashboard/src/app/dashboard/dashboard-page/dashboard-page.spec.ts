@@ -238,6 +238,34 @@ describe('DashboardPage composition', () => {
     expect(bar.style.width).toBe('64%');
   });
 
+  it('hides continue-watching titles with 0% progress', () => {
+    watchNext.status.set('ready');
+    watchNext.items.set([
+      watchNextItem({ id: 'unstarted', title: 'Unstarted', progressPercent: 0 }),
+      watchNextItem({ id: 'started', title: 'Started', progressPercent: 12 }),
+    ]);
+    watchNext.totalCount.set(2);
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    const cards = root.querySelectorAll('[data-testid="cw-rail"] .cw-card');
+    expect(cards).toHaveLength(1);
+    expect(cards[0].textContent).toContain('Started');
+    expect(cards[0].textContent).not.toContain('Unstarted');
+    expect(root.querySelector('[data-testid="cw-rail"] .count')?.textContent).toBe('1 in progress');
+  });
+
+  it('shows empty continue-watching when every title is at 0% progress', () => {
+    watchNext.status.set('ready');
+    watchNext.items.set([watchNextItem({ progressPercent: 0 })]);
+    watchNext.totalCount.set(1);
+    fixture.detectChanges();
+
+    expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] mm-state-card')?.textContent).toContain(
+      'Nothing in progress',
+    );
+  });
+
   it('keeps Demo gradients as gradients instead of treating them as image URLs', () => {
     watchNext.items.set([watchNextItem({ thumbUrl: 'linear-gradient(90deg, #123, #456)' })]);
     fixture.detectChanges();

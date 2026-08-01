@@ -18,7 +18,6 @@ import { StorageFacade } from './storage/storage.facade';
 import { formatStorageBytes } from './storage/storage-format';
 import { Topbar } from './topbar/topbar';
 import { MmToastHost } from './ui/toast';
-import { environment } from '../environments/environment';
 
 @Component({
   selector: 'app-root',
@@ -47,31 +46,9 @@ export class App {
   private readonly activity = inject(ActivityFacade);
   readonly storage = inject(StorageFacade);
   private readonly libraryItems = inject(LibraryItemsFacade);
-  readonly modeLabel = environment.modeLabel;
   readonly shortcutLabel = navigator.platform.toLowerCase().includes('mac') ? '⌘K' : 'Ctrl+K';
   readonly libraryCount = computed(() => this.libraryItems.totalCount());
   readonly commandPaletteOpen = signal(false);
-
-  readonly hasAttention = computed(
-    () =>
-      this.health.problems().length > 0 ||
-      this.health.health().overall === 'down' ||
-      this.health.health().overall === 'degraded',
-  );
-
-  readonly attentionLabel = computed(() => {
-    const attentionServiceIds = new Set(
-      this.health
-        .services()
-        .filter((service) => service.status === 'down' || service.status === 'degraded')
-        .map((service) => service.id),
-    );
-    for (const problem of this.health.problems()) {
-      if (problem.serviceId) attentionServiceIds.add(problem.serviceId);
-    }
-    const count = attentionServiceIds.size;
-    return `${count} service${count === 1 ? '' : 's'} need attention`;
-  });
 
   readonly libraryVolume = computed(
     () => this.storage.volumes().find((volume) => volume.kind === 'library') ?? null,
@@ -94,7 +71,7 @@ export class App {
   });
 
   constructor() {
-    // App owns polling for every shell-consumed facade: status pill, sidebar storage, right rail.
+    // App owns polling for every shell-consumed facade: sidebar storage, right rail.
     this.health.startPolling();
     this.calendar.startPolling();
     this.automation.startPolling();

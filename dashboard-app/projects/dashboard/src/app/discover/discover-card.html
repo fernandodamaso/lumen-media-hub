@@ -66,6 +66,7 @@
         <mm-button
           [label]="requestAction().label"
           variant="quiet"
+          [liftOnHover]="false"
           [disabled]="requestAction().disabled || busy()"
           [busy]="busy()"
           (click)="onRequest()"

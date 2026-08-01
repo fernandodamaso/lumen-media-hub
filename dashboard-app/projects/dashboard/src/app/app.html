@@ -6,7 +6,6 @@
         <span class="brand-mark" aria-hidden="true">M</span>
         <span class="brand__text">Media Manager</span>
       </a>
-      <span class="demo-badge" [attr.aria-label]="modeLabel + ' mode'">{{ modeLabel }}</span>
     </div>
 
     <div class="sidebar__nav">
@@ -39,19 +38,7 @@
           <div class="mini-card__progress" aria-hidden="true">
             <i [style.width.%]="storagePercent()"></i>
           </div>
-          <a class="mini-card__manage" routerLink="/reports">Manage storage</a>
         </div>
-      }
-      @if (hasAttention()) {
-        <a
-          class="status-pill"
-          routerLink="/"
-          data-testid="status-pill"
-          [attr.aria-label]="attentionLabel()"
-        >
-          <span class="status-pill__dot" aria-hidden="true"></span>
-          <span>{{ attentionLabel() }}</span>
-        </a>
       }
     </div>
   </nav>

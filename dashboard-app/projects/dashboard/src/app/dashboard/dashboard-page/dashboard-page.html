@@ -30,28 +30,32 @@
         <mm-state-card kind="empty" title="Nothing in progress" message="Start something in Jellyfin and it will show up here." />
       }
       @default {
-        @for (item of continueWatching(); track item.id) {
-          @let href = mediaHref(item);
-          <a
-            class="cw-card"
-            [attr.href]="href"
-            [attr.target]="href ? '_blank' : null"
-            rel="noreferrer"
-            [attr.aria-label]="'Continue ' + item.title"
-          >
-            <div class="cw-card__art" [style.background]="cardArt(item)"></div>
-            <div class="cw-shade" aria-hidden="true"></div>
-            <span class="cw-play" aria-hidden="true">
-              <svg lucidePlay [size]="15"></svg>
-            </span>
-            <div class="cw-info">
-              <div class="cw-name">{{ item.title }}</div>
-              @if (item.subtitle) {
-                <div class="cw-sub">{{ item.subtitle }}</div>
-              }
-              <div class="cw-bar" aria-hidden="true"><i [style.width.%]="item.progressPercent"></i></div>
-            </div>
-          </a>
+        @if (continueWatching().length === 0) {
+          <mm-state-card kind="empty" title="Nothing in progress" message="Start something in Jellyfin and it will show up here." />
+        } @else {
+          @for (item of continueWatching(); track item.id) {
+            @let href = mediaHref(item);
+            <a
+              class="cw-card"
+              [attr.href]="href"
+              [attr.target]="href ? '_blank' : null"
+              rel="noreferrer"
+              [attr.aria-label]="'Continue ' + item.title"
+            >
+              <div class="cw-card__art" [style.background]="cardArt(item)"></div>
+              <div class="cw-shade" aria-hidden="true"></div>
+              <span class="cw-play" aria-hidden="true">
+                <svg lucidePlay [size]="15"></svg>
+              </span>
+              <div class="cw-info">
+                <div class="cw-name">{{ item.title }}</div>
+                @if (item.subtitle) {
+                  <div class="cw-sub">{{ item.subtitle }}</div>
+                }
+                <div class="cw-bar" aria-hidden="true"><i [style.width.%]="item.progressPercent"></i></div>
+              </div>
+            </a>
+          }
         }
       }
     }

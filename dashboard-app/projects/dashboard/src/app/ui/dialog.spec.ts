@@ -134,4 +134,40 @@ describe('MmDialog', () => {
     await headerlessFixture.whenStable();
     expect(document.activeElement).toBe(trigger);
   });
+
+  it('wraps Tab from the last focusable element to the first', () => {
+    const root = fixtureHost(fixture);
+    root.querySelector<HTMLButtonElement>('[data-testid="open"]')?.click();
+    const dialog = root.querySelector<HTMLDialogElement>('dialog');
+    if (!dialog) throw new Error('dialog missing');
+    const focusables = dialog.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    );
+    if (focusables.length < 2) throw new Error('expected at least two focusable elements');
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    last.focus();
+    const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    dialog.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(first);
+  });
+
+  it('wraps Shift+Tab from the first focusable element to the last', () => {
+    const root = fixtureHost(fixture);
+    root.querySelector<HTMLButtonElement>('[data-testid="open"]')?.click();
+    const dialog = root.querySelector<HTMLDialogElement>('dialog');
+    if (!dialog) throw new Error('dialog missing');
+    const focusables = dialog.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    );
+    if (focusables.length < 2) throw new Error('expected at least two focusable elements');
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    first.focus();
+    const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+    dialog.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(last);
+  });
 });

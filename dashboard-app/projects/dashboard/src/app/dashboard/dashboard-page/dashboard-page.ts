@@ -28,7 +28,7 @@ import { ActivityFacade } from '../../right-rail/activity.facade';
 import { StorageFacade } from '../../storage/storage.facade';
 import { refreshDashboardData } from '../dashboard-refresh';
 import { DashboardHero } from '../dashboard-hero/dashboard-hero';
-import { MmDownloadItem } from '../../downloads/download-item';
+import { MmDownloadItem } from '../../downloads/download-item/download-item';
 import { MediaRail } from '../media-rail/media-rail';
 import { LandscapeMediaCard } from '../landscape-media-card/landscape-media-card';
 import { StatStrip } from '../stat-strip/stat-strip';

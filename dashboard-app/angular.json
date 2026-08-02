@@ -126,6 +126,7 @@
           "builder": "@angular/build:unit-test",
           "options": {
             "tsConfig": "projects/dashboard/tsconfig.spec.json",
+            "setupFiles": ["projects/dashboard/test-setup.ts"],
             "exclude": ["**/.worktrees/**", "../../.worktrees/**"]
           }
         },

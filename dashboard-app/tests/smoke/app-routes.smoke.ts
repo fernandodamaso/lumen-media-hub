@@ -48,6 +48,49 @@ test('sidebar navigation links are present', async ({ page }) => {
   await expect(workspaceNav).toContainText('Discover');
 });
 
+test('discover segmented filters preserve dataset behavior without overflow', async ({ page }) => {
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/discover');
+    await expect(page.getByRole('main')).toContainText('Discover');
+    await expect(page.getByRole('radiogroup', { name: 'Discover sources' })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    const trakt = page.getByRole('radio', { name: 'Trakt', exact: true });
+    await trakt.click();
+    await expect(trakt).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText('Trakt Horizon', { exact: true })).toBeVisible();
+    await expect(page.locator('.discover-count')).toHaveText('2 titles');
+    await expectNoHorizontalOverflow(page);
+
+    const shows = page.getByRole('radio', { name: 'Shows', exact: true });
+    await shows.click();
+    await expect(shows).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText('Trakt Relay', { exact: true })).toBeVisible();
+    await expect(page.getByText('Trakt Horizon', { exact: true })).toBeHidden();
+    await expect(page.locator('.discover-count')).toHaveText('2 titles');
+  }
+});
+
+test('library segmented filters preserve counts and dataset without overflow', async ({ page }) => {
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/library');
+    await expect(page.getByRole('main')).toContainText('Library');
+    await expect(page.locator('.pagehead__sub')).toContainText('8 titles');
+    await expectNoHorizontalOverflow(page);
+
+    const movies = page.getByRole('radio', { name: 'Movies', exact: true });
+    await movies.click();
+    await expect(movies).toHaveAttribute('aria-checked', 'true');
+    const grid = page.locator('mm-library-poster-grid');
+    await expect(grid.locator('mm-poster')).toHaveCount(4);
+    await expect(grid.getByText('Dune', { exact: true }).first()).toBeVisible();
+    await expect(grid.getByText('Cowboy Bebop', { exact: true })).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+  }
+});
+
 test('command palette traps focus and restores it to the search trigger', async ({ page }) => {
   await page.goto('/');
   const trigger = page.getByTestId('topbar-search');
@@ -58,14 +101,16 @@ test('command palette traps focus and restores it to the search trigger', async 
   const search = page.getByRole('searchbox', { name: 'Search commands' });
   await expect(search).toBeFocused();
 
-  for (let index = 0; index < 3; index += 1) {
-    await page.keyboard.press('Tab');
-    expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
-  }
-  for (let index = 0; index < 3; index += 1) {
-    await page.keyboard.press('Shift+Tab');
-    expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
-  }
+  const focusables = dialog.locator('input, button, [href], select, textarea, [tabindex]:not([tabindex="-1"])');
+  const firstFocusable = focusables.first();
+  const lastFocusable = focusables.last();
+  await expect(focusables).toHaveCount(10);
+  await lastFocusable.focus();
+  await page.keyboard.press('Tab');
+  await expect(firstFocusable).toBeFocused();
+  await firstFocusable.focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(lastFocusable).toBeFocused();
 
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
@@ -94,21 +139,41 @@ async function expectAutomationReadable(page: import('@playwright/test').Page): 
 }
 
 test('dashboard layout stays within the viewport at mobile and desktop widths', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
+  for (const [width, height] of [[390, 844], [1440, 900], [1600, 900]]) {
+    await page.setViewportSize({ width, height });
+    await page.goto('/');
 
-  await expectNoHorizontalOverflow(page);
-  await expect(page.getByRole('button', { name: 'Add media' })).toBeVisible();
-  await expect(page.locator('.dl-stats')).toBeVisible();
-  expect(await page.locator('.dl-stats').evaluate((element) => element.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
+    await expect(page.getByRole('main')).toContainText('Dashboard');
+    await expectNoHorizontalOverflow(page);
+    await expect(page.getByRole('button', { name: 'Add media' })).toBeVisible();
+    await expect(page.getByTestId('hero-play')).toHaveAttribute('target', '_blank');
+    await expect(page.getByTestId('hero-play')).toHaveAttribute('href', /.+/);
+    await expect(page.getByTestId('hero-details')).toHaveAttribute('href', /\/library$/);
 
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await expectNoHorizontalOverflow(page);
-  await expectAutomationReadable(page);
+    if (width >= 1440) {
+      const storage = page.locator('[data-testid="storage-mini-card"] [role="progressbar"]');
+      await expect(storage).toHaveAttribute('aria-label', 'Storage 67% used');
+      await expect(storage).toHaveAttribute('aria-valuenow', '67');
+    }
 
-  await page.setViewportSize({ width: 1600, height: 900 });
-  await expectNoHorizontalOverflow(page);
-  await expectAutomationReadable(page);
+    const continueCard = page.locator('[data-testid="cw-rail"] .cw-card').first();
+    await expect(continueCard).toBeVisible();
+    await expect(continueCard).toHaveAttribute('href', /.+/);
+    await expect(continueCard).toContainText('The Expanse');
+    await expect(continueCard.locator('.cw-play')).toBeVisible();
+    await expect(continueCard.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '42');
+
+    const recentCard = page.locator('[data-testid="recent-rail"] .cw-card').first();
+    await expect(recentCard).toBeVisible();
+    await expect(recentCard).toHaveAttribute('href', /.+/);
+    const railForward = page.getByRole('button', { name: 'Scroll Continue Watching forward' });
+    await expect(railForward).toBeVisible();
+    await railForward.click();
+
+    await expect(page.locator('.dl-stats')).toBeVisible();
+    expect(await page.locator('.dl-stats').evaluate((element) => element.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
+    if (width >= 1440) await expectAutomationReadable(page);
+  }
 });
 
 test('right rail toggle exposes its target and follows responsive motion rules', async ({ page }) => {

@@ -1,5 +1,4 @@
 <!-- Backdrop click-to-close; Escape is handled natively by <dialog>. -->
-<!-- eslint-disable @angular-eslint/template/click-events-have-key-events -->
 <!-- eslint-disable @angular-eslint/template/interactive-supports-focus -->
 <dialog
   #dialogEl
@@ -8,6 +7,7 @@
   [attr.aria-labelledby]="showHeader() ? titleId : null"
   [attr.aria-label]="title()"
   (click)="onDialogClick($event)"
+  (keydown)="onDialogKeydown($event)"
   (close)="onNativeClose()"
 >
   @if (showHeader()) {
@@ -35,5 +35,4 @@
     <ng-content select="[mmDialogFooter]" />
   </footer>
 </dialog>
-<!-- eslint-enable @angular-eslint/template/click-events-have-key-events -->
 <!-- eslint-enable @angular-eslint/template/interactive-supports-focus -->

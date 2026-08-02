@@ -65,6 +65,23 @@ export class MmDialog {
     }
   }
 
+  onDialogKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Tab') return;
+    const focusable = [...this.dialogRef().nativeElement.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    )];
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   onNativeClose(): void {
     this.opened.set(false);
     this.closed.emit();
@@ -86,13 +103,11 @@ export class MmDialog {
 
   private showNativeDialog(dialog: HTMLDialogElement): void {
     if (dialog.open) return;
-    if (typeof dialog.showModal === 'function') dialog.showModal();
-    else dialog.setAttribute('open', '');
+    dialog.showModal();
   }
 
   private closeNativeDialog(dialog: HTMLDialogElement): void {
     if (!dialog.open) return;
-    if (typeof dialog.close === 'function') dialog.close();
-    else dialog.removeAttribute('open');
+    dialog.close();
   }
 }

@@ -10,5 +10,11 @@ const meta: Meta<MmButtonLink> = {
 
 export default meta;
 type Story = StoryObj<MmButtonLink>;
-export const Internal: Story = {};
+export const Internal: Story = {
+  play: ({ canvasElement }) => {
+    const link = canvasElement.querySelector<HTMLAnchorElement>('a');
+    link?.focus();
+    if (document.activeElement !== link) throw new Error('ButtonLink should receive keyboard focus');
+  },
+};
 export const External: Story = { args: { destination: 'https://example.com', mode: 'external', icon: 'external-link' } };

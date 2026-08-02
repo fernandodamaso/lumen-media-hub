@@ -84,37 +84,6 @@
   gap: 12px;
   margin-bottom: 20px;
 }
-.hero__btns a {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  border-radius: 11px;
-  padding: 11px 22px;
-  font-size: 13.5px;
-  font-weight: 600;
-  text-decoration: none;
-  transition:
-    transform 0.2s,
-    box-shadow 0.2s,
-    background 0.2s;
-}
-.hero__btns a:hover {
-  transform: translateY(-2px);
-}
-.btn-play {
-  background: var(--mm-semantic-accent);
-  color: var(--mm-semantic-on-accent);
-  box-shadow: 0 8px 26px color-mix(in srgb, var(--mm-semantic-accent) 30%, transparent);
-}
-.btn-ghost {
-  background: rgb(255 255 255 / 9%);
-  color: var(--mm-component-text-primary);
-  border: 1px solid rgb(255 255 255 / 16%);
-  backdrop-filter: blur(8px);
-}
-.btn-ghost:hover {
-  background: rgb(255 255 255 / 15%);
-}
 .hero__prog {
   display: flex;
   align-items: center;

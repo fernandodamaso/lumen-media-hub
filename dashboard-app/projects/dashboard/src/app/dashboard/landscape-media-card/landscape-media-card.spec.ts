@@ -14,7 +14,7 @@ describe('LandscapeMediaCard', () => {
     fixture.detectChanges();
     const root = fixtureHost(fixture);
     expect(root.querySelector('a')?.getAttribute('aria-label')).toBe('Continue Moonrise');
-    expect(root.querySelector('.cw-play')).toBeTruthy();
+    expect(root.querySelector('.landscape-play')).toBeTruthy();
     expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('42');
   });
 });

@@ -3,7 +3,7 @@
   flex: 0 0 272px;
 }
 
-.cw-card {
+.landscape-card {
   position: relative;
   display: block;
   aspect-ratio: 16 / 10;
@@ -17,47 +17,47 @@
     transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 0.35s;
 }
-.cw-card:hover {
+.landscape-card:hover {
   transform: translateY(-5px);
   box-shadow: 0 18px 44px rgb(0 0 0 / 55%);
 }
-.cw-card__art {
+.landscape-card__art {
   position: absolute;
   inset: 0;
   background-position: center;
   background-size: cover;
   transition: transform 0.5s;
 }
-.cw-card:hover .cw-card__art { transform: scale(1.06); }
-.cw-shade {
+.landscape-card:hover .landscape-card__art { transform: scale(1.06); }
+.landscape-shade {
   position: absolute;
   inset: 0;
   background: linear-gradient(to top, rgb(5 5 10 / 90%) 0%, rgb(5 5 10 / 20%) 48%, transparent 75%);
 }
-.cw-info {
+.landscape-info {
   position: absolute;
   right: 14px;
   bottom: 12px;
   left: 14px;
 }
-.cw-name {
+.landscape-name {
   font-family: var(--mm-font-display, 'Fraunces', Georgia, serif);
   font-size: 16px;
   font-weight: 500;
 }
-.cw-sub {
+.landscape-sub {
   margin-top: 2px;
   color: var(--mm-component-text-secondary);
   font-size: 11px;
 }
-.cw-bar {
+.landscape-bar {
   --mm-progress-height: 3px;
   --mm-progress-min-fill: 0;
 
   display: flex;
   margin-top: 9px;
 }
-.cw-play {
+.landscape-play {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -74,7 +74,7 @@
   transform: translate(-50%, -50%) scale(0.6);
   transition: all 0.3s;
 }
-.cw-card:hover .cw-play {
+.landscape-card:hover .landscape-play {
   opacity: 1;
   transform: translate(-50%, -50%) scale(1);
 }

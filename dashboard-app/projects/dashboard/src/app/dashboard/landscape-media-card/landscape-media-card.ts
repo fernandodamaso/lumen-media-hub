@@ -8,27 +8,27 @@ import { MmProgress } from '@app/ui';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <a
-      class="cw-card"
+      class="landscape-card"
       [attr.href]="href()"
       [attr.target]="href() ? '_blank' : null"
       rel="noreferrer"
       [attr.aria-label]="ariaLabel()"
     >
-      <div class="cw-card__art" [style.background]="art()"></div>
-      <div class="cw-shade" aria-hidden="true"></div>
+      <div class="landscape-card__art" [style.background]="art()"></div>
+      <div class="landscape-shade" aria-hidden="true"></div>
       @if (showPlayCue()) {
-        <span class="cw-play" aria-hidden="true">
+        <span class="landscape-play" aria-hidden="true">
           <svg lucidePlay [size]="15"></svg>
         </span>
       }
-      <div class="cw-info">
-        <div class="cw-name">{{ title() }}</div>
+      <div class="landscape-info">
+        <div class="landscape-name">{{ title() }}</div>
         @if (subtitle()) {
-          <div class="cw-sub">{{ subtitle() }}</div>
+          <div class="landscape-sub">{{ subtitle() }}</div>
         }
         @if (progressPercent() !== null) {
           <mm-progress
-            class="cw-bar"
+            class="landscape-bar"
             [value]="progressPercent()!"
             [showLabel]="false"
             [label]="title() + ' watch progress'"

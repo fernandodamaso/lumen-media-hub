@@ -156,14 +156,14 @@ test('dashboard layout stays within the viewport at mobile and desktop widths', 
       await expect(storage).toHaveAttribute('aria-valuenow', '67');
     }
 
-    const continueCard = page.locator('[data-testid="cw-rail"] .cw-card').first();
+    const continueCard = page.locator('[data-testid="cw-rail"] .landscape-card').first();
     await expect(continueCard).toBeVisible();
     await expect(continueCard).toHaveAttribute('href', /.+/);
     await expect(continueCard).toContainText('The Expanse');
-    await expect(continueCard.locator('.cw-play')).toBeVisible();
+    await expect(continueCard.locator('.landscape-play')).toBeVisible();
     await expect(continueCard.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '42');
 
-    const recentCard = page.locator('[data-testid="recent-rail"] .cw-card').first();
+    const recentCard = page.locator('[data-testid="recent-rail"] .landscape-card').first();
     await expect(recentCard).toBeVisible();
     await expect(recentCard).toHaveAttribute('href', /.+/);
     const railForward = page.getByRole('button', { name: 'Scroll Continue Watching forward' });

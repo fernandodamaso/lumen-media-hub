@@ -6,13 +6,16 @@
   .\install.ps1 -Mode both
   .\install.ps1 -Mode stack -Gpu -Force
   .\install.ps1 -Mode redeploy-dashboard
+  .\install.ps1 -Mode up -Dev -Profile subtitles,requests
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('stack', 'frontend-dev', 'both', 'redeploy-dashboard')]
+  [ValidateSet('stack', 'frontend-dev', 'both', 'redeploy-dashboard', 'up')]
   [string]$Mode = 'both',
   [switch]$Force,
-  [switch]$Gpu
+  [switch]$Gpu,
+  [switch]$Dev,
+  [string[]]$Profile
 )
 
 Set-StrictMode -Version Latest
@@ -251,6 +254,42 @@ Stack is up. Remaining manual steps (one-time):
 "@
 }
 
+function Clear-StaleComposeContainers {
+  $raw = docker ps -aq --filter 'label=com.docker.compose.project=media'
+  if (-not $raw) { return }
+  $ids = $raw -split "`n" | Where-Object { $_.Trim() }
+  foreach ($id in $ids) {
+    $mounts = docker inspect $id --format '{{range .Mounts}}{{.Type}}|{{.Source}}{{println}}{{end}}' 2>$null
+    $stale = $false
+    foreach ($line in $mounts -split "`n") {
+      if (-not $line) { continue }
+      $parts = $line -split '\|', 2
+      if ($parts.Count -lt 2 -or $parts[0] -ne 'bind') { continue }
+      if ($parts[1] -and -not (Test-Path -LiteralPath $parts[1])) { $stale = $true; break }
+    }
+    if ($stale) {
+      $name = (docker inspect $id --format '{{.Name}}').TrimStart('/')
+      Write-Host "  stale: $name (missing bind-mount source) - removing" -ForegroundColor Yellow
+      docker rm -f $id | Out-Null
+    }
+  }
+}
+
+function Invoke-StackUp {
+  Assert-Docker
+  Initialize-EnvFile
+  Write-Step 'Clearing stale compose containers (worktree-rot guard)'
+  Clear-StaleComposeContainers
+  Write-Step 'Starting stack'
+  $composeArgs = @('--env-file', $EnvFile, '-f', $ComposeFile)
+  if ($Gpu) { $composeArgs += '-f', $ComposeGpuFile }
+  if ($Dev) { $composeArgs += '-f', (Join-Path $RepoRoot 'docker-compose.dev.yml') }
+  foreach ($p in $Profile) { $composeArgs += '--profile', $p }
+  $composeArgs += 'up', '-d', '--remove-orphans'
+  docker compose @composeArgs
+  Assert-ExitCode 'docker compose up'
+}
+
 function Invoke-FrontendDev {
   Assert-Node
   Invoke-NpmCi
@@ -270,6 +309,7 @@ try {
     'stack'              { Invoke-Stack }
     'both'               { Invoke-FrontendDev; Invoke-Stack }
     'redeploy-dashboard' { Invoke-RedeployDashboard }
+    'up'                 { Invoke-StackUp }
   }
 } finally {
   Pop-Location

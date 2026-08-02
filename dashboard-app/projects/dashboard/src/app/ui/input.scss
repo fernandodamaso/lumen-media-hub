@@ -65,4 +65,22 @@
   border: 1px solid var(--mm-component-border);
   background: var(--mm-component-control-bg);
 }
-.mm-input__placeholder { flex: 1; text-align: left; }
+.mm-input__placeholder {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 560px) {
+  .mm-input--search-pill {
+    width: auto;
+    padding-inline: 14px;
+  }
+
+  .mm-input--search-pill .mm-input__placeholder,
+  .mm-input--search-pill kbd {
+    display: none;
+  }
+}

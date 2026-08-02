@@ -5,6 +5,9 @@ import { LucideLoaderCircle } from '@lucide/angular';
   selector: 'mm-icon-button',
   imports: [LucideLoaderCircle],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    '[class.mm-icon-button-host--disabled]': 'disabled() || busy()',
+  },
   template: `<button
     type="button"
     class="mm-icon-button"

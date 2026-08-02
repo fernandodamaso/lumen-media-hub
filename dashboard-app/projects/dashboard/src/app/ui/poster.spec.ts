@@ -64,4 +64,40 @@ describe('MmPoster', () => {
     expect(root.querySelector('.mm-poster__play-cue')).toBeTruthy();
     expect(root.querySelector('.mm-poster__overlay')).toBeNull();
   });
+
+
+  it('hides the below caption from assistive tech only when a labeled anchor is present', () => {
+    const fixture = TestBed.createComponent(MmPoster);
+    fixture.componentRef.setInput('captionPlacement', 'below');
+    fixture.componentRef.setInput('title', 'Inert Card');
+    fixture.detectChanges();
+
+    const caption = fixtureHost(fixture).querySelector('.mm-poster__caption') as HTMLElement;
+    expect(caption.getAttribute('aria-hidden')).toBeNull();
+
+    fixture.componentRef.setInput('href', 'https://jellyfin.example/item');
+    fixture.componentRef.setInput('linkLabel', 'Play Inert Card');
+    fixture.detectChanges();
+
+    expect(caption.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('retries network artwork when retryToken changes after an image error', () => {
+    const fixture = TestBed.createComponent(MmPoster);
+    fixture.componentRef.setInput('imageUrl', 'https://example.com/poster.jpg');
+    fixture.detectChanges();
+
+    const image = fixtureHost(fixture).querySelector('img.mm-poster__image') as HTMLImageElement;
+    image.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+
+    expect(fixtureHost(fixture).querySelector('img.mm-poster__image')).toBeNull();
+
+    fixture.componentRef.setInput('retryToken', 1);
+    fixture.detectChanges();
+
+    const retried = fixtureHost(fixture).querySelector('img.mm-poster__image') as HTMLImageElement;
+    expect(retried).toBeTruthy();
+    expect(retried.getAttribute('src')).toBe('https://example.com/poster.jpg');
+  });
 });

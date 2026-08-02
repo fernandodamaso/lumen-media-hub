@@ -32,6 +32,7 @@ export class LibraryPosterGrid {
   readonly items = input.required<LibraryItem[]>();
   readonly compact = input(false);
   readonly page = signal(0);
+  readonly artNonce = signal(0);
 
   readonly canCarousel = computed(
     () => this.compact() && this.items().length > COMPACT_PAGE_SIZE,
@@ -53,6 +54,7 @@ export class LibraryPosterGrid {
     effect(() => {
       this.items();
       this.page.set(0);
+      this.artNonce.update((n) => n + 1);
     });
   }
 

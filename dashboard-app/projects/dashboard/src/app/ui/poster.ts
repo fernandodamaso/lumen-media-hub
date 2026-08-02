@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, input, signal } from '@angular/core';
 import { LucidePlay } from '@lucide/angular';
 
 export type MmPosterTagTone = 'accent' | 'success';
@@ -25,6 +25,7 @@ export class MmPoster {
   readonly linkLabel = input<string | null>(null);
   readonly captionPlacement = input<MmPosterCaptionPlacement>('overlay');
   readonly showPlayCue = input(false);
+  readonly retryToken = input<unknown>(null);
   readonly art = input(
     'linear-gradient(145deg, color-mix(in srgb, var(--mm-component-accent) 28%, var(--mm-component-card-bg)), var(--mm-component-card-bg) 72%)',
   );
@@ -32,6 +33,13 @@ export class MmPoster {
   readonly resolvedLinkLabel = computed(() => this.linkLabel() ?? `Open ${this.title()}`);
 
   private readonly imageErrorKey = signal<string | null>(null);
+
+  constructor() {
+    effect(() => {
+      this.retryToken();
+      this.imageErrorKey.set(null);
+    });
+  }
 
   private readonly imageKey = computed(() => this.imageUrl() ?? '');
 

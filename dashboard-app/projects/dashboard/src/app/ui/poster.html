@@ -57,7 +57,7 @@
     }
   </div>
   @if (captionPlacement() === 'below') {
-    <div class="mm-poster__caption" aria-hidden="true">
+    <div class="mm-poster__caption" [attr.aria-hidden]="href() ? true : null">
       <strong>{{ title() }}</strong>
       <small>{{ meta() }}</small>
     </div>

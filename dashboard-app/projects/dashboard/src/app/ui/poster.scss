@@ -31,14 +31,14 @@
 .mm-poster__hit {
   position: absolute;
   inset: 0;
-  z-index: 4;
+  z-index: 3;
   border-radius: inherit;
   text-decoration: none;
 }
 
 .mm-poster__hit:focus-visible {
   outline: 3px solid var(--mm-component-focus-ring);
-  outline-offset: 3px;
+  outline-offset: -3px;
 }
 
 .mm-poster--caption-below {
@@ -259,7 +259,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .mm-poster,
-  .mm-poster__play-cue {
+  .mm-poster__play-cue,
+  .mm-poster--caption-below .mm-poster__art {
     transition: none;
   }
 }

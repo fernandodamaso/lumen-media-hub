@@ -78,11 +78,10 @@ export class DiscoverPage {
     { id: 'shows', label: 'Shows' },
   ];
 
-  readonly tabOption = (option: (typeof this.tabs)[number]) => ({ value: option.id, label: option.label });
-  readonly viewOption = (option: (typeof this.hermesViews)[number]) => ({ value: option.id, label: option.label });
-  readonly historyOption = (option: (typeof this.historyFilters)[number]) => ({ value: option.id, label: option.label });
-  readonly jellyseerrOption = (option: (typeof this.jellyseerrKinds)[number]) => ({ value: option.id, label: option.label });
-  readonly traktOption = (option: (typeof this.traktTypes)[number]) => ({ value: option.id, label: option.label });
+  readonly toOption = <T extends { id: string; label: string }>(option: T): { value: T['id']; label: T['label'] } => ({
+    value: option.id,
+    label: option.label,
+  });
 
   constructor() {
     void this.facade.setTab('hermes');

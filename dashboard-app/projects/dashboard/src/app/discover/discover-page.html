@@ -7,7 +7,7 @@
 <section class="discover-controls" aria-label="Discover controls">
   <div class="discover-controls__primary">
     <mm-segmented-control
-      [options]="tabs.map(tabOption)"
+      [options]="tabs.map(toOption)"
       [value]="facade.tab()"
       label="Discover sources"
       size="md"
@@ -31,7 +31,7 @@
     @if (facade.tab() === 'hermes') {
       <div class="filters" aria-label="Hermes filters">
         <mm-segmented-control
-          [options]="hermesViews.map(viewOption)"
+          [options]="hermesViews.map(toOption)"
           [value]="facade.hermesView()"
           label="Hermes view"
           size="sm"
@@ -39,7 +39,7 @@
         />
         @if (facade.hermesView() === 'history') {
           <mm-segmented-control
-            [options]="historyFilters.map(historyOption)"
+            [options]="historyFilters.map(toOption)"
             [value]="facade.historyFilter()"
             label="History filter"
             size="sm"
@@ -51,7 +51,7 @@
 
     @if (facade.tab() === 'jellyseerr') {
       <mm-segmented-control
-        [options]="jellyseerrKinds.map(jellyseerrOption)"
+        [options]="jellyseerrKinds.map(toOption)"
         [value]="facade.jellyseerrKind()"
         label="Jellyseerr kind"
         size="sm"
@@ -61,7 +61,7 @@
 
     @if (facade.tab() === 'trakt') {
       <mm-segmented-control
-        [options]="traktTypes.map(traktOption)"
+        [options]="traktTypes.map(toOption)"
         [value]="facade.traktType()"
         label="Trakt type"
         size="sm"

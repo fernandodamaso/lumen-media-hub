@@ -35,14 +35,15 @@
         } @else {
           @for (item of continueWatching(); track item.id) {
             @let href = mediaHref(item);
-            <mm-landscape-media-card
+            <mm-media-card
+              layout="landscape"
               [title]="item.title"
               [subtitle]="item.subtitle"
               [art]="cardArt(item)"
               [href]="href"
-              [ariaLabel]="'Continue ' + item.title"
+              [linkLabel]="'Continue ' + item.title"
               [showPlayCue]="true"
-              [progressPercent]="item.progressPercent"
+              [progress]="item.progressPercent"
             />
           }
         }
@@ -71,10 +72,10 @@
       }
       @default {
         @for (item of trending.items(); track item.id) {
-          <mm-poster
+          <mm-media-card
             class="trending-poster"
             [title]="item.title"
-            [meta]="trendingSub(item)"
+            [subtitle]="trendingSub(item)"
             [rating]="item.rating"
             [imageUrl]="item.posterUrl"
             [art]="trendingArt(item)"
@@ -107,12 +108,13 @@
       @default {
         @for (item of recentItems(); track item.id) {
           @let href = mediaHref(item);
-            <mm-landscape-media-card
+            <mm-media-card
+              layout="landscape"
               [title]="item.title"
               [subtitle]="item.meta"
               [art]="cardArt(item)"
               [href]="href"
-              [ariaLabel]="'Open ' + item.title"
+              [linkLabel]="'Open ' + item.title"
             />
         }
       }

@@ -229,13 +229,13 @@ describe('DashboardPage composition', () => {
 
   it('renders continue-watching cards with art, subtitle, and progress', () => {
     fixture.detectChanges();
-    const card = fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .landscape-card');
-    expect(card?.getAttribute('href')).toContain('details?id=e1');
+    const card = fixtureHost(fixture).querySelector('[data-testid="cw-rail"] mm-media-card');
+    expect(card?.querySelector('.mm-media-card__hit')?.getAttribute('href')).toContain('details?id=e1');
     expect(card?.textContent).toContain('Night Watch');
     expect(card?.textContent).toContain('S01E01 · Pilot');
-    const art = card?.querySelector('.landscape-card__art') as HTMLElement;
+    const art = card?.querySelector('.mm-media-card__art') as HTMLElement;
     expect(art.style.background).toContain('Thumb');
-    const bar = card?.querySelector('.landscape-bar .mm-progress__bar') as HTMLElement;
+    const bar = card?.querySelector('.mm-media-card__progress .mm-progress__bar') as HTMLElement;
     expect(bar.style.width).toBe('64%');
   });
 
@@ -249,7 +249,7 @@ describe('DashboardPage composition', () => {
     fixture.detectChanges();
 
     const root = fixtureHost(fixture);
-    const cards = root.querySelectorAll('[data-testid="cw-rail"] .landscape-card');
+    const cards = root.querySelectorAll('[data-testid="cw-rail"] mm-media-card');
     expect(cards).toHaveLength(1);
     expect(cards[0].textContent).toContain('Started');
     expect(cards[0].textContent).not.toContain('Unstarted');
@@ -271,7 +271,7 @@ describe('DashboardPage composition', () => {
     watchNext.items.set([watchNextItem({ thumbUrl: 'linear-gradient(90deg, #123, #456)' })]);
     fixture.detectChanges();
 
-    expect((fixtureHost(fixture).querySelector('.landscape-card__art') as HTMLElement).style.background).toContain(
+    expect((fixtureHost(fixture).querySelector('.mm-media-card__art') as HTMLElement).style.background).toContain(
       'linear-gradient',
     );
   });
@@ -287,19 +287,19 @@ describe('DashboardPage composition', () => {
 
   it('renders shared clickable Trakt posters with rail-local ranks', () => {
     fixture.detectChanges();
-    const posters = fixtureHost(fixture).querySelectorAll('[data-testid="trending-rail"] mm-poster');
+    const posters = fixtureHost(fixture).querySelectorAll('[data-testid="trending-rail"] mm-media-card');
     expect(posters).toHaveLength(2);
-    expect(posters[0].querySelector('.mm-poster__tag')?.textContent).toContain('1');
-    expect(posters[1].querySelector('.mm-poster__tag')?.textContent).toContain('2');
+    expect(posters[0].querySelector('.mm-media-card__tag')?.textContent).toContain('1');
+    expect(posters[1].querySelector('.mm-media-card__tag')?.textContent).toContain('2');
     expect(posters[1].textContent).toContain('Frontline');
-    const link = posters[0].querySelector('.mm-poster__hit') as HTMLAnchorElement;
+    const link = posters[0].querySelector('.mm-media-card__hit') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('https://trakt.tv/shows/wasteland');
     expect(link.getAttribute('aria-label')).toBe('Open Wasteland on Trakt');
   });
 
   it('renders recently added landscape cards', () => {
     fixture.detectChanges();
-    const card = fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .landscape-card');
+    const card = fixtureHost(fixture).querySelector('[data-testid="recent-rail"] mm-media-card');
     expect(card?.textContent).toContain('After Us');
     expect(card?.textContent).toContain('2026 · Series');
   });
@@ -341,27 +341,27 @@ describe('DashboardPage composition', () => {
     libraryItems.items.set([libraryItem({ href: null })]);
     fixture.detectChanges();
 
-    expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .landscape-card')?.getAttribute('href')).toBe(
+    expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .mm-media-card__hit')?.getAttribute('href')).toBe(
       'http://jf.local/web/index.html#!/details?id=e1',
     );
-    expect(fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .landscape-card')?.getAttribute('href')).toBe(
+    expect(fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .mm-media-card__hit')?.getAttribute('href')).toBe(
       'http://jf.local/web/index.html#!/details?id=lib-1',
     );
 
     watchNext.items.set([watchNextItem({ href: 'http://explicit/episode' })]);
     libraryItems.items.set([libraryItem({ href: 'http://explicit/series' })]);
     fixture.detectChanges();
-    expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .landscape-card')?.getAttribute('href')).toBe(
+    expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .mm-media-card__hit')?.getAttribute('href')).toBe(
       'http://explicit/episode',
     );
-    expect(fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .landscape-card')?.getAttribute('href')).toBe(
+    expect(fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .mm-media-card__hit')?.getAttribute('href')).toBe(
       'http://explicit/series',
     );
 
     watchNext.items.set([watchNextItem({ id: 'unknown', href: null, playable: false })]);
     libraryItems.items.set([libraryItem({ id: 'unknown', href: null, playable: false })]);
     fixture.detectChanges();
-    expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .landscape-card')?.getAttribute('href')).toBeNull();
-    expect(fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .landscape-card')?.getAttribute('href')).toBeNull();
+    expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .mm-media-card__hit')).toBeNull();
+    expect(fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .mm-media-card__hit')).toBeNull();
   });
 });

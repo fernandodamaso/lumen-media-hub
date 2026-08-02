@@ -1,29 +1,35 @@
 import { ChangeDetectionStrategy, Component, computed, effect, input, signal } from '@angular/core';
 import { LucidePlay } from '@lucide/angular';
+import { MmProgress } from './progress';
 
-export type MmPosterTagTone = 'accent' | 'success';
-export type MmPosterCaptionPlacement = 'overlay' | 'below';
+export type MmMediaCardLayout = 'portrait' | 'landscape';
+export type MmMediaCardTagTone = 'accent' | 'success';
+export type MmMediaCardCaptionPlacement = 'overlay' | 'below';
 
 @Component({
-  selector: 'mm-poster',
-  imports: [LucidePlay],
+  selector: 'mm-media-card',
+  imports: [MmProgress, LucidePlay],
+  host: {
+    '[class.mm-media-card--landscape]': "layout() === 'landscape'",
+  },
   changeDetection: ChangeDetectionStrategy.OnPush,
-  templateUrl: './poster.html',
-  styleUrl: './poster.scss',
+  templateUrl: './media-card.html',
+  styleUrl: './media-card.scss',
 })
-export class MmPoster {
-  readonly title = input('Moonrise');
-  readonly meta = input('2026 · Drama');
+export class MmMediaCard {
+  readonly layout = input<MmMediaCardLayout>('portrait');
+  readonly title = input('');
+  readonly subtitle = input('');
   readonly rating = input<number | null>(null);
   readonly imageUrl = input<string | null | undefined>(null);
   readonly framed = input(true);
   readonly episode = input<string | null>(null);
   readonly tag = input<string | null>(null);
-  readonly tagTone = input<MmPosterTagTone>('accent');
+  readonly tagTone = input<MmMediaCardTagTone>('accent');
   readonly progress = input<number | null>(null);
   readonly href = input<string | null>(null);
   readonly linkLabel = input<string | null>(null);
-  readonly captionPlacement = input<MmPosterCaptionPlacement>('overlay');
+  readonly captionPlacement = input<MmMediaCardCaptionPlacement>('overlay');
   readonly showPlayCue = input(false);
   readonly retryToken = input<unknown>(null);
   readonly art = input(

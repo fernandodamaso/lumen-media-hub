@@ -1,0 +1,86 @@
+<div
+  class="mm-media-card"
+  [class.mm-media-card--landscape]="layout() === 'landscape'"
+  [class.mm-media-card--unframed]="!framed()"
+  [class.mm-media-card--caption-below]="captionPlacement() === 'below'"
+>
+  @if (href(); as destination) {
+    <a
+      class="mm-media-card__hit"
+      [href]="destination"
+      target="_blank"
+      rel="noreferrer"
+      [attr.aria-label]="resolvedLinkLabel()"
+    >
+      <span class="visually-hidden">{{ title() }}</span>
+    </a>
+  }
+  <div class="mm-media-card__art" [style.background]="showNetworkImage() ? null : art()">
+    @if (showNetworkImage()) {
+      <img
+        class="mm-media-card__image"
+        [src]="imageUrl()!"
+        alt=""
+        loading="lazy"
+        decoding="async"
+        (error)="onImageError()"
+      />
+    }
+    @if (tag()) {
+      <span
+        class="mm-media-card__tag"
+        [class.mm-media-card__tag--success]="tagTone() === 'success'"
+      >{{ tag() }}</span>
+    }
+    @if (layout() === 'portrait' && captionPlacement() === 'overlay') {
+      <div class="mm-media-card__overlay">
+        @if (episode()) {
+          <div class="mm-media-card__episode">{{ episode() }}</div>
+        }
+        <div class="mm-media-card__head">
+          <strong>{{ title() }}</strong>
+          @if (rating() !== null && rating() !== undefined) {
+            <span class="mm-media-card__rating" aria-label="Rating {{ rating() }} out of 10">★ {{ rating() }}</span>
+          }
+        </div>
+        <small>{{ subtitle() }}</small>
+      </div>
+    }
+    @if (layout() === 'landscape') {
+      <div class="mm-media-card__shade" aria-hidden="true"></div>
+      <div class="mm-media-card__info">
+        <div class="mm-media-card__name">{{ title() }}</div>
+        @if (subtitle()) {
+          <div class="mm-media-card__sub">{{ subtitle() }}</div>
+        }
+        @if (progress() !== null && progress() !== undefined) {
+          <mm-progress
+            class="mm-media-card__progress"
+            [value]="progress()!"
+            [showLabel]="false"
+            [label]="title() + ' watch progress'"
+          />
+        }
+      </div>
+    }
+    @if (layout() === 'portrait' && progress() !== null && progress() !== undefined) {
+      <mm-progress
+        class="mm-media-card__progress"
+        [value]="progress()!"
+        [showLabel]="false"
+        [label]="title() + ' watch progress'"
+      />
+    }
+    @if (showPlayCue() && href()) {
+      <span class="mm-media-card__play-cue" aria-hidden="true">
+        <svg lucidePlay [size]="18"></svg>
+      </span>
+    }
+  </div>
+  @if (layout() === 'portrait' && captionPlacement() === 'below') {
+    <div class="mm-media-card__caption" [attr.aria-hidden]="href() ? true : null">
+      <strong>{{ title() }}</strong>
+      <small>{{ subtitle() }}</small>
+    </div>
+  }
+</div>

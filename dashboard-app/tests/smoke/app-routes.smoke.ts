@@ -84,7 +84,7 @@ test('library segmented filters preserve counts and dataset without overflow', a
     await movies.click();
     await expect(movies).toHaveAttribute('aria-checked', 'true');
     const grid = page.locator('mm-library-poster-grid');
-    await expect(grid.locator('mm-poster')).toHaveCount(4);
+    await expect(grid.locator('mm-media-card')).toHaveCount(4);
     await expect(grid.getByText('Dune', { exact: true }).first()).toBeVisible();
     await expect(grid.getByText('Cowboy Bebop', { exact: true })).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
@@ -156,16 +156,16 @@ test('dashboard layout stays within the viewport at mobile and desktop widths', 
       await expect(storage).toHaveAttribute('aria-valuenow', '67');
     }
 
-    const continueCard = page.locator('[data-testid="cw-rail"] .landscape-card').first();
+    const continueCard = page.locator('[data-testid="cw-rail"] mm-media-card').first();
     await expect(continueCard).toBeVisible();
-    await expect(continueCard).toHaveAttribute('href', /.+/);
+    await expect(continueCard.locator('.mm-media-card__hit')).toHaveAttribute('href', /.+/);
     await expect(continueCard).toContainText('The Expanse');
-    await expect(continueCard.locator('.landscape-play')).toBeVisible();
+    await expect(continueCard.locator('.mm-media-card__play-cue')).toBeVisible();
     await expect(continueCard.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '42');
 
-    const recentCard = page.locator('[data-testid="recent-rail"] .landscape-card').first();
+    const recentCard = page.locator('[data-testid="recent-rail"] mm-media-card').first();
     await expect(recentCard).toBeVisible();
-    await expect(recentCard).toHaveAttribute('href', /.+/);
+    await expect(recentCard.locator('.mm-media-card__hit')).toHaveAttribute('href', /.+/);
     const railForward = page.getByRole('button', { name: 'Scroll Continue Watching forward' });
     await expect(railForward).toBeVisible();
     await railForward.click();

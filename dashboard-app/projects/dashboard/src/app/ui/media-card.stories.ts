@@ -1,10 +1,11 @@
 import { argsToTemplate, type Meta, type StoryObj } from '@storybook/angular';
 import { MOCK_POSTER, mockArtUrl } from '../../testing/storybook-mock-art';
-import { MmPoster } from './index';
+import { MmMediaCard } from './index';
 
-type PosterArgs = {
+type MediaCardArgs = {
+  layout: 'portrait' | 'landscape';
   title: string;
-  meta: string;
+  subtitle: string;
   rating: number | null;
   episode: string | null;
   tag: string | null;
@@ -18,13 +19,14 @@ type PosterArgs = {
   showPlayCue: boolean;
 };
 
-const meta: Meta<PosterArgs> = {
-  title: 'UI/Poster',
-  component: MmPoster,
+const meta: Meta<MediaCardArgs> = {
+  title: 'UI/MediaCard',
+  component: MmMediaCard,
   tags: ['autodocs'],
   argTypes: {
+    layout: { control: 'select', options: ['portrait', 'landscape'] },
     title: { control: 'text' },
-    meta: { control: 'text' },
+    subtitle: { control: 'text' },
     rating: { control: { type: 'number', min: 0, max: 10, step: 0.1 } },
     episode: { control: 'text' },
     tag: { control: 'text' },
@@ -38,8 +40,9 @@ const meta: Meta<PosterArgs> = {
     showPlayCue: { control: 'boolean' },
   },
   args: {
+    layout: 'portrait',
     title: 'Neon Veil',
-    meta: 'The Silent Witness',
+    subtitle: 'The Silent Witness',
     rating: null,
     episode: 'S1 · E6',
     tag: 'Continue',
@@ -54,19 +57,19 @@ const meta: Meta<PosterArgs> = {
   },
   render: (args) => ({
     props: args,
-    template: `<div style="max-width:220px"><mm-poster ${argsToTemplate(args)} /></div>`,
+    template: `<div style="max-width:220px"><mm-media-card ${argsToTemplate(args)} /></div>`,
   }),
 };
 
 export default meta;
-type Story = StoryObj<PosterArgs>;
+type Story = StoryObj<MediaCardArgs>;
 
 export const Default: Story = {};
 
 export const NewEpisode: Story = {
   args: {
     title: 'Mirror Shard',
-    meta: 'Fracture',
+    subtitle: 'Fracture',
     episode: 'S1 · E1',
     tag: 'New',
     tagTone: 'success',
@@ -79,7 +82,7 @@ export const NewEpisode: Story = {
 export const WithoutRating: Story = {
   args: {
     title: 'Empty shelf',
-    meta: 'No titles yet',
+    subtitle: 'No titles yet',
     rating: null,
     episode: null,
     tag: null,
@@ -92,7 +95,7 @@ export const WithoutRating: Story = {
 export const Linked: Story = {
   args: {
     title: 'Dune',
-    meta: '2021 · Movie',
+    subtitle: '2021 · Movie',
     rating: 8.0,
     episode: null,
     tag: '1',
@@ -107,7 +110,7 @@ export const Linked: Story = {
 export const CaptionBelow: Story = {
   args: {
     title: 'Moonrise',
-    meta: '2024 · Movie',
+    subtitle: '2024 · Movie',
     episode: null,
     tag: null,
     progress: null,
@@ -122,11 +125,41 @@ export const CaptionBelow: Story = {
 
 export const Gallery: Story = {
   render: () => ({
-    imports: [MmPoster],
+    imports: [MmMediaCard],
     template: `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;max-width:680px">
-      <mm-poster title="Neon Veil" meta="The Silent Witness" episode="S1 · E6" tag="Continue" [progress]="64" [imageUrl]="'${MOCK_POSTER.series1}'" />
-      <mm-poster title="The Apothecary's Garden" meta="Moonflower" episode="S1 · E8" tag="Continue" [progress]="82" [imageUrl]="'${MOCK_POSTER.movie1}'" />
-      <mm-poster title="Mirror Shard" meta="Fracture" episode="S1 · E1" tag="New" tagTone="success" [progress]="4" [imageUrl]="'${MOCK_POSTER.movie2}'" />
+      <mm-media-card title="Neon Veil" subtitle="The Silent Witness" episode="S1 · E6" tag="Continue" [progress]="64" [imageUrl]="'${MOCK_POSTER.series1}'" />
+      <mm-media-card title="The Apothecary's Garden" subtitle="Moonflower" episode="S1 · E8" tag="Continue" [progress]="82" [imageUrl]="'${MOCK_POSTER.movie1}'" />
+      <mm-media-card title="Mirror Shard" subtitle="Fracture" episode="S1 · E1" tag="New" tagTone="success" [progress]="4" [imageUrl]="'${MOCK_POSTER.movie2}'" />
     </div>`,
   }),
+};
+
+export const Landscape: Story = {
+  args: {
+    layout: 'landscape',
+    title: 'Moonrise',
+    subtitle: 'Season 1 · Episode 6',
+    rating: null,
+    episode: null,
+    tag: null,
+    progress: null,
+    imageUrl: null,
+    art: mockArtUrl(MOCK_POSTER.series1),
+    href: 'https://jellyfin.example/item',
+    linkLabel: 'Continue Moonrise',
+    captionPlacement: 'overlay',
+    showPlayCue: true,
+  },
+  render: (args) => ({
+    props: args,
+    template: `<div style="max-width:480px"><mm-media-card ${argsToTemplate(args)} /></div>`,
+  }),
+};
+
+export const LandscapeWithProgress: Story = {
+  ...Landscape,
+  args: {
+    ...Landscape.args,
+    progress: 42,
+  },
 };

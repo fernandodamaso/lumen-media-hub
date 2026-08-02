@@ -44,6 +44,9 @@
   max-width: 100%;
   overflow: auto hidden;
   scroll-behavior: smooth;
+  /* Room for card hover lift without clipping the top edge */
+  padding-top: 8px;
+  margin-top: -8px;
   padding-bottom: 6px;
   scrollbar-width: none;
   -ms-overflow-style: none;

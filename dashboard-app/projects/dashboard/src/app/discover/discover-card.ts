@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { LucideEye, LucideSkipForward, LucideThumbsDown, LucideThumbsUp } from '@lucide/angular';
-import { MmButton, MmIconButton, MmPoster, MmStatus } from '@app/ui';
+import { MmButton, MmIconButton, MmMediaCard, MmStatus } from '@app/ui';
 import { DiscoverFeedback } from './discover.models';
 import {
   DiscoverCardItem,
@@ -23,7 +23,7 @@ const FEEDBACK_OPTIONS: {
 
 @Component({
   selector: 'mm-discover-card',
-  imports: [MmButton, MmIconButton, MmPoster, MmStatus, LucideThumbsUp, LucideThumbsDown, LucideEye, LucideSkipForward],
+  imports: [MmButton, MmIconButton, MmMediaCard, MmStatus, LucideThumbsUp, LucideThumbsDown, LucideEye, LucideSkipForward],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './discover-card.html',
   styleUrl: './discover-card.scss',

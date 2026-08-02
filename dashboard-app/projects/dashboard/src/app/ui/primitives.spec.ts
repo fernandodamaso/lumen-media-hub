@@ -1,7 +1,7 @@
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { fixtureHost } from '../../testing/fixture-host';
-import { MmButton, MmIconButton, MmPoster, MmProgress, MmStateCard, MmStatus, MmTooltip } from './index';
+import { MmButton, MmIconButton, MmMediaCard, MmProgress, MmStateCard, MmStatus, MmTooltip } from './index';
 
 describe('app/ui primitives', () => {
   it('renders button content and preserves its base and variant classes', () => {
@@ -102,13 +102,13 @@ describe('app/ui primitives', () => {
     expect(status?.getAttribute('role')).toBe('status');
   });
 
-  it('renders posters as a neutral wrapper without an article root', () => {
-    const fixture = TestBed.createComponent(MmPoster);
+  it('renders media cards as a neutral wrapper without an article root', () => {
+    const fixture = TestBed.createComponent(MmMediaCard);
     fixture.detectChanges();
     const host = fixtureHost(fixture);
 
     expect(host.querySelector('article')).toBeNull();
-    expect(host.querySelector('.mm-poster')?.tagName).toBe('DIV');
+    expect(host.querySelector('.mm-media-card')?.tagName).toBe('DIV');
   });
 
   it('keeps shared buttons at least 40px high', () => {

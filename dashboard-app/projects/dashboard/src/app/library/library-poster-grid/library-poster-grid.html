@@ -37,9 +37,9 @@
     >
       @for (item of visibleItems(); track item.id) {
         @let href = playHref(item);
-        <mm-poster
+        <mm-media-card
           [title]="item.title"
-          [meta]="item.meta || kindLabel(item.kind)"
+          [subtitle]="item.meta || kindLabel(item.kind)"
           [imageUrl]="posterImageSrc(item)"
           [art]="posterFallbackArt(item)"
           captionPlacement="below"

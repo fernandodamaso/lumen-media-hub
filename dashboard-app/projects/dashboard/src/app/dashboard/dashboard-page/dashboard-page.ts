@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
-import { MmButton, MmPoster, MmReveal, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
+import { MmButton, MmMediaCard, MmReveal, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { AutomationFacade } from '../../automation/automation.facade';
 import { ServiceHealthFacade } from '../../automation/service-health.facade';
 import { CalendarFacade } from '../../calendar/calendar.facade';
@@ -30,7 +30,6 @@ import { refreshDashboardData } from '../dashboard-refresh';
 import { DashboardHero } from '../dashboard-hero/dashboard-hero';
 import { MmDownloadItem } from '../../downloads/download-item/download-item';
 import { MediaRail } from '../media-rail/media-rail';
-import { LandscapeMediaCard } from '../landscape-media-card/landscape-media-card';
 import { StatStrip } from '../stat-strip/stat-strip';
 import { TrendingFacade } from '../trending.facade';
 import { discoverPosterFallback } from '../../discover/discover-format';
@@ -42,7 +41,7 @@ const RAIL_LIMIT = 10;
   imports: [
     MmButton,
     MmDownloadItem,
-    MmPoster,
+    MmMediaCard,
     MmReveal,
     MmSkeleton,
     MmStateCard,
@@ -50,7 +49,6 @@ const RAIL_LIMIT = 10;
     DashboardHero,
     MediaRail,
     StatStrip,
-    LandscapeMediaCard,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './dashboard-page.html',

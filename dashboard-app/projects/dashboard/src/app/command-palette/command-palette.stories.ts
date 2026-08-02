@@ -54,5 +54,20 @@ export const Default: Story = {
     const input = canvasElement.querySelector('input[aria-label="Search commands"]');
     if (!dialog || !input) throw new Error('Command palette dialog or search input was not rendered');
     if (dialog.getAttribute('aria-label') !== 'Command palette') throw new Error('Dialog name is missing');
+
+    const focusables = dialog.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    );
+    if (focusables.length < 2) throw new Error('expected at least two focusable elements in the palette');
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+
+    last.focus();
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    if (document.activeElement !== first) throw new Error('Tab did not wrap to the first focusable element');
+
+    first.focus();
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+    if (document.activeElement !== last) throw new Error('Shift+Tab did not wrap to the last focusable element');
   },
 };

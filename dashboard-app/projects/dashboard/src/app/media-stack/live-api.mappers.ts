@@ -928,6 +928,7 @@ function requireLiveExternalDiscoverItem(
   const id = optionalNullableString(raw, 'id', index, resource) ?? undefined;
   const source = optionalNullableString(raw, 'source', index, resource) ?? undefined;
   const year = optionalNullableFiniteNumber(raw, 'year', index, resource);
+  const traktSlug = optionalNullableString(raw, 'trakt_slug', index, resource);
   const overview = optionalNullableString(raw, 'overview', index, resource) ?? undefined;
   const posterUrl = optionalNullableString(raw, 'poster_url', index, resource);
   const rating = optionalNullableFiniteNumber(raw, 'rating', index, resource);
@@ -939,6 +940,7 @@ function requireLiveExternalDiscoverItem(
     title,
     year,
     tmdb_id: tmdbId,
+    trakt_slug: traktSlug,
     overview,
     poster_url: posterUrl,
     rating,

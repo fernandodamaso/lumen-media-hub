@@ -4,8 +4,8 @@ import { ExternalDiscover, ExternalDiscoverItem } from '../discover/discover.mod
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 import { TrendingFacade } from './trending.facade';
 
-function item(title: string, tmdbId: number): ExternalDiscoverItem {
-  return { type: 'movie', title, year: 2026, tmdb_id: tmdbId, poster_url: null, rating: null };
+function item(title: string, tmdbId: number, slug?: string): ExternalDiscoverItem {
+  return { type: 'movie', title, year: 2026, tmdb_id: tmdbId, trakt_slug: slug ?? null, poster_url: null, rating: null };
 }
 
 function discover(items: ExternalDiscoverItem[]): ExternalDiscover {
@@ -104,5 +104,42 @@ describe('TrendingFacade', () => {
     expect(facade.status()).toBe('ready');
     expect(facade.items()).toHaveLength(1);
     expect(facade.error()).toContain('Showing last loaded results');
+  });
+
+  it('creates exact Trakt title links from slugs', async () => {
+    listTraktDiscover.mockImplementation((type: string): Promise<ExternalDiscover> =>
+      Promise.resolve(
+        type === 'shows'
+          ? discover([item('Show A', 1, 'show-a')])
+          : discover([item('Movie A', 11, 'movie-a-2024')]),
+      ),
+    );
+    const facade = setup();
+    await vi.waitFor(() => {
+      expect(facade.status()).toBe('ready');
+    });
+
+    const links = facade.items().map((entry) => entry.href);
+    expect(links).toContain('https://trakt.tv/shows/show-a');
+    expect(links).toContain('https://trakt.tv/movies/movie-a-2024');
+  });
+
+  it('falls back to Trakt search by TMDB id when a slug is missing', async () => {
+    listTraktDiscover.mockImplementation((type: string): Promise<ExternalDiscover> =>
+      Promise.resolve(
+        type === 'shows'
+          ? discover([item('Show A', 1)])
+          : discover([item('Movie A', 11)]),
+      ),
+    );
+    const facade = setup();
+    await vi.waitFor(() => {
+      expect(facade.status()).toBe('ready');
+    });
+
+    const show = facade.items().find((entry) => entry.type === 'tv');
+    const movie = facade.items().find((entry) => entry.type === 'movie');
+    expect(show?.href).toBe('https://trakt.tv/search/tmdb/1?id_type=show');
+    expect(movie?.href).toBe('https://trakt.tv/search/tmdb/11?id_type=movie');
   });
 });

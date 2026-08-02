@@ -1,4 +1,19 @@
-<div class="mm-poster" [class.mm-poster--unframed]="!framed()">
+<div
+  class="mm-poster"
+  [class.mm-poster--unframed]="!framed()"
+  [class.mm-poster--caption-below]="captionPlacement() === 'below'"
+>
+  @if (href(); as destination) {
+    <a
+      class="mm-poster__hit"
+      [href]="destination"
+      target="_blank"
+      rel="noreferrer"
+      [attr.aria-label]="resolvedLinkLabel()"
+    >
+      <span class="visually-hidden">{{ title() }}</span>
+    </a>
+  }
   <div class="mm-poster__art" [style.background]="showNetworkImage() ? null : art()">
     @if (showNetworkImage()) {
       <img
@@ -16,22 +31,35 @@
         [class.mm-poster__tag--success]="tagTone() === 'success'"
       >{{ tag() }}</span>
     }
-    <div class="mm-poster__overlay">
-      @if (episode()) {
-        <div class="mm-poster__episode">{{ episode() }}</div>
-      }
-      <div class="mm-poster__head">
-        <strong>{{ title() }}</strong>
-        @if (rating() !== null && rating() !== undefined) {
-          <span class="mm-poster__rating" aria-label="Rating {{ rating() }} out of 10">★ {{ rating() }}</span>
+    @if (captionPlacement() === 'overlay') {
+      <div class="mm-poster__overlay">
+        @if (episode()) {
+          <div class="mm-poster__episode">{{ episode() }}</div>
         }
+        <div class="mm-poster__head">
+          <strong>{{ title() }}</strong>
+          @if (rating() !== null && rating() !== undefined) {
+            <span class="mm-poster__rating" aria-label="Rating {{ rating() }} out of 10">★ {{ rating() }}</span>
+          }
+        </div>
+        <small>{{ meta() }}</small>
       </div>
-      <small>{{ meta() }}</small>
-    </div>
+    }
     @if (progress() !== null && progress() !== undefined) {
       <div class="mm-poster__progress" aria-hidden="true">
         <div class="mm-poster__progress-bar" [style.width.%]="progress()"></div>
       </div>
     }
+    @if (showPlayCue() && href()) {
+      <span class="mm-poster__play-cue" aria-hidden="true">
+        <svg lucidePlay [size]="18"></svg>
+      </span>
+    }
   </div>
+  @if (captionPlacement() === 'below') {
+    <div class="mm-poster__caption" [attr.aria-hidden]="href() ? true : null">
+      <strong>{{ title() }}</strong>
+      <small>{{ meta() }}</small>
+    </div>
+  }
 </div>

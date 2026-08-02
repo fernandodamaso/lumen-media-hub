@@ -7,7 +7,8 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { LucideChevronLeft, LucideChevronRight, LucidePlay } from '@lucide/angular';
+import { LucideChevronLeft, LucideChevronRight } from '@lucide/angular';
+import { MmPoster } from '@app/ui';
 import {
   DEFAULT_LIBRARY_ART,
   JELLYFIN_LINK_BASES,
@@ -20,7 +21,7 @@ const COMPACT_PAGE_SIZE = 5;
 
 @Component({
   selector: 'mm-library-poster-grid',
-  imports: [LucideChevronLeft, LucideChevronRight, LucidePlay],
+  imports: [LucideChevronLeft, LucideChevronRight, MmPoster],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './library-poster-grid.html',
   styleUrl: './library-poster-grid.scss',
@@ -30,8 +31,8 @@ export class LibraryPosterGrid {
 
   readonly items = input.required<LibraryItem[]>();
   readonly compact = input(false);
-  readonly failedArt = signal(new Set<string>());
   readonly page = signal(0);
+  readonly artNonce = signal(0);
 
   readonly canCarousel = computed(
     () => this.compact() && this.items().length > COMPACT_PAGE_SIZE,
@@ -53,7 +54,7 @@ export class LibraryPosterGrid {
     effect(() => {
       this.items();
       this.page.set(0);
-      this.failedArt.set(new Set());
+      this.artNonce.update((n) => n + 1);
     });
   }
 
@@ -66,7 +67,7 @@ export class LibraryPosterGrid {
   }
 
   posterImageSrc(item: LibraryItem): string | null {
-    if (item.artworkState !== 'ok' || this.failedArt().has(item.id)) return null;
+    if (item.artworkState !== 'ok') return null;
     const art = item.art.trim();
     const urlMatch = /^url\(["']?([^"')]+)["']?\)/.exec(art);
     if (urlMatch?.[1]) return urlMatch[1];
@@ -74,20 +75,9 @@ export class LibraryPosterGrid {
     return null;
   }
 
-  artStyle(item: LibraryItem): string {
-    if (this.posterImageSrc(item)) return 'transparent';
-    if (item.artworkState !== 'ok' || this.failedArt().has(item.id)) {
-      return DEFAULT_LIBRARY_ART;
-    }
+  posterFallbackArt(item: LibraryItem): string {
+    if (item.artworkState !== 'ok' || this.posterImageSrc(item)) return DEFAULT_LIBRARY_ART;
     return item.art || DEFAULT_LIBRARY_ART;
-  }
-
-  onArtError(item: LibraryItem): void {
-    this.failedArt.update((current) => {
-      const next = new Set(current);
-      next.add(item.id);
-      return next;
-    });
   }
 
   playHref(item: LibraryItem): string | null {

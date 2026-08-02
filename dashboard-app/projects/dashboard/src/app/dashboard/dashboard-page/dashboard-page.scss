@@ -121,69 +121,17 @@
   transform: translate(-50%, -50%) scale(1);
 }
 
-/* Trending — poster cards with rail-local rank badges */
-.poster-card {
-  position: relative;
+/* Trending — shared poster sizing and skeleton placeholder */
+.trending-poster,
+.trending-poster--skeleton {
   flex: 0 0 158px;
+  width: 158px;
 }
-.poster-card__frame {
-  position: relative;
-  border-radius: var(--mm-radius-sm);
+
+.trending-poster--skeleton {
   overflow: hidden;
   aspect-ratio: 2 / 3;
-  border: 1px solid var(--mm-component-border);
-  background: var(--mm-component-card-bg);
-  transition:
-    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.35s;
-}
-.poster-card:hover .poster-card__frame {
-  transform: translateY(-6px);
-  box-shadow: 0 16px 40px rgb(0 0 0 / 55%);
-}
-.poster-card__frame img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.poster-card__art {
-  width: 100%;
-  height: 100%;
-}
-.poster-card__rank {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  font-family: var(--mm-font-display, 'Fraunces', Georgia, serif);
-  font-style: italic;
-  font-size: 13px;
-  color: var(--mm-semantic-accent);
-  background: color-mix(in srgb, var(--mm-semantic-surface-page) 65%, transparent);
-  backdrop-filter: blur(6px);
-  border: 1px solid color-mix(in srgb, var(--mm-semantic-accent) 40%, transparent);
-}
-.poster-card__name {
-  font-size: 12.5px;
-  font-weight: 600;
-  margin-top: 9px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.poster-card__sub {
-  font-size: 11px;
-  color: var(--mm-component-text-muted);
-  margin-top: 1px;
-}
-.poster-card--skeleton:hover .poster-card__frame {
-  transform: none;
-  box-shadow: none;
+  border-radius: var(--mm-radius-sm);
 }
 
 /* Downloads section */

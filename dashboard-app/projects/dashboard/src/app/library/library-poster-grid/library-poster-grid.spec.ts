@@ -23,10 +23,26 @@ describe('LibraryPosterGrid', () => {
     fixture.detectChanges();
 
     const root = fixtureHost(fixture);
-    const hit = root.querySelector('.poster__hit') as HTMLAnchorElement;
-    expect(hit).toBeTruthy();
+    const poster = root.querySelector('mm-poster');
+    const hit = poster?.querySelector('.mm-poster__hit') as HTMLAnchorElement;
+    expect(poster).toBeTruthy();
+    expect(hit.getAttribute('href')).toBe('https://jellyfin.example/web/index.html#!/details?id=m1');
     expect(hit.getAttribute('aria-label')).toBe('Play Moonrise');
-    expect(root.querySelector('.poster__actions a')).toBeNull();
+    expect(poster?.querySelector('.mm-poster--caption-below')).toBeTruthy();
+    expect(poster?.querySelector('.mm-poster__play-cue')).toBeTruthy();
+  });
+
+  it('renders an inert poster when a title is not playable', () => {
+    fixture.componentRef.setInput('items', [
+      { ...item('m2', 'Lost', ''), playable: false },
+    ]);
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    const poster = root.querySelector('mm-poster');
+    expect(poster).toBeTruthy();
+    expect(poster?.querySelector('.mm-poster__hit')).toBeNull();
+    expect(poster?.querySelector('.mm-poster__play-cue')).toBeNull();
   });
 });
 

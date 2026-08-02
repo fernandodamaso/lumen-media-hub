@@ -34,6 +34,7 @@ export interface ExternalDiscoverItem {
   title: string;
   year?: number | null;
   tmdb_id: number;
+  trakt_slug?: string | null;
   overview?: string;
   poster_url?: string | null;
   rating?: number | null;

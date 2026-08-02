@@ -34,49 +34,18 @@
       [attr.aria-live]="canCarousel() ? 'polite' : null"
     >
       @for (item of visibleItems(); track item.id) {
-        <figure class="poster">
-          <div class="poster__frame" [class.poster__frame--playable]="!!playHref(item)" [style.background]="artStyle(item)">
-            @if (playHref(item); as href) {
-              <a
-                class="poster__hit"
-                [href]="href"
-                target="_blank"
-                rel="noreferrer"
-                [attr.aria-label]="'Play ' + item.title"
-              ></a>
-            }
-            @if (posterImageSrc(item); as src) {
-              <img
-                class="poster__image"
-                [src]="src"
-                alt=""
-                loading="lazy"
-                (error)="onArtError(item)"
-              />
-            }
-            <div class="poster__actions" aria-hidden="true">
-              @if (playHref(item)) {
-                <span class="poster__action">
-                  <svg lucidePlay [size]="14" aria-hidden="true"></svg>
-                </span>
-              }
-            </div>
-          </div>
-          <figcaption>
-            @if (playHref(item); as href) {
-              <a
-                class="poster__title poster__title--link"
-                [href]="href"
-                target="_blank"
-                rel="noreferrer"
-                [attr.aria-label]="'Play ' + item.title"
-              >{{ item.title }}</a>
-            } @else {
-              <span class="poster__title">{{ item.title }}</span>
-            }
-            <span class="poster__meta">{{ item.meta || kindLabel(item.kind) }}</span>
-          </figcaption>
-        </figure>
+        @let href = playHref(item);
+        <mm-poster
+          [title]="item.title"
+          [meta]="item.meta || kindLabel(item.kind)"
+          [imageUrl]="posterImageSrc(item)"
+          [art]="posterFallbackArt(item)"
+          captionPlacement="below"
+          [href]="href"
+          [linkLabel]="href ? 'Play ' + item.title : null"
+          [showPlayCue]="!!href"
+          [retryToken]="artNonce()"
+        />
       }
     </div>
   </div>

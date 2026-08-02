@@ -12,6 +12,10 @@ type PosterArgs = {
   progress: number | null;
   imageUrl: string | null;
   art: string;
+  href: string | null;
+  linkLabel: string | null;
+  captionPlacement: 'overlay' | 'below';
+  showPlayCue: boolean;
 };
 
 const meta: Meta<PosterArgs> = {
@@ -28,6 +32,10 @@ const meta: Meta<PosterArgs> = {
     progress: { control: { type: 'number', min: 0, max: 100, step: 1 } },
     imageUrl: { control: 'text' },
     art: { control: 'text' },
+    href: { control: 'text' },
+    linkLabel: { control: 'text' },
+    captionPlacement: { control: 'select', options: ['overlay', 'below'] },
+    showPlayCue: { control: 'boolean' },
   },
   args: {
     title: 'Neon Veil',
@@ -39,6 +47,10 @@ const meta: Meta<PosterArgs> = {
     progress: 64,
     imageUrl: MOCK_POSTER.series1,
     art: mockArtUrl(MOCK_POSTER.series1),
+    href: null,
+    linkLabel: null,
+    captionPlacement: 'overlay',
+    showPlayCue: false,
   },
   render: (args) => ({
     props: args,
@@ -74,6 +86,37 @@ export const WithoutRating: Story = {
     progress: null,
     imageUrl: null,
     art: 'linear-gradient(145deg, var(--mm-component-muted-bg), var(--mm-component-card-bg) 65%)',
+  },
+};
+
+export const Linked: Story = {
+  args: {
+    title: 'Dune',
+    meta: '2021 · Movie',
+    rating: 8.0,
+    episode: null,
+    tag: '1',
+    progress: null,
+    imageUrl: MOCK_POSTER.movie1,
+    art: mockArtUrl(MOCK_POSTER.movie1),
+    href: 'https://trakt.tv/movies/dune-2021',
+    linkLabel: 'Open Dune on Trakt',
+  },
+};
+
+export const CaptionBelow: Story = {
+  args: {
+    title: 'Moonrise',
+    meta: '2024 · Movie',
+    episode: null,
+    tag: null,
+    progress: null,
+    imageUrl: MOCK_POSTER.movie2,
+    art: mockArtUrl(MOCK_POSTER.movie2),
+    captionPlacement: 'below',
+    href: 'https://jellyfin.example/web/index.html#!/details?id=m1',
+    linkLabel: 'Play Moonrise',
+    showPlayCue: true,
   },
 };
 

@@ -9,6 +9,8 @@ export interface TrendingItem {
   type: 'movie' | 'tv';
   posterUrl: string | null;
   rating: number | null;
+  /** Direct Trakt page URL for the title. */
+  href: string;
   /** 1-based rank in the merged interleaved feed. */
   rank: number;
 }
@@ -106,6 +108,17 @@ function toTrendingItem(item: ExternalDiscoverItem, type: 'movie' | 'tv'): Trend
     type,
     posterUrl: item.poster_url ?? null,
     rating: item.rating ?? null,
+    href: resolveTraktHref(item, type),
     rank: 0,
   };
+}
+
+function resolveTraktHref(item: ExternalDiscoverItem, type: 'movie' | 'tv'): string {
+  const slug = item.trakt_slug?.trim();
+  if (slug) {
+    const path = type === 'movie' ? 'movies' : 'shows';
+    return `https://trakt.tv/${path}/${encodeURIComponent(slug)}`;
+  }
+  const idType = type === 'movie' ? 'movie' : 'show';
+  return `https://trakt.tv/search/tmdb/${item.tmdb_id}?id_type=${idType}`;
 }

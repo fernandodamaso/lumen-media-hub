@@ -67,6 +67,7 @@ function trendingItem(overrides: Partial<TrendingItem> = {}): TrendingItem {
     type: 'tv',
     posterUrl: null,
     rating: null,
+    href: 'https://trakt.tv/shows/wasteland',
     rank: 1,
     ...overrides,
   };
@@ -221,7 +222,7 @@ describe('DashboardPage composition', () => {
     expect(root.querySelector('mm-stat-strip')).toBeTruthy();
 
     const headings = Array.from(root.querySelectorAll('.rail-head h2')).map((node) => node.textContent.trim());
-    expect(headings).toEqual(['Continue Watching', 'Trending Now', 'Recently Added']);
+    expect(headings).toEqual(['Continue Watching', 'Trending in Trakt', 'Recently Added']);
     expect(root.querySelector('#downloads h2')?.textContent).toContain('Downloads');
     expect(root.querySelector('[data-testid="dashboard-grid"]')).toBeNull();
   });
@@ -284,15 +285,16 @@ describe('DashboardPage composition', () => {
     );
   });
 
-  it('renders trending posters with rail-local rank badges', () => {
+  it('renders shared clickable Trakt posters with rail-local ranks', () => {
     fixture.detectChanges();
-    const posters = fixtureHost(fixture).querySelectorAll('[data-testid="trending-rail"] .poster-card');
+    const posters = fixtureHost(fixture).querySelectorAll('[data-testid="trending-rail"] mm-poster');
     expect(posters).toHaveLength(2);
-    expect(posters[0].querySelector('.poster-card__rank')?.textContent).toBe('1');
-    expect(posters[1].querySelector('.poster-card__rank')?.textContent).toBe('2');
+    expect(posters[0].querySelector('.mm-poster__tag')?.textContent).toContain('1');
+    expect(posters[1].querySelector('.mm-poster__tag')?.textContent).toContain('2');
     expect(posters[1].textContent).toContain('Frontline');
-    expect(posters[1].textContent).toContain('Film');
-    expect((posters[0].querySelector('.poster-card__art') as HTMLElement).style.background).toContain('linear-gradient');
+    const link = posters[0].querySelector('.mm-poster__hit') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('https://trakt.tv/shows/wasteland');
+    expect(link.getAttribute('aria-label')).toBe('Open Wasteland on Trakt');
   });
 
   it('renders recently added landscape cards', () => {

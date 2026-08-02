@@ -136,3 +136,14 @@
   display: flex;
   justify-content: flex-end;
 }
+
+.link-arrow {
+  color: var(--mm-semantic-accent);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+
+  &:hover {
+    opacity: 0.75;
+  }
+}

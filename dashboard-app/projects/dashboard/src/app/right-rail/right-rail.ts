@@ -2,11 +2,12 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { RouterLink } from '@angular/router';
 import { LucideCircleAlert, LucideCircleCheck, LucideDownload, LucideTrash2 } from '@lucide/angular';
 import { MmSkeleton } from '@app/ui';
-import { MmServiceRow, MmUpcomingItem } from '../ui/composites';
 import { ServiceHealthFacade } from '../automation/service-health.facade';
+import { MmServiceRow } from '../automation/service-row';
 import { AUTOMATION_SERVICE_STATUS_VIEW, formatRelativeTime } from '../automation/automation-format';
 import { AutomationServiceStatus, compareAutomationServices } from '../automation/automation.models';
 import { CalendarFacade, CalendarRailEvent } from '../calendar/calendar.facade';
+import { MmUpcomingItem } from '../calendar/upcoming-item';
 import { DEFAULT_LIBRARY_ART } from '../library/library.models';
 import { ActivityItem } from '../activity/activity.models';
 import { SERVICE_LINK_BASES } from '../media-stack/media-stack-api.providers';

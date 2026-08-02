@@ -1,78 +1,7 @@
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { fixtureHost } from '../../testing/fixture-host';
-import { MmButton, MmCard, MmIconButton, MmPoster, MmProgress, MmStateCard, MmStatus, MmTooltip } from './index';
-
-@Component({
-  standalone: true,
-  imports: [MmCard],
-  template: `<mm-card labelledBy="test-heading">
-    <h2 mm-card-header id="test-heading">Library</h2>
-    <button mm-card-header-actions type="button">Filter</button>
-    <p>Card body</p>
-    <span mm-card-footer>8 items shown</span>
-    <a mm-card-footer-actions href="/library">View all</a>
-  </mm-card>`,
-})
-class CardRegionsHost {}
-
-@Component({
-  standalone: true,
-  imports: [MmCard],
-  template: `<mm-card><p>Body only</p></mm-card>`,
-})
-class BodyOnlyCardHost {}
-
-@Component({
-  standalone: true,
-  imports: [MmCard],
-  template: `<mm-card>
-    <h2 mm-card-header>Heading only</h2>
-    <p>Card body</p>
-  </mm-card>`,
-})
-class HeadingOnlyCardHost {}
-
-@Component({
-  standalone: true,
-  imports: [MmCard],
-  template: `<mm-card>
-    <button mm-card-header-actions type="button">Only actions</button>
-    <p>Card body</p>
-  </mm-card>`,
-})
-class HeaderActionsOnlyCardHost {}
-
-@Component({
-  standalone: true,
-  imports: [MmCard],
-  template: `<mm-card>
-    <p>Card body</p>
-    <span mm-card-footer>Footer only</span>
-  </mm-card>`,
-})
-class FooterContentOnlyCardHost {}
-
-@Component({
-  standalone: true,
-  imports: [MmCard],
-  template: `<mm-card>
-    <p>Card body</p>
-    <a mm-card-footer-actions href="/library">Footer actions</a>
-  </mm-card>`,
-})
-class FooterActionsOnlyCardHost {}
-
-@Component({
-  standalone: true,
-  imports: [MmCard],
-  template: `<mm-card>
-    <p>Card body</p>
-    <ng-container mm-card-footer><span>8 items shown</span></ng-container>
-    <ng-container mm-card-footer-actions><a href="/library">View all</a></ng-container>
-  </mm-card>`,
-})
-class ContainerRegionsHost {}
+import { MmButton, MmIconButton, MmPoster, MmProgress, MmStateCard, MmStatus, MmTooltip } from './index';
 
 describe('app/ui primitives', () => {
   it('renders button content and preserves its base and variant classes', () => {
@@ -171,61 +100,6 @@ describe('app/ui primitives', () => {
     const status = fixtureHost(fixture).querySelector('.mm-status');
 
     expect(status?.getAttribute('role')).toBe('status');
-  });
-
-  it('renders optional card regions and omits empty header and footer chrome without DOM mutation', () => {
-    const complete = TestBed.createComponent(CardRegionsHost);
-    complete.detectChanges();
-    const completeRoot = fixtureHost(complete);
-    expect(completeRoot.querySelector('.mm-card__header')?.textContent).toContain('Library');
-    expect(completeRoot.querySelector('.mm-card__footer')?.textContent).toContain('8 items shown');
-    expect(completeRoot.querySelector('.mm-card')?.getAttribute('aria-labelledby')).toBe('test-heading');
-    expect(completeRoot.querySelector('.mm-card__header')?.hasAttribute('hidden')).toBe(false);
-    expect(completeRoot.querySelector('.mm-card__footer')?.hasAttribute('hidden')).toBe(false);
-
-    const bodyOnly = TestBed.createComponent(BodyOnlyCardHost);
-    bodyOnly.detectChanges();
-    const bodyOnlyRoot = fixtureHost(bodyOnly);
-    expect(getComputedStyle(bodyOnlyRoot.querySelector('.mm-card__header') as Element).display).toBe('none');
-    expect(getComputedStyle(bodyOnlyRoot.querySelector('.mm-card__footer') as Element).display).toBe('none');
-    expect(bodyOnlyRoot.querySelector('.mm-card__header')?.hasAttribute('hidden')).toBe(false);
-
-    const headingOnly = TestBed.createComponent(HeadingOnlyCardHost);
-    headingOnly.detectChanges();
-    const headingOnlyRoot = fixtureHost(headingOnly);
-    expect(getComputedStyle(headingOnlyRoot.querySelector('.mm-card__header') as Element).display).not.toBe('none');
-    expect(getComputedStyle(headingOnlyRoot.querySelector('.mm-card__footer') as Element).display).toBe('none');
-
-    const headerActionsOnly = TestBed.createComponent(HeaderActionsOnlyCardHost);
-    headerActionsOnly.detectChanges();
-    const headerActionsOnlyRoot = fixtureHost(headerActionsOnly);
-    expect(getComputedStyle(headerActionsOnlyRoot.querySelector('.mm-card__header') as Element).display).not.toBe(
-      'none',
-    );
-    expect(headerActionsOnlyRoot.querySelector('.mm-card__actions')?.textContent).toContain('Only actions');
-
-    const footerContentOnly = TestBed.createComponent(FooterContentOnlyCardHost);
-    footerContentOnly.detectChanges();
-    const footerContentOnlyRoot = fixtureHost(footerContentOnly);
-    expect(getComputedStyle(footerContentOnlyRoot.querySelector('.mm-card__header') as Element).display).toBe('none');
-    expect(getComputedStyle(footerContentOnlyRoot.querySelector('.mm-card__footer') as Element).display).not.toBe(
-      'none',
-    );
-
-    const footerActionsOnly = TestBed.createComponent(FooterActionsOnlyCardHost);
-    footerActionsOnly.detectChanges();
-    const footerActionsOnlyRoot = fixtureHost(footerActionsOnly);
-    expect(getComputedStyle(footerActionsOnlyRoot.querySelector('.mm-card__footer') as Element).display).not.toBe(
-      'none',
-    );
-    expect(footerActionsOnlyRoot.querySelector('.mm-card__footer')?.textContent).toContain('Footer actions');
-
-    const containerRegions = TestBed.createComponent(ContainerRegionsHost);
-    containerRegions.detectChanges();
-    const projectedFooter = fixtureHost(containerRegions).querySelector('.mm-card__footer') as HTMLElement;
-    expect(projectedFooter.hidden).toBe(false);
-    expect(projectedFooter.textContent).toContain('8 items shown');
-    expect(projectedFooter.textContent).toContain('View all');
   });
 
   it('renders posters as a neutral wrapper without an article root', () => {

@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { MmButton, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
+import { MmButton, MmInput, MmSegmentedControl, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { DiscoverFeedback, DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { DiscoverCard } from './discover-card';
 import { DiscoverHistoryFilter, matchesDiscoverSearch } from './discover-format';
@@ -9,7 +9,7 @@ export const DISCOVER_BATCH_SIZE = 24;
 
 @Component({
   selector: 'mm-discover-page',
-  imports: [MmButton, MmSkeleton, MmStateCard, MmStatus, DiscoverCard],
+  imports: [MmButton, MmInput, MmSegmentedControl, MmSkeleton, MmStateCard, MmStatus, DiscoverCard],
   providers: [DiscoverFacade],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './discover-page.html',
@@ -77,6 +77,12 @@ export class DiscoverPage {
     { id: 'movies', label: 'Movies' },
     { id: 'shows', label: 'Shows' },
   ];
+
+  readonly tabOption = (option: (typeof this.tabs)[number]) => ({ value: option.id, label: option.label });
+  readonly viewOption = (option: (typeof this.hermesViews)[number]) => ({ value: option.id, label: option.label });
+  readonly historyOption = (option: (typeof this.historyFilters)[number]) => ({ value: option.id, label: option.label });
+  readonly jellyseerrOption = (option: (typeof this.jellyseerrKinds)[number]) => ({ value: option.id, label: option.label });
+  readonly traktOption = (option: (typeof this.traktTypes)[number]) => ({ value: option.id, label: option.label });
 
   constructor() {
     void this.facade.setTab('hermes');

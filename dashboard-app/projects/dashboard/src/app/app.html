@@ -36,9 +36,12 @@
           <div class="mini-card__big">
             {{ storageUsedLabel() }} <span>of {{ storageTotalLabel() }}</span>
           </div>
-          <div class="mini-card__progress" aria-hidden="true">
-            <i [style.width.%]="storagePercent()"></i>
-          </div>
+          <mm-progress
+            class="mini-card__progress"
+            [value]="storagePercent()"
+            [showLabel]="false"
+            [label]="'Storage ' + storagePercent() + '% used'"
+          />
         </div>
       }
       @if (hasAttention()) {

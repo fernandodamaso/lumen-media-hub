@@ -1,11 +1,12 @@
 import { ChangeDetectionStrategy, Component, ElementRef, input, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { LucideChevronLeft, LucideChevronRight } from '@lucide/angular';
+import { MmIconButton } from '@app/ui';
 
 /** Generic horizontal content rail: serif heading, optional count/link, arrow scrolling. */
 @Component({
   selector: 'mm-media-rail',
-  imports: [RouterLink, LucideChevronLeft, LucideChevronRight],
+  imports: [RouterLink, MmIconButton, LucideChevronLeft, LucideChevronRight],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="rail-head">
@@ -17,22 +18,24 @@ import { LucideChevronLeft, LucideChevronRight } from '@lucide/angular';
         <a class="link" [routerLink]="to">{{ linkLabel() }} →</a>
       }
       <div class="rail-nav">
-        <button
-          type="button"
+        <mm-icon-button
           class="rail-arrow"
-          [attr.aria-label]="'Scroll ' + title() + ' back'"
+          size="sm"
+          shape="circle"
+          [label]="'Scroll ' + title() + ' back'"
           (click)="scroll(-1)"
         >
           <svg lucideChevronLeft [size]="13" aria-hidden="true"></svg>
-        </button>
-        <button
-          type="button"
+        </mm-icon-button>
+        <mm-icon-button
           class="rail-arrow"
-          [attr.aria-label]="'Scroll ' + title() + ' forward'"
+          size="sm"
+          shape="circle"
+          [label]="'Scroll ' + title() + ' forward'"
           (click)="scroll(1)"
         >
           <svg lucideChevronRight [size]="13" aria-hidden="true"></svg>
-        </button>
+        </mm-icon-button>
       </div>
     </div>
     <div class="rail" #rail><ng-content /></div>

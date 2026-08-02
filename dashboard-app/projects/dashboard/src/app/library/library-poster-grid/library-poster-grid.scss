@@ -57,15 +57,8 @@
 .poster-rail__nav {
   position: absolute;
   top: 50%;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--mm-component-accent);
-  color: var(--mm-component-text-secondary);
-  cursor: pointer;
+  --mm-icon-button-size: 34px;
+
   opacity: 0.28;
   pointer-events: auto;
   transform: translateY(-50%);
@@ -88,12 +81,7 @@
   opacity: 1;
 }
 
-.poster-rail__nav:hover:not(:disabled) {
-  background: var(--mm-component-accent-strong);
-  color: var(--mm-component-text-primary);
-}
-
-.poster-rail__nav:disabled {
+.poster-rail__nav:has(.mm-icon-button:disabled) {
   cursor: default;
   opacity: 0.18;
   pointer-events: none;
@@ -104,10 +92,8 @@
   opacity: 0.22;
 }
 
-.poster-rail__nav:focus-visible {
+.poster-rail__nav:focus-within {
   opacity: 1;
-  outline: 3px solid var(--mm-component-focus-ring);
-  outline-offset: 2px;
 }
 
 .posters {

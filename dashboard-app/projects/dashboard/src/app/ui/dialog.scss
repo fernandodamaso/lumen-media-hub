@@ -3,7 +3,7 @@
 }
 
 .mm-dialog {
-  width: min(460px, calc(100vw - 48px));
+  width: var(--mm-dialog-width, min(460px, calc(100vw - 48px)));
   margin: auto;
   padding: 0;
   border: 1px solid rgb(255 255 255 / 10%);
@@ -128,9 +128,9 @@
 .mm-dialog__body {
   display: grid;
   gap: var(--mm-space-md);
-  max-height: 60vh;
+  max-height: var(--mm-dialog-body-max-height, 60vh);
   overflow: auto;
-  padding: var(--mm-space-md);
+  padding: var(--mm-dialog-body-padding, var(--mm-space-md));
 }
 
 .mm-dialog__body > :first-child {

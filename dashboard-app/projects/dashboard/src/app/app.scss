@@ -209,21 +209,8 @@ mm-right-rail {
   color: var(--mm-component-text-muted);
 }
 .mini-card__progress {
-  height: 5px;
   margin-top: 10px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--mm-component-text-primary) 8%, transparent);
-  overflow: hidden;
-}
-.mini-card__progress i {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    var(--mm-semantic-accent),
-    color-mix(in srgb, var(--mm-semantic-accent) 55%, #fff)
-  );
+  --mm-progress-height: 5px;
 }
 
 .status-pill {

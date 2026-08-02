@@ -1,33 +1,31 @@
-@use '../../ui/dashboard-card' as dash;
-
 :host {
   display: block;
 }
 
 .pagehead {
-  @include dash.pagehead;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
 }
 
 .pagehead h1 {
-  @include dash.pagehead-title;
+  margin: 0;
+  font-family: var(--mm-font-display);
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .pagehead__sub {
-  @include dash.pagehead-sub;
+  margin: 2px 0 0;
+  color: var(--mm-component-text-muted);
+  font-size: 13px;
 }
 
 .pagehead__accent {
   color: var(--mm-component-accent-strong);
-}
-
-.segmented {
-  @include dash.segmented;
-
-  background: var(--mm-component-card-bg);
-}
-
-.segmented__btn {
-  @include dash.segmented-btn;
 }
 
 mm-status {

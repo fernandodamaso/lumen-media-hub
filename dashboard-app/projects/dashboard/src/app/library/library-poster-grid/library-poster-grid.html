@@ -6,24 +6,26 @@
   <div class="poster-rail__stage">
     @if (canCarousel()) {
       <div class="poster-rail__nav-layer">
-        <button
-          type="button"
+        <mm-icon-button
           class="poster-rail__nav poster-rail__nav--prev"
-          aria-label="Previous posters"
+          label="Previous posters"
+          size="sm"
+          shape="rounded"
           [disabled]="page() === 0"
           (click)="prevPage()"
         >
           <svg lucideChevronLeft [size]="18" aria-hidden="true"></svg>
-        </button>
-        <button
-          type="button"
+        </mm-icon-button>
+        <mm-icon-button
           class="poster-rail__nav poster-rail__nav--next"
-          aria-label="Next posters"
+          label="Next posters"
+          size="sm"
+          shape="rounded"
           [disabled]="page() >= pageCount() - 1"
           (click)="nextPage()"
         >
           <svg lucideChevronRight [size]="18" aria-hidden="true"></svg>
-        </button>
+        </mm-icon-button>
       </div>
     }
 

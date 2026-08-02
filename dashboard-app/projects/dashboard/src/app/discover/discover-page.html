@@ -6,18 +6,13 @@
 
 <section class="discover-controls" aria-label="Discover controls">
   <div class="discover-controls__primary">
-    <div class="tabs" role="group" aria-label="Discover sources">
-      @for (tab of tabs; track tab.id) {
-        <button
-          type="button"
-          class="tab"
-          [attr.aria-pressed]="facade.tab() === tab.id"
-          (click)="setTab(tab.id)"
-        >
-          {{ tab.label }}
-        </button>
-      }
-    </div>
+    <mm-segmented-control
+      [options]="tabs.map(tabOption)"
+      [value]="facade.tab()"
+      label="Discover sources"
+      size="md"
+      (valueChange)="setTab($event)"
+    />
     @if (facade.tab() === 'hermes') {
       <div class="toolbar-actions">
         <mm-button
@@ -35,74 +30,54 @@
   <div class="discover-controls__secondary">
     @if (facade.tab() === 'hermes') {
       <div class="filters" aria-label="Hermes filters">
-        <div class="filter-group" role="group" aria-label="Hermes view">
-          @for (view of hermesViews; track view.id) {
-            <button
-              type="button"
-              class="chip"
-              [attr.aria-pressed]="facade.hermesView() === view.id"
-              (click)="setHermesView(view.id)"
-            >
-              {{ view.label }}
-            </button>
-          }
-        </div>
+        <mm-segmented-control
+          [options]="hermesViews.map(viewOption)"
+          [value]="facade.hermesView()"
+          label="Hermes view"
+          size="sm"
+          (valueChange)="setHermesView($event)"
+        />
         @if (facade.hermesView() === 'history') {
-          <div class="filter-group" role="group" aria-label="History filter">
-            @for (filter of historyFilters; track filter.id) {
-              <button
-                type="button"
-                class="chip"
-                [attr.aria-pressed]="facade.historyFilter() === filter.id"
-                (click)="setHistoryFilter(filter.id)"
-              >
-                {{ filter.label }}
-              </button>
-            }
-          </div>
+          <mm-segmented-control
+            [options]="historyFilters.map(historyOption)"
+            [value]="facade.historyFilter()"
+            label="History filter"
+            size="sm"
+            (valueChange)="setHistoryFilter($event)"
+          />
         }
       </div>
     }
 
     @if (facade.tab() === 'jellyseerr') {
-      <div class="filters" role="group" aria-label="Jellyseerr kind">
-        @for (kind of jellyseerrKinds; track kind.id) {
-          <button
-            type="button"
-            class="chip"
-            [attr.aria-pressed]="facade.jellyseerrKind() === kind.id"
-            (click)="setJellyseerrKind(kind.id)"
-          >
-            {{ kind.label }}
-          </button>
-        }
-      </div>
+      <mm-segmented-control
+        [options]="jellyseerrKinds.map(jellyseerrOption)"
+        [value]="facade.jellyseerrKind()"
+        label="Jellyseerr kind"
+        size="sm"
+        (valueChange)="setJellyseerrKind($event)"
+      />
     }
 
     @if (facade.tab() === 'trakt') {
-      <div class="filters" role="group" aria-label="Trakt type">
-        @for (type of traktTypes; track type.id) {
-          <button
-            type="button"
-            class="chip"
-            [attr.aria-pressed]="facade.traktType() === type.id"
-            (click)="setTraktType(type.id)"
-          >
-            {{ type.label }}
-          </button>
-        }
-      </div>
+      <mm-segmented-control
+        [options]="traktTypes.map(traktOption)"
+        [value]="facade.traktType()"
+        label="Trakt type"
+        size="sm"
+        (valueChange)="setTraktType($event)"
+      />
     }
 
     <div class="discover-search">
-      <label class="discover-search__label" for="discover-search-input">Search current results</label>
-      <input
-        id="discover-search-input"
+      <mm-input
         class="discover-search__input"
         type="search"
+        inputId="discover-search-input"
+        ariaLabel="Search current results"
         placeholder="Search current results"
         [value]="searchQuery()"
-        (input)="setSearchQuery($any($event.target).value)"
+        (valueChange)="setSearchQuery($event)"
       />
       @if (hasSearchQuery()) {
         <button type="button" class="discover-search__clear" (click)="clearSearch()">Clear search</button>

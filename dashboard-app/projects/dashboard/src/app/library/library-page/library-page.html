@@ -6,17 +6,13 @@
       <span class="pagehead__accent">{{ facade.movieCount() }} movies · {{ facade.seriesCount() }} series</span>
     </p>
   </div>
-  <div class="segmented" role="group" aria-label="Filter library">
-    <button type="button" class="segmented__btn" [class.is-active]="filter() === 'all'" (click)="setFilter('all')">
-      All
-    </button>
-    <button type="button" class="segmented__btn" [class.is-active]="filter() === 'movie'" (click)="setFilter('movie')">
-      Movies
-    </button>
-    <button type="button" class="segmented__btn" [class.is-active]="filter() === 'series'" (click)="setFilter('series')">
-      Series
-    </button>
-  </div>
+  <mm-segmented-control
+    [options]="filterOptions"
+    [value]="filter()"
+    label="Filter library"
+    size="sm"
+    (valueChange)="setFilter($event)"
+  />
 </header>
 
 @if (facade.error() && facade.status() === 'ready') {

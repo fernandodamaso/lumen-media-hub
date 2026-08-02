@@ -5,9 +5,7 @@
   padding: 9px 0;
   border-bottom: 1px solid var(--mm-component-divider);
 }
-.svc-row:last-of-type {
-  border-bottom: none;
-}
+.svc-row:last-of-type { border-bottom: none; }
 .svc-ico {
   flex: none;
   width: 30px;
@@ -29,10 +27,7 @@
   flex-direction: column;
   gap: 2px;
 }
-.svc-name {
-  font-size: 13px;
-  font-weight: 600;
-}
+.svc-name { font-size: 13px; font-weight: 600; }
 .svc-sub {
   font-size: 10.5px;
   color: var(--mm-component-text-muted);

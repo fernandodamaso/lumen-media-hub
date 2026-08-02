@@ -2,26 +2,13 @@
   display: contents;
 }
 
+mm-dialog.palette-dialog {
+  --mm-dialog-width: min(560px, calc(100vw - 32px));
+  --mm-dialog-body-padding: 0;
+  --mm-dialog-body-max-height: none;
+}
+
 .palette {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: grid;
-  place-items: start center;
-  padding: 12vh 16px 16px;
-}
-
-.palette__backdrop {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  background: rgb(0 0 0 / 55%);
-  cursor: pointer;
-}
-
-.palette__panel {
-  position: relative;
-  z-index: 1;
   width: min(560px, 100%);
   overflow: hidden;
   border: 1px solid var(--mm-component-border);

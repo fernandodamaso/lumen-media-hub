@@ -1,9 +1,9 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideRefreshCw, LucideSquareArrowOutUpRight } from '@lucide/angular';
+import { LucideInfo, LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideRefreshCw, LucideSquareArrowOutUpRight } from '@lucide/angular';
 
 @Component({
   selector: 'mm-button',
-  imports: [LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideRefreshCw, LucideSquareArrowOutUpRight],
+  imports: [LucideInfo, LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideRefreshCw, LucideSquareArrowOutUpRight],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<button
     [type]="type()"
@@ -23,6 +23,8 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideRefreshC
       <svg lucideRefreshCw [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
     } @else if (icon() === 'external-link') {
       <svg lucideSquareArrowOutUpRight [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
+    } @else if (icon() === 'info') {
+      <svg lucideInfo [size]="15" [strokeWidth]="2.2" aria-hidden="true"></svg>
     }
     {{ label() }}
   </button>`,
@@ -31,7 +33,7 @@ import { LucideLoaderCircle, LucidePause, LucidePlay, LucidePlus, LucideRefreshC
 export class MmButton {
   readonly label = input('Continue');
   readonly variant = input<'primary' | 'quiet' | 'success' | 'warning' | 'danger' | 'gold' | 'ghost' | 'chip'>('primary');
-  readonly icon = input<'pause' | 'play' | 'plus' | 'refresh' | 'external-link' | ''>('');
+  readonly icon = input<'pause' | 'play' | 'plus' | 'refresh' | 'external-link' | 'info' | ''>('');
   readonly disabled = input(false);
   readonly busy = input(false);
   readonly size = input<'sm' | 'md' | 'lg'>('md');

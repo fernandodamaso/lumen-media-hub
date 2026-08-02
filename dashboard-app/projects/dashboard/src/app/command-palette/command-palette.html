@@ -1,13 +1,11 @@
-@if (open()) {
-  <div class="palette" data-testid="command-palette">
-    <button type="button" class="palette__backdrop" aria-label="Close command palette" (click)="setOpen(false)"></button>
-    <div
-      class="palette__panel"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Command palette"
-      (keydown)="onListKeydown($event)"
-    >
+<mm-dialog
+  class="palette-dialog"
+  title="Command palette"
+  [showHeader]="false"
+  [opened]="open()"
+  (openedChange)="setOpen($event)"
+>
+  <div class="palette" data-testid="command-palette" tabindex="-1" (keydown)="onListKeydown($event)">
       <div class="palette__input-row">
         <input
           #paletteInput
@@ -19,7 +17,7 @@
         />
         <kbd>esc</kbd>
       </div>
-      <div class="palette__results" role="listbox">
+      <div class="palette__results" role="listbox" aria-label="Command results">
         @for (group of grouped(); track group.name; let groupIndex = $index) {
           <div class="palette__group">
             <p class="palette__group-label">{{ group.name }}</p>
@@ -44,6 +42,5 @@
         }
       </div>
       <div class="palette__foot">↑↓ navigate · ↵ select</div>
-    </div>
   </div>
-}
+</mm-dialog>

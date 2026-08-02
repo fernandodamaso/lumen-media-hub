@@ -48,6 +48,30 @@ test('sidebar navigation links are present', async ({ page }) => {
   await expect(workspaceNav).toContainText('Discover');
 });
 
+test('command palette traps focus and restores it to the search trigger', async ({ page }) => {
+  await page.goto('/');
+  const trigger = page.getByTestId('topbar-search');
+  await trigger.focus();
+  await trigger.click();
+  const dialog = page.locator('dialog[aria-label="Command palette"]');
+  await expect(dialog).toBeVisible();
+  const search = page.getByRole('searchbox', { name: 'Search commands' });
+  await expect(search).toBeFocused();
+
+  for (let index = 0; index < 3; index += 1) {
+    await page.keyboard.press('Tab');
+    expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  }
+  for (let index = 0; index < 3; index += 1) {
+    await page.keyboard.press('Shift+Tab');
+    expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  }
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
 async function expectNoHorizontalOverflow(page: import('@playwright/test').Page): Promise<void> {
   await expect.poll(async () =>
     page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),

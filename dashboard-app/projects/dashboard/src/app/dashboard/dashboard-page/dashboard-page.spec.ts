@@ -235,7 +235,7 @@ describe('DashboardPage composition', () => {
     expect(card?.textContent).toContain('S01E01 · Pilot');
     const art = card?.querySelector('.cw-card__art') as HTMLElement;
     expect(art.style.background).toContain('Thumb');
-    const bar = card?.querySelector('.cw-bar i') as HTMLElement;
+    const bar = card?.querySelector('.cw-bar .mm-progress__bar') as HTMLElement;
     expect(bar.style.width).toBe('64%');
   });
 

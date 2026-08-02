@@ -1,14 +1,16 @@
 <!-- Backdrop click-to-close; Escape is handled natively by <dialog>. -->
-<!-- eslint-disable @angular-eslint/template/click-events-have-key-events -->
 <!-- eslint-disable @angular-eslint/template/interactive-supports-focus -->
 <dialog
   #dialogEl
   class="mm-dialog"
   [attr.id]="dialogId"
-  [attr.aria-labelledby]="titleId"
+  [attr.aria-labelledby]="showHeader() ? titleId : null"
+  [attr.aria-label]="title()"
   (click)="onDialogClick($event)"
+  (keydown)="onDialogKeydown($event)"
   (close)="onNativeClose()"
 >
+  @if (showHeader()) {
   <header class="mm-dialog__head">
     <h2 [id]="titleId" class="mm-dialog__title">
       @if (tone() !== 'default') {
@@ -25,6 +27,7 @@
       <svg lucideX [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
     </button>
   </header>
+  }
   <div class="mm-dialog__body">
     <ng-content />
   </div>
@@ -32,5 +35,4 @@
     <ng-content select="[mmDialogFooter]" />
   </footer>
 </dialog>
-<!-- eslint-enable @angular-eslint/template/click-events-have-key-events -->
 <!-- eslint-enable @angular-eslint/template/interactive-supports-focus -->

@@ -1,8 +1,7 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { LucideArrowDown, LucideArrowUp, LucidePause, LucidePlay } from '@lucide/angular';
-import { MmIconButton } from '../icon-button';
-import { MmProgress } from '../progress';
-import { TorrentState } from '../../downloads/downloads.models';
+import { MmIconButton, MmProgress } from '@app/ui';
+import { TorrentState } from '../downloads.models';
 
 @Component({
   selector: 'mm-download-item',

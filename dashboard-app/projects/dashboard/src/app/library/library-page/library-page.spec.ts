@@ -36,7 +36,7 @@ describe('LibraryPage', () => {
     expect(root.textContent).toContain('Moonrise');
     expect(root.textContent).toContain('Night Watch');
 
-    const movies = [...root.querySelectorAll('.segmented__btn')].find((button) =>
+    const movies = [...root.querySelectorAll('[role="radio"]')].find((button) =>
       button.textContent.includes('Movies'),
     ) as HTMLButtonElement;
     movies.click();

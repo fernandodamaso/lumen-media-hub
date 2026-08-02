@@ -5,9 +5,16 @@ import { LucideLoaderCircle } from '@lucide/angular';
   selector: 'mm-icon-button',
   imports: [LucideLoaderCircle],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    '[class.mm-icon-button-host--disabled]': 'disabled() || busy()',
+  },
   template: `<button
     type="button"
     class="mm-icon-button"
+    [class.mm-icon-button--sm]="size() === 'sm'"
+    [class.mm-icon-button--md]="size() === 'md'"
+    [class.mm-icon-button--rounded]="shape() === 'rounded'"
+    [class.mm-icon-button--circle]="shape() === 'circle'"
     [class.mm-icon-button--pressed]="pressed()"
     [disabled]="disabled() || busy()"
     [attr.aria-label]="label()"
@@ -34,4 +41,6 @@ export class MmIconButton {
   readonly ariaControls = input<string | undefined>();
   /** When true, exposes `aria-pressed` as true/false for toggle buttons. */
   readonly toggle = input(false);
+  readonly size = input<'sm' | 'md'>('md');
+  readonly shape = input<'rounded' | 'circle'>('rounded');
 }

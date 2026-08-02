@@ -41,7 +41,7 @@ describe('MediaRail', () => {
     const scrollBy = vi.fn();
     (rail as unknown as { scrollBy: unknown }).scrollBy = scrollBy;
 
-    const [back, forward] = Array.from(root.querySelectorAll<HTMLButtonElement>('.rail-arrow'));
+    const [back, forward] = Array.from(root.querySelectorAll<HTMLButtonElement>('.rail-arrow button'));
     forward.click();
     expect(scrollBy).toHaveBeenCalledWith({ left: 600, behavior: 'smooth' });
     back.click();

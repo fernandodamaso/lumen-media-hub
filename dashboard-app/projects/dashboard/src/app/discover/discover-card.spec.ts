@@ -79,12 +79,12 @@ describe('DiscoverCard', () => {
     setItem({ tmdbId: 1, title: 'Rated', rating: 8.33 });
     const root = fixtureHost(fixture);
     expect(root.textContent).toContain('8.3★');
-    expect(root.querySelectorAll('.mm-poster__rating')).toHaveLength(0);
+    expect(root.querySelectorAll('.mm-media-card__rating')).toHaveLength(0);
   });
 
   it('uses lazy-loaded poster images with decorative alt text', () => {
     setItem({ tmdbId: 1, title: 'Poster', posterUrl: 'https://example.com/poster.jpg' });
-    const image = fixtureHost(fixture).querySelector('img.mm-poster__image') as HTMLImageElement;
+    const image = fixtureHost(fixture).querySelector('img.mm-media-card__image') as HTMLImageElement;
     expect(image).toBeTruthy();
     expect(image.getAttribute('loading')).toBe('lazy');
     expect(image.getAttribute('decoding')).toBe('async');
@@ -93,10 +93,10 @@ describe('DiscoverCard', () => {
 
   it('falls back when the poster image fails without removing title meta', () => {
     setItem({ tmdbId: 1, title: 'Broken poster', posterUrl: 'https://example.com/bad.jpg' });
-    const image = fixtureHost(fixture).querySelector('img.mm-poster__image') as HTMLImageElement;
+    const image = fixtureHost(fixture).querySelector('img.mm-media-card__image') as HTMLImageElement;
     image.dispatchEvent(new Event('error'));
     fixture.detectChanges();
-    expect(fixtureHost(fixture).querySelector('img.mm-poster__image')).toBeNull();
+    expect(fixtureHost(fixture).querySelector('img.mm-media-card__image')).toBeNull();
     expect(fixtureHost(fixture).textContent).toContain('Broken poster');
   });
 

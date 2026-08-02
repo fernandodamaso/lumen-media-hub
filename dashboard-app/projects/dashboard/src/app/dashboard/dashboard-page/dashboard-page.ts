@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
-import { LucidePlay } from '@lucide/angular';
-import { MmButton, MmDownloadItem, MmPoster, MmReveal, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
+import { MmButton, MmMediaCard, MmReveal, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { AutomationFacade } from '../../automation/automation.facade';
 import { ServiceHealthFacade } from '../../automation/service-health.facade';
 import { CalendarFacade } from '../../calendar/calendar.facade';
@@ -29,6 +28,7 @@ import { ActivityFacade } from '../../right-rail/activity.facade';
 import { StorageFacade } from '../../storage/storage.facade';
 import { refreshDashboardData } from '../dashboard-refresh';
 import { DashboardHero } from '../dashboard-hero/dashboard-hero';
+import { MmDownloadItem } from '../../downloads/download-item/download-item';
 import { MediaRail } from '../media-rail/media-rail';
 import { StatStrip } from '../stat-strip/stat-strip';
 import { TrendingFacade } from '../trending.facade';
@@ -41,7 +41,7 @@ const RAIL_LIMIT = 10;
   imports: [
     MmButton,
     MmDownloadItem,
-    MmPoster,
+    MmMediaCard,
     MmReveal,
     MmSkeleton,
     MmStateCard,
@@ -49,7 +49,6 @@ const RAIL_LIMIT = 10;
     DashboardHero,
     MediaRail,
     StatStrip,
-    LucidePlay,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './dashboard-page.html',

@@ -35,26 +35,7 @@
   gap: 8px;
 }
 .rail-arrow {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: var(--mm-component-card-bg);
-  border: 1px solid var(--mm-component-border);
-  color: var(--mm-component-text-secondary);
-  cursor: pointer;
-  transition:
-    color var(--mm-transition-fast),
-    border-color var(--mm-transition-fast);
-}
-.rail-arrow:hover {
-  color: var(--mm-component-accent);
-  border-color: color-mix(in srgb, var(--mm-component-accent) 40%, transparent);
-}
-.rail-arrow:focus-visible {
-  outline: 3px solid var(--mm-component-focus-ring);
-  outline-offset: 2px;
+  --mm-icon-button-size: 30px;
 }
 
 .rail {
@@ -63,6 +44,10 @@
   max-width: 100%;
   overflow: auto hidden;
   scroll-behavior: smooth;
+
+  /* Room for card hover lift without clipping the top edge */
+  padding-top: 8px;
+  margin-top: -8px;
   padding-bottom: 6px;
   scrollbar-width: none;
   -ms-overflow-style: none;

@@ -26,6 +26,7 @@ import { StorageFacade } from '../storage/storage.facade';
 import { ActivityFacade } from '../right-rail/activity.facade';
 import { refreshDashboardData } from '../dashboard/dashboard-refresh';
 import { TrendingFacade } from '../dashboard/trending.facade';
+import { MmDialog } from '@app/ui';
 
 export type CommandPaletteItem = {
   id: string;
@@ -40,6 +41,7 @@ const LIBRARY_RESULT_CAP = 40;
 
 @Component({
   selector: 'mm-command-palette',
+  imports: [MmDialog],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './command-palette.html',
   styleUrl: './command-palette.scss',

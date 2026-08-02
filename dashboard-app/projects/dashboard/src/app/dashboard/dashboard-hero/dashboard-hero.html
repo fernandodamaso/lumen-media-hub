@@ -18,13 +18,24 @@
       }
       <div class="hero__btns">
         @if (hero.playHref; as href) {
-          <a class="btn-play" data-testid="hero-play" [href]="href" target="_blank" rel="noreferrer">
-            <svg lucidePlay [size]="13" aria-hidden="true"></svg>Play
-          </a>
+          <mm-button-link
+            testId="hero-play"
+            [destination]="href"
+            mode="external"
+            label="Play"
+            icon="play"
+            variant="gold"
+            size="sm"
+          />
         }
-        <a class="btn-ghost" data-testid="hero-details" routerLink="/library">
-          <svg lucideInfo [size]="13" aria-hidden="true"></svg>Details
-        </a>
+        <mm-button-link
+          testId="hero-details"
+          destination="/library"
+          label="Details"
+          icon="info"
+          variant="ghost"
+          size="sm"
+        />
       </div>
       @if (hero.progressPercent > 0) {
         <div class="hero__prog">

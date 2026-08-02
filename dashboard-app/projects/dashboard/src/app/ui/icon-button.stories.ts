@@ -6,6 +6,8 @@ type IconButtonArgs = {
   label: string;
   disabled: boolean;
   busy: boolean;
+  size: 'sm' | 'md';
+  shape: 'rounded' | 'circle';
 };
 
 const meta: Meta<IconButtonArgs> = {
@@ -16,11 +18,15 @@ const meta: Meta<IconButtonArgs> = {
     label: { control: 'text' },
     disabled: { control: 'boolean' },
     busy: { control: 'boolean' },
+    size: { control: 'inline-radio', options: ['sm', 'md'] },
+    shape: { control: 'inline-radio', options: ['rounded', 'circle'] },
   },
   args: {
     label: 'Refresh',
     disabled: false,
     busy: false,
+    size: 'md',
+    shape: 'rounded',
   },
   render: (args) => ({
     props: args,
@@ -42,6 +48,14 @@ export const Busy: Story = {
 
 export const Disabled: Story = {
   args: { label: 'Unavailable', disabled: true },
+};
+
+export const SmallCircle: Story = {
+  args: { label: 'Previous', size: 'sm', shape: 'circle' },
+};
+
+export const MediumRounded: Story = {
+  args: { label: 'Refresh', size: 'md', shape: 'rounded' },
 };
 
 export const PauseResume: Story = {

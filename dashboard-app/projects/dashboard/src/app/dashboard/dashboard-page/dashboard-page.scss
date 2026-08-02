@@ -24,101 +24,16 @@
   min-width: 0;
 }
 
-/* Continue Watching / Recently Added — landscape cards */
-.cw-card {
-  position: relative;
+.landscape-card-skeleton {
   flex: 0 0 272px;
-  display: block;
+  position: relative;
   aspect-ratio: 16 / 10;
+  overflow: hidden;
   border-radius: var(--mm-radius-md);
-  overflow: hidden;
-  border: 1px solid var(--mm-component-border);
-  cursor: pointer;
-  text-decoration: none;
-  color: inherit;
-  transition:
-    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.35s;
 }
-.cw-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 18px 44px rgb(0 0 0 / 55%);
-}
-.cw-card__art {
+.landscape-card-skeleton mm-skeleton {
   position: absolute;
   inset: 0;
-  background-size: cover;
-  background-position: center;
-  transition: transform 0.5s;
-}
-.cw-card:hover .cw-card__art {
-  transform: scale(1.06);
-}
-.cw-card--skeleton {
-  cursor: default;
-}
-.cw-card--skeleton:hover {
-  transform: none;
-  box-shadow: none;
-}
-.cw-card--skeleton mm-skeleton {
-  position: absolute;
-  inset: 0;
-}
-.cw-shade {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, rgb(5 5 10 / 90%) 0%, rgb(5 5 10 / 20%) 48%, transparent 75%);
-}
-.cw-info {
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 12px;
-}
-.cw-name {
-  font-family: var(--mm-font-display, 'Fraunces', Georgia, serif);
-  font-size: 16px;
-  font-weight: 500;
-}
-.cw-sub {
-  font-size: 11px;
-  color: var(--mm-component-text-secondary);
-  margin-top: 2px;
-}
-.cw-bar {
-  height: 3px;
-  margin-top: 9px;
-  border-radius: 999px;
-  background: rgb(255 255 255 / 20%);
-  overflow: hidden;
-}
-.cw-bar i {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--mm-semantic-accent);
-}
-.cw-play {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%) scale(0.6);
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: rgb(255 255 255 / 14%);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgb(255 255 255 / 30%);
-  color: var(--mm-component-text-primary);
-  opacity: 0;
-  transition: all 0.3s;
-}
-.cw-card:hover .cw-play {
-  opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
 }
 
 /* Trending — shared poster sizing and skeleton placeholder */
@@ -221,12 +136,14 @@
   display: flex;
   justify-content: flex-end;
 }
+
 .link-arrow {
   color: var(--mm-semantic-accent);
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
-}
-.link-arrow:hover {
-  opacity: 0.75;
+
+  &:hover {
+    opacity: 0.75;
+  }
 }

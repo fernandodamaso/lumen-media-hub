@@ -18,7 +18,7 @@
     @switch (watchNext.status()) {
       @case ('loading') {
         @for (i of railSkeletons; track i) {
-          <div class="cw-card cw-card--skeleton" aria-hidden="true"><mm-skeleton variant="rect" /></div>
+          <div class="landscape-card-skeleton" aria-hidden="true"><mm-skeleton variant="rect" /></div>
         }
       }
       @case ('error') {
@@ -35,26 +35,16 @@
         } @else {
           @for (item of continueWatching(); track item.id) {
             @let href = mediaHref(item);
-            <a
-              class="cw-card"
-              [attr.href]="href"
-              [attr.target]="href ? '_blank' : null"
-              rel="noreferrer"
-              [attr.aria-label]="'Continue ' + item.title"
-            >
-              <div class="cw-card__art" [style.background]="cardArt(item)"></div>
-              <div class="cw-shade" aria-hidden="true"></div>
-              <span class="cw-play" aria-hidden="true">
-                <svg lucidePlay [size]="15"></svg>
-              </span>
-              <div class="cw-info">
-                <div class="cw-name">{{ item.title }}</div>
-                @if (item.subtitle) {
-                  <div class="cw-sub">{{ item.subtitle }}</div>
-                }
-                <div class="cw-bar" aria-hidden="true"><i [style.width.%]="item.progressPercent"></i></div>
-              </div>
-            </a>
+            <mm-media-card
+              layout="landscape"
+              [title]="item.title"
+              [subtitle]="item.subtitle"
+              [art]="cardArt(item)"
+              [href]="href"
+              [linkLabel]="'Continue ' + item.title"
+              [showPlayCue]="true"
+              [progress]="item.progressPercent"
+            />
           }
         }
       }
@@ -82,10 +72,10 @@
       }
       @default {
         @for (item of trending.items(); track item.id) {
-          <mm-poster
+          <mm-media-card
             class="trending-poster"
             [title]="item.title"
-            [meta]="trendingSub(item)"
+            [subtitle]="trendingSub(item)"
             [rating]="item.rating"
             [imageUrl]="item.posterUrl"
             [art]="trendingArt(item)"
@@ -104,7 +94,7 @@
     @switch (libraryItems.status()) {
       @case ('loading') {
         @for (i of railSkeletons; track i) {
-          <div class="cw-card cw-card--skeleton" aria-hidden="true"><mm-skeleton variant="rect" /></div>
+          <div class="landscape-card-skeleton" aria-hidden="true"><mm-skeleton variant="rect" /></div>
         }
       }
       @case ('error') {
@@ -118,20 +108,14 @@
       @default {
         @for (item of recentItems(); track item.id) {
           @let href = mediaHref(item);
-          <a
-            class="cw-card"
-            [attr.href]="href"
-            [attr.target]="href ? '_blank' : null"
-            rel="noreferrer"
-            [attr.aria-label]="'Open ' + item.title"
-          >
-            <div class="cw-card__art" [style.background]="cardArt(item)"></div>
-            <div class="cw-shade" aria-hidden="true"></div>
-            <div class="cw-info">
-              <div class="cw-name">{{ item.title }}</div>
-              <div class="cw-sub">{{ item.meta }}</div>
-            </div>
-          </a>
+            <mm-media-card
+              layout="landscape"
+              [title]="item.title"
+              [subtitle]="item.meta"
+              [art]="cardArt(item)"
+              [href]="href"
+              [linkLabel]="'Open ' + item.title"
+            />
         }
       }
     }

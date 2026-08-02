@@ -8,7 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { LucideChevronLeft, LucideChevronRight } from '@lucide/angular';
-import { MmPoster } from '@app/ui';
+import { MmIconButton, MmMediaCard } from '@app/ui';
 import {
   DEFAULT_LIBRARY_ART,
   JELLYFIN_LINK_BASES,
@@ -21,7 +21,7 @@ const COMPACT_PAGE_SIZE = 5;
 
 @Component({
   selector: 'mm-library-poster-grid',
-  imports: [LucideChevronLeft, LucideChevronRight, MmPoster],
+  imports: [MmIconButton, MmMediaCard, LucideChevronLeft, LucideChevronRight],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './library-poster-grid.html',
   styleUrl: './library-poster-grid.scss',

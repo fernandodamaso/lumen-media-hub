@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { MmButton, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
+import { MmButton, MmInput, MmSegmentedControl, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { DiscoverFeedback, DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { DiscoverCard } from './discover-card';
 import { DiscoverHistoryFilter, matchesDiscoverSearch } from './discover-format';
@@ -9,7 +9,7 @@ export const DISCOVER_BATCH_SIZE = 24;
 
 @Component({
   selector: 'mm-discover-page',
-  imports: [MmButton, MmSkeleton, MmStateCard, MmStatus, DiscoverCard],
+  imports: [MmButton, MmInput, MmSegmentedControl, MmSkeleton, MmStateCard, MmStatus, DiscoverCard],
   providers: [DiscoverFacade],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './discover-page.html',
@@ -77,6 +77,11 @@ export class DiscoverPage {
     { id: 'movies', label: 'Movies' },
     { id: 'shows', label: 'Shows' },
   ];
+
+  readonly toOption = <T extends { id: string; label: string }>(option: T): { value: T['id']; label: T['label'] } => ({
+    value: option.id,
+    label: option.label,
+  });
 
   constructor() {
     void this.facade.setTab('hermes');

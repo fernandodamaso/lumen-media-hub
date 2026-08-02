@@ -37,6 +37,8 @@ npm run hooks:install
 - `pre-commit` → `npm run quality`
 - `pre-push` is intentionally absent to avoid repeating the same gate twice.
 
+`--no-verify` is prohibited for both commits and pushes. Fix the failing check and rerun the gate; never bypass the project's quality hooks.
+
 ## Correction Guide
 
 | Process | Blocks when | Usual fix |

@@ -47,60 +47,6 @@
   min-width: 0;
 }
 
-.tabs,
-.filter-group,
-.filters:has(> .chip) {
-  display: inline-flex;
-  flex: none;
-  gap: 4px;
-  padding: 3px;
-  border: 1px solid var(--mm-component-border);
-  border-radius: var(--mm-radius-md);
-  background: var(--mm-component-card-bg);
-}
-
-.tab,
-.chip {
-  border: 1px solid transparent;
-  border-radius: var(--mm-radius-sm);
-  background: transparent;
-  color: var(--mm-component-control-text);
-  cursor: pointer;
-  transition:
-    background var(--mm-transition-fast),
-    border-color var(--mm-transition-fast),
-    color var(--mm-transition-fast);
-}
-
-.tab {
-  padding: 8px 12px;
-  font: 700 14px/1 var(--mm-font-body);
-}
-
-.chip {
-  padding: 6px 10px;
-  font: 700 var(--mm-text-sm)/1 var(--mm-font-body);
-  white-space: nowrap;
-}
-
-.tab:hover,
-.chip:hover {
-  background: var(--mm-component-control-hover-bg);
-  color: var(--mm-component-control-text-hover);
-}
-
-.tab:focus-visible,
-.chip:focus-visible {
-  outline: 3px solid var(--mm-component-focus-ring);
-  outline-offset: 2px;
-}
-
-.tab[aria-pressed='true'],
-.chip[aria-pressed='true'] {
-  background: var(--mm-component-control-pressed-bg);
-  color: var(--mm-component-control-pressed-text);
-}
-
 .discover-search {
   display: flex;
   flex-wrap: wrap;
@@ -110,34 +56,9 @@
   min-width: min(100%, 200px);
 }
 
-.discover-search__label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-
 .discover-search__input {
   flex: 1 1 180px;
   min-width: 0;
-  min-height: 40px;
-  padding: 8px 12px;
-  border: 1px solid var(--mm-component-border);
-  border-radius: var(--mm-radius-sm);
-  background: var(--mm-component-control-bg);
-  color: var(--mm-component-text-primary);
-  font: inherit;
-  font-size: var(--mm-text-sm);
-}
-
-.discover-search__input:focus-visible {
-  outline: 3px solid var(--mm-component-focus-ring);
-  outline-offset: 2px;
 }
 
 .discover-search__clear {

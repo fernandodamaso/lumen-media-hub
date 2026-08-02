@@ -54,16 +54,13 @@ describe('DiscoverPage', () => {
     expect(facade.requestItem).not.toHaveBeenCalled();
   });
 
-  it('exposes source tabs as pressed buttons in a labelled group', () => {
+  it('exposes source filters as labelled radio groups with roving focus', () => {
     facade.status.set('ready');
     fixture.detectChanges();
 
     const root = fixtureHost(fixture);
-    const group = root.querySelector('.tabs') as HTMLElement;
-    expect(group.getAttribute('role')).toBe('group');
-    expect(group.getAttribute('aria-label')).toBe('Discover sources');
-    expect(root.querySelector('[role="radio"]')).toBeNull();
-    expect(root.querySelector('[role="radiogroup"]')).toBeNull();
+    const group = root.querySelector('[role="radiogroup"][aria-label="Discover sources"]') as HTMLElement;
+    expect(group).toBeTruthy();
 
     const sourceButtons = sourceTabButtons();
     expect(sourceButtons.map((button) => button.textContent.trim())).toEqual([
@@ -72,9 +69,9 @@ describe('DiscoverPage', () => {
       'Trakt',
     ]);
     expect(sourceButtons.every((button) => button.type === 'button')).toBe(true);
-    expect(sourceButtons[0].getAttribute('aria-pressed')).toBe('true');
-    expect(sourceButtons[1].getAttribute('aria-pressed')).toBe('false');
-    expect(sourceButtons[0].classList.contains('tab')).toBe(true);
+    expect(sourceButtons[0].getAttribute('aria-checked')).toBe('true');
+    expect(sourceButtons[1].getAttribute('aria-checked')).toBe('false');
+    expect(sourceButtons[0].getAttribute('role')).toBe('radio');
 
     sourceButtons[1].focus();
     expect(document.activeElement).toBe(sourceButtons[1]);
@@ -84,8 +81,8 @@ describe('DiscoverPage', () => {
 
     facade.tab.set('jellyseerr');
     fixture.detectChanges();
-    expect(sourceTabButtons()[1].getAttribute('aria-pressed')).toBe('true');
-    expect(sourceTabButtons()[0].getAttribute('aria-pressed')).toBe('false');
+    expect(sourceTabButtons()[1].getAttribute('aria-checked')).toBe('true');
+    expect(sourceTabButtons()[0].getAttribute('aria-checked')).toBe('false');
   });
 
   it('filters cards with search and updates the result count', () => {
@@ -281,7 +278,7 @@ function clickLoadMore(): void {
 }
 
 function clickHermesView(label: string): void {
-  const button = Array.from(document.querySelectorAll('button.chip')).find((candidate) =>
+  const button = Array.from(document.querySelectorAll('[role="radio"]')).find((candidate) =>
     candidate.textContent.includes(label),
   );
   if (!(button instanceof HTMLButtonElement)) throw new Error(`Hermes view button not found: ${label}`);
@@ -297,7 +294,7 @@ function clickTab(label: string): void {
 }
 
 function sourceTabButtons(): HTMLButtonElement[] {
-  return Array.from(document.querySelectorAll('.tabs button.tab'));
+  return Array.from(document.querySelectorAll('[role="radiogroup"][aria-label="Discover sources"] [role="radio"]'));
 }
 
 function card(overrides: Partial<DiscoverCardItem> = {}): DiscoverCardItem {

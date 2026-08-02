@@ -10,11 +10,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
+  width: var(--mm-icon-button-size, 38px);
+  height: var(--mm-icon-button-size, 38px);
   padding: 0;
   border-radius: 11px;
 }
+.mm-icon-button--sm { --mm-icon-button-size: 32px; }
+.mm-icon-button--md { --mm-icon-button-size: 38px; }
+.mm-icon-button--circle { border-radius: 50%; }
+.mm-icon-button--rounded { border-radius: 11px; }
 
 .mm-icon-button[aria-busy='true'] {
   cursor: wait;

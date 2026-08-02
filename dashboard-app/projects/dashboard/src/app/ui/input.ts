@@ -9,7 +9,7 @@ export type MmInputKind = 'text' | 'textarea' | 'search-pill';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `@switch (kind()) {
     @case ('search-pill') {
-      <button type="button" class="mm-input mm-input--search-pill" [attr.data-testid]="testId()" (click)="activated.emit()">
+      <button type="button" class="mm-input mm-input--search-pill" [attr.data-testid]="testId()" [attr.aria-label]="ariaLabel() || placeholder()" [disabled]="disabled()" (click)="activated.emit()">
         <svg lucideSearch [size]="14" aria-hidden="true"></svg>
         <span class="mm-input__placeholder">{{ placeholder() }}</span>
         @if (shortcutLabel()) { <kbd>{{ shortcutLabel() }}</kbd> }
@@ -19,9 +19,11 @@ export type MmInputKind = 'text' | 'textarea' | 'search-pill';
       <label class="mm-input mm-input--textarea">
         @if (label()) { <span class="mm-input__label">{{ label() }}</span> }
         <textarea
+          [id]="inputId() || null"
           [rows]="rows()"
           [placeholder]="placeholder()"
           [disabled]="disabled()"
+          [attr.aria-label]="ariaLabel() || null"
           [value]="value()"
           (input)="valueChange.emit($any($event.target).value)"
         ></textarea>
@@ -31,9 +33,11 @@ export type MmInputKind = 'text' | 'textarea' | 'search-pill';
       <label class="mm-input mm-input--text">
         @if (label()) { <span class="mm-input__label">{{ label() }}</span> }
         <input
+          [id]="inputId() || null"
           [type]="type()"
           [placeholder]="placeholder()"
           [disabled]="disabled()"
+          [attr.aria-label]="ariaLabel() || null"
           [value]="value()"
           (input)="valueChange.emit($any($event.target).value)"
         />
@@ -48,7 +52,9 @@ export class MmInput {
   readonly placeholder = input('');
   readonly value = input('');
   readonly disabled = input(false);
-  readonly type = input<'text' | 'email' | 'password'>('text');
+  readonly type = input<'text' | 'email' | 'password' | 'search'>('text');
+  readonly inputId = input('');
+  readonly ariaLabel = input('');
   readonly rows = input(3);
   readonly shortcutLabel = input('');
   readonly testId = input('mm-input');

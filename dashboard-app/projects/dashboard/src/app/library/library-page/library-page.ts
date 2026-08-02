@@ -1,12 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { MmButton, MmStateCard, MmStatus } from '@app/ui';
+import { MmButton, MmSegmentedControl, MmStateCard, MmStatus } from '@app/ui';
 import { LibraryItemKind } from '../library.models';
 import { LibraryItemsFacade } from '../library-items.facade';
 import { LibraryPosterGrid } from '../library-poster-grid/library-poster-grid';
 
 @Component({
   selector: 'mm-library-page',
-  imports: [LibraryPosterGrid, MmButton, MmStateCard, MmStatus],
+  imports: [LibraryPosterGrid, MmButton, MmSegmentedControl, MmStateCard, MmStatus],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './library-page.html',
   styleUrl: './library-page.scss',
@@ -14,6 +14,11 @@ import { LibraryPosterGrid } from '../library-poster-grid/library-poster-grid';
 export class LibraryPage {
   readonly facade = inject(LibraryItemsFacade);
   readonly filter = signal<LibraryItemKind | 'all'>('all');
+  readonly filterOptions = [
+    { value: 'all' as const, label: 'All' },
+    { value: 'movie' as const, label: 'Movies' },
+    { value: 'series' as const, label: 'Series' },
+  ];
 
   readonly filteredItems = computed(() => {
     const filter = this.filter();

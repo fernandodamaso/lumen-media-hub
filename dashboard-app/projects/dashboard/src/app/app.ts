@@ -17,7 +17,7 @@ import { RightRail } from './right-rail/right-rail';
 import { StorageFacade } from './storage/storage.facade';
 import { formatStorageBytes } from './storage/storage-format';
 import { Topbar } from './topbar/topbar';
-import { MmToastHost } from './ui/toast';
+import { MmProgress, MmToastHost } from '@app/ui';
 import { environment } from '../environments/environment';
 
 @Component({
@@ -30,6 +30,7 @@ import { environment } from '../environments/environment';
     RightRail,
     Topbar,
     MmToastHost,
+    MmProgress,
     LucideLayoutDashboard,
     LucideLibrary,
     LucideFileText,

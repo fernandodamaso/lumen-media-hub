@@ -289,8 +289,7 @@ describe('DashboardPage composition', () => {
     fixture.detectChanges();
     const posters = fixtureHost(fixture).querySelectorAll('[data-testid="trending-rail"] mm-media-card');
     expect(posters).toHaveLength(2);
-    expect(posters[0].querySelector('.mm-media-card__tag')?.textContent).toContain('1');
-    expect(posters[1].querySelector('.mm-media-card__tag')?.textContent).toContain('2');
+    expect(posters[0].querySelector('.mm-media-card__tag')).toBeNull();
     expect(posters[1].textContent).toContain('Frontline');
     const link = posters[0].querySelector('.mm-media-card__hit') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('https://trakt.tv/shows/wasteland');

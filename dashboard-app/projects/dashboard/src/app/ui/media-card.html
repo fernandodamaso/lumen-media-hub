@@ -39,8 +39,8 @@
         }
         <div class="mm-media-card__head">
           <strong>{{ title() }}</strong>
-          @if (rating() !== null && rating() !== undefined) {
-            <span class="mm-media-card__rating" aria-label="Rating {{ rating() }} out of 10">★ {{ rating() }}</span>
+          @if (roundedRating(); as rating) {
+            <span class="mm-media-card__rating" aria-label="Rating {{ rating }} out of 10">★ {{ rating }}</span>
           }
         </div>
         <small>{{ subtitle() }}</small>

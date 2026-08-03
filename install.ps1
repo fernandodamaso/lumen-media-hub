@@ -6,13 +6,16 @@
   .\install.ps1 -Mode both
   .\install.ps1 -Mode stack -Gpu -Force
   .\install.ps1 -Mode redeploy-dashboard
+  .\install.ps1 -Mode up -Dev -Profile subtitles,requests
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('stack', 'frontend-dev', 'both', 'redeploy-dashboard')]
+  [ValidateSet('stack', 'frontend-dev', 'both', 'redeploy-dashboard', 'up')]
   [string]$Mode = 'both',
   [switch]$Force,
-  [switch]$Gpu
+  [switch]$Gpu,
+  [switch]$Dev,
+  [string[]]$Profile
 )
 
 Set-StrictMode -Version Latest
@@ -251,6 +254,50 @@ Stack is up. Remaining manual steps (one-time):
 "@
 }
 
+function Get-ComposeContainerNames {
+  $names = @()
+  foreach ($line in (Get-Content $ComposeFile)) {
+    if ($line -match '^\s*container_name:\s*(\S+)') { $names += $Matches[1] }
+  }
+  return $names
+}
+
+function Clear-StaleComposeContainers {
+  if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot '.git'))) { return }
+  $knownNames = @(Get-ComposeContainerNames)
+  if (-not $knownNames) { return }
+  $canonicalRoot = ($RepoRoot -replace '\\', '/').TrimEnd('/')
+  $raw = docker ps -aq
+  if (-not $raw) { return }
+  $ids = $raw -split "`n" | Where-Object { $_.Trim() }
+  foreach ($id in $ids) {
+    $name = (docker inspect $id --format '{{.Name}}').TrimStart('/')
+    if ($knownNames -notcontains $name) { continue }
+    $wd = docker inspect $id --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'
+    if (-not $wd -or $wd -eq '<no value>') { continue }
+    $normalized = ($wd -replace '\\', '/').TrimEnd('/')
+    if ($normalized -eq $canonicalRoot) { continue }
+    if (Test-Path -LiteralPath (Join-Path $wd '.git')) { continue }
+    Write-Host "  stale: $name (working dir $wd is no longer a live checkout) - removing" -ForegroundColor Yellow
+    docker rm -f $id | Out-Null
+  }
+}
+
+function Invoke-StackUp {
+  Assert-Docker
+  Initialize-EnvFile
+  Write-Step 'Clearing stale compose containers (worktree-rot guard)'
+  Clear-StaleComposeContainers
+  Write-Step 'Starting stack'
+  $composeArgs = @('--env-file', $EnvFile, '-f', $ComposeFile)
+  if ($Gpu) { $composeArgs += '-f', $ComposeGpuFile }
+  if ($Dev) { $composeArgs += '-f', (Join-Path $RepoRoot 'docker-compose.dev.yml') }
+  foreach ($p in $Profile) { $composeArgs += '--profile', $p }
+  $composeArgs += 'up', '-d', '--remove-orphans'
+  docker compose @composeArgs
+  Assert-ExitCode 'docker compose up'
+}
+
 function Invoke-FrontendDev {
   Assert-Node
   Invoke-NpmCi
@@ -270,6 +317,7 @@ try {
     'stack'              { Invoke-Stack }
     'both'               { Invoke-FrontendDev; Invoke-Stack }
     'redeploy-dashboard' { Invoke-RedeployDashboard }
+    'up'                 { Invoke-StackUp }
   }
 } finally {
   Pop-Location

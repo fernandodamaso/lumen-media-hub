@@ -17,6 +17,7 @@ From the **repo root** (installer sets CWD to `$PSScriptRoot` automatically):
 | `frontend-dev` | `npm ci` in `dashboard-app/`, prints Demo and Docker Live-dev commands |
 | `stack` | Creates `.env` from `.env.example`, pulls service images, Compose-builds the dashboard, starts the stack, and health-checks `homepage-actions` |
 | `both` | `frontend-dev` then `stack` (`npm ci` runs once) |
+| `up` | Self-heals stale compose containers (worktree-rot guard), then `docker compose up -d` with optional `-Dev` / `-Gpu` / `-Profile` flags |
 
 Flags: `-Force` recreates `.env`; `-Gpu` adds `-f docker-compose.gpu.yml`.
 
@@ -105,6 +106,24 @@ Production Angular is the Compose-built local image `media-dashboard-angular:loc
 | `config/homepage-actions/**` (Live API) | `:8085` / `:3000` via `/api` | `docker compose restart homepage-actions` (bind-mounted; no image rebuild) |
 
 For long agent sessions on `:3000`, keep the `docker-compose.dev.yml` override so file saves trigger `ng serve` reloads without repeated image builds. Mention `:4200` only for Demo (`npm start`).
+
+## Worktree hygiene (agents)
+
+Bringing the stack up from a git worktree bakes the worktree's absolute paths into the containers' bind mounts. If the worktree is later removed, those containers survive with dead mount sources and come back empty on the next daemon restart or `docker start` — symptom: `homepage-actions` exits 2 (`can't open file '/app/main.py'`), `dashboard` exits 254 (`npm ci` ENOENT on `/app/package.json`).
+
+Before abandoning or removing a worktree, tear down its stack so no stale containers remain:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.dev.yml down
+```
+
+For subsequent stack starts from the repo root, prefer the self-healing wrapper over raw `docker compose up` — before starting, it removes any of this stack's containers whose compose `working_dir` is no longer a live checkout (i.e. the worktree they were launched from is gone):
+
+```powershell
+.\install.ps1 -Mode up [-Dev] [-Gpu] [-Profile subtitles,requests]
+```
+
+`-Dev` adds the hot-reload override (`:3000`); `-Profile` enables optional service profiles. If you hit the stale-mount symptom, running `-Mode up` once clears it.
 
 ## Frontend structure
 

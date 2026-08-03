@@ -25,11 +25,11 @@
   color: #0a0a0f;
 }
 .mm-avatar--green {
-  background: color-mix(in srgb, var(--mm-semantic-success) 18%, transparent);
+  background: color-mix(in srgb, var(--mm-semantic-success) 18%, var(--mm-color-surface-0));
   color: var(--mm-semantic-success);
 }
 .mm-avatar--violet {
-  background: color-mix(in srgb, var(--mm-semantic-premiere) 18%, transparent);
+  background: color-mix(in srgb, var(--mm-semantic-premiere) 18%, var(--mm-color-surface-0));
   color: var(--mm-semantic-premiere);
 }
 

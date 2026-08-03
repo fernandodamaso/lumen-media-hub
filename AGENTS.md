@@ -17,7 +17,7 @@ From the **repo root** (installer sets CWD to `$PSScriptRoot` automatically):
 | `frontend-dev` | `npm ci` in `dashboard-app/`, prints Demo and Docker Live-dev commands |
 | `stack` | Creates `.env` from `.env.example`, pulls service images, Compose-builds the dashboard, starts the stack, and health-checks `homepage-actions` |
 | `both` | `frontend-dev` then `stack` (`npm ci` runs once) |
-| `up` | Self-heals stale `media`-project containers (worktree-rot guard), then `docker compose up -d` with optional `-Dev` / `-Gpu` / `-Profile` flags |
+| `up` | Self-heals stale compose containers (worktree-rot guard), then `docker compose up -d` with optional `-Dev` / `-Gpu` / `-Profile` flags |
 
 Flags: `-Force` recreates `.env`; `-Gpu` adds `-f docker-compose.gpu.yml`.
 
@@ -117,7 +117,7 @@ Before abandoning or removing a worktree, tear down its stack so no stale contai
 docker compose -f docker-compose.yml -f docker-compose.dev.yml down
 ```
 
-For subsequent stack starts from the repo root, prefer the self-healing wrapper over raw `docker compose up` — it removes any `media`-project containers whose bind-mount sources no longer exist before bringing the stack up:
+For subsequent stack starts from the repo root, prefer the self-healing wrapper over raw `docker compose up` — before starting, it removes any of this stack's containers whose compose `working_dir` is no longer a live checkout (i.e. the worktree they were launched from is gone):
 
 ```powershell
 .\install.ps1 -Mode up [-Dev] [-Gpu] [-Profile subtitles,requests]

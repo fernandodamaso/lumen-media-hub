@@ -254,24 +254,32 @@ Stack is up. Remaining manual steps (one-time):
 "@
 }
 
+function Get-ComposeContainerNames {
+  $names = @()
+  foreach ($line in (Get-Content $ComposeFile)) {
+    if ($line -match '^\s*container_name:\s*(\S+)') { $names += $Matches[1] }
+  }
+  return $names
+}
+
 function Clear-StaleComposeContainers {
-  $raw = docker ps -aq --filter 'label=com.docker.compose.project=media'
+  if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot '.git'))) { return }
+  $knownNames = @(Get-ComposeContainerNames)
+  if (-not $knownNames) { return }
+  $canonicalRoot = ($RepoRoot -replace '\\', '/').TrimEnd('/')
+  $raw = docker ps -aq
   if (-not $raw) { return }
   $ids = $raw -split "`n" | Where-Object { $_.Trim() }
   foreach ($id in $ids) {
-    $mounts = docker inspect $id --format '{{range .Mounts}}{{.Type}}|{{.Source}}{{println}}{{end}}' 2>$null
-    $stale = $false
-    foreach ($line in $mounts -split "`n") {
-      if (-not $line) { continue }
-      $parts = $line -split '\|', 2
-      if ($parts.Count -lt 2 -or $parts[0] -ne 'bind') { continue }
-      if ($parts[1] -and -not (Test-Path -LiteralPath $parts[1])) { $stale = $true; break }
-    }
-    if ($stale) {
-      $name = (docker inspect $id --format '{{.Name}}').TrimStart('/')
-      Write-Host "  stale: $name (missing bind-mount source) - removing" -ForegroundColor Yellow
-      docker rm -f $id | Out-Null
-    }
+    $name = (docker inspect $id --format '{{.Name}}').TrimStart('/')
+    if ($knownNames -notcontains $name) { continue }
+    $wd = docker inspect $id --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'
+    if (-not $wd -or $wd -eq '<no value>') { continue }
+    $normalized = ($wd -replace '\\', '/').TrimEnd('/')
+    if ($normalized -eq $canonicalRoot) { continue }
+    if (Test-Path -LiteralPath (Join-Path $wd '.git')) { continue }
+    Write-Host "  stale: $name (working dir $wd is no longer a live checkout) - removing" -ForegroundColor Yellow
+    docker rm -f $id | Out-Null
   }
 }
 

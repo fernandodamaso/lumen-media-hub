@@ -38,6 +38,8 @@ export class MmMediaCard {
 
   readonly resolvedLinkLabel = computed(() => this.linkLabel() ?? `Open ${this.title()}`);
 
+  readonly roundedRating = computed(() => this.rating()?.toFixed(1) ?? null);
+
   private readonly imageErrorKey = signal<string | null>(null);
 
   constructor() {

@@ -100,4 +100,15 @@ describe('MmMediaCard', () => {
     expect(retried).toBeTruthy();
     expect(retried.getAttribute('src')).toBe('https://example.com/poster.jpg');
   });
+
+  it('rounds the rating to at most one decimal', () => {
+    const fixture = TestBed.createComponent(MmMediaCard);
+    fixture.componentRef.setInput('title', 'Moonrise');
+    fixture.componentRef.setInput('rating', 7.849999);
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    expect(root.querySelector('.mm-media-card__rating')?.textContent).toContain('7.8');
+    expect(root.querySelector('.mm-media-card__rating')?.getAttribute('aria-label')).toContain('7.8');
+  });
 });

@@ -42,18 +42,20 @@ describe('DashboardHero', () => {
     fixture.detectChanges();
     const root = fixtureHost(fixture);
 
-    expect(root.querySelector('.hero__kicker')?.textContent).toContain('Featured');
+    const body = root.querySelector('.hero__body');
+    expect(body).not.toBeNull();
+    expect(body?.querySelector('.hero__kicker')?.textContent).toContain('Featured');
     expect(root.querySelector<HTMLElement>('.hero__bg')?.style.background).toContain(
       `url("${heroView.backdropUrl}")`,
     );
 
-    const heading = root.querySelector('h1');
+    const heading = body?.querySelector('h1');
     expect(heading?.textContent).toContain('Ashes of the');
     expect(heading?.querySelector('em')?.textContent).toBe('Crown');
 
-    const meta = root.querySelector('.hero__meta')?.textContent ?? '';
+    const meta = body?.querySelector('.hero__meta')?.textContent ?? '';
     for (const segment of heroView.meta) expect(meta).toContain(segment);
-    expect(root.querySelector('.hero__overview')?.textContent).toContain('deposed queen');
+    expect(body?.querySelector('.hero__overview')?.textContent).toContain('deposed queen');
 
     const play = root.querySelector('[data-testid="hero-play"]');
     expect(play?.getAttribute('href')).toBe(heroView.playHref);

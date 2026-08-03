@@ -2,7 +2,6 @@
   position: relative;
   min-height: 380px;
   display: flex;
-  align-items: flex-end;
   border-radius: var(--mm-radius-lg);
   overflow: hidden;
   border: 1px solid var(--mm-component-border);
@@ -26,9 +25,22 @@
 }
 .hero__in {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
   width: 100%;
   max-width: 620px;
   padding: 32px 34px 26px;
+}
+.hero__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  margin-bottom: 20px;
+}
+.hero__body > *:last-child {
+  margin-bottom: 0;
 }
 .hero__kicker {
   display: flex;
@@ -82,7 +94,10 @@
 .hero__btns {
   display: flex;
   gap: 12px;
-  margin-bottom: 20px;
+
+  &:not(:last-child) {
+    margin-bottom: 20px;
+  }
 }
 .hero__prog {
   display: flex;

@@ -3,19 +3,21 @@
     <div class="hero__bg" [style.background]="heroBackground(hero.backdropUrl)" aria-hidden="true"></div>
     <div class="hero__scrim" aria-hidden="true"></div>
     <div class="hero__in">
-      <p class="hero__kicker">{{ hero.kicker }}</p>
-      <h1>
-        @if (hero.titleParts.head) { {{ hero.titleParts.head }} }<em>{{ hero.titleParts.tail }}</em>
-      </h1>
-      <div class="hero__meta">
-        @for (segment of hero.meta; track segment) {
-          <span>{{ segment }}</span>
-          @if (!$last) { <span aria-hidden="true">·</span> }
+      <div class="hero__body">
+        <p class="hero__kicker">{{ hero.kicker }}</p>
+        <h1>
+          @if (hero.titleParts.head) { {{ hero.titleParts.head }} }<em>{{ hero.titleParts.tail }}</em>
+        </h1>
+        <div class="hero__meta">
+          @for (segment of hero.meta; track segment) {
+            <span>{{ segment }}</span>
+            @if (!$last) { <span aria-hidden="true">·</span> }
+          }
+        </div>
+        @if (hero.overview) {
+          <p class="hero__overview">{{ hero.overview }}</p>
         }
       </div>
-      @if (hero.overview) {
-        <p class="hero__overview">{{ hero.overview }}</p>
-      }
       <div class="hero__btns">
         @if (hero.playHref; as href) {
           <mm-button-link

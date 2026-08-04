@@ -7,7 +7,13 @@ export type ServiceRowStatus = 'healthy' | 'degraded' | 'down' | 'unknown';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="svc-row">
-      <span class="svc-ico" aria-hidden="true">{{ initial() }}</span>
+      <span class="svc-ico" aria-hidden="true">
+        @if (icon(); as src) {
+          <img class="svc-ico-img" [src]="src" alt="" />
+        } @else {
+          {{ initial() }}
+        }
+      </span>
       <div class="svc-copy">
         <div class="svc-name">{{ name() }}</div>
         <div class="svc-sub">{{ detail() }}</div>
@@ -25,4 +31,5 @@ export class MmServiceRow {
   readonly status = input<ServiceRowStatus>('unknown');
   readonly statusLabel = input('Unknown');
   readonly initial = input('?');
+  readonly icon = input<string | null>(null);
 }

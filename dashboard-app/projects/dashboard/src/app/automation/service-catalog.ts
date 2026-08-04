@@ -19,6 +19,21 @@ export const SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
   { id: 'bazarr', name: 'Bazarr', initial: 'B' },
 ];
 
+const SERVICE_ICON_IDS = new Set([
+  'jellyfin',
+  'sonarr',
+  'radarr',
+  'prowlarr',
+  'sabnzbd',
+  'qbittorrent',
+  'bazarr',
+]);
+
+export function serviceIconPath(id: string): string | null {
+  const key = id.toLowerCase();
+  return SERVICE_ICON_IDS.has(key) ? `icons/services/${key}.svg` : null;
+}
+
 /** Services shown in the app shell for the active API mode. */
 export function visibleServiceCatalog(useLiveApi: boolean): ServiceCatalogEntry[] {
   return SERVICE_CATALOG.filter((entry) => !(useLiveApi && entry.demoOnly));

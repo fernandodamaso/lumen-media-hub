@@ -180,6 +180,19 @@ describe('RightRail', () => {
     expect(fixtureHost(fixture).querySelector('[data-testid="rr-all-good"]')).toBeNull();
   });
 
+  it('renders a brand icon for known services', () => {
+    automationSummary.set({
+      ...summaryWith(['healthy']),
+      services: [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: '', latencyMs: 10 }],
+    });
+    const fixture = TestBed.createComponent(RightRail);
+    fixture.detectChanges();
+
+    expect(
+      fixtureHost(fixture).querySelector('[data-testid="rr-health"] img.svc-ico-img')?.getAttribute('src'),
+    ).toBe('icons/services/sonarr.svg');
+  });
+
   it('shows a health warning while retaining the healthy snapshot rows', () => {
     automationSummary.set(summaryWith(['healthy', 'healthy']));
     healthError.set('Could not refresh service health. Showing last loaded status.');

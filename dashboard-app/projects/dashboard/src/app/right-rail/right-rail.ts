@@ -6,6 +6,7 @@ import { ServiceHealthFacade } from '../automation/service-health.facade';
 import { MmServiceRow } from '../automation/service-row';
 import { AUTOMATION_SERVICE_STATUS_VIEW, formatRelativeTime } from '../automation/automation-format';
 import { AutomationServiceStatus, compareAutomationServices } from '../automation/automation.models';
+import { serviceIconPath } from '../automation/service-catalog';
 import { CalendarFacade, CalendarRailEvent } from '../calendar/calendar.facade';
 import { MmUpcomingItem } from '../calendar/upcoming-item';
 import { DEFAULT_LIBRARY_ART } from '../library/library.models';
@@ -87,5 +88,9 @@ export class RightRail {
 
   serviceInitial(name: string): string {
     return (name.charAt(0) || '?').toUpperCase();
+  }
+
+  serviceIcon(id: string): string | null {
+    return serviceIconPath(id);
   }
 }

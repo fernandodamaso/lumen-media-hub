@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   resolveServiceHref,
   SERVICE_CATALOG,
+  serviceIconPath,
   visibleServiceCatalog,
 } from './service-catalog';
 
@@ -21,5 +22,11 @@ describe('service catalog', () => {
     );
     expect(resolveServiceHref('sabnzbd', {})).toBeNull();
     expect(resolveServiceHref('jellyfin', {})).toBeNull();
+  });
+
+  it('resolves known service icons and leaves unknown services on the letter fallback', () => {
+    expect(serviceIconPath('sonarr')).toBe('icons/services/sonarr.svg');
+    expect(serviceIconPath('JELLYFIN')).toBe('icons/services/jellyfin.svg');
+    expect(serviceIconPath('unpackerr')).toBeNull();
   });
 });

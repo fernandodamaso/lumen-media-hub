@@ -16,9 +16,12 @@
   font-family: var(--mm-font-display, 'Fraunces', Georgia, serif);
   font-style: italic;
   font-size: 14px;
-  background: var(--mm-component-control-bg);
-  border: 1px solid var(--mm-component-border);
   color: var(--mm-semantic-accent);
+}
+.svc-ico-img {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 .svc-copy {
   min-width: 0;

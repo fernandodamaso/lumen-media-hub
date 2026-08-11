@@ -54,27 +54,6 @@ export class App {
   readonly commandPaletteOpen = signal(false);
   readonly rightRailOpen = signal(true);
 
-  readonly hasAttention = computed(
-    () =>
-      this.health.problems().length > 0 ||
-      this.health.health().overall === 'down' ||
-      this.health.health().overall === 'degraded',
-  );
-
-  readonly attentionLabel = computed(() => {
-    const attentionServiceIds = new Set(
-      this.health
-        .services()
-        .filter((service) => service.status === 'down' || service.status === 'degraded')
-        .map((service) => service.id),
-    );
-    for (const problem of this.health.problems()) {
-      if (problem.serviceId) attentionServiceIds.add(problem.serviceId);
-    }
-    const count = attentionServiceIds.size;
-    return `${count} service${count === 1 ? '' : 's'} need attention`;
-  });
-
   readonly libraryVolume = computed(
     () => this.storage.volumes().find((volume) => volume.kind === 'library') ?? null,
   );
@@ -96,7 +75,7 @@ export class App {
   });
 
   constructor() {
-    // App owns polling for every shell-consumed facade: shell alerts, sidebar storage, right rail.
+    // App owns polling for the shell's long-lived facades.
     this.health.startPolling();
     this.calendar.startPolling();
     this.automation.startPolling();

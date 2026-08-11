@@ -67,7 +67,7 @@ describe('App shell', () => {
     expect(root.querySelector('router-outlet')).toBeTruthy();
   });
 
-  it('shows a status pill when services need attention', async () => {
+  it('does not render the removed status pill', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     expect(fixtureHost(fixture).querySelector('[data-testid="status-pill"]')).toBeNull();
@@ -78,9 +78,7 @@ describe('App shell', () => {
     await storage.refresh({ initial: true });
     fixture.detectChanges();
 
-    const pill = fixtureHost(fixture).querySelector('[data-testid="status-pill"]');
-    expect(pill).toBeTruthy();
-    expect(pill?.textContent).toMatch(/need attention/);
+    expect(fixtureHost(fixture).querySelector('[data-testid="status-pill"]')).toBeNull();
     expect(fixtureHost(fixture).querySelector('.mini-card__manage')).toBeNull();
   });
 

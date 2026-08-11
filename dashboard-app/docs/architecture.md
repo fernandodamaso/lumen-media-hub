@@ -49,7 +49,7 @@ one.
 ## Shell and dashboard composition
 
 `App` owns the persistent sidebar navigation, `Topbar`, `RightRail`, command
-palette, shell status, and shell-scoped polling. `topbar/` and `right-rail/`
+palette, and shell-scoped polling. `topbar/` and `right-rail/`
 are presentation-owned shell features; they are not route pages.
 
 The home route is composed by `DashboardPage` from the `DashboardHero`,
@@ -89,13 +89,13 @@ Providers are selected in [media-stack-api.providers.ts](../projects/dashboard/s
 
 Feature code imports domain models from its own folder and talks to the backend only through `MEDIA_STACK_API`. Wire `*Dto` types stay inside `app/media-stack`.
 
-Library, automation, and service-health facades stay as separate stores. Do not merge them by folder or route: app-wide slices (shell library count, attention/health) must remain app-scoped, and dashboard-only polling must stop when the dashboard is destroyed.
+Library, automation, and service-health facades stay as separate stores. Do not merge them by folder or route: app-wide slices (library count and service health) must remain app-scoped, and dashboard-only polling must stop when the dashboard is destroyed.
 
 ### Facade lifetimes
 
 | Facade | Provider scope | Consumers | Init owner | Polling owner | Stop behavior |
 |--------|----------------|-----------|------------|---------------|---------------|
-| `ServiceHealthFacade` | `providedIn: 'root'` | App shell attention and right-rail health | App ctor `startPolling` | App (app-wide, 60s) | Runs for app lifetime (no public stop) |
+| `ServiceHealthFacade` | `providedIn: 'root'` | Right-rail and dashboard service health | App ctor `startPolling` | App (app-wide, 60s) | Runs for app lifetime (no public stop) |
 | `LibraryItemsFacade` | `providedIn: 'root'` | App shell count, `/library`, dashboard refresh, command palette | Facade ctor initial `refresh` | None (manual / dashboard refresh) | Request-id bump on newer refresh |
 | `WatchNextFacade` | `providedIn: 'root'` | Dashboard hero, Library page, dashboard refresh | Facade ctor initial `refresh` | None | Request-id bump |
 | `LibraryStatsFacade` | `app.config` singleton | Stat strip and dashboard refresh | Facade ctor initial `refresh` | None | Request-id bump |

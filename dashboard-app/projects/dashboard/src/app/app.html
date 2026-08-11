@@ -44,17 +44,6 @@
           />
         </div>
       }
-      @if (hasAttention()) {
-        <a
-          class="status-pill"
-          routerLink="/"
-          data-testid="status-pill"
-          [attr.aria-label]="attentionLabel()"
-        >
-          <span class="status-pill__dot" aria-hidden="true"></span>
-          <span>{{ attentionLabel() }}</span>
-        </a>
-      }
     </div>
   </nav>
 

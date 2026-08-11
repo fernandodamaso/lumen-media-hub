@@ -104,6 +104,7 @@ class TraktTokenStore:
 class _Response:
     status: int
     payload: object
+    headers: object = None
 
 
 def _urllib_transport(method, url, headers, body, timeout):
@@ -111,7 +112,7 @@ def _urllib_transport(method, url, headers, body, timeout):
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8")
-            return _Response(response.status, json.loads(raw) if raw else {})
+            return _Response(response.status, json.loads(raw) if raw else {}, dict(response.headers))
     except urllib.error.HTTPError as error:
         return _Response(error.code, {})
     except (urllib.error.URLError, TimeoutError, OSError) as error:
@@ -150,7 +151,9 @@ class TraktClient:
         if isinstance(response, _Response):
             return response
         if hasattr(response, "status") and hasattr(response, "payload"):
-            return _Response(response.status, response.payload)
+            return _Response(response.status, response.payload, getattr(response, "headers", None))
+        if isinstance(response, tuple) and len(response) == 3:
+            return _Response(int(response[0]), response[1], response[2])
         if isinstance(response, tuple) and len(response) == 2:
             return _Response(int(response[0]), response[1])
         raise RuntimeError("invalid Trakt transport response")
@@ -229,9 +232,9 @@ class TraktClient:
         )
         if response.status >= 400:
             raise TraktHttpError(response.status)
-        return response.payload
+        return response
 
-    def get(self, path):
+    def get_page(self, path):
         state = self._current_state(self._state())
         try:
             return self._request(path, state)
@@ -248,6 +251,9 @@ class TraktClient:
             return self._request(path, state)
         except TraktHttpError as error:
             raise RuntimeError("Trakt request unauthorized") from error
+
+    def get(self, path):
+        return self.get_page(path).payload
 
 
 class TraktDeviceAuthorizer:

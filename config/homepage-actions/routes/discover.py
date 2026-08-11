@@ -17,8 +17,9 @@ from clients.jellyfin import (
     jellyfin_get,
     jellyfin_post,
 )
-from clients.jellyseerr import _jellyseerr_get, _trakt_get
+from clients.jellyseerr import _jellyseerr_get, _trakt_get, _trakt_get_page
 from clients.trakt import TraktAuthError
+from trakt_history import TraktWatchedService, WatchedSnapshot, WatchedSnapshotStore
 from http_support import (
     _BodyTooLarge,
     _read_json_body,
@@ -113,6 +114,25 @@ _TMDB_LIBRARY_CACHE = {
 }
 _TMDB_LIBRARY_CACHE_TTL = 90.0
 _TMDB_LIBRARY_CACHE_LOCK = threading.Lock()
+_TRAKT_WATCHED_SERVICE = None
+_TRAKT_WATCHED_SERVICE_LOCK = threading.Lock()
+
+
+def _trakt_watched_snapshot():
+    global _TRAKT_WATCHED_SERVICE
+    with _TRAKT_WATCHED_SERVICE_LOCK:
+        if _TRAKT_WATCHED_SERVICE is None:
+            _TRAKT_WATCHED_SERVICE = TraktWatchedService(
+                _trakt_get_page,
+                store=WatchedSnapshotStore(settings.TRAKT_WATCHED_PATH),
+            )
+        return _TRAKT_WATCHED_SERVICE.snapshot()
+
+
+def _filter_watched_items(items, snapshot):
+    if snapshot.status == "unavailable":
+        return items
+    return [item for item in items if not snapshot.contains(item.get("type"), item.get("tmdb_id"))]
 
 
 def _provider_tmdb_id(raw):
@@ -1277,12 +1297,14 @@ def handle_discover_trakt(handler, query):
         return
     try:
         results = _trakt_get(
-            f"/recommendations/{media_type}?limit=25&ignore_collected=true&extended=full,images"
+            f"/recommendations/{media_type}?limit=25&ignore_collected=true&ignore_watched=true&extended=full,images"
         )
+        watched_snapshot = _trakt_watched_snapshot()
         snapshot = _library_exclusion_snapshot()
         items = _filter_library_items(
             [_map_trakt_result(item, media_type) for item in results if item], snapshot
         )
+        items = _filter_watched_items(items, watched_snapshot)
         send_json(
             handler,
             200,
@@ -1290,6 +1312,7 @@ def handle_discover_trakt(handler, query):
                 "ok": True,
                 "generatedAt": datetime.now().isoformat(timespec="seconds"),
                 "library_exclusion": snapshot.public(),
+                "watched_exclusion": watched_snapshot.public(),
                 "items": items,
             },
         )

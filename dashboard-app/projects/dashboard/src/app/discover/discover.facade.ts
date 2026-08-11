@@ -20,6 +20,7 @@ import {
   HermesDiscover,
   JellyseerrDiscoverKind,
   TraktDiscoverType,
+  WatchedExclusionState,
 } from './discover.models';
 
 export type DiscoverStatus = 'loading' | 'ready' | 'empty' | 'disabled' | 'error';
@@ -34,6 +35,7 @@ const STALE_HINT = ' Results may be stale.';
 interface ExternalBrowseCacheEntry {
   items: ExternalDiscoverItem[];
   availability: ExternalDiscoverAvailability;
+  watchedExclusion?: WatchedExclusionState;
 }
 
 /** Re-export for specs; canonical home is `media-stack/scheduled-poll`. */
@@ -362,8 +364,8 @@ export class DiscoverFacade {
       },
       isActive: () => this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind,
       cached: () => this._jellyseerrCache()[kind],
-      writeCache: (items, availability) => {
-        this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: { items, availability } }));
+      writeCache: (items, availability, watchedExclusion) => {
+        this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: { items, availability, watchedExclusion } }));
       },
       fetch: () => this.api.listJellyseerrDiscover(kind, signal),
       signal,
@@ -380,8 +382,8 @@ export class DiscoverFacade {
       },
       isActive: () => this._tab() === 'trakt' && this._traktType() === type,
       cached: () => this._traktCache()[type],
-      writeCache: (items, availability) => {
-        this._traktCache.update((cache) => ({ ...cache, [type]: { items, availability } }));
+      writeCache: (items, availability, watchedExclusion) => {
+        this._traktCache.update((cache) => ({ ...cache, [type]: { items, availability, watchedExclusion } }));
       },
       fetch: () => this.api.listTraktDiscover(type, signal),
       signal,
@@ -396,11 +398,12 @@ export class DiscoverFacade {
     setAppliedId: (id: number) => void;
     isActive: () => boolean;
     cached: () => ExternalBrowseCacheEntry | undefined;
-    writeCache: (items: ExternalDiscoverItem[], availability: ExternalDiscoverAvailability) => void;
+    writeCache: (items: ExternalDiscoverItem[], availability: ExternalDiscoverAvailability, watchedExclusion?: WatchedExclusionState) => void;
     fetch: () => Promise<{
       ok: boolean;
       items: ExternalDiscoverItem[];
       availability?: ExternalDiscoverAvailability;
+      watched_exclusion?: WatchedExclusionState;
       error?: string;
     }>;
     signal?: AbortSignal;
@@ -418,7 +421,7 @@ export class DiscoverFacade {
       const availability = response.availability ?? 'available';
       if (availability === 'disabled' && (requestId !== opts.currentRequestId() || !opts.isActive())) return;
       if (requestId < opts.appliedId()) return;
-      opts.writeCache(availability === 'disabled' ? [] : response.items, availability);
+      opts.writeCache(availability === 'disabled' ? [] : response.items, availability, response.watched_exclusion);
       opts.setAppliedId(requestId);
       if (!opts.isActive()) return;
       if (availability === 'disabled') {
@@ -427,6 +430,7 @@ export class DiscoverFacade {
         this._notice.set('');
         return;
       }
+      this.applyWatchedNotice(response.watched_exclusion);
       this.commitBrowseSuccess(response.items, requestId, opts.currentRequestId());
     } catch {
       if (opts.signal?.aborted) return;
@@ -445,10 +449,21 @@ export class DiscoverFacade {
         this._status.set(cached.items.length ? 'ready' : 'empty');
       }
       this._error.set('');
+      this.applyWatchedNotice(cached.watchedExclusion);
     } else {
       this._status.set('loading');
     }
     return !cached;
+  }
+
+  private applyWatchedNotice(watched?: WatchedExclusionState): void {
+    if (this._tab() !== 'trakt' || !watched || watched.status === 'fresh') return;
+    this._noticeTone.set('warning');
+    this._notice.set(
+      watched.status === 'stale'
+        ? 'Watched filtering is using a cached snapshot.'
+        : 'Watched filtering is unavailable. Showing Trakt recommendations.',
+    );
   }
 
   private commitBrowseSuccess(

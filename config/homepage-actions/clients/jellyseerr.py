@@ -16,6 +16,9 @@ def _jellyseerr_get(path):
     with urllib.request.urlopen(req, timeout=settings.TIMEOUT) as resp:
         return json.loads(resp.read().decode("utf-8"))
 def _trakt_get(path):
+    return _trakt_client().get(path)
+
+def _trakt_client():
     client = TraktClient(
         client_id=settings.TRAKT_CLIENT_ID,
         client_secret=settings.TRAKT_CLIENT_SECRET,
@@ -23,4 +26,7 @@ def _trakt_get(path):
         timeout=settings.TIMEOUT,
         fallback_access_token=settings.TRAKT_ACCESS_TOKEN,
     )
-    return client.get(path)
+    return client
+
+def _trakt_get_page(path):
+    return _trakt_client().get_page(path)

@@ -1,6 +1,10 @@
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
+from routes import discover as routes
 from routes.discover import _map_trakt_result
+from trakt_history import WatchedSnapshot
 
 
 class TraktDiscoverMappingTests(unittest.TestCase):
@@ -43,6 +47,38 @@ class TraktDiscoverMappingTests(unittest.TestCase):
         }
         result = _map_trakt_result(raw, "movies")
         self.assertIsNone(result["trakt_slug"])
+
+
+class TraktWatchedExclusionRouteTests(unittest.TestCase):
+    def test_filters_typed_watched_identities_and_reports_freshness(self):
+        captured = {}
+        raw = [
+            {"title": "Watched movie", "ids": {"tmdb": 42}},
+            {"title": "Keep movie", "ids": {"tmdb": 7}},
+        ]
+        watched = WatchedSnapshot(frozenset({"movie:42", "tv:42"}), "2026-08-11T12:00:00+00:00", "fresh")
+        with mock.patch.object(routes.settings, "TRAKT_CLIENT_ID", "id"), \
+                mock.patch.object(routes, "_trakt_get", return_value=raw) as trakt_get, \
+                mock.patch.object(routes, "_trakt_watched_snapshot", return_value=watched), \
+                mock.patch.object(routes, "_library_exclusion_snapshot", return_value=routes.LibraryExclusionSnapshot.from_maps({}, {}, status="fresh", last_successful_refresh_at=None)), \
+                mock.patch.object(routes, "send_json", side_effect=lambda _h, _s, payload: captured.update(payload)):
+            routes.handle_discover_trakt(SimpleNamespace(), {"type": ["movies"]})
+        self.assertEqual([item["tmdb_id"] for item in captured["items"]], [7])
+        self.assertEqual(captured["watched_exclusion"], watched.public())
+        self.assertIn("ignore_watched=true", trakt_get.call_args.args[0])
+
+    def test_keeps_cards_and_warns_when_watched_snapshot_is_unavailable(self):
+        captured = {}
+        watched = WatchedSnapshot(frozenset(), None, "unavailable")
+        raw = [{"title": "Keep movie", "ids": {"tmdb": 7}}]
+        with mock.patch.object(routes.settings, "TRAKT_CLIENT_ID", "id"), \
+                mock.patch.object(routes, "_trakt_get", return_value=raw), \
+                mock.patch.object(routes, "_trakt_watched_snapshot", return_value=watched), \
+                mock.patch.object(routes, "_library_exclusion_snapshot", return_value=routes.LibraryExclusionSnapshot.from_maps({}, {}, status="fresh", last_successful_refresh_at=None)), \
+                mock.patch.object(routes, "send_json", side_effect=lambda _h, _s, payload: captured.update(payload)):
+            routes.handle_discover_trakt(SimpleNamespace(), {"type": ["movies"]})
+        self.assertEqual([item["tmdb_id"] for item in captured["items"]], [7])
+        self.assertEqual(captured["watched_exclusion"]["status"], "unavailable")
 
 
 if __name__ == "__main__":

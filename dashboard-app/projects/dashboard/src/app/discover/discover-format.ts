@@ -188,6 +188,7 @@ export const mapExternalDiscover = (dto: MediaStackExternalDiscoverDto): Externa
   items: (dto.items ?? []).map(mapExternalDiscoverItem),
   availability: dto.enabled === false ? 'disabled' : 'available',
   library_exclusion: dto.library_exclusion,
+  watched_exclusion: dto.watched_exclusion,
   error: dto.error,
 });
 

@@ -837,6 +837,15 @@ export function requireExternalDiscoverPayload(
   items.forEach((item, index) => {
     requireLiveExternalDiscoverItem(item, index, resource);
   });
+  const watched = data['watched_exclusion'];
+  if (watched !== undefined && watched !== null) {
+    if (!isRecord(watched) || !['fresh', 'stale', 'unavailable'].includes(String(watched['status']))) {
+      throw new Error(`Malformed ${resource} response: watched_exclusion is invalid`);
+    }
+    if (watched['last_successful_refresh_at'] !== null && typeof watched['last_successful_refresh_at'] !== 'string') {
+      throw new Error(`Malformed ${resource} response: watched_exclusion timestamp is invalid`);
+    }
+  }
 }
 
 /**

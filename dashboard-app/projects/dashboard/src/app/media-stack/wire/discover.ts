@@ -1,9 +1,15 @@
 export type MediaStackDiscoverFeedbackDto = 'liked' | 'disliked' | 'watched' | 'skipped';
 export type MediaStackDiscoverMediaTypeDto = 'movie' | 'tv';
 type MediaStackLibraryExclusionStatusDto = 'fresh' | 'stale' | 'unavailable';
+type MediaStackWatchedExclusionStatusDto = 'fresh' | 'stale' | 'unavailable';
 
 interface MediaStackLibraryExclusionDto {
   status: MediaStackLibraryExclusionStatusDto;
+  last_successful_refresh_at: string | null;
+}
+
+interface MediaStackWatchedExclusionDto {
+  status: MediaStackWatchedExclusionStatusDto;
   last_successful_refresh_at: string | null;
 }
 
@@ -59,6 +65,7 @@ export interface MediaStackExternalDiscoverDto {
   enabled?: boolean;
   items?: MediaStackExternalDiscoverItemDto[];
   library_exclusion?: MediaStackLibraryExclusionDto;
+  watched_exclusion?: MediaStackWatchedExclusionDto;
   error?: string;
 }
 

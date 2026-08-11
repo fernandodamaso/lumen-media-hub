@@ -54,6 +54,15 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems()).toEqual([]);
   });
 
+  it('keeps Trakt cards and warns when watched filtering is unavailable', async () => {
+    api.traktWatchedExclusion = { status: 'unavailable', last_successful_refresh_at: null };
+
+    await facade.setTab('trakt');
+
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trakt Horizon']);
+    expect(facade.notice()).toContain('Watched filtering is unavailable');
+  });
+
   it('preserves disabled Jellyseerr availability while a tab refresh is pending', async () => {
     api.jellyseerrAvailability = 'disabled';
     await facade.setTab('jellyseerr');
@@ -715,6 +724,10 @@ class MockApi implements MediaStackApi {
     movies: [{ type: 'movie', title: 'Trakt Horizon', tmdb_id: 4 }],
     shows: [{ type: 'tv', title: 'Trakt Relay', tmdb_id: 5 }],
   };
+  traktWatchedExclusion: { status: 'fresh' | 'stale' | 'unavailable'; last_successful_refresh_at: string | null } = {
+    status: 'fresh',
+    last_successful_refresh_at: null,
+  };
   hermesCalls = 0;
   jellyseerrCalls: JellyseerrDiscoverKind[] = [];
   traktCalls: TraktDiscoverType[] = [];
@@ -823,7 +836,11 @@ class MockApi implements MediaStackApi {
   }
   listTraktDiscover(type: TraktDiscoverType, _signal?: AbortSignal) {
     this.traktCalls.push(type);
-    return Promise.resolve({ ok: true, items: this.trakt[type].map((item) => ({ ...item })) });
+    return Promise.resolve({
+      ok: true,
+      items: this.trakt[type].map((item) => ({ ...item })),
+      watched_exclusion: this.traktWatchedExclusion,
+    });
   }
   requestMedia(payload: DiscoverRequestPayload) {
     this.requestCalls.push(payload);

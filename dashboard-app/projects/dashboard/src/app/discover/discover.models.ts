@@ -48,6 +48,12 @@ export interface ExternalDiscoverItem {
 }
 
 export type ExternalDiscoverAvailability = 'available' | 'disabled';
+type WatchedExclusionStatus = 'fresh' | 'stale' | 'unavailable';
+
+export interface WatchedExclusionState {
+  status: WatchedExclusionStatus;
+  last_successful_refresh_at: string | null;
+}
 
 export interface HermesDiscover {
   ok: boolean;
@@ -64,6 +70,7 @@ export interface ExternalDiscover {
   availability?: ExternalDiscoverAvailability;
   error?: string;
   library_exclusion?: LibraryExclusionState;
+  watched_exclusion?: WatchedExclusionState;
 }
 
 export interface DiscoverAction {

@@ -634,6 +634,39 @@ class GetAndRetiredRouteTests(GenerationApiTestCase):
         )
         self.assertNotIn("context_errors", context)
 
+    def test_get_projects_watched_hermes_items_without_writing_store(self):
+        self.seed([make_item(7), make_item(8, active=False), make_item(9, feedback="liked")])
+        watched = discover_routes.WatchedSnapshot(
+            frozenset({"movie:7", "movie:8", "movie:9"}),
+            "2026-08-11T12:00:00+00:00",
+            "fresh",
+        )
+        with open(self.path, "rb") as handle:
+            before = handle.read()
+        with mock.patch.object(discover_routes, "_trakt_watched_snapshot", return_value=watched) as watched_snapshot, \
+                mock.patch.object(
+                    discover_routes,
+                    "_library_exclusion_snapshot",
+                    return_value=discover_routes.LibraryExclusionSnapshot.from_maps(
+                        {}, {}, status="fresh", last_successful_refresh_at=None
+                    ),
+                ), \
+                mock.patch.object(discover_routes, "_enrich_hermes_posters", side_effect=lambda values: values), \
+                mock.patch.object(discover_routes, "_hermes_generation_context", return_value={}):
+            status, payload = self.request("GET", "/discover/hermes")
+        with open(self.path, "rb") as handle:
+            after = handle.read()
+        self.assertEqual(status, 200)
+        watched_snapshot.assert_called_once_with()
+        self.assertEqual(before, after)
+        by_tmdb = {item["tmdb_id"]: item for item in payload["items"]}
+        self.assertEqual(
+            [(by_tmdb[tmdb_id]["active"], by_tmdb[tmdb_id]["excluded_reason"], by_tmdb[tmdb_id]["watched_on_trakt"])
+             for tmdb_id in (7, 8, 9)],
+            [(False, "watched_on_trakt", True)] * 3,
+        )
+        self.assertEqual(by_tmdb[9]["feedback"], "liked")
+
     def test_retired_upsert_route_returns_410(self):
         status, payload = self.request(
             "POST", "/discover/hermes", {"tmdb_id": 42, "title": "Heat"}

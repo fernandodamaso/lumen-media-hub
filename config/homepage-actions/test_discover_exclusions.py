@@ -175,6 +175,81 @@ class DiscoverExclusionTests(unittest.TestCase):
         self.assertTrue(projected["in_library"])
         self.assertTrue(item["active"])
 
+    def _hermes_get(self, items, *, watched, library=None):
+        captured = {}
+        library = library or routes.LibraryExclusionSnapshot.from_maps(
+            {}, {}, status="fresh", last_successful_refresh_at=None
+        )
+        store_data = {"version": 3, "revision": 4, "items": items}
+        with mock.patch.object(routes.settings.RECOMMENDATIONS_STORE, "load", return_value=store_data), \
+                mock.patch.object(routes, "_library_exclusion_snapshot", return_value=library), \
+                mock.patch.object(routes, "_trakt_watched_snapshot", return_value=watched) as watched_snapshot, \
+                mock.patch.object(routes, "_enrich_hermes_posters", side_effect=lambda values: values), \
+                mock.patch.object(routes, "_hermes_generation_context", return_value={}), \
+                mock.patch.object(routes, "send_json", side_effect=lambda _h, _s, payload: captured.update(payload)):
+            routes.handle_discover_hermes_get(SimpleNamespace())
+        watched_snapshot.assert_called_once_with()
+        return captured, store_data
+
+    def test_hermes_get_projects_active_watched_match_without_feedback(self):
+        item = {
+            "id": "hermes-movie-7", "source": "hermes", "type": "movie", "title": "Watched",
+            "tmdb_id": 7, "active": True, "feedback": None,
+        }
+        watched = WatchedSnapshot(frozenset({"movie:7"}), "2026-08-11T12:00:00+00:00", "fresh")
+        captured, store_data = self._hermes_get([item], watched=watched)
+        projected = captured["items"][0]
+        self.assertFalse(projected["active"])
+        self.assertEqual(projected["excluded_reason"], "watched_on_trakt")
+        self.assertTrue(projected["watched_on_trakt"])
+        self.assertIsNone(projected["feedback"])
+        self.assertTrue(store_data["items"][0]["active"])
+
+    def test_hermes_get_projects_inactive_watched_match_without_reactivating_it(self):
+        item = {
+            "id": "hermes-movie-8", "source": "hermes", "type": "movie", "title": "Archived",
+            "tmdb_id": 8, "active": False, "feedback": None,
+        }
+        watched = WatchedSnapshot(frozenset({"movie:8"}), "2026-08-11T12:00:00+00:00", "stale")
+        captured, _ = self._hermes_get([item], watched=watched)
+        projected = captured["items"][0]
+        self.assertFalse(projected["active"])
+        self.assertEqual(projected["excluded_reason"], "watched_on_trakt")
+        self.assertTrue(projected["watched_on_trakt"])
+
+    def test_hermes_get_preserves_feedback_and_request_fields_for_watched_match(self):
+        item = {
+            "id": "hermes-movie-9", "source": "hermes", "type": "movie", "title": "Liked watched",
+            "tmdb_id": 9, "active": True, "feedback": "liked", "feedback_at": "2026-01-01T00:00:00Z",
+            "request_state": "requested", "requested_at": "2026-01-02T00:00:00Z",
+            "jellyseerr_request_id": 55,
+        }
+        watched = WatchedSnapshot(frozenset({"movie:9"}), "2026-08-11T12:00:00+00:00", "fresh")
+        captured, store_data = self._hermes_get([item], watched=watched)
+        projected = captured["items"][0]
+        self.assertFalse(projected["active"])
+        self.assertEqual(projected["excluded_reason"], "watched_on_trakt")
+        self.assertTrue(projected["watched_on_trakt"])
+        self.assertEqual(projected["feedback"], "liked")
+        self.assertEqual(projected["feedback_at"], item["feedback_at"])
+        self.assertEqual(projected["request_state"], item["request_state"])
+        self.assertEqual(projected["requested_at"], item["requested_at"])
+        self.assertEqual(projected["jellyseerr_request_id"], item["jellyseerr_request_id"])
+        self.assertEqual(store_data["items"], [item])
+
+    def test_hermes_get_library_takes_precedence_while_retaining_watched_flag(self):
+        item = {
+            "id": "hermes-movie-42", "source": "hermes", "type": "movie", "title": "Both",
+            "tmdb_id": 42, "active": True, "feedback": None,
+        }
+        watched = WatchedSnapshot(frozenset({"movie:42"}), "2026-08-11T12:00:00+00:00", "fresh")
+        captured, _ = self._hermes_get([item], watched=watched, library=self.snapshot)
+        projected = captured["items"][0]
+        self.assertFalse(projected["active"])
+        self.assertEqual(projected["excluded_reason"], "in_library")
+        self.assertTrue(projected["in_library"])
+        self.assertTrue(projected["watched_on_trakt"])
+
     def test_jellyfin_failure_keeps_last_good_map_as_stale(self):
         old_cache = dict(routes._TMDB_LIBRARY_CACHE)
         try:

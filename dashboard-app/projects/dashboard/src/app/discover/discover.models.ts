@@ -25,7 +25,8 @@ export interface DiscoverItem {
   requested_at: string | null;
   jellyseerr_request_id: number | null;
   in_library?: boolean;
-  excluded_reason?: 'in_library' | null;
+  excluded_reason?: 'in_library' | 'watched_on_trakt' | null;
+  watched_on_trakt?: boolean;
   jellyfin_id?: string | null;
   poster_path?: string | null;
   poster_url?: string | null;
@@ -62,6 +63,7 @@ export interface HermesDiscover {
   generation_request?: { requested_at: string; status: 'pending' } | null;
   error?: string;
   library_exclusion?: LibraryExclusionState;
+  watched_exclusion?: WatchedExclusionState;
 }
 
 export interface ExternalDiscover {

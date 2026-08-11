@@ -593,9 +593,15 @@ def _sync_hermes_collection_best_effort():
         return {"ok": False, "error": str(e)}
 
 
-def _hermes_item_for_client(item, snapshot=None):
+def _hermes_item_for_client(item, snapshot=None, watched_snapshot=None):
     """Project exclusions for a read without writing the recommendation store."""
     projected = dict(item)
+    watched_on_trakt = bool(
+        watched_snapshot
+        and watched_snapshot.status != "unavailable"
+        and watched_snapshot.contains(projected.get("type"), projected.get("tmdb_id"))
+    )
+    projected["watched_on_trakt"] = watched_on_trakt
     if projected.get("feedback") is not None:
         projected["active"] = False
     if snapshot and snapshot.contains(projected.get("type"), projected.get("tmdb_id")):
@@ -605,6 +611,9 @@ def _hermes_item_for_client(item, snapshot=None):
             projected.get("type"), projected.get("tmdb_id")
         )
         projected["excluded_reason"] = "in_library"
+    elif watched_on_trakt:
+        projected["active"] = False
+        projected["excluded_reason"] = "watched_on_trakt"
     return projected
 
 
@@ -623,7 +632,11 @@ def handle_discover_hermes_get(handler):
         send_json(handler, 500, {"ok": False, "error": f"Store load failed: {e}"})
         return
     snapshot = _library_exclusion_snapshot()
-    items = [_hermes_item_for_client(item, snapshot) for item in _hermes_items(data)]
+    watched_snapshot = _trakt_watched_snapshot()
+    items = [
+        _hermes_item_for_client(item, snapshot, watched_snapshot)
+        for item in _hermes_items(data)
+    ]
     items = _enrich_hermes_posters(_enrich_hermes_library_flags(items, snapshot))
     send_json(
         handler,
@@ -638,6 +651,7 @@ def handle_discover_hermes_get(handler):
             "generation_request": _generation_request_public(),
             "context": _hermes_generation_context(data, snapshot),
             "library_exclusion": snapshot.public(),
+            "watched_exclusion": watched_snapshot.public(),
             "items": items,
         },
     )

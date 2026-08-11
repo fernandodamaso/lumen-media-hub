@@ -50,6 +50,18 @@ describe('DiscoverPage', () => {
     expect(fixtureHost(fixture).textContent).toContain('In library');
   });
 
+  it('renders a Watched on Trakt badge for automatic watched projection', () => {
+    facade.status.set('ready');
+    facade.tab.set('hermes');
+    facade.visibleItems.set([
+      card({ title: 'The Bear', watchedOnTrakt: true, excludedReason: 'watched_on_trakt' }),
+    ]);
+    fixture.detectChanges();
+
+    expect(fixtureHost(fixture).textContent).toContain('Watched on Trakt');
+    expect(fixtureHost(fixture).textContent).not.toContain('In library');
+  });
+
   it('keeps Request in the footer for every source and only mounts Hermes feedback', () => {
     facade.status.set('ready');
     facade.visibleItems.set([card({ title: 'Signal Drift' })]);
@@ -351,6 +363,7 @@ function card(overrides: Partial<DiscoverCardItem> = {}): DiscoverCardItem {
     feedback: null,
     requestState: null,
     inLibrary: false,
+    watchedOnTrakt: false,
     ...overrides,
   };
 }

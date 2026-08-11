@@ -1310,17 +1310,45 @@ describe('HttpMediaStackApi', () => {
           requested_at: null,
           jellyseerr_request_id: null,
           added_at: '2026-07-10T12:00:00Z',
+          watched_on_trakt: true,
+          excluded_reason: 'watched_on_trakt',
         },
       ],
       pending_request_sync: [{ id: 'hermes-1', jellyseerr_request_id: 55 }],
       generation_request: { requested_at: '2026-07-12T00:00:00Z', status: 'pending' },
+      watched_exclusion: { status: 'stale', last_successful_refresh_at: '2026-07-11T12:00:00Z' },
     });
     await expect(pending).resolves.toMatchObject({
       ok: true,
       items: [expect.objectContaining({ id: 'hermes-1', title: 'Signal Drift' })],
       pending_request_sync: [{ id: 'hermes-1', jellyseerr_request_id: 55 }],
       generation_request: { status: 'pending' },
+      watched_exclusion: { status: 'stale', last_successful_refresh_at: '2026-07-11T12:00:00Z' },
     });
+  });
+
+  it('rejects invalid Hermes watched projection state', async () => {
+    const pending = api.listHermesRecommendations();
+    http.expectOne('/api/discover/hermes').flush({
+      ok: true,
+      items: [{
+        id: 'hermes-1',
+        source: 'hermes',
+        type: 'movie',
+        title: 'Signal Drift',
+        tmdb_id: 101001,
+        active: false,
+        feedback: null,
+        feedback_at: null,
+        request_state: null,
+        requested_at: null,
+        jellyseerr_request_id: null,
+        added_at: '2026-07-10T12:00:00Z',
+        watched_on_trakt: 'yes',
+        excluded_reason: 'watched_on_trakt',
+      }],
+    });
+    await expect(pending).rejects.toThrow(/watched_on_trakt/);
   });
 
   it('rejects cron log members missing required identity or timestamps', async () => {

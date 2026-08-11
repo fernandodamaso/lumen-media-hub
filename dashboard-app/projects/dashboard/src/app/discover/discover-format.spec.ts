@@ -147,4 +147,26 @@ describe('discover-format', () => {
     const item = hermesItem({ in_library: false, excluded_reason: 'in_library' });
     expect(toHermesCardItem(item).inLibrary).toBe(true);
   });
+
+  it('keeps a Trakt-watched Hermes item out of Active and in the Watched History filter', () => {
+    const item = hermesItem({ active: true, excluded_reason: 'watched_on_trakt', watched_on_trakt: true });
+    expect(isHermesActiveItem(item)).toBe(false);
+    expect(matchesHistoryFilter(item, 'watched')).toBe(true);
+    expect(toHermesCardItem(item)).toMatchObject({
+      watchedOnTrakt: true,
+      excludedReason: 'watched_on_trakt',
+      inLibrary: false,
+    });
+  });
+
+  it('keeps library precedence while retaining Watched filter eligibility', () => {
+    const item = hermesItem({ active: true, excluded_reason: 'in_library', in_library: true, watched_on_trakt: true });
+    expect(isHermesActiveItem(item)).toBe(false);
+    expect(matchesHistoryFilter(item, 'watched')).toBe(true);
+    expect(toHermesCardItem(item)).toMatchObject({
+      watchedOnTrakt: true,
+      excludedReason: 'in_library',
+      inLibrary: true,
+    });
+  });
 });

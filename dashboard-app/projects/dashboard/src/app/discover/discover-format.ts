@@ -37,7 +37,8 @@ export type DiscoverCardItem = {
   feedback: DiscoverFeedback | null;
   requestState: 'requested' | null;
   inLibrary: boolean;
-  excludedReason?: 'in_library' | null;
+  excludedReason?: 'in_library' | 'watched_on_trakt' | null;
+  watchedOnTrakt?: boolean;
   posterUrl?: string | null;
   rating?: number | null;
 };
@@ -55,6 +56,7 @@ export function toHermesCardItem(item: DiscoverItem): DiscoverCardItem {
     requestState: item.request_state,
     inLibrary: item.in_library || item.excluded_reason === 'in_library',
     excludedReason: item.excluded_reason,
+    watchedOnTrakt: item.watched_on_trakt === true,
     posterUrl: item.poster_url,
     rating: item.rating,
   };
@@ -80,6 +82,7 @@ export function toExternalCardItem(
     feedback: null,
     requestState,
     inLibrary: false,
+    watchedOnTrakt: false,
     posterUrl: item.poster_url,
     rating: item.rating,
   };
@@ -128,15 +131,15 @@ export function resolveRequestAction(
 export function matchesHistoryFilter(item: DiscoverItem, filter: DiscoverHistoryFilter): boolean {
   if (filter === 'all') return true;
   if (filter === 'requested') return item.request_state === 'requested';
-  if (filter === 'watched') return item.feedback === 'watched' || item.feedback === 'liked';
+  if (filter === 'watched') return item.feedback === 'watched' || item.feedback === 'liked' || item.watched_on_trakt === true;
   return item.feedback === filter;
 }
 
 /** Active Hermes browse excludes any title that already has feedback (liked leaves the queue). */
 export function isHermesActiveItem(
-  item: Pick<DiscoverItem, 'active' | 'feedback' | 'excluded_reason'>,
+  item: Pick<DiscoverItem, 'active' | 'feedback' | 'excluded_reason' | 'watched_on_trakt'>,
 ): boolean {
-  return item.active && item.feedback == null && item.excluded_reason !== 'in_library';
+  return item.active && item.feedback == null && item.excluded_reason !== 'in_library' && item.excluded_reason !== 'watched_on_trakt' && item.watched_on_trakt !== true;
 }
 
 /** Liked also counts as watched for pressed UI and history filtering. */
@@ -180,6 +183,7 @@ export const mapHermesDiscover = (dto: MediaStackHermesDiscoverDto): HermesDisco
   pending_request_sync: dto.pending_request_sync,
   generation_request: dto.generation_request,
   library_exclusion: dto.library_exclusion,
+  watched_exclusion: dto.watched_exclusion,
   error: dto.error,
 });
 

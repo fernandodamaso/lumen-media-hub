@@ -28,7 +28,8 @@ export interface MediaStackDiscoverItemDto {
   requested_at: string | null;
   jellyseerr_request_id: number | null;
   in_library?: boolean;
-  excluded_reason?: 'in_library' | null;
+  excluded_reason?: 'in_library' | 'watched_on_trakt' | null;
+  watched_on_trakt?: boolean;
   jellyfin_id?: string | null;
   poster_path?: string | null;
   poster_url?: string | null;
@@ -56,6 +57,7 @@ export interface MediaStackHermesDiscoverDto {
   pending_request_sync?: { id: string; jellyseerr_request_id: number }[];
   generation_request?: { requested_at: string; status: 'pending' } | null;
   library_exclusion?: MediaStackLibraryExclusionDto;
+  watched_exclusion?: MediaStackWatchedExclusionDto;
   error?: string;
 }
 

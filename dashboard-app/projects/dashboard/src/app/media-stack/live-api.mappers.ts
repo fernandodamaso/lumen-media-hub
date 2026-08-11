@@ -788,6 +788,7 @@ export function requireHermesDiscoverPayload(data: Record<string, unknown>): voi
 
   requirePendingRequestSync(data['pending_request_sync']);
   requireGenerationRequest(data['generation_request']);
+  requireWatchedExclusion(data['watched_exclusion'], 'Hermes');
 }
 
 function requirePendingRequestSync(pending: unknown): void {
@@ -842,12 +843,17 @@ export function requireExternalDiscoverPayload(
     throw new Error('Malformed Trakt response: watched_exclusion is required');
   }
   if (watched !== undefined && watched !== null) {
-    if (!isRecord(watched) || !['fresh', 'stale', 'unavailable'].includes(String(watched['status']))) {
-      throw new Error(`Malformed ${resource} response: watched_exclusion is invalid`);
-    }
-    if (watched['last_successful_refresh_at'] !== null && typeof watched['last_successful_refresh_at'] !== 'string') {
-      throw new Error(`Malformed ${resource} response: watched_exclusion timestamp is invalid`);
-    }
+    requireWatchedExclusion(watched, resource);
+  }
+}
+
+function requireWatchedExclusion(value: unknown, resource: 'Hermes' | 'Jellyseerr' | 'Trakt'): void {
+  if (value === undefined || value === null) return;
+  if (!isRecord(value) || !['fresh', 'stale', 'unavailable'].includes(String(value['status']))) {
+    throw new Error(`Malformed ${resource} response: watched_exclusion is invalid`);
+  }
+  if (value['last_successful_refresh_at'] !== null && typeof value['last_successful_refresh_at'] !== 'string') {
+    throw new Error(`Malformed ${resource} response: watched_exclusion timestamp is invalid`);
   }
 }
 
@@ -888,8 +894,14 @@ function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDisco
   const requestedAt = optionalNullableString(raw, 'requested_at', index, 'Hermes') ?? null;
   const jellyseerrRequestId = optionalNullableFiniteNumber(raw, 'jellyseerr_request_id', index, 'Hermes');
   const inLibrary = optionalBoolean(raw, 'in_library', index, 'Hermes');
+  const watchedOnTrakt = optionalBoolean(raw, 'watched_on_trakt', index, 'Hermes');
   const excludedReasonRaw = optionalNullableString(raw, 'excluded_reason', index, 'Hermes');
-  if (excludedReasonRaw !== undefined && excludedReasonRaw !== null && excludedReasonRaw !== 'in_library') {
+  if (
+    excludedReasonRaw !== undefined &&
+    excludedReasonRaw !== null &&
+    excludedReasonRaw !== 'in_library' &&
+    excludedReasonRaw !== 'watched_on_trakt'
+  ) {
     throw new Error(`Malformed Hermes response: member ${index} has invalid excluded_reason`);
   }
   const jellyfinId = optionalNullableString(raw, 'jellyfin_id', index, 'Hermes');
@@ -914,6 +926,7 @@ function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDisco
     jellyseerr_request_id: jellyseerrRequestId ?? null,
     in_library: inLibrary,
     excluded_reason: excludedReasonRaw,
+    watched_on_trakt: watchedOnTrakt,
     jellyfin_id: jellyfinId,
     poster_path: posterPath,
     poster_url: posterUrl,

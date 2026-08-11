@@ -200,6 +200,26 @@ describe('DiscoverFacade', () => {
     ]);
   });
 
+  it('moves a projected Trakt-watched Hermes item from Active to Watched History', async () => {
+    api.hermes.items = [
+      {
+        ...api.hermes.items[0],
+        active: true,
+        excluded_reason: 'watched_on_trakt',
+        watched_on_trakt: true,
+      },
+    ];
+
+    await facade.setTab('hermes');
+    expect(facade.visibleItems()).toEqual([]);
+
+    facade.setHermesView('history');
+    facade.setHistoryFilter('watched');
+    expect(facade.visibleItems()).toMatchObject([
+      { title: 'Signal Drift', watchedOnTrakt: true, excludedReason: 'watched_on_trakt' },
+    ]);
+  });
+
   it('requestItem calls only requestMedia and tracks sync-failed notices', async () => {
     await facade.setTab('hermes');
     api.requestResult = {

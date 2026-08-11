@@ -772,6 +772,20 @@ class ExclusionEnforcementTests(GenerationApiTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload["rejected"][0]["reason"], "already_tracked")
 
+    def test_legacy_tombstone_blocks_both_typed_candidates(self):
+        self.seed([], presented=["legacy:777"])
+        status, payload = self.post_generation(
+            1,
+            [self.candidate(777), self.candidate(777, media_type="tv")],
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["accepted"], [])
+        self.assertEqual(
+            [(entry["identity"], entry["reason"]) for entry in payload["rejected"]],
+            [("movie:777", "already_presented"), ("tv:777", "already_presented")],
+        )
+        self.assertEqual(self.current_doc()["presented_media_ids"], ["legacy:777"])
+
 
 class WatchedGenerationRotationTests(GenerationApiTestCase):
     def test_excluded_active_rows_cannot_be_explicitly_retained(self):
@@ -887,6 +901,73 @@ class WatchedGenerationRotationTests(GenerationApiTestCase):
         self.assertEqual(payload["rejected"][0]["reason"], "already_in_library")
 
 
+class TrackedGenerationRotationTests(GenerationApiTestCase):
+    def test_tracked_active_identity_is_not_required_retain(self):
+        self.seed(
+            [make_item(7), make_item(8)],
+            presented=["movie:7", "movie:8"],
+        )
+        tracked = {"movie:7"}
+        snapshot = discover_routes.LibraryExclusionSnapshot.from_maps(
+            {}, {}, status="fresh", last_successful_refresh_at=None
+        )
+        watched = discover_routes.WatchedSnapshot(frozenset(), None, "fresh")
+        with mock.patch.object(
+            discover_routes, "_get_tracked_media_ids", return_value=(sorted(tracked), [])
+        ):
+            context = discover_routes._hermes_generation_context(
+                self.current_doc(), snapshot, watched
+            )
+        self.assertNotIn("movie:7", context["required_retain"])
+        self.assertIn("movie:8", context["required_retain"])
+
+    def test_tracked_active_identity_retain_is_rejected_and_rotated(self):
+        tracked = make_item(7, feedback="liked", request_state="requested")
+        tracked["feedback_at"] = "2026-02-02T00:00:00Z"
+        tracked["requested_at"] = "2026-02-03T00:00:00Z"
+        tracked["jellyseerr_request_id"] = 707
+        tracked["added_at"] = "2025-12-07T00:00:00Z"
+        before = {
+            key: tracked[key]
+            for key in (
+                "id", "identity", "type", "tmdb_id", "feedback", "feedback_at",
+                "request_state", "requested_at", "jellyseerr_request_id", "added_at",
+            )
+        }
+        self.seed([tracked, make_item(8)], presented=["movie:7", "movie:8"])
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=({"movie:7"}, set(), set(), []),
+        ):
+            status, payload = self.post_generation(
+                rev, [self.candidate(7, retain=True)]
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["rejected"][0]["reason"], "already_tracked")
+        self.assertEqual(payload["rotated"], ["movie:7"])
+        rotated = self.item_by_tmdb(self.current_doc(), 7)
+        self.assertFalse(rotated["active"])
+        self.assertEqual({key: rotated[key] for key in before}, before)
+        self.assertTrue(self.item_by_tmdb(self.current_doc(), 8)["active"])
+
+    def test_tracked_active_omission_rotates_but_unrelated_untouched_stays_active(self):
+        self.seed(
+            [make_item(7), make_item(8)],
+            presented=["movie:7", "movie:8"],
+        )
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=({"movie:7"}, set(), set(), []),
+        ):
+            status, payload = self.post_generation(rev, [])
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["rotated"], ["movie:7"])
+        self.assertFalse(self.item_by_tmdb(self.current_doc(), 7)["active"])
+        self.assertTrue(self.item_by_tmdb(self.current_doc(), 8)["active"])
+
+
 class HermesGenerationContextContractTests(GenerationApiTestCase):
     def test_context_has_sorted_deduplicated_watched_ids_and_excludes_authoritative_rows(self):
         self.seed(
@@ -935,6 +1016,70 @@ class HermesGenerationContextContractTests(GenerationApiTestCase):
         )
         self.assertEqual(context["watched_media_ids"], ["movie:42", "tv:42"])
 
+    def test_watched_active_identity_is_absent_from_required_retain(self):
+        self.seed(
+            [make_item(7), make_item(8, media_type="tv")],
+            presented=["movie:7", "tv:8"],
+        )
+        snapshot = discover_routes.LibraryExclusionSnapshot.from_maps(
+            {}, {}, status="fresh", last_successful_refresh_at=None
+        )
+        watched = discover_routes.WatchedSnapshot(
+            frozenset({"movie:7"}), "2026-08-11T12:00:00+00:00", "stale"
+        )
+        with mock.patch.object(
+            discover_routes, "_get_tracked_media_ids", return_value=([], [])
+        ):
+            context = discover_routes._hermes_generation_context(
+                self.current_doc(), snapshot, watched
+            )
+        self.assertIn("movie:7", context["watched_media_ids"])
+        self.assertNotIn("movie:7", context["required_retain"])
+        self.assertIn("tv:8", context["required_retain"])
+
+    def test_unavailable_watched_acquisition_is_soft_and_sanitized(self):
+        def fail_watched_fetch(_path):
+            raise RuntimeError(
+                "credential=SECRET_TOKEN raw-history=Watched Title movie:909"
+            )
+
+        watched_service = discover_routes.TraktWatchedService(fail_watched_fetch)
+        library = discover_routes.LibraryExclusionSnapshot.from_maps(
+            {}, {}, status="fresh", last_successful_refresh_at=None
+        )
+        with mock.patch.object(
+            discover_routes, "_TRAKT_WATCHED_SERVICE", watched_service
+        ), mock.patch.object(
+            discover_routes,
+            "_get_tracked_media_ids",
+            return_value=([], ["radarr: SECRET_TOKEN raw-history=Watched Title movie:909"]),
+        ), mock.patch.object(
+            discover_routes, "_library_exclusion_snapshot", return_value=library
+        ), mock.patch("builtins.print") as printed:
+            tracked, in_library, watched, errors = discover_routes._hermes_exclusion_sets()
+            status, payload = self.post_generation(0, [self.candidate(910)])
+            context = discover_routes._hermes_generation_context(
+                {"items": []}, library
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(tracked, set())
+        self.assertEqual(in_library, set())
+        self.assertEqual(watched, set())
+        self.assertEqual(
+            errors, ["radarr: unavailable", "trakt_watched: unavailable"]
+        )
+        self.assertEqual(
+            context["context_errors"],
+            ["radarr: unavailable", "trakt_watched: unavailable"],
+        )
+        logged = " ".join(str(call) for call in printed.call_args_list)
+        for secret in ("SECRET_TOKEN", "Watched Title", "movie:909"):
+            self.assertNotIn(secret, logged)
+        for error in context["context_errors"]:
+            self.assertNotIn("SECRET_TOKEN", error)
+            self.assertNotIn("Watched Title", error)
+            self.assertNotIn("movie:909", error)
+
     def test_prompt_documents_watched_deny_list_and_server_rejection(self):
         prompt_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
@@ -946,6 +1091,8 @@ class HermesGenerationContextContractTests(GenerationApiTestCase):
         self.assertIn("watched_media_ids", prompt)
         self.assertIn('"retain": true', prompt)
         self.assertIn("already_watched", prompt)
+        self.assertIn("Trakt watched", prompt)
+        self.assertIn("tracked, library, and watched", prompt)
 
 
 class FeedbackPatchTests(GenerationApiTestCase):

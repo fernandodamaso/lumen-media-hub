@@ -845,9 +845,15 @@ def _get_in_library_media_ids():
         return [], [f"jellyfin: {e}"]
 
 
-def _hermes_required_retain(items, *, excluded_library=None, excluded_watched=None):
+def _hermes_required_retain(
+    items, *, excluded_tracked=None, excluded_library=None, excluded_watched=None
+):
     """Active identities Hermes must keep, excluding authoritative deny sets."""
-    excluded = set(excluded_library or ()) | set(excluded_watched or ())
+    excluded = (
+        set(excluded_tracked or ())
+        | set(excluded_library or ())
+        | set(excluded_watched or ())
+    )
     retain = set()
     for item in items:
         if not item.get("active"):
@@ -938,6 +944,7 @@ def _hermes_generation_context(data, snapshot=None, watched_snapshot=None):
         "library_exclusion": snapshot.public(),
         "required_retain": _hermes_required_retain(
             items,
+            excluded_tracked=tracked,
             excluded_library=in_library,
             excluded_watched=watched,
         ),
@@ -1070,6 +1077,16 @@ def handle_discover_hermes_generations(handler):
                 # active row, whether or not Hermes included retain=true.
                 # Leave it untouched in this loop so rotation moves it to
                 # History while preserving its metadata.
+                if identity in tracked_set:
+                    rejected.append(
+                        {
+                            "index": candidate["index"],
+                            "identity": identity,
+                            "tmdb_id": tmdb_id,
+                            "reason": "already_tracked",
+                        }
+                    )
+                    continue
                 if identity in in_library_set:
                     rejected.append(
                         {
@@ -1195,7 +1212,8 @@ def handle_discover_hermes_generations(handler):
                 identity = item.get("identity") or _hermes_identity(item)
                 # Hard rule: never rotate untouched actives.
                 if (
-                    identity not in in_library_set
+                    identity not in tracked_set
+                    and identity not in in_library_set
                     and identity not in watched_set
                     and _should_auto_retain_hermes_item(item)
                 ):

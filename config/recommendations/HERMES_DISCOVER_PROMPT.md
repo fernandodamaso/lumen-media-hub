@@ -16,12 +16,12 @@ If `GET /discover/hermes` includes `"generation_request": {"status":"pending",..
 - `presented_media_ids` — durable deny list: every composite `movie:<id>` or `tv:<id>` identity ever presented. A `legacy:<id>` entry is a conservative v2 tombstone that blocks both types;
 - `items[]` — active picks plus history with `feedback` (`liked` / `disliked` / `watched` / `skipped`) and `request_state`;
 - `context` — **use this; do not curl Sonarr, Radarr, or Jellyfin yourself**:
-  - `tracked_media_ids` — already in Sonarr/Radarr;
+  - `tracked_media_ids` — authoritative typed deny list for titles already in Sonarr/Radarr;
   - `in_library_media_ids` — already playable in Jellyfin;
   - `watched_media_ids` — authoritative typed Trakt watched deny list (`movie:<id>` / `tv:<id>`); never submit these as new candidates or as `retain: true` keepers;
-  - `required_retain` — active, untouched identities you **must** submit with `"retain": true`; library and watched identities are omitted;
+  - `required_retain` — active, untouched identities you **must** submit with `"retain": true`; tracked, library, and watched identities are omitted;
   - `taste` — compact `liked` / `disliked` / `skipped` / `watched` title lists;
-  - optional `context_errors` — Arr/Jellyfin fetch degraded; still proceed with the lists returned (may be empty).
+  - optional `context_errors` — Arr/Jellyfin/Trakt watched fetch degraded; still proceed with the lists returned (which may be empty).
 
 Build a compact taste index from `context.taste` (and skim active `items` only if needed). Do not dump giant JSON into reasoning:
 
@@ -59,8 +59,8 @@ Target roughly **15–25 active recommendations** after the commit when starting
 
 **Retain discipline (hard rules):**
 
-1. **Submit every `context.required_retain` identity** with `"retain": true`. That list is the server’s view of untouched active rows outside library and watched deny sets. Never omit them. The API also refuses to rotate these even if you forget.
-2. **Never retain excluded identities.** Library, tracked, and watched typed identities are authoritative deny sets. The server excludes library and watched identities from `required_retain`; if an excluded active row is present, a successful generation rotates it to History while preserving its metadata.
+1. **Submit every `context.required_retain` identity** with `"retain": true`. That list is the server’s view of untouched active rows outside tracked, library, and watched deny sets. Never omit them. The API also refuses to rotate these even if you forget.
+2. **Never retain excluded identities.** Library, tracked, and watched typed identities are authoritative deny sets. The server excludes all three from `required_retain`; if an excluded active row is present, a successful generation rotates it to History while preserving its metadata.
 3. **Do not resurrect history.** Rows that are already `active=false` (typically `disliked` / `skipped` / `watched` / `requested`) stay in history — omit them from the batch. Never try to bring them back with `"retain": true` (the API rejects resurrection).
 4. After retaining all required keepers, add **new** candidates (no `retain`) to refresh the slate. Prefer quality over filling a quota.
 

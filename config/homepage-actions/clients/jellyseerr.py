@@ -1,9 +1,9 @@
 """Jellyseerr and Trakt HTTP clients."""
 import json
-import urllib.parse
 import urllib.request
 
 import config as settings
+from clients.trakt import TraktClient
 
 def _jellyseerr_get(path):
     if not settings.JELLYSEERR_ENABLED:
@@ -16,13 +16,11 @@ def _jellyseerr_get(path):
     with urllib.request.urlopen(req, timeout=settings.TIMEOUT) as resp:
         return json.loads(resp.read().decode("utf-8"))
 def _trakt_get(path):
-    if not settings.TRAKT_CLIENT_ID or not settings.TRAKT_ACCESS_TOKEN:
-        raise RuntimeError("Trakt OAuth not configured")
-    req = urllib.request.Request(f"https://api.trakt.tv{path}")
-    req.add_header("Content-Type", "application/json")
-    req.add_header("User-Agent", "media-stack-dashboard/1.0")
-    req.add_header("trakt-api-version", "2")
-    req.add_header("trakt-api-key", settings.TRAKT_CLIENT_ID)
-    req.add_header("Authorization", f"Bearer {settings.TRAKT_ACCESS_TOKEN}")
-    with urllib.request.urlopen(req, timeout=settings.TIMEOUT) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    client = TraktClient(
+        client_id=settings.TRAKT_CLIENT_ID,
+        client_secret=settings.TRAKT_CLIENT_SECRET,
+        token_path=settings.TRAKT_TOKEN_PATH,
+        timeout=settings.TIMEOUT,
+        fallback_access_token=settings.TRAKT_ACCESS_TOKEN,
+    )
+    return client.get(path)

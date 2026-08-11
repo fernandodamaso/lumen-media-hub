@@ -18,6 +18,7 @@ from clients.jellyfin import (
     jellyfin_post,
 )
 from clients.jellyseerr import _jellyseerr_get, _trakt_get
+from clients.trakt import TraktAuthError
 from http_support import (
     _BodyTooLarge,
     _read_json_body,
@@ -1271,7 +1272,7 @@ def handle_discover_trakt(handler, query):
     media_type = (query.get("type") or ["movies"])[0]
     if media_type not in ("movies", "shows"):
         media_type = "movies"
-    if not settings.TRAKT_CLIENT_ID or not settings.TRAKT_ACCESS_TOKEN:
+    if not settings.TRAKT_CLIENT_ID:
         send_json(handler, 503, {"ok": False, "error": "Trakt OAuth not configured"})
         return
     try:
@@ -1291,6 +1292,12 @@ def handle_discover_trakt(handler, query):
                 "library_exclusion": snapshot.public(),
                 "items": items,
             },
+        )
+    except TraktAuthError as error:
+        send_json(
+            handler,
+            503,
+            {"ok": False, "error": str(error), "code": error.code},
         )
     except Exception as e:
         send_json(handler, 502, {"ok": False, "error": str(e)})

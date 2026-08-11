@@ -19,6 +19,7 @@
 /downloads/
 /media/
 /tmp/
+/.state/
 
 # Ignore accidental local React dashboard tree (not part of this monorepo)
 /dashboard/

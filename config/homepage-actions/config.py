@@ -32,7 +32,11 @@ JELLYSEERR_ENABLED = os.environ.get("JELLYSEERR_ENABLED", "false").strip().lower
 JELLYSEERR_API_KEY = os.environ.get("JELLYSEERR_API_KEY", "")
 
 TRAKT_CLIENT_ID = os.environ.get("TRAKT_CLIENT_ID", "")
+# TRAKT_ACCESS_TOKEN is retained only as a migration fallback while the local
+# renewable token state is created. It must not be copied into browser config.
+TRAKT_CLIENT_SECRET = os.environ.get("TRAKT_CLIENT_SECRET", "")
 TRAKT_ACCESS_TOKEN = os.environ.get("TRAKT_ACCESS_TOKEN", "")
+TRAKT_TOKEN_PATH = os.environ.get("TRAKT_TOKEN_PATH", "/state/trakt-token.json")
 
 HERMES_COLLECTION_NAME = os.environ.get("HERMES_COLLECTION_NAME", "Hermes Picks")
 

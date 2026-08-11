@@ -10,7 +10,7 @@
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('stack', 'frontend-dev', 'both', 'redeploy-dashboard', 'up')]
+  [ValidateSet('stack', 'frontend-dev', 'both', 'redeploy-dashboard', 'up', 'connect-trakt')]
   [string]$Mode = 'both',
   [switch]$Force,
   [switch]$Gpu,
@@ -298,6 +298,95 @@ function Invoke-StackUp {
   Assert-ExitCode 'docker compose up'
 }
 
+function Get-ConfiguredEnvValue([hashtable]$Map, [string]$Name) {
+  $fromProcess = [Environment]::GetEnvironmentVariable($Name)
+  if ($fromProcess) { return $fromProcess }
+  if ($Map.ContainsKey($Name)) { return Unquote-DotEnvValue $Map[$Name] }
+  return ''
+}
+
+function Invoke-TraktDeviceAuthorization {
+  Assert-Command 'Invoke-WebRequest' 'PowerShell 7 is required.'
+  if (-not (Test-Path -LiteralPath $EnvFile)) {
+    Initialize-EnvFile
+  }
+  $envMap = Get-EnvMap ([string[]](Get-Content $EnvFile))
+  $clientId = Get-ConfiguredEnvValue $envMap 'TRAKT_CLIENT_ID'
+  $clientSecret = Get-ConfiguredEnvValue $envMap 'TRAKT_CLIENT_SECRET'
+  if (-not $clientId -or -not $clientSecret) {
+    throw 'Set TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET in the local .env before connecting Trakt.'
+  }
+
+  $stateRoot = Get-ConfiguredEnvValue $envMap 'TRAKT_STATE_PATH'
+  if (-not $stateRoot) { $stateRoot = Join-Path $RepoRoot '.state\trakt' }
+  $stateRoot = [Environment]::ExpandEnvironmentVariables($stateRoot)
+  $statePath = Join-Path $stateRoot 'trakt-token.json'
+  New-Item -ItemType Directory -Force -Path $stateRoot | Out-Null
+
+  if (Test-Path -LiteralPath $statePath) {
+    try {
+      $existing = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+      if ($existing.schema_version -eq 1 -and $existing.access_token -and $existing.refresh_token -and $existing.expires_at) {
+        Write-Host 'Trakt token state already exists. No authorization was started.'
+        return
+      }
+    } catch {
+      # An invalid state is replaced only after a complete successful flow.
+    }
+  }
+
+  $device = Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'https://trakt.tv/oauth/device/code' `
+    -ContentType 'application/x-www-form-urlencoded' -Body @{ client_id = $clientId } -SkipHttpErrorCheck
+  if ($device.StatusCode -lt 200 -or $device.StatusCode -ge 300) {
+    throw 'Trakt device authorization could not start. Try again later.'
+  }
+  $deviceBody = $device.Content | ConvertFrom-Json
+  if (-not $deviceBody.device_code -or -not $deviceBody.user_code -or -not $deviceBody.verification_url) {
+    throw 'Trakt device authorization returned an invalid response.'
+  }
+  Write-Host "Open $($deviceBody.verification_url)"
+  Write-Host "Enter device code $($deviceBody.user_code)"
+
+  $interval = if ($deviceBody.interval) { [int]$deviceBody.interval } else { 5 }
+  $deadline = [DateTime]::UtcNow.AddSeconds([double]$deviceBody.expires_in)
+  $tokenResponse = $null
+  while ([DateTime]::UtcNow -lt $deadline) {
+    Start-Sleep -Seconds $interval
+    $poll = Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'https://trakt.tv/oauth/device/token' `
+      -ContentType 'application/x-www-form-urlencoded' `
+      -Body @{ code = $deviceBody.device_code; client_id = $clientId; client_secret = $clientSecret } -SkipHttpErrorCheck
+    $pollBody = $poll.Content | ConvertFrom-Json
+    if ($poll.StatusCode -ge 200 -and $poll.StatusCode -lt 300 -and $pollBody.access_token -and $pollBody.refresh_token -and $pollBody.expires_in) {
+      $tokenResponse = $pollBody
+      break
+    }
+    $errorCode = [string]$pollBody.error
+    if ($errorCode -in @('device_pending', 'authorization_pending')) { continue }
+    if ($errorCode -eq 'slow_down') { $interval += 5; continue }
+    if ($errorCode -in @('access_denied', 'device_code_expired', 'expired_token')) {
+      throw 'Trakt authorization was denied or expired. Run connect-trakt again.'
+    }
+    throw 'Trakt authorization failed. Run connect-trakt again.'
+  }
+  if (-not $tokenResponse) { throw 'Trakt authorization expired. Run connect-trakt again.' }
+
+  $state = [ordered]@{
+    schema_version = 1
+    access_token = [string]$tokenResponse.access_token
+    refresh_token = [string]$tokenResponse.refresh_token
+    expires_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + [double]$tokenResponse.expires_in
+    created_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+  }
+  $temporary = Join-Path $stateRoot ('.trakt-token-' + [guid]::NewGuid().ToString('N') + '.tmp')
+  try {
+    $state | ConvertTo-Json -Compress | Set-Content -LiteralPath $temporary -Encoding utf8 -NoNewline
+    Move-Item -LiteralPath $temporary -Destination $statePath -Force
+  } finally {
+    if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+  }
+  Write-Host 'Trakt authorization completed and local renewable state was saved.'
+}
+
 function Invoke-FrontendDev {
   Assert-Node
   Invoke-NpmCi
@@ -318,6 +407,7 @@ try {
     'both'               { Invoke-FrontendDev; Invoke-Stack }
     'redeploy-dashboard' { Invoke-RedeployDashboard }
     'up'                 { Invoke-StackUp }
+    'connect-trakt'      { Invoke-TraktDeviceAuthorization }
   }
 } finally {
   Pop-Location

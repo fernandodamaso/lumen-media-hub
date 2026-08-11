@@ -191,7 +191,9 @@ Daily schedule: `0 10 * * *` — job prompt is a **pointer** to that file (do no
 Add to `.env` (not committed):
 
 - `TRAKT_CLIENT_ID` — from https://trakt.tv/oauth/applications
-- `TRAKT_ACCESS_TOKEN` — OAuth bearer token (device flow or refresh)
+- `TRAKT_CLIENT_SECRET` — local Trakt OAuth application secret used by the refresh client and `install.ps1 -Mode connect-trakt`
+- `TRAKT_TOKEN_PATH` — renewable token state path inside the backend (`/state/trakt-token.json` by default)
+- `TRAKT_ACCESS_TOKEN` — migration-only bearer fallback while renewable state is created; do not expose it to the browser
 
 Used by Hermes cron and the dashboard Trakt Discover tab (`GET /discover/trakt`).
 

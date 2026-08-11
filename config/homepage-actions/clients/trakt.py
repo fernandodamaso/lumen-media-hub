@@ -5,7 +5,6 @@ import tempfile
 import threading
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
@@ -173,7 +172,7 @@ class TraktClient:
     def _refresh_locked(self, state):
         if not state.refresh_token or not self.client_id or not self.client_secret:
             raise TraktAuthError()
-        body = urllib.parse.urlencode(
+        body = json.dumps(
             {
                 "refresh_token": state.refresh_token,
                 "client_id": self.client_id,
@@ -184,8 +183,8 @@ class TraktClient:
         ).encode("utf-8")
         response = self._call(
             "POST",
-            "https://trakt.tv/oauth/token",
-            {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
+            "https://auth.trakt.tv/oauth/token",
+            {"Content-Type": "application/json", "Accept": "application/json"},
             body,
         )
         if response.status in (400, 401):
@@ -274,7 +273,7 @@ class TraktDeviceAuthorizer:
         self.timeout = timeout
 
     def _call(self, method, url, body):
-        headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
         try:
             response = self.transport(method, url, headers, body, self.timeout)
         except TypeError:
@@ -292,8 +291,8 @@ class TraktDeviceAuthorizer:
             raise TraktAuthError("reconnect_required")
         response = self._call(
             "POST",
-            "https://trakt.tv/oauth/device/code",
-            urllib.parse.urlencode({"client_id": self.client_id}).encode("utf-8"),
+            "https://auth.trakt.tv/oauth/device/code",
+            json.dumps({"client_id": self.client_id}).encode("utf-8"),
         )
         if response.status >= 400 or not isinstance(response.payload, dict):
             raise RuntimeError("Trakt device authorization temporarily unavailable")
@@ -319,12 +318,12 @@ class TraktDeviceAuthorizer:
             self.sleep(interval)
             poll = self._call(
                 "POST",
-                "https://trakt.tv/oauth/device/token",
-                urllib.parse.urlencode(
+                "https://auth.trakt.tv/oauth/device/token",
+                json.dumps(
                     {"code": device_code, "client_id": self.client_id, "client_secret": self.client_secret}
                 ).encode("utf-8"),
             )
-            if poll.status < 400 and isinstance(poll.payload, dict):
+            if poll.status == 200 and isinstance(poll.payload, dict):
                 access = poll.payload.get("access_token")
                 refresh = poll.payload.get("refresh_token")
                 try:
@@ -336,13 +335,12 @@ class TraktDeviceAuthorizer:
                     self.token_store.replace(state)
                     return state
                 raise RuntimeError("Trakt device authorization temporarily unavailable")
-            error = poll.payload.get("error") if isinstance(poll.payload, dict) else None
-            if error in ("device_pending", "authorization_pending"):
+            if poll.status == 400:
                 continue
-            if error == "slow_down":
+            if poll.status == 429:
                 interval += 5
                 continue
-            if error in ("access_denied", "device_code_expired", "expired_token"):
+            if poll.status in (404, 409, 410, 418):
                 raise TraktAuthError("reconnect_required")
             raise RuntimeError("Trakt device authorization temporarily unavailable")
         raise TraktAuthError("reconnect_required")

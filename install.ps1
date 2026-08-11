@@ -323,24 +323,16 @@ function Invoke-TraktDeviceAuthorization {
   $statePath = Join-Path $stateRoot 'trakt-token.json'
   New-Item -ItemType Directory -Force -Path $stateRoot | Out-Null
 
-  if (Test-Path -LiteralPath $statePath) {
-    try {
-      $existing = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
-      if ($existing.schema_version -eq 1 -and $existing.access_token -and $existing.refresh_token -and $existing.expires_at) {
-        Write-Host 'Trakt token state already exists. No authorization was started.'
-        return
-      }
-    } catch {
-      # An invalid state is replaced only after a complete successful flow.
-    }
-  }
+  # An existing state may be revoked even when its JSON shape is valid. Always
+  # allow this explicit reconnect mode to obtain a replacement state. The old
+  # file remains untouched until the complete flow succeeds.
 
-  $device = Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'https://trakt.tv/oauth/device/code' `
-    -ContentType 'application/x-www-form-urlencoded' -Body @{ client_id = $clientId } -SkipHttpErrorCheck
+  $device = Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'https://auth.trakt.tv/oauth/device/code' `
+    -ContentType 'application/json' -Body (@{ client_id = $clientId } | ConvertTo-Json -Compress) -SkipHttpErrorCheck
   if ($device.StatusCode -lt 200 -or $device.StatusCode -ge 300) {
     throw 'Trakt device authorization could not start. Try again later.'
   }
-  $deviceBody = $device.Content | ConvertFrom-Json
+  try { $deviceBody = $device.Content | ConvertFrom-Json } catch { throw 'Trakt device authorization returned an invalid response.' }
   if (-not $deviceBody.device_code -or -not $deviceBody.user_code -or -not $deviceBody.verification_url) {
     throw 'Trakt device authorization returned an invalid response.'
   }
@@ -352,18 +344,18 @@ function Invoke-TraktDeviceAuthorization {
   $tokenResponse = $null
   while ([DateTime]::UtcNow -lt $deadline) {
     Start-Sleep -Seconds $interval
-    $poll = Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'https://trakt.tv/oauth/device/token' `
-      -ContentType 'application/x-www-form-urlencoded' `
-      -Body @{ code = $deviceBody.device_code; client_id = $clientId; client_secret = $clientSecret } -SkipHttpErrorCheck
-    $pollBody = $poll.Content | ConvertFrom-Json
-    if ($poll.StatusCode -ge 200 -and $poll.StatusCode -lt 300 -and $pollBody.access_token -and $pollBody.refresh_token -and $pollBody.expires_in) {
+    $poll = Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'https://auth.trakt.tv/oauth/device/token' `
+      -ContentType 'application/json' `
+      -Body (@{ code = $deviceBody.device_code; client_id = $clientId; client_secret = $clientSecret } | ConvertTo-Json -Compress) -SkipHttpErrorCheck
+    $pollBody = $null
+    if ($poll.Content) { try { $pollBody = $poll.Content | ConvertFrom-Json } catch { $pollBody = $null } }
+    if ($poll.StatusCode -eq 200 -and $pollBody -and $pollBody.access_token -and $pollBody.refresh_token -and $pollBody.expires_in) {
       $tokenResponse = $pollBody
       break
     }
-    $errorCode = [string]$pollBody.error
-    if ($errorCode -in @('device_pending', 'authorization_pending')) { continue }
-    if ($errorCode -eq 'slow_down') { $interval += 5; continue }
-    if ($errorCode -in @('access_denied', 'device_code_expired', 'expired_token')) {
+    if ($poll.StatusCode -eq 400) { continue }
+    if ($poll.StatusCode -eq 429) { $interval += 5; continue }
+    if ($poll.StatusCode -in @(404, 409, 410, 418)) {
       throw 'Trakt authorization was denied or expired. Run connect-trakt again.'
     }
     throw 'Trakt authorization failed. Run connect-trakt again.'

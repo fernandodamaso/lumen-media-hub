@@ -15,6 +15,9 @@ from clients.trakt import (
 )
 
 
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
 class FakeResponse:
     def __init__(self, status, payload):
         self.status = status
@@ -87,6 +90,10 @@ class TraktClientTests(unittest.TestCase):
 
         self.assertEqual(self.client(transport).get("/recommendations/movies"), {"ok": True})
         self.assertEqual(len([call for call in self.calls if call[1].endswith("/oauth/token")]), 1)
+        refresh_call = next(call for call in self.calls if call[1].endswith("/oauth/token"))
+        self.assertEqual(refresh_call[1], "https://auth.trakt.tv/oauth/token")
+        self.assertEqual(refresh_call[2]["Content-Type"], "application/json")
+        self.assertEqual(json.loads(refresh_call[3].decode("utf-8"))["grant_type"], "refresh_token")
         self.assertEqual(TraktTokenStore(self.path).load().access_token, "access-new")
 
     def test_401_refreshes_and_retries_once(self):
@@ -180,13 +187,15 @@ class TraktDeviceAuthorizationTests(unittest.TestCase):
     def test_success_polls_pending_then_slowdown_and_persists_tokens(self):
         responses = [
             (200, {"device_code": "device", "user_code": "ABCD", "verification_url": "https://trakt.tv/activate", "expires_in": 100, "interval": 1}),
-            (400, {"error": "device_pending"}),
-            (400, {"error": "slow_down"}),
+            (400, {}),
+            (429, {}),
             (200, {"access_token": "access-new", "refresh_token": "refresh-new", "expires_in": 3600}),
         ]
         sleeps = []
+        calls = []
 
         def transport(method, url, headers, body):
+            calls.append((method, url, headers, body))
             return responses.pop(0)
 
         authorizer = TraktDeviceAuthorizer(
@@ -198,6 +207,11 @@ class TraktDeviceAuthorizationTests(unittest.TestCase):
         self.assertEqual(state.access_token, "access-new")
         self.assertEqual(TraktTokenStore(self.path).load(), state)
         self.assertEqual(sleeps, [1, 1, 6])
+        self.assertEqual(calls[0][1], "https://auth.trakt.tv/oauth/device/code")
+        self.assertEqual(calls[0][2]["Content-Type"], "application/json")
+        self.assertEqual(json.loads(calls[0][3].decode("utf-8"))["client_id"], "client-id")
+        self.assertEqual(calls[-1][1], "https://auth.trakt.tv/oauth/device/token")
+        self.assertEqual(calls[-1][2]["Content-Type"], "application/json")
         self.assertTrue(any("ABCD" in message for message in self.output))
         self.assertFalse(any("access-new" in message or "refresh-new" in message for message in self.output))
 
@@ -205,7 +219,7 @@ class TraktDeviceAuthorizationTests(unittest.TestCase):
         original = TraktTokenStore(self.path).load()
         responses = [
             (200, {"device_code": "device", "user_code": "ABCD", "verification_url": "https://trakt.tv/activate", "expires_in": 1, "interval": 1}),
-            (400, {"error": "access_denied"}),
+            (418, {}),
         ]
         authorizer = TraktDeviceAuthorizer(
             "client-id", token_path=self.path, transport=lambda *args: responses.pop(0),
@@ -214,6 +228,32 @@ class TraktDeviceAuthorizationTests(unittest.TestCase):
         with self.assertRaises(TraktAuthError):
             authorizer.authorize()
         self.assertEqual(TraktTokenStore(self.path).load(), original)
+
+    def test_documented_terminal_statuses_preserve_previous_state(self):
+        for status in (404, 409, 410):
+            with self.subTest(status=status):
+                original = TraktTokenStore(self.path).load()
+                responses = [
+                    (200, {"device_code": "device", "user_code": "ABCD", "verification_url": "https://trakt.tv/activate", "expires_in": 100, "interval": 1}),
+                    (status, {}),
+                ]
+                authorizer = TraktDeviceAuthorizer(
+                    "client-id", token_path=self.path,
+                    transport=lambda *args: responses.pop(0),
+                    client_secret="client-secret", clock=lambda: self.now,
+                    sleep=lambda _: None,
+                )
+                with self.assertRaises(TraktAuthError):
+                    authorizer.authorize()
+                self.assertEqual(TraktTokenStore(self.path).load(), original)
+
+    def test_connect_mode_does_not_skip_existing_state(self):
+        with open(os.path.join(REPO_ROOT, "install.ps1"), encoding="utf-8") as handle:
+            script = handle.read()
+        connect_start = script.index("function Invoke-TraktDeviceAuthorization")
+        connect_end = script.index("function Invoke-FrontendDev", connect_start)
+        connect_function = script[connect_start:connect_end]
+        self.assertNotIn("Trakt token state already exists. No authorization was started.", connect_function)
 
 
 if __name__ == "__main__":

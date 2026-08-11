@@ -1049,7 +1049,11 @@ describe('HttpMediaStackApi', () => {
 
   it('loads discover sources and request-more', async () => {
     const hermes = api.listHermesRecommendations();
-    http.expectOne('/api/discover/hermes').flush({ ok: true, items: [] });
+    http.expectOne('/api/discover/hermes').flush({
+      ok: true,
+      items: [],
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
     await expect(hermes).resolves.toMatchObject({ ok: true, items: [] });
 
     const jelly = api.listJellyseerrDiscover('trending');
@@ -1255,8 +1259,28 @@ describe('HttpMediaStackApi', () => {
     await expect(logs).resolves.toMatchObject({ ok: true, runs: [] });
 
     const hermes = api.listHermesRecommendations();
-    http.expectOne('/api/discover/hermes').flush({ ok: true, items: [] });
-    await expect(hermes).resolves.toMatchObject({ ok: true, items: [] });
+    http.expectOne('/api/discover/hermes').flush({
+      ok: true,
+      items: [],
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await expect(hermes).resolves.toMatchObject({
+      ok: true,
+      items: [],
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+  });
+
+  it('requires valid watched exclusion state on successful Hermes envelopes', async () => {
+    for (const payload of [
+      { ok: true, items: [] },
+      { ok: true, items: [], watched_exclusion: null },
+      { ok: true, items: [], watched_exclusion: { status: 'broken', last_successful_refresh_at: null } },
+    ]) {
+      const pending = api.listHermesRecommendations();
+      http.expectOne('/api/discover/hermes').flush(payload);
+      await expect(pending).rejects.toThrow(/watched_exclusion/);
+    }
   });
 
   it('rejects discover members missing required identity fields', async () => {

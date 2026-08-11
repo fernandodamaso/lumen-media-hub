@@ -76,6 +76,30 @@ describe('DiscoverFacade', () => {
     expect(facade.notice()).toBe('');
   });
 
+  it('shows a stale watched warning for Hermes and clears it after fresh recovery', async () => {
+    api.hermes.watched_exclusion = {
+      status: 'stale',
+      last_successful_refresh_at: '2026-08-11T12:00:00+00:00',
+    };
+    await facade.setTab('hermes');
+
+    expect(facade.visibleItems()).toHaveLength(1);
+    expect(facade.notice()).toContain('cached snapshot');
+
+    api.hermes.watched_exclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:15:00+00:00' };
+    await facade.setTab('hermes');
+    expect(facade.visibleItems()).toHaveLength(1);
+    expect(facade.notice()).toBe('');
+  });
+
+  it('shows an unavailable watched warning for Hermes while preserving cards', async () => {
+    api.hermes.watched_exclusion = { status: 'unavailable', last_successful_refresh_at: null };
+    await facade.setTab('hermes');
+
+    expect(facade.visibleItems()).toHaveLength(1);
+    expect(facade.notice()).toContain('Watched filtering is unavailable');
+  });
+
   it('preserves disabled Jellyseerr availability while a tab refresh is pending', async () => {
     api.jellyseerrAvailability = 'disabled';
     await facade.setTab('jellyseerr');
@@ -729,6 +753,7 @@ async function flush(): Promise<void> {
 class MockApi implements MediaStackApi {
   hermes: HermesDiscover = {
     ok: true,
+    watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     items: [
       {
         id: 'hermes-eligible',

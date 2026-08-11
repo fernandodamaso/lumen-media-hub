@@ -844,6 +844,7 @@ export class MockMediaStackApi implements MediaStackApi {
         generation_request: this.hermesMorePending && this.hermesMoreRequestedAt
           ? { requested_at: this.hermesMoreRequestedAt, status: 'pending' }
           : null,
+        watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       }),
     );
   }

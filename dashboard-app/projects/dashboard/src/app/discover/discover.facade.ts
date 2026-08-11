@@ -457,7 +457,7 @@ export class DiscoverFacade {
   }
 
   private applyWatchedNotice(watched?: WatchedExclusionState): void {
-    if (this._tab() !== 'trakt') return;
+    if (this._tab() !== 'trakt' && this._tab() !== 'hermes') return;
     if (!watched || watched.status === 'fresh') {
       if (this._notice().startsWith('Watched filtering is ')) {
         this._notice.set('');
@@ -515,6 +515,7 @@ export class DiscoverFacade {
 
   private applyHermesPayload(response: HermesDiscover): void {
     this._hermesItems.set(response.items);
+    this.applyWatchedNotice(response.watched_exclusion);
     this.seedRequestedFromHermes(response.items);
     this.applyPendingRequestSync(response.items, response.pending_request_sync);
     this.reconcileSyncFailed(response.items);

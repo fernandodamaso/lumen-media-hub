@@ -62,6 +62,14 @@ describe('DiscoverPage', () => {
     expect(fixtureHost(fixture).textContent).not.toContain('In library');
   });
 
+  it('renders the watched snapshot warning for Hermes', () => {
+    facade.status.set('ready');
+    facade.notice.set('Watched filtering is using a cached snapshot.');
+    fixture.detectChanges();
+
+    expect(fixtureHost(fixture).textContent).toContain('Watched filtering is using a cached snapshot.');
+  });
+
   it('keeps Request in the footer for every source and only mounts Hermes feedback', () => {
     facade.status.set('ready');
     facade.visibleItems.set([card({ title: 'Signal Drift' })]);

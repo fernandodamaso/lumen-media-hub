@@ -788,7 +788,11 @@ export function requireHermesDiscoverPayload(data: Record<string, unknown>): voi
 
   requirePendingRequestSync(data['pending_request_sync']);
   requireGenerationRequest(data['generation_request']);
-  requireWatchedExclusion(data['watched_exclusion'], 'Hermes');
+  const watched = data['watched_exclusion'];
+  if (watched === undefined || watched === null) {
+    throw new Error('Malformed Hermes response: watched_exclusion is required');
+  }
+  requireWatchedExclusion(watched, 'Hermes');
 }
 
 function requirePendingRequestSync(pending: unknown): void {

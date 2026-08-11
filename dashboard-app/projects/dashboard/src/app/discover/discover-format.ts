@@ -53,7 +53,7 @@ export function toHermesCardItem(item: DiscoverItem): DiscoverCardItem {
     reason: item.reason,
     feedback: item.feedback,
     requestState: item.request_state,
-    inLibrary: Boolean(item.in_library),
+    inLibrary: item.in_library || item.excluded_reason === 'in_library',
     excludedReason: item.excluded_reason,
     posterUrl: item.poster_url,
     rating: item.rating,

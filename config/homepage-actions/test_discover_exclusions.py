@@ -84,6 +84,70 @@ class DiscoverExclusionTests(unittest.TestCase):
             routes._TMDB_LIBRARY_CACHE.clear()
             routes._TMDB_LIBRARY_CACHE.update(old_cache)
 
+    def test_second_jellyfin_fetch_failure_keeps_entire_last_good_snapshot(self):
+        old_cache = dict(routes._TMDB_LIBRARY_CACHE)
+        try:
+            routes._TMDB_LIBRARY_CACHE.update(
+                expires=0,
+                movie={42: "old-movie-jf"},
+                tv={7: "old-tv-jf"},
+                status="fresh",
+                last_successful_refresh_at="2026-08-11T12:00:00+00:00",
+            )
+
+            def fetch(item_type):
+                if item_type == "Movie":
+                    return {99: "new-movie-jf"}
+                raise RuntimeError("series unavailable")
+
+            with mock.patch.object(routes.settings, "JELLYFIN_API_KEY", "key"), \
+                    mock.patch.object(routes, "_fetch_tmdb_map_for_type", side_effect=fetch):
+                snapshot = routes._library_exclusion_snapshot()
+            self.assertEqual(snapshot.movie, {42: "old-movie-jf"})
+            self.assertEqual(snapshot.tv, {7: "old-tv-jf"})
+            self.assertEqual(snapshot.status, "stale")
+            self.assertEqual(snapshot.last_successful_refresh_at, "2026-08-11T12:00:00+00:00")
+        finally:
+            routes._TMDB_LIBRARY_CACHE.clear()
+            routes._TMDB_LIBRARY_CACHE.update(old_cache)
+
+    def test_missing_jellyfin_key_keeps_cached_last_good_snapshot(self):
+        old_cache = dict(routes._TMDB_LIBRARY_CACHE)
+        try:
+            routes._TMDB_LIBRARY_CACHE.update(
+                expires=0,
+                movie={42: "movie-jf"},
+                tv={7: "tv-jf"},
+                status="fresh",
+                last_successful_refresh_at="2026-08-11T12:00:00+00:00",
+            )
+            with mock.patch.object(routes.settings, "JELLYFIN_API_KEY", ""):
+                snapshot = routes._library_exclusion_snapshot()
+            self.assertEqual(snapshot.movie, {42: "movie-jf"})
+            self.assertEqual(snapshot.tv, {7: "tv-jf"})
+            self.assertEqual(snapshot.status, "stale")
+            self.assertEqual(snapshot.last_successful_refresh_at, "2026-08-11T12:00:00+00:00")
+        finally:
+            routes._TMDB_LIBRARY_CACHE.clear()
+            routes._TMDB_LIBRARY_CACHE.update(old_cache)
+
+    def test_hermes_get_projects_library_match_without_mutating_store(self):
+        item = {
+            "id": "hermes-movie-42", "source": "hermes", "type": "movie", "title": "The Bear",
+            "tmdb_id": 42, "active": True, "feedback": None,
+        }
+        captured = {}
+        store_data = {"version": 3, "revision": 4, "items": [item]}
+        with mock.patch.object(routes.settings.RECOMMENDATIONS_STORE, "load", return_value=store_data), \
+                mock.patch.object(routes, "_library_exclusion_snapshot", return_value=self.snapshot), \
+                mock.patch.object(routes, "_enrich_hermes_posters", side_effect=lambda values: values), \
+                mock.patch.object(routes, "_hermes_generation_context", return_value={}), \
+                mock.patch.object(routes, "send_json", side_effect=lambda _h, _s, payload: captured.update(payload)):
+            routes.handle_discover_hermes_get(SimpleNamespace())
+        self.assertFalse(captured["items"][0]["active"])
+        self.assertEqual(captured["items"][0]["excluded_reason"], "in_library")
+        self.assertTrue(store_data["items"][0]["active"])
+
 
 if __name__ == "__main__":
     unittest.main()

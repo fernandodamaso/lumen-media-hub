@@ -158,6 +158,26 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(true);
   });
 
+  it('moves an excluded Hermes item from Active to History without removing it', async () => {
+    api.hermes.items = [
+      {
+        ...api.hermes.items[0],
+        title: 'The Bear',
+        active: true,
+        in_library: true,
+        excluded_reason: 'in_library',
+      },
+    ];
+
+    await facade.setTab('hermes');
+    expect(facade.visibleItems()).toEqual([]);
+
+    facade.setHermesView('history');
+    expect(facade.visibleItems()).toMatchObject([
+      { title: 'The Bear', inLibrary: true, excludedReason: 'in_library' },
+    ]);
+  });
+
   it('requestItem calls only requestMedia and tracks sync-failed notices', async () => {
     await facade.setTab('hermes');
     api.requestResult = {

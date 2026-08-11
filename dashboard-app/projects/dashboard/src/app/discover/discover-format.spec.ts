@@ -142,4 +142,9 @@ describe('discover-format', () => {
     expect(isHermesActiveItem(item)).toBe(false);
     expect(toHermesCardItem(item)).toMatchObject({ inLibrary: true, excludedReason: 'in_library' });
   });
+
+  it('derives the In library badge from the exclusion reason', () => {
+    const item = hermesItem({ in_library: false, excluded_reason: 'in_library' });
+    expect(toHermesCardItem(item).inLibrary).toBe(true);
+  });
 });

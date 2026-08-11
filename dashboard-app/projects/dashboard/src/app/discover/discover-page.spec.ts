@@ -33,6 +33,23 @@ describe('DiscoverPage', () => {
     expect(facade.setTab).toHaveBeenCalledWith('jellyseerr');
   });
 
+  it('renders the preserved Hermes History card with an In library badge', () => {
+    facade.status.set('ready');
+    facade.tab.set('hermes');
+    facade.visibleItems.set([
+      card({ title: 'The Bear', inLibrary: true, excludedReason: 'in_library' }),
+    ]);
+    fixture.detectChanges();
+
+    clickHermesView('History');
+    facade.hermesView.set('history');
+    fixture.detectChanges();
+
+    expect(facade.setHermesView).toHaveBeenCalledWith('history');
+    expect(fixtureHost(fixture).textContent).toContain('The Bear');
+    expect(fixtureHost(fixture).textContent).toContain('In library');
+  });
+
   it('keeps Request in the footer for every source and only mounts Hermes feedback', () => {
     facade.status.set('ready');
     facade.visibleItems.set([card({ title: 'Signal Drift' })]);

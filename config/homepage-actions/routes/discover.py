@@ -152,6 +152,13 @@ def _fetch_tmdb_map_for_type(item_type):
 def _tmdb_library_maps():
     if not settings.JELLYFIN_API_KEY:
         with _TMDB_LIBRARY_CACHE_LOCK:
+            has_last_good = _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None
+            if has_last_good:
+                _TMDB_LIBRARY_CACHE["status"] = "stale"
+                return {
+                    "movie": _TMDB_LIBRARY_CACHE["movie"],
+                    "tv": _TMDB_LIBRARY_CACHE["tv"],
+                }
             _TMDB_LIBRARY_CACHE["status"] = "unavailable"
             return {"movie": {}, "tv": {}}
     now = time.time()
@@ -161,13 +168,13 @@ def _tmdb_library_maps():
                 "movie": _TMDB_LIBRARY_CACHE["movie"],
                 "tv": _TMDB_LIBRARY_CACHE["tv"],
             }
-        movie_map = _TMDB_LIBRARY_CACHE["movie"]
-        tv_map = _TMDB_LIBRARY_CACHE["tv"]
+        previous_movie_map = _TMDB_LIBRARY_CACHE["movie"]
+        previous_tv_map = _TMDB_LIBRARY_CACHE["tv"]
         try:
-            movie_map = _fetch_tmdb_map_for_type("Movie")
-            tv_map = _fetch_tmdb_map_for_type("Series")
-            _TMDB_LIBRARY_CACHE["movie"] = movie_map
-            _TMDB_LIBRARY_CACHE["tv"] = tv_map
+            refreshed_movie_map = _fetch_tmdb_map_for_type("Movie")
+            refreshed_tv_map = _fetch_tmdb_map_for_type("Series")
+            _TMDB_LIBRARY_CACHE["movie"] = refreshed_movie_map
+            _TMDB_LIBRARY_CACHE["tv"] = refreshed_tv_map
             _TMDB_LIBRARY_CACHE["expires"] = now + _TMDB_LIBRARY_CACHE_TTL
             _TMDB_LIBRARY_CACHE["status"] = "fresh"
             _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] = datetime.now(
@@ -175,9 +182,11 @@ def _tmdb_library_maps():
             ).isoformat(timespec="seconds")
         except Exception:
             _TMDB_LIBRARY_CACHE["status"] = (
-                "stale" if movie_map or tv_map else "unavailable"
+                "stale"
+                if _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None
+                else "unavailable"
             )
-        return {"movie": movie_map, "tv": tv_map}
+        return {"movie": previous_movie_map, "tv": previous_tv_map}
 
 
 def _library_exclusion_snapshot():

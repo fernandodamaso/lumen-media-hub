@@ -97,7 +97,7 @@ describe('DiscoverFacade', () => {
     await facade.setTab('hermes');
 
     expect(facade.visibleItems()).toHaveLength(1);
-    expect(facade.notice()).toContain('Watched filtering is unavailable');
+    expect(facade.notice()).toBe('Watched filtering is unavailable. Showing Hermes recommendations.');
   });
 
   it('preserves disabled Jellyseerr availability while a tab refresh is pending', async () => {
@@ -446,6 +446,26 @@ describe('DiscoverFacade', () => {
     expect(facade.tab()).toBe('jellyseerr');
     expect(facade.status()).toBe('ready');
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trending Ember']);
+  });
+
+  it('does not let a late Hermes success clear the active Trakt watched warning', async () => {
+    const { promise: hermesGate, resolve: releaseHermes } = Promise.withResolvers<HermesDiscover>();
+    api.hermesGate = hermesGate;
+    const pending = facade.setTab('hermes');
+    await Promise.resolve();
+
+    api.traktWatchedExclusion = { status: 'unavailable', last_successful_refresh_at: null };
+    await facade.setTab('trakt');
+    expect(facade.notice()).toBe('Watched filtering is unavailable. Showing Trakt recommendations.');
+
+    releaseHermes({
+      ...api.hermes,
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await pending;
+
+    expect(facade.tab()).toBe('trakt');
+    expect(facade.notice()).toBe('Watched filtering is unavailable. Showing Trakt recommendations.');
   });
 
   it('ignores stale Jellyseerr failures after switching to Trakt', async () => {

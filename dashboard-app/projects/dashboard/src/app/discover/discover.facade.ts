@@ -457,7 +457,8 @@ export class DiscoverFacade {
   }
 
   private applyWatchedNotice(watched?: WatchedExclusionState): void {
-    if (this._tab() !== 'trakt' && this._tab() !== 'hermes') return;
+    const tab = this._tab();
+    if (tab !== 'trakt' && tab !== 'hermes') return;
     if (!watched || watched.status === 'fresh') {
       if (this._notice().startsWith('Watched filtering is ')) {
         this._notice.set('');
@@ -465,11 +466,12 @@ export class DiscoverFacade {
       return;
     }
     this._noticeTone.set('warning');
-    this._notice.set(
-      watched.status === 'stale'
-        ? 'Watched filtering is using a cached snapshot.'
-        : 'Watched filtering is unavailable. Showing Trakt recommendations.',
-    );
+    if (watched.status === 'stale') {
+      this._notice.set('Watched filtering is using a cached snapshot.');
+      return;
+    }
+    const source = tab === 'hermes' ? 'Hermes' : 'Trakt';
+    this._notice.set(`Watched filtering is unavailable. Showing ${source} recommendations.`);
   }
 
   private commitBrowseSuccess(
@@ -515,7 +517,9 @@ export class DiscoverFacade {
 
   private applyHermesPayload(response: HermesDiscover): void {
     this._hermesItems.set(response.items);
-    this.applyWatchedNotice(response.watched_exclusion);
+    if (this._tab() === 'hermes') {
+      this.applyWatchedNotice(response.watched_exclusion);
+    }
     this.seedRequestedFromHermes(response.items);
     this.applyPendingRequestSync(response.items, response.pending_request_sync);
     this.reconcileSyncFailed(response.items);

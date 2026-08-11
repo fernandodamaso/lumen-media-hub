@@ -63,6 +63,19 @@ describe('DiscoverFacade', () => {
     expect(facade.notice()).toContain('Watched filtering is unavailable');
   });
 
+  it('shows a stale watched warning and clears it after a fresh refresh', async () => {
+    api.traktWatchedExclusion = {
+      status: 'stale',
+      last_successful_refresh_at: '2026-08-11T12:00:00+00:00',
+    };
+    await facade.setTab('trakt');
+    expect(facade.notice()).toContain('cached snapshot');
+
+    api.traktWatchedExclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:15:00+00:00' };
+    await facade.setTab('trakt');
+    expect(facade.notice()).toBe('');
+  });
+
   it('preserves disabled Jellyseerr availability while a tab refresh is pending', async () => {
     api.jellyseerrAvailability = 'disabled';
     await facade.setTab('jellyseerr');

@@ -32,19 +32,19 @@ class WatchedParserTests(unittest.TestCase):
 
         self.assertEqual(parse_watched_identities(movies, "movies") | parse_watched_identities(shows, "shows"), {"movie:7", "tv:7"})
 
-    def test_does_not_mark_show_watched_without_an_episode(self):
-        shows = [{"show": {"title": "No episodes", "ids": {"tmdb": 8}}, "episodes": []}]
+    def test_marks_current_watched_show_shape_without_season_progress(self):
+        shows = [{"title": "Watched show", "ids": {"tmdb": 8}}]
 
-        self.assertEqual(parse_watched_identities(shows, "shows"), set())
+        self.assertEqual(parse_watched_identities(shows, "shows"), {"tv:8"})
 
 
 class WatchedPaginationTests(unittest.TestCase):
     def test_consumes_all_pages_from_authoritative_headers(self):
         calls = []
         pages = {
-            "/sync/watched/movies?page=1&limit=100&extended=metadata": ([{"movie": {"ids": {"tmdb": 1}}}], {"X-Pagination-Page-Count": "2"}),
-            "/sync/watched/movies?page=2&limit=100&extended=metadata": ([{"movie": {"ids": {"tmdb": 2}}}], {"X-Pagination-Page-Count": "2"}),
-            "/sync/watched/shows?page=1&limit=100&extended=metadata": ([], {"X-Pagination-Page-Count": "1"}),
+            "/sync/watched/movies?page=1&limit=100": ([{"movie": {"ids": {"tmdb": 1}}}], {"X-Pagination-Page-Count": "2"}),
+            "/sync/watched/movies?page=2&limit=100": ([{"movie": {"ids": {"tmdb": 2}}}], {"X-Pagination-Page-Count": "2"}),
+            "/sync/watched/shows?page=1&limit=100": ([], {"X-Pagination-Page-Count": "1"}),
         }
 
         def get_page(path):
@@ -64,7 +64,7 @@ class WatchedPaginationTests(unittest.TestCase):
 
         service = TraktWatchedService(get_page=get_page)
         self.assertEqual(service.fetch_identities(), {"movie:9"})
-        self.assertEqual(calls, ["/sync/watched/movies?page=1&limit=100&extended=metadata", "/sync/watched/shows?page=1&limit=100&extended=metadata"])
+        self.assertEqual(calls, ["/sync/watched/movies?page=1&limit=100", "/sync/watched/shows?page=1&limit=100"])
 
 
 class WatchedCacheTests(unittest.TestCase):
@@ -111,6 +111,26 @@ class WatchedCacheTests(unittest.TestCase):
             self.assertEqual(stale.identities, {"movie:1"})
 
             empty = TraktWatchedService(get_page=mock.Mock(side_effect=RuntimeError("down"))).snapshot()
+            self.assertEqual(empty.status, "unavailable")
+            self.assertEqual(empty.identities, set())
+
+    def test_rejects_malformed_page_without_persisting_fresh_empty_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "trakt-watched.json")
+            store = WatchedSnapshotStore(path)
+            store.replace({"movie:1"}, refreshed_at="2026-08-11T12:00:00+00:00")
+            stale = TraktWatchedService(
+                get_page=mock.Mock(return_value=({"unexpected": "object"}, {})),
+                store=store,
+            ).snapshot()
+            self.assertEqual(stale.status, "stale")
+            self.assertEqual(stale.identities, {"movie:1"})
+            with open(path, encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle)["identities"], ["movie:1"])
+
+            empty = TraktWatchedService(
+                get_page=mock.Mock(return_value=({"unexpected": "object"}, {})),
+            ).snapshot()
             self.assertEqual(empty.status, "unavailable")
             self.assertEqual(empty.identities, set())
 

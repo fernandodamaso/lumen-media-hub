@@ -18,8 +18,6 @@ FRESHNESS_SECONDS = 15 * 60
 def _identity_for_entry(entry, media_type):
     if not isinstance(entry, dict):
         return None
-    if media_type == "shows" and (not isinstance(entry.get("episodes"), list) or not entry["episodes"]):
-        return None
     member = entry.get("movie" if media_type == "movies" else "show") or entry
     if not isinstance(member, dict):
         return None
@@ -153,8 +151,10 @@ class TraktWatchedService:
         for media_type in ("movies", "shows"):
             page = 1
             while True:
-                path = f"/sync/watched/{media_type}?page={page}&limit={PAGE_LIMIT}&extended=metadata"
+                path = f"/sync/watched/{media_type}?page={page}&limit={PAGE_LIMIT}"
                 payload, headers = _response_parts(self.get_page(path))
+                if not isinstance(payload, list):
+                    raise ValueError("invalid Trakt watched response")
                 identities.update(parse_watched_identities(payload, media_type))
                 page_count = _header(headers, "X-Pagination-Page-Count")
                 try:

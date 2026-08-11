@@ -457,7 +457,13 @@ export class DiscoverFacade {
   }
 
   private applyWatchedNotice(watched?: WatchedExclusionState): void {
-    if (this._tab() !== 'trakt' || !watched || watched.status === 'fresh') return;
+    if (this._tab() !== 'trakt') return;
+    if (!watched || watched.status === 'fresh') {
+      if (this._notice().startsWith('Watched filtering is ')) {
+        this._notice.set('');
+      }
+      return;
+    }
     this._noticeTone.set('warning');
     this._notice.set(
       watched.status === 'stale'

@@ -3,6 +3,12 @@ type DiscoverMediaType = 'movie' | 'tv';
 export type DiscoverSourceTab = 'hermes' | 'jellyseerr' | 'trakt';
 export type JellyseerrDiscoverKind = 'trending' | 'movies' | 'tv';
 export type TraktDiscoverType = 'movies' | 'shows';
+type LibraryExclusionStatus = 'fresh' | 'stale' | 'unavailable';
+
+interface LibraryExclusionState {
+  status: LibraryExclusionStatus;
+  last_successful_refresh_at: string | null;
+}
 
 export interface DiscoverItem {
   id: string;
@@ -19,6 +25,7 @@ export interface DiscoverItem {
   requested_at: string | null;
   jellyseerr_request_id: number | null;
   in_library?: boolean;
+  excluded_reason?: 'in_library' | null;
   jellyfin_id?: string | null;
   poster_path?: string | null;
   poster_url?: string | null;
@@ -48,6 +55,7 @@ export interface HermesDiscover {
   pending_request_sync?: { id: string; jellyseerr_request_id: number }[];
   generation_request?: { requested_at: string; status: 'pending' } | null;
   error?: string;
+  library_exclusion?: LibraryExclusionState;
 }
 
 export interface ExternalDiscover {
@@ -55,6 +63,7 @@ export interface ExternalDiscover {
   items: ExternalDiscoverItem[];
   availability?: ExternalDiscoverAvailability;
   error?: string;
+  library_exclusion?: LibraryExclusionState;
 }
 
 export interface DiscoverAction {

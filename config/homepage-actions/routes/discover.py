@@ -4,7 +4,8 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import config as settings
 from clients.arr import _add_to_arr_unmonitored, _arr_get
@@ -55,7 +56,60 @@ from shared import (
 VALID_FEEDBACK_STATUSES = frozenset({"liked", "disliked", "watched", "skipped"})
 
 
-_TMDB_LIBRARY_CACHE = {"expires": 0.0, "movie": {}, "tv": {}}
+@dataclass(frozen=True)
+class LibraryExclusionSnapshot:
+    """Last known playable Jellyfin identities used by all Discover sources."""
+
+    movie: dict
+    tv: dict
+    status: str
+    last_successful_refresh_at: str | None
+
+    @classmethod
+    def from_maps(cls, movie, tv, *, status, last_successful_refresh_at):
+        return cls(dict(movie or {}), dict(tv or {}), status, last_successful_refresh_at)
+
+    @property
+    def identities(self):
+        return {
+            f"movie:{normalized}"
+            for tmdb_id in self.movie
+            for normalized in [_normalize_tmdb_id(tmdb_id)]
+            if normalized
+        } | {
+            f"tv:{normalized}"
+            for tmdb_id in self.tv
+            for normalized in [_normalize_tmdb_id(tmdb_id)]
+            if normalized
+        }
+
+    def contains(self, item_type, tmdb_id):
+        kind = "tv" if item_type == "tv" else "movie"
+        normalized = _normalize_tmdb_id(tmdb_id)
+        return bool(normalized and normalized in self._map(kind))
+
+    def jellyfin_id(self, item_type, tmdb_id):
+        kind = "tv" if item_type == "tv" else "movie"
+        normalized = _normalize_tmdb_id(tmdb_id)
+        return self._map(kind).get(normalized) if normalized else None
+
+    def _map(self, kind):
+        return self.tv if kind == "tv" else self.movie
+
+    def public(self):
+        return {
+            "status": self.status,
+            "last_successful_refresh_at": self.last_successful_refresh_at,
+        }
+
+
+_TMDB_LIBRARY_CACHE = {
+    "expires": 0.0,
+    "movie": {},
+    "tv": {},
+    "status": "unavailable",
+    "last_successful_refresh_at": None,
+}
 _TMDB_LIBRARY_CACHE_TTL = 90.0
 _TMDB_LIBRARY_CACHE_LOCK = threading.Lock()
 
@@ -97,7 +151,9 @@ def _fetch_tmdb_map_for_type(item_type):
 
 def _tmdb_library_maps():
     if not settings.JELLYFIN_API_KEY:
-        return {"movie": {}, "tv": {}}
+        with _TMDB_LIBRARY_CACHE_LOCK:
+            _TMDB_LIBRARY_CACHE["status"] = "unavailable"
+            return {"movie": {}, "tv": {}}
     now = time.time()
     with _TMDB_LIBRARY_CACHE_LOCK:
         if now < _TMDB_LIBRARY_CACHE["expires"]:
@@ -113,22 +169,45 @@ def _tmdb_library_maps():
             _TMDB_LIBRARY_CACHE["movie"] = movie_map
             _TMDB_LIBRARY_CACHE["tv"] = tv_map
             _TMDB_LIBRARY_CACHE["expires"] = now + _TMDB_LIBRARY_CACHE_TTL
+            _TMDB_LIBRARY_CACHE["status"] = "fresh"
+            _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] = datetime.now(
+                timezone.utc
+            ).isoformat(timespec="seconds")
         except Exception:
-            pass
+            _TMDB_LIBRARY_CACHE["status"] = (
+                "stale" if movie_map or tv_map else "unavailable"
+            )
         return {"movie": movie_map, "tv": tv_map}
 
 
-def _enrich_hermes_library_flags(items):
-    if not settings.JELLYFIN_API_KEY or not items:
+def _library_exclusion_snapshot():
+    """Return the cached library exclusion set and its refresh health."""
+    maps = _tmdb_library_maps()
+    with _TMDB_LIBRARY_CACHE_LOCK:
+        status = _TMDB_LIBRARY_CACHE["status"]
+        refreshed_at = _TMDB_LIBRARY_CACHE["last_successful_refresh_at"]
+    return LibraryExclusionSnapshot.from_maps(
+        maps.get("movie"),
+        maps.get("tv"),
+        status=status,
+        last_successful_refresh_at=refreshed_at,
+    )
+
+
+# Explicit name for callers that prefer the getter convention.
+_get_library_exclusion_snapshot = _library_exclusion_snapshot
+
+
+def _enrich_hermes_library_flags(items, snapshot=None):
+    if not items:
         for item in items:
             item.setdefault("in_library", False)
             item.setdefault("jellyfin_id", None)
         return items
-    maps = _tmdb_library_maps()
+    snapshot = snapshot or _library_exclusion_snapshot()
     for item in items:
         tmdb_id = _normalize_tmdb_id(item.get("tmdb_id"))
-        bucket = "tv" if (item.get("type") or "movie") == "tv" else "movie"
-        jf_id = maps.get(bucket, {}).get(tmdb_id) if tmdb_id else None
+        jf_id = snapshot.jellyfin_id(item.get("type"), tmdb_id)
         item["in_library"] = bool(jf_id)
         item["jellyfin_id"] = jf_id
     return items
@@ -483,17 +562,38 @@ def _sync_hermes_collection_best_effort():
         return {"ok": False, "error": str(e)}
 
 
+def _hermes_item_for_client(item, snapshot=None):
+    """Project exclusions for a read without writing the recommendation store."""
+    projected = dict(item)
+    if projected.get("feedback") is not None:
+        projected["active"] = False
+    if snapshot and snapshot.contains(projected.get("type"), projected.get("tmdb_id")):
+        projected["active"] = False
+        projected["in_library"] = True
+        projected["jellyfin_id"] = snapshot.jellyfin_id(
+            projected.get("type"), projected.get("tmdb_id")
+        )
+        projected["excluded_reason"] = "in_library"
+    return projected
+
+
+def _filter_library_items(items, snapshot):
+    """Filter external cards by typed TMDB identity only."""
+    return [
+        item for item in items
+        if not snapshot.contains(item.get("type"), item.get("tmdb_id"))
+    ]
+
+
 def handle_discover_hermes_get(handler):
     try:
         data = settings.RECOMMENDATIONS_STORE.load()
     except RecommendationError as e:
         send_json(handler, 500, {"ok": False, "error": f"Store load failed: {e}"})
         return
-    items = _enrich_hermes_posters(
-        _enrich_hermes_library_flags(
-            [_hermes_item_for_client(item) for item in _hermes_items(data)]
-        )
-    )
+    snapshot = _library_exclusion_snapshot()
+    items = [_hermes_item_for_client(item, snapshot) for item in _hermes_items(data)]
+    items = _enrich_hermes_posters(_enrich_hermes_library_flags(items, snapshot))
     send_json(
         handler,
         200,
@@ -505,7 +605,8 @@ def handle_discover_hermes_get(handler):
             "presented_media_ids": data.get("presented_media_ids", []),
             "pending_request_sync": _pending_request_sync_public(),
             "generation_request": _generation_request_public(),
-            "context": _hermes_generation_context(data),
+            "context": _hermes_generation_context(data, snapshot),
+            "library_exclusion": snapshot.public(),
             "items": items,
         },
     )
@@ -713,18 +814,6 @@ def _hermes_required_retain(items):
     return retain
 
 
-def _hermes_item_for_client(item):
-    """Project store rows for Discover clients.
-
-    Feedbacked titles always read as inactive so they appear in History even
-    when a legacy row still has active=true in the store.
-    """
-    projected = dict(item)
-    if projected.get("feedback") is not None:
-        projected["active"] = False
-    return projected
-
-
 def _hermes_taste_entry(item):
     return {
         "identity": item.get("identity") or _hermes_identity(item),
@@ -763,15 +852,17 @@ def _hermes_exclusion_sets():
     return set(tracked), set(in_library), tracked_errors + library_errors
 
 
-def _hermes_generation_context(data):
+def _hermes_generation_context(data, snapshot=None):
     """Server-built helpers so Hermes need not curl Arr/Jellyfin itself."""
     items = list(_hermes_items(data))
     tracked, tracked_errors = _get_tracked_media_ids()
     in_library, library_errors = _get_in_library_media_ids()
+    snapshot = snapshot or _library_exclusion_snapshot()
     errors = tracked_errors + library_errors
     context = {
         "tracked_media_ids": tracked,
         "in_library_media_ids": in_library,
+        "library_exclusion": snapshot.public(),
         "required_retain": _hermes_required_retain(items),
         "taste": _hermes_taste_summary(items),
     }
@@ -1102,13 +1193,17 @@ def handle_discover_jellyseerr(handler, query):
         results = payload.get("results") if isinstance(payload, dict) else payload
         if not isinstance(results, list):
             results = []
-        items = [_map_jellyseerr_result(item) for item in results if item]
+        snapshot = _library_exclusion_snapshot()
+        items = _filter_library_items(
+            [_map_jellyseerr_result(item) for item in results if item], snapshot
+        )
         send_json(
             handler,
             200,
             {
                 "ok": True,
                 "generatedAt": datetime.now().isoformat(timespec="seconds"),
+                "library_exclusion": snapshot.public(),
                 "items": items,
             },
         )
@@ -1173,13 +1268,17 @@ def handle_discover_trakt(handler, query):
         results = _trakt_get(
             f"/recommendations/{media_type}?limit=25&ignore_collected=true&extended=full,images"
         )
-        items = [_map_trakt_result(item, media_type) for item in results if item]
+        snapshot = _library_exclusion_snapshot()
+        items = _filter_library_items(
+            [_map_trakt_result(item, media_type) for item in results if item], snapshot
+        )
         send_json(
             handler,
             200,
             {
                 "ok": True,
                 "generatedAt": datetime.now().isoformat(timespec="seconds"),
+                "library_exclusion": snapshot.public(),
                 "items": items,
             },
         )

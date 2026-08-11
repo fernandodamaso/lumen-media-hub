@@ -1,5 +1,11 @@
 export type MediaStackDiscoverFeedbackDto = 'liked' | 'disliked' | 'watched' | 'skipped';
 export type MediaStackDiscoverMediaTypeDto = 'movie' | 'tv';
+type MediaStackLibraryExclusionStatusDto = 'fresh' | 'stale' | 'unavailable';
+
+interface MediaStackLibraryExclusionDto {
+  status: MediaStackLibraryExclusionStatusDto;
+  last_successful_refresh_at: string | null;
+}
 
 export interface MediaStackDiscoverItemDto {
   id: string;
@@ -16,6 +22,7 @@ export interface MediaStackDiscoverItemDto {
   requested_at: string | null;
   jellyseerr_request_id: number | null;
   in_library?: boolean;
+  excluded_reason?: 'in_library' | null;
   jellyfin_id?: string | null;
   poster_path?: string | null;
   poster_url?: string | null;
@@ -42,6 +49,7 @@ export interface MediaStackHermesDiscoverDto {
   items?: MediaStackDiscoverItemDto[];
   pending_request_sync?: { id: string; jellyseerr_request_id: number }[];
   generation_request?: { requested_at: string; status: 'pending' } | null;
+  library_exclusion?: MediaStackLibraryExclusionDto;
   error?: string;
 }
 
@@ -50,6 +58,7 @@ export interface MediaStackExternalDiscoverDto {
   /** False is an explicit capability-disabled response, not an empty result. */
   enabled?: boolean;
   items?: MediaStackExternalDiscoverItemDto[];
+  library_exclusion?: MediaStackLibraryExclusionDto;
   error?: string;
 }
 

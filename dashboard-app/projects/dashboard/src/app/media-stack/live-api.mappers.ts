@@ -876,6 +876,10 @@ function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDisco
   const requestedAt = optionalNullableString(raw, 'requested_at', index, 'Hermes') ?? null;
   const jellyseerrRequestId = optionalNullableFiniteNumber(raw, 'jellyseerr_request_id', index, 'Hermes');
   const inLibrary = optionalBoolean(raw, 'in_library', index, 'Hermes');
+  const excludedReasonRaw = optionalNullableString(raw, 'excluded_reason', index, 'Hermes');
+  if (excludedReasonRaw !== undefined && excludedReasonRaw !== null && excludedReasonRaw !== 'in_library') {
+    throw new Error(`Malformed Hermes response: member ${index} has invalid excluded_reason`);
+  }
   const jellyfinId = optionalNullableString(raw, 'jellyfin_id', index, 'Hermes');
   const posterPath = optionalNullableString(raw, 'poster_path', index, 'Hermes');
   const posterUrl = optionalNullableString(raw, 'poster_url', index, 'Hermes');
@@ -897,6 +901,7 @@ function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDisco
     requested_at: requestedAt,
     jellyseerr_request_id: jellyseerrRequestId ?? null,
     in_library: inLibrary,
+    excluded_reason: excludedReasonRaw,
     jellyfin_id: jellyfinId,
     poster_path: posterPath,
     poster_url: posterUrl,

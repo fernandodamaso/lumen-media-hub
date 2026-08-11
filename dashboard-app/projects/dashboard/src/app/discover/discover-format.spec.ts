@@ -136,4 +136,10 @@ describe('discover-format', () => {
       toExternalCardItem({ type: 'tv', title: 'Relay', tmdb_id: 9 }, 'trakt', new Set(['tv:9'])).requestState,
     ).toBe('requested');
   });
+
+  it('keeps an in-library Hermes item out of Active while preserving it for History', () => {
+    const item = hermesItem({ active: true, excluded_reason: 'in_library', in_library: true });
+    expect(isHermesActiveItem(item)).toBe(false);
+    expect(toHermesCardItem(item)).toMatchObject({ inLibrary: true, excludedReason: 'in_library' });
+  });
 });

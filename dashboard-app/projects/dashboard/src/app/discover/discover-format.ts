@@ -37,6 +37,7 @@ export type DiscoverCardItem = {
   feedback: DiscoverFeedback | null;
   requestState: 'requested' | null;
   inLibrary: boolean;
+  excludedReason?: 'in_library' | null;
   posterUrl?: string | null;
   rating?: number | null;
 };
@@ -53,6 +54,7 @@ export function toHermesCardItem(item: DiscoverItem): DiscoverCardItem {
     feedback: item.feedback,
     requestState: item.request_state,
     inLibrary: Boolean(item.in_library),
+    excludedReason: item.excluded_reason,
     posterUrl: item.poster_url,
     rating: item.rating,
   };
@@ -131,8 +133,10 @@ export function matchesHistoryFilter(item: DiscoverItem, filter: DiscoverHistory
 }
 
 /** Active Hermes browse excludes any title that already has feedback (liked leaves the queue). */
-export function isHermesActiveItem(item: Pick<DiscoverItem, 'active' | 'feedback'>): boolean {
-  return item.active && item.feedback == null;
+export function isHermesActiveItem(
+  item: Pick<DiscoverItem, 'active' | 'feedback' | 'excluded_reason'>,
+): boolean {
+  return item.active && item.feedback == null && item.excluded_reason !== 'in_library';
 }
 
 /** Liked also counts as watched for pressed UI and history filtering. */
@@ -175,6 +179,7 @@ export const mapHermesDiscover = (dto: MediaStackHermesDiscoverDto): HermesDisco
   items: (dto.items ?? []).map(mapDiscoverItem),
   pending_request_sync: dto.pending_request_sync,
   generation_request: dto.generation_request,
+  library_exclusion: dto.library_exclusion,
   error: dto.error,
 });
 
@@ -182,6 +187,7 @@ export const mapExternalDiscover = (dto: MediaStackExternalDiscoverDto): Externa
   ok: dto.ok,
   items: (dto.items ?? []).map(mapExternalDiscoverItem),
   availability: dto.enabled === false ? 'disabled' : 'available',
+  library_exclusion: dto.library_exclusion,
   error: dto.error,
 });
 

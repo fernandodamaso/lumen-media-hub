@@ -186,7 +186,8 @@ def _tmdb_library_maps():
                 if _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None
                 else "unavailable"
             )
-        return {"movie": previous_movie_map, "tv": previous_tv_map}
+            return {"movie": previous_movie_map, "tv": previous_tv_map}
+        return {"movie": refreshed_movie_map, "tv": refreshed_tv_map}
 
 
 def _library_exclusion_snapshot():

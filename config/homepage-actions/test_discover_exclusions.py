@@ -111,6 +111,30 @@ class DiscoverExclusionTests(unittest.TestCase):
             routes._TMDB_LIBRARY_CACHE.clear()
             routes._TMDB_LIBRARY_CACHE.update(old_cache)
 
+    def test_successful_refresh_returns_new_maps_to_current_request(self):
+        old_cache = dict(routes._TMDB_LIBRARY_CACHE)
+        try:
+            routes._TMDB_LIBRARY_CACHE.update(
+                expires=0,
+                movie={},
+                tv={},
+                status="unavailable",
+                last_successful_refresh_at=None,
+            )
+
+            def fetch(item_type):
+                return {42: "new-movie-jf"} if item_type == "Movie" else {7: "new-tv-jf"}
+
+            with mock.patch.object(routes.settings, "JELLYFIN_API_KEY", "key"), \
+                    mock.patch.object(routes, "_fetch_tmdb_map_for_type", side_effect=fetch):
+                snapshot = routes._library_exclusion_snapshot()
+            self.assertEqual(snapshot.movie, {42: "new-movie-jf"})
+            self.assertEqual(snapshot.tv, {7: "new-tv-jf"})
+            self.assertEqual(snapshot.status, "fresh")
+        finally:
+            routes._TMDB_LIBRARY_CACHE.clear()
+            routes._TMDB_LIBRARY_CACHE.update(old_cache)
+
     def test_missing_jellyfin_key_keeps_cached_last_good_snapshot(self):
         old_cache = dict(routes._TMDB_LIBRARY_CACHE)
         try:

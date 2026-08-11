@@ -1228,6 +1228,8 @@ def handle_discover_jellyseerr(handler, query):
         items = _filter_library_items(
             [_map_jellyseerr_result(item) for item in results if item], snapshot
         )
+        watched_snapshot = _trakt_watched_snapshot()
+        items = _filter_watched_items(items, watched_snapshot)
         send_json(
             handler,
             200,
@@ -1235,6 +1237,7 @@ def handle_discover_jellyseerr(handler, query):
                 "ok": True,
                 "generatedAt": datetime.now().isoformat(timespec="seconds"),
                 "library_exclusion": snapshot.public(),
+                "watched_exclusion": watched_snapshot.public(),
                 "items": items,
             },
         )

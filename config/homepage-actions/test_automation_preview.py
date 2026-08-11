@@ -269,7 +269,8 @@ class TestOptionalCapabilities(unittest.TestCase):
 
     def test_disabled_jellyseerr_returns_empty_success_payload(self):
         handler = _CaptureHandler()
-        with patch.multiple(config, JELLYSEERR_ENABLED=False, JELLYSEERR_API_KEY="configured-key"):
+        with patch.multiple(config, JELLYSEERR_ENABLED=False, JELLYSEERR_API_KEY="configured-key"), \
+                patch.object(discover_routes, "_trakt_watched_snapshot") as watched_snapshot:
             discover_routes.handle_discover_jellyseerr(handler, {})
 
         self.assertEqual(handler.status, 200)
@@ -277,6 +278,7 @@ class TestOptionalCapabilities(unittest.TestCase):
             json.loads(handler.wfile.getvalue()),
             {"ok": True, "enabled": False, "items": []},
         )
+        watched_snapshot.assert_not_called()
 
     def test_jellyseerr_disabled_request_error_is_distinct(self):
         with patch.multiple(config, JELLYSEERR_ENABLED=False, JELLYSEERR_API_KEY=""):

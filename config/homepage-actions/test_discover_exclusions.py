@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from routes import discover as routes
+from trakt_history import WatchedSnapshot
 
 
 class DiscoverExclusionTests(unittest.TestCase):
@@ -36,6 +37,116 @@ class DiscoverExclusionTests(unittest.TestCase):
             routes.handle_discover_jellyseerr(handler, {"kind": ["trending"]})
         self.assertEqual([item["tmdb_id"] for item in captured["items"]], [42])
         self.assertEqual(captured["items"][0]["type"], "tv")
+
+    def _jellyseerr_discover(self, raw, *, kind="trending", watched=None, library=None):
+        captured = {}
+        library = library or routes.LibraryExclusionSnapshot.from_maps(
+            {}, {}, status="fresh", last_successful_refresh_at=None
+        )
+        with mock.patch.object(routes.settings, "JELLYSEERR_ENABLED", True), \
+                mock.patch.object(routes.settings, "JELLYSEERR_API_KEY", "key"), \
+                mock.patch.object(routes, "_jellyseerr_get", return_value={"results": raw}), \
+                mock.patch.object(routes, "_library_exclusion_snapshot", return_value=library), \
+                mock.patch.object(routes, "_trakt_watched_snapshot", return_value=watched) as watched_snapshot, \
+                mock.patch.object(routes, "send_json", side_effect=lambda _h, _s, payload: captured.update(payload)):
+            routes.handle_discover_jellyseerr(SimpleNamespace(), {"kind": [kind]})
+        return captured, watched_snapshot
+
+    def test_jellyseerr_trending_filters_watched_movie_and_keeps_unwatched_item(self):
+        watched = WatchedSnapshot(frozenset({"movie:42"}), "2026-08-11T12:00:00+00:00", "fresh")
+        captured, watched_snapshot = self._jellyseerr_discover(
+            [
+                {"mediaType": "movie", "id": 42, "title": "Watched"},
+                {"mediaType": "movie", "id": 7, "title": "Unwatched"},
+            ],
+            watched=watched,
+        )
+        self.assertEqual([item["tmdb_id"] for item in captured["items"]], [7])
+        self.assertEqual(captured["watched_exclusion"], watched.public())
+        watched_snapshot.assert_called_once_with()
+
+    def test_jellyseerr_movie_feed_filters_watched_movie(self):
+        watched = WatchedSnapshot(frozenset({"movie:42"}), "2026-08-11T12:00:00+00:00", "fresh")
+        captured, _ = self._jellyseerr_discover(
+            [{"mediaType": "movie", "id": 42, "title": "Watched"}],
+            kind="movies",
+            watched=watched,
+        )
+        self.assertEqual(captured["items"], [])
+
+    def test_jellyseerr_tv_feed_filters_watched_show(self):
+        watched = WatchedSnapshot(frozenset({"tv:42"}), "2026-08-11T12:00:00+00:00", "fresh")
+        captured, _ = self._jellyseerr_discover(
+            [{"mediaType": "tv", "id": 42, "name": "Watched show"}],
+            kind="tv",
+            watched=watched,
+        )
+        self.assertEqual(captured["items"], [])
+
+    def test_jellyseerr_watched_movie_does_not_filter_tv_with_same_numeric_id(self):
+        watched = WatchedSnapshot(frozenset({"movie:123"}), "2026-08-11T12:00:00+00:00", "fresh")
+        captured, _ = self._jellyseerr_discover(
+            [{"mediaType": "tv", "id": 123, "name": "Unwatched show"}],
+            kind="tv",
+            watched=watched,
+        )
+        self.assertEqual([item["tmdb_id"] for item in captured["items"]], [123])
+
+    def test_jellyseerr_stale_snapshot_filters_and_reports_stale(self):
+        watched = WatchedSnapshot(frozenset({"movie:42"}), "2026-08-11T11:00:00+00:00", "stale")
+        captured, _ = self._jellyseerr_discover(
+            [{"mediaType": "movie", "id": 42, "title": "Watched"}], watched=watched
+        )
+        self.assertEqual(captured["items"], [])
+        self.assertEqual(captured["watched_exclusion"], watched.public())
+
+    def test_jellyseerr_unavailable_snapshot_keeps_cards_and_reports_unavailable(self):
+        watched = WatchedSnapshot(frozenset(), None, "unavailable")
+        captured, _ = self._jellyseerr_discover(
+            [{"mediaType": "movie", "id": 42, "title": "Keep"}], watched=watched
+        )
+        self.assertEqual([item["tmdb_id"] for item in captured["items"]], [42])
+        self.assertEqual(captured["watched_exclusion"], watched.public())
+
+    def test_jellyseerr_failure_preserves_error_and_does_not_fetch_watched(self):
+        responses = []
+        with mock.patch.object(routes.settings, "JELLYSEERR_ENABLED", True), \
+                mock.patch.object(routes.settings, "JELLYSEERR_API_KEY", "key"), \
+                mock.patch.object(routes, "_jellyseerr_get", side_effect=RuntimeError("upstream down")), \
+                mock.patch.object(routes, "_trakt_watched_snapshot") as watched_snapshot, \
+                mock.patch.object(routes, "send_json", side_effect=lambda _h, status, payload: responses.append((status, payload))):
+            routes.handle_discover_jellyseerr(SimpleNamespace(), {"kind": ["movies"]})
+        self.assertEqual(responses, [(502, {"ok": False, "error": "upstream down"})])
+        watched_snapshot.assert_not_called()
+
+    def test_jellyseerr_library_and_watched_exclusions_preserve_card_metadata(self):
+        watched = WatchedSnapshot(frozenset({"movie:7"}), "2026-08-11T12:00:00+00:00", "fresh")
+        library = routes.LibraryExclusionSnapshot.from_maps(
+            {42: "jellyfin-movie"}, {}, status="fresh", last_successful_refresh_at="2026-08-11T12:00:00+00:00"
+        )
+        captured, _ = self._jellyseerr_discover(
+            [
+                {"mediaType": "movie", "id": 42, "title": "Library", "posterPath": "/library.jpg"},
+                {"mediaType": "movie", "id": 7, "title": "Watched", "posterPath": "/watched.jpg"},
+                {"mediaType": "movie", "id": 9, "title": "Keep", "posterPath": "/keep.jpg", "voteAverage": 8.2},
+            ],
+            watched=watched,
+            library=library,
+        )
+        self.assertEqual(captured["items"], [{
+            "id": "seerr-movie-9",
+            "source": "jellyseerr",
+            "type": "movie",
+            "title": "Keep",
+            "year": None,
+            "tmdb_id": 9,
+            "overview": "",
+            "poster_path": "/keep.jpg",
+            "poster_url": "https://image.tmdb.org/t/p/w342/keep.jpg",
+            "rating": 8.2,
+        }])
+        self.assertEqual(captured["library_exclusion"], library.public())
+        self.assertEqual(captured["watched_exclusion"], watched.public())
 
     def test_trakt_filters_library_movie_without_title_matching(self):
         handler = SimpleNamespace()

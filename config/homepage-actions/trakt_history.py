@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import tempfile
 import threading
 from dataclasses import dataclass
@@ -18,10 +19,26 @@ FRESHNESS_SECONDS = 15 * 60
 def _identity_for_entry(entry, media_type):
     member = _validate_watched_entry(entry, media_type)
     ids = member["ids"]
-    tmdb_id = _normalize_tmdb_id(ids.get("tmdb"))
+    tmdb_id = _strict_optional_id(ids.get("tmdb"))
+    if "trakt" in ids and ids["trakt"] is not None:
+        _strict_optional_id(ids["trakt"])
     if not tmdb_id:
         return None
     return f"{'movie' if media_type == 'movies' else 'tv'}:{tmdb_id}"
+
+
+def _strict_optional_id(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("invalid Trakt watched identity")
+    if isinstance(value, int):
+        if value <= 0:
+            raise ValueError("invalid Trakt watched identity")
+        return value
+    if isinstance(value, str) and re.fullmatch(r"[1-9][0-9]*", value):
+        return int(value)
+    raise ValueError("invalid Trakt watched identity")
 
 
 def _validate_watched_entry(entry, media_type):
@@ -101,10 +118,14 @@ class WatchedSnapshotStore:
         identities = value.get("identities")
         if not isinstance(refreshed_at, str) or not isinstance(identities, list):
             return None
-        clean = {identity for identity in identities if isinstance(identity, str) and _valid_identity(identity)}
-        return WatchedSnapshot(frozenset(clean), refreshed_at, "stale")
+        if any(not _valid_identity(identity) for identity in identities):
+            return None
+        return WatchedSnapshot(frozenset(identities), refreshed_at, "stale")
 
     def replace(self, identities, *, refreshed_at):
+        identities = set(identities)
+        if any(not _valid_identity(identity) for identity in identities):
+            raise ValueError("invalid watched snapshot identity")
         parent = os.path.dirname(os.path.abspath(self.path))
         os.makedirs(parent, exist_ok=True)
         fd, temporary = tempfile.mkstemp(prefix=".trakt-watched-", suffix=".tmp", dir=parent)
@@ -114,7 +135,7 @@ class WatchedSnapshotStore:
                     {
                         "schema_version": 1,
                         "refreshed_at": refreshed_at,
-                        "identities": sorted(set(identities)),
+                        "identities": sorted(identities),
                     },
                     handle,
                     separators=(",", ":"),
@@ -136,8 +157,10 @@ class WatchedSnapshotStore:
 
 
 def _valid_identity(value):
-    kind, separator, number = value.partition(":")
-    return kind in ("movie", "tv") and bool(separator) and bool(_normalize_tmdb_id(number))
+    return (
+        isinstance(value, str)
+        and re.fullmatch(r"(?:movie|tv):[1-9][0-9]*", value) is not None
+    )
 
 
 class TraktWatchedService:
@@ -190,7 +213,11 @@ class TraktWatchedService:
             now = self.clock()
             if self._snapshot is not None and self._loaded_at is not None and now - self._loaded_at < self.freshness_seconds:
                 return self._snapshot
-            previous = self._snapshot or (self.store.load() if self.store else None)
+            previous = (
+                self._snapshot
+                if self._snapshot is not None and self._snapshot.status != "unavailable"
+                else (self.store.load() if self.store else None)
+            )
             try:
                 identities = self.fetch_identities()
                 refreshed_at = self._now_iso()

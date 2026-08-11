@@ -838,6 +838,9 @@ export function requireExternalDiscoverPayload(
     requireLiveExternalDiscoverItem(item, index, resource);
   });
   const watched = data['watched_exclusion'];
+  if (resource === 'Trakt' && (watched === undefined || watched === null)) {
+    throw new Error('Malformed Trakt response: watched_exclusion is required');
+  }
   if (watched !== undefined && watched !== null) {
     if (!isRecord(watched) || !['fresh', 'stale', 'unavailable'].includes(String(watched['status']))) {
       throw new Error(`Malformed ${resource} response: watched_exclusion is invalid`);

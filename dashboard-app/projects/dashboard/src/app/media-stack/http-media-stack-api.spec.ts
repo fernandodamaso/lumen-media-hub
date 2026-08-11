@@ -49,6 +49,17 @@ describe('live-api.mappers', () => {
     ).toThrow(/watched_exclusion timestamp is invalid/);
   });
 
+  it('requires watched freshness on successful Trakt envelopes only', () => {
+    expect(() => {
+      requireExternalDiscoverPayload({ items: [] }, 'Trakt');
+    }).toThrow(
+      /watched_exclusion is required/,
+    );
+    expect(() => {
+      requireExternalDiscoverPayload({ items: [] }, 'Jellyseerr');
+    }).not.toThrow();
+  });
+
   it('maps qbt torrents with downloaded from amount_left', () => {
     expect(
       mapLiveTorrent({
@@ -1046,7 +1057,11 @@ describe('HttpMediaStackApi', () => {
     await expect(jelly).resolves.toMatchObject({ ok: true, availability: 'disabled' });
 
     const trakt = api.listTraktDiscover('movies');
-    http.expectOne('/api/discover/trakt?type=movies').flush({ ok: true, items: [] });
+    http.expectOne('/api/discover/trakt?type=movies').flush({
+      ok: true,
+      items: [],
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
     await expect(trakt).resolves.toMatchObject({ ok: true });
 
     const more = api.requestHermesMore();
@@ -1063,6 +1078,7 @@ describe('HttpMediaStackApi', () => {
       .flush({
         ok: true,
         items: [{ type: 'tv', title: 'Severance', tmdb_id: 95396, trakt_slug: 'severance', poster_url: null, rating: null }],
+        watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       });
     const result = await trakt;
     expect(result.ok).toBe(true);
@@ -1271,6 +1287,7 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/discover/trakt?type=movies').flush({
       ok: true,
       items: [{ type: 'anime', title: 'Bad', tmdb_id: 9 }],
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     });
     await expect(badType).rejects.toThrow(/missing type/);
   });

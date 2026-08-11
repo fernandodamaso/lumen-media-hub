@@ -649,7 +649,7 @@ def handle_discover_hermes_get(handler):
             "presented_media_ids": data.get("presented_media_ids", []),
             "pending_request_sync": _pending_request_sync_public(),
             "generation_request": _generation_request_public(),
-            "context": _hermes_generation_context(data, snapshot),
+            "context": _hermes_generation_context(data, snapshot, watched_snapshot),
             "library_exclusion": snapshot.public(),
             "watched_exclusion": watched_snapshot.public(),
             "items": items,
@@ -845,18 +845,19 @@ def _get_in_library_media_ids():
         return [], [f"jellyfin: {e}"]
 
 
-def _hermes_required_retain(items):
-    """Active identities Hermes must keep (untouched only)."""
-    retain = []
+def _hermes_required_retain(items, *, excluded_library=None, excluded_watched=None):
+    """Active identities Hermes must keep, excluding authoritative deny sets."""
+    excluded = set(excluded_library or ()) | set(excluded_watched or ())
+    retain = set()
     for item in items:
         if not item.get("active"):
             continue
         if not _should_auto_retain_hermes_item(item):
             continue
         identity = item.get("identity") or _hermes_identity(item)
-        if identity:
-            retain.append(identity)
-    return retain
+        if identity and identity not in excluded:
+            retain.add(identity)
+    return sorted(retain)
 
 
 def _hermes_taste_entry(item):
@@ -893,22 +894,53 @@ def _hermes_taste_summary(items, cap=HERMES_TASTE_CAP):
 def _hermes_exclusion_sets():
     """Live exclude sets for generation commits (fresh enough via caches)."""
     tracked, tracked_errors = _get_tracked_media_ids()
-    in_library, library_errors = _get_in_library_media_ids()
-    return set(tracked), set(in_library), tracked_errors + library_errors
+    library_snapshot = _library_exclusion_snapshot()
+    in_library = _in_library_media_ids_from_maps(
+        {"movie": library_snapshot.movie, "tv": library_snapshot.tv}
+    )
+    watched_snapshot = _trakt_watched_snapshot()
+    errors = [f"{str(error).split(':', 1)[0]}: unavailable" for error in tracked_errors]
+    if library_snapshot.status == "unavailable":
+        errors.append("jellyfin: unavailable")
+    if watched_snapshot.status == "unavailable":
+        errors.append("trakt_watched: unavailable")
+    watched = (
+        set(watched_snapshot.identities)
+        if watched_snapshot.status != "unavailable"
+        else set()
+    )
+    return set(tracked), set(in_library), watched, errors
 
 
-def _hermes_generation_context(data, snapshot=None):
+def _hermes_generation_context(data, snapshot=None, watched_snapshot=None):
     """Server-built helpers so Hermes need not curl Arr/Jellyfin itself."""
     items = list(_hermes_items(data))
     tracked, tracked_errors = _get_tracked_media_ids()
-    in_library, library_errors = _get_in_library_media_ids()
     snapshot = snapshot or _library_exclusion_snapshot()
-    errors = tracked_errors + library_errors
+    in_library = _in_library_media_ids_from_maps(
+        {"movie": snapshot.movie, "tv": snapshot.tv}
+    )
+    watched_snapshot = watched_snapshot or _trakt_watched_snapshot()
+    watched = (
+        sorted(set(watched_snapshot.identities))
+        if watched_snapshot.status != "unavailable"
+        else []
+    )
+    errors = [f"{str(error).split(':', 1)[0]}: unavailable" for error in tracked_errors]
+    if snapshot.status == "unavailable":
+        errors.append("jellyfin: unavailable")
+    if watched_snapshot.status == "unavailable":
+        errors.append("trakt_watched: unavailable")
     context = {
-        "tracked_media_ids": tracked,
-        "in_library_media_ids": in_library,
+        "tracked_media_ids": sorted(set(tracked)),
+        "in_library_media_ids": sorted(set(in_library)),
+        "watched_media_ids": watched,
         "library_exclusion": snapshot.public(),
-        "required_retain": _hermes_required_retain(items),
+        "required_retain": _hermes_required_retain(
+            items,
+            excluded_library=in_library,
+            excluded_watched=watched,
+        ),
         "taste": _hermes_taste_summary(items),
     }
     if errors:
@@ -925,8 +957,10 @@ def handle_discover_hermes_generations(handler):
     Sonarr/Radarr or Jellyfin are rejected as ``already_tracked`` /
     ``already_in_library``. Active items omitted from the batch are rotated
     to history with all feedback/request fields preserved — **except** untouched
-    actives, which are auto-retained so Hermes cannot hide titles the user has
-    not finished with. Liked/watched/disliked/skipped settle in History.
+    actives outside the authoritative library and watched exclusion sets, which
+    are auto-retained so Hermes cannot hide titles the user has not finished
+    with. Excluded, liked, watched, disliked, skipped, and requested actives
+    settle in History.
     The whole commit
     — acceptances, rotations, deny-list appends — is one store transaction,
     and a stale ``base_revision`` aborts with HTTP 409 before any change.
@@ -991,7 +1025,13 @@ def handle_discover_hermes_generations(handler):
         print(f"[poster-enrich] generation preparation failed: {e}", flush=True)
         candidate_posters = {}
 
-    tracked_set, in_library_set, exclusion_errors = _hermes_exclusion_sets()
+    exclusion_snapshot = _hermes_exclusion_sets()
+    if len(exclusion_snapshot) == 3:
+        # Compatibility for callers that provide the pre-watched seam.
+        tracked_set, in_library_set, exclusion_errors = exclusion_snapshot
+        watched_set = set()
+    else:
+        tracked_set, in_library_set, watched_set, exclusion_errors = exclusion_snapshot
     if exclusion_errors:
         print(
             f"[hermes-generations] exclusion context degraded: {exclusion_errors}",
@@ -1026,6 +1066,30 @@ def handle_discover_hermes_generations(handler):
             identity = candidate["identity"]
             existing = active_by_identity.get(identity)
             if existing is not None:
+                # An authoritative deny cannot be overridden by an existing
+                # active row, whether or not Hermes included retain=true.
+                # Leave it untouched in this loop so rotation moves it to
+                # History while preserving its metadata.
+                if identity in in_library_set:
+                    rejected.append(
+                        {
+                            "index": candidate["index"],
+                            "identity": identity,
+                            "tmdb_id": tmdb_id,
+                            "reason": "already_in_library",
+                        }
+                    )
+                    continue
+                if identity in watched_set:
+                    rejected.append(
+                        {
+                            "index": candidate["index"],
+                            "identity": identity,
+                            "tmdb_id": tmdb_id,
+                            "reason": "already_watched",
+                        }
+                    )
+                    continue
                 if not candidate["retain"]:
                     rejected.append(
                         {
@@ -1082,6 +1146,15 @@ def handle_discover_hermes_generations(handler):
                         "reason": "already_in_library",
                     }
                 )
+            elif identity in watched_set:
+                rejected.append(
+                    {
+                        "index": candidate["index"],
+                        "identity": identity,
+                        "tmdb_id": tmdb_id,
+                        "reason": "already_watched",
+                    }
+                )
             else:
                 item = {
                     "id": f"hermes-{identity.replace(':', '-')}",
@@ -1121,7 +1194,11 @@ def handle_discover_hermes_generations(handler):
             ):
                 identity = item.get("identity") or _hermes_identity(item)
                 # Hard rule: never rotate untouched actives.
-                if _should_auto_retain_hermes_item(item):
+                if (
+                    identity not in in_library_set
+                    and identity not in watched_set
+                    and _should_auto_retain_hermes_item(item)
+                ):
                     retained.append(identity)
                     continue
                 item["active"] = False

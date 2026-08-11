@@ -6,7 +6,7 @@ Do **not** paste or rewrite this whole prompt into the cron job; the job should 
 
 ## Workflow
 
-If `GET /discover/hermes` includes `"generation_request": {"status":"pending",...}`, the dashboard user asked for **more** recommendations — add about **8–12 new** candidates while retaining every required keeper (untouched and liked actives). Do not replace or thin the Active list. A successful `POST /discover/hermes/generations` clears the flag automatically.
+If `GET /discover/hermes` includes `"generation_request": {"status":"pending",...}`, the dashboard user asked for **more** recommendations — add about **8–12 new** candidates while retaining every required keeper (untouched actives not in an authoritative exclusion set). Do not replace or thin the Active list. A successful `POST /discover/hermes/generations` clears the flag automatically.
 
 ### 1. Read the current snapshot
 
@@ -18,7 +18,8 @@ If `GET /discover/hermes` includes `"generation_request": {"status":"pending",..
 - `context` — **use this; do not curl Sonarr, Radarr, or Jellyfin yourself**:
   - `tracked_media_ids` — already in Sonarr/Radarr;
   - `in_library_media_ids` — already playable in Jellyfin;
-  - `required_retain` — active identities you **must** submit with `"retain": true`;
+  - `watched_media_ids` — authoritative typed Trakt watched deny list (`movie:<id>` / `tv:<id>`); never submit these as new candidates or as `retain: true` keepers;
+  - `required_retain` — active, untouched identities you **must** submit with `"retain": true`; library and watched identities are omitted;
   - `taste` — compact `liked` / `disliked` / `skipped` / `watched` title lists;
   - optional `context_errors` — Arr/Jellyfin fetch degraded; still proceed with the lists returned (may be empty).
 
@@ -50,16 +51,18 @@ Target roughly **15–25 active recommendations** after the commit when starting
 
 - Drop any Trakt hit whose typed identity (`movie:<ids.tmdb>` or `tv:<ids.tmdb>`) is already in `presented_media_ids` — the API will reject it anyway; filtering first is just efficient. A matching `legacy:<ids.tmdb>` tombstone also blocks the candidate.
 - Drop any candidate whose typed identity is in `context.tracked_media_ids` or `context.in_library_media_ids`. The API also rejects these as `already_tracked` / `already_in_library` if you forget.
-- Include **every** identity in `context.required_retain` with `"retain": true`. **Interacted** actives you omit (`disliked` / `skipped` / `watched`, or `request_state` set) are rotated to history and can never return as new picks — omit those only when rotation is intentional. Untouched and liked actives are auto-retained by the API even if omitted; still include them via `required_retain`.
+- Drop any candidate whose typed identity is in `context.watched_media_ids`. The API rejects a new watched candidate as `already_watched`, preserving its typed identity in the rejection response.
+- Include **every** identity in `context.required_retain` with `"retain": true`. **Interacted** actives you omit (`liked` / `disliked` / `skipped` / `watched`, or `request_state` set) are rotated to history and can never return as new picks — omit those only when rotation is intentional. Untouched active rows outside the authoritative exclusion sets are auto-retained by the API even if omitted; still include them via `required_retain`.
 - Each candidate: `type` (`"movie"` or `"tv"`), `title`, `year`, `tmdb_id` (real IDs only — from Trakt `ids.tmdb` or TMDB search; never invent), `reason` (one short sentence why *this user* will like it, referencing liked patterns / Trakt signals). Optional `"retain": true`.
 - Prefer 4K-friendly mainstream releases aligned with this stack's quality goals.
 - Never modify feedback, request, or timestamp fields — you cannot; the API preserves them for retained items.
 
 **Retain discipline (hard rules):**
 
-1. **Submit every `context.required_retain` identity** with `"retain": true`. That list is the server’s view of untouched + liked actives. Never omit them. The API also refuses to rotate these even if you forget.
-2. **Do not resurrect history.** Rows that are already `active=false` (typically `disliked` / `skipped` / `watched` / `requested`) stay in history — omit them from the batch. Never try to bring them back with `"retain": true` (the API rejects resurrection).
-3. After retaining all required keepers, add **new** candidates (no `retain`) to refresh the slate. Prefer quality over filling a quota.
+1. **Submit every `context.required_retain` identity** with `"retain": true`. That list is the server’s view of untouched active rows outside library and watched deny sets. Never omit them. The API also refuses to rotate these even if you forget.
+2. **Never retain excluded identities.** Library, tracked, and watched typed identities are authoritative deny sets. The server excludes library and watched identities from `required_retain`; if an excluded active row is present, a successful generation rotates it to History while preserving its metadata.
+3. **Do not resurrect history.** Rows that are already `active=false` (typically `disliked` / `skipped` / `watched` / `requested`) stay in history — omit them from the batch. Never try to bring them back with `"retain": true` (the API rejects resurrection).
+4. After retaining all required keepers, add **new** candidates (no `retain`) to refresh the slate. Prefer quality over filling a quota.
 
 Do not “thin” the Active list by rotating titles the user has not finished with.
 
@@ -78,7 +81,7 @@ Do not “thin” the Active list by rotating titles the user has not finished w
 ```
 
 - Required keepers (`context.required_retain`) **must** appear in `candidates` with `"retain": true` before you POST. Do not submit an empty batch or a new-only batch that forgets keepers.
-- **200**: `accepted` / `retained` / `rotated` / `rejected` are authoritative. Do not try to force a rejected candidate through; `already_presented` / `already_tracked` / `already_in_library` mean that title is done for this pipeline. If `rotated` includes a liked identity, or required keepers are missing from `retained`, treat the run as failed — fix the batch and do not “fix” it with another thin commit. An all-rejected commit can still rotate interacted actives (`disliked` / `skipped` / `watched` / requested); that is why keepers must be explicit.
+- **200**: `accepted` / `retained` / `rotated` / `rejected` are authoritative. Do not try to force a rejected candidate through; `already_presented` / `already_tracked` / `already_in_library` / `already_watched` mean that title is done for this pipeline. If `rotated` includes an identity that was not excluded or intentionally interacted, or required keepers are missing from `retained`, treat the run as failed — fix the batch and do not “fix” it with another thin commit. An all-rejected commit can still rotate interacted actives (`disliked` / `skipped` / `watched` / requested); that is why keepers must be explicit.
 - **409** (`stale_base_revision`): feedback or a request landed while you worked. Re-run step 1 for a fresh snapshot and revision, rebuild the batch (re-check retain choices against new feedback), and resubmit once. Never retry a 409 blindly.
 
 ### 5. Refresh Jellyfin

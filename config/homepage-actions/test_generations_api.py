@@ -610,8 +610,10 @@ class GetAndRetiredRouteTests(GenerationApiTestCase):
             "routes.discover._get_tracked_media_ids",
             return_value=(["movie:100", "tv:200"], []),
         ), mock.patch(
-            "routes.discover._get_in_library_media_ids",
-            return_value=(["movie:300"], []),
+            "routes.discover._library_exclusion_snapshot",
+            return_value=discover_routes.LibraryExclusionSnapshot.from_maps(
+                {300: "movie-jf"}, {}, status="fresh", last_successful_refresh_at=None
+            ),
         ):
             status, payload = self.request("GET", "/discover/hermes")
         self.assertEqual(status, 200)
@@ -632,7 +634,7 @@ class GetAndRetiredRouteTests(GenerationApiTestCase):
             [entry["identity"] for entry in context["taste"]["watched"]],
             ["movie:2", "movie:5"],
         )
-        self.assertNotIn("context_errors", context)
+        self.assertEqual(context["context_errors"], ["trakt_watched: unavailable"])
 
     def test_get_projects_watched_hermes_items_without_writing_store(self):
         self.seed([make_item(7), make_item(8, active=False), make_item(9, feedback="liked")])
@@ -728,6 +730,222 @@ class ExclusionEnforcementTests(GenerationApiTestCase):
             status, payload = self.post_generation(0, [self.candidate(999)])
         self.assertEqual(status, 200)
         self.assertEqual(payload["rejected"][0]["reason"], "already_tracked")
+
+    def test_already_watched_candidate_rejected_with_typed_identity(self):
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), set(), {"movie:777"}, []),
+        ):
+            status, payload = self.post_generation(0, [self.candidate(777)])
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["accepted"], [])
+        self.assertEqual(
+            payload["rejected"],
+            [
+                {
+                    "index": 0,
+                    "identity": "movie:777",
+                    "tmdb_id": 777,
+                    "reason": "already_watched",
+                }
+            ],
+        )
+        self.assertIsNone(self.item_by_tmdb(self.current_doc(), 777))
+
+    def test_watched_typed_identity_does_not_reject_same_numeric_tv_candidate(self):
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), set(), {"movie:777"}, []),
+        ):
+            status, payload = self.post_generation(
+                0, [self.candidate(777, media_type="tv")]
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["accepted"][0]["identity"], "tv:777")
+
+    def test_tracked_and_library_precedence_is_preserved_over_watched(self):
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=({"movie:999"}, {"movie:999"}, {"movie:999"}, []),
+        ):
+            status, payload = self.post_generation(0, [self.candidate(999)])
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["rejected"][0]["reason"], "already_tracked")
+
+
+class WatchedGenerationRotationTests(GenerationApiTestCase):
+    def test_excluded_active_rows_cannot_be_explicitly_retained(self):
+        self.seed(
+            [make_item(7), make_item(8), make_item(9)],
+            presented=["movie:7", "movie:8", "movie:9"],
+        )
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), {"movie:8"}, {"movie:7"}, []),
+        ):
+            status, payload = self.post_generation(
+                rev,
+                [
+                    self.candidate(7, retain=True),
+                    self.candidate(8, retain=True),
+                    self.candidate(10),
+                ],
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            [(entry["identity"], entry["reason"]) for entry in payload["rejected"]],
+            [("movie:7", "already_watched"), ("movie:8", "already_in_library")],
+        )
+        self.assertEqual(sorted(payload["rotated"]), ["movie:7", "movie:8"])
+        self.assertFalse(self.item_by_tmdb(self.current_doc(), 7)["active"])
+        self.assertFalse(self.item_by_tmdb(self.current_doc(), 8)["active"])
+        self.assertTrue(self.item_by_tmdb(self.current_doc(), 9)["active"])
+
+    def test_excluded_active_rows_rotate_even_without_retain_flag(self):
+        self.seed(
+            [make_item(7), make_item(8)],
+            presented=["movie:7", "movie:8"],
+        )
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), {"movie:8"}, {"movie:7"}, []),
+        ):
+            status, payload = self.post_generation(
+                rev,
+                [self.candidate(7), self.candidate(8)],
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            [(entry["identity"], entry["reason"]) for entry in payload["rejected"]],
+            [("movie:7", "already_watched"), ("movie:8", "already_in_library")],
+        )
+        self.assertEqual(sorted(payload["rotated"]), ["movie:7", "movie:8"])
+        self.assertFalse(self.item_by_tmdb(self.current_doc(), 7)["active"])
+        self.assertFalse(self.item_by_tmdb(self.current_doc(), 8)["active"])
+
+    def test_excluded_active_rows_rotate_and_preserve_all_metadata(self):
+        watched = make_item(7, feedback="liked", request_state="requested")
+        watched["feedback_at"] = "2026-01-02T00:00:00Z"
+        watched["requested_at"] = "2026-01-03T00:00:00Z"
+        watched["jellyseerr_request_id"] = 77
+        watched["added_at"] = "2025-12-01T00:00:00Z"
+        library = make_item(8)
+        library["feedback_at"] = None
+        library["requested_at"] = None
+        library["jellyseerr_request_id"] = None
+        library["added_at"] = "2025-12-02T00:00:00Z"
+        untouched = make_item(9)
+        self.seed(
+            [watched, library, untouched],
+            presented=["movie:7", "movie:8", "movie:9"],
+        )
+        before = {
+            key: watched[key]
+            for key in (
+                "id", "identity", "type", "tmdb_id", "feedback", "feedback_at",
+                "request_state", "requested_at", "jellyseerr_request_id", "added_at",
+            )
+        }
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), {"movie:8"}, {"movie:7"}, []),
+        ):
+            status, payload = self.post_generation(rev, [self.candidate(10)])
+        self.assertEqual(status, 200)
+        self.assertEqual(sorted(payload["rotated"]), ["movie:7", "movie:8"])
+        self.assertNotIn("movie:9", payload["rotated"])
+        self.assertTrue(self.item_by_tmdb(self.current_doc(), 9)["active"])
+        rotated_watched = self.item_by_tmdb(self.current_doc(), 7)
+        self.assertFalse(rotated_watched["active"])
+        self.assertEqual(
+            {key: rotated_watched[key] for key in before}, before
+        )
+        self.assertFalse(self.item_by_tmdb(self.current_doc(), 8)["active"])
+
+    def test_stale_watched_snapshot_is_enforced_and_unavailable_is_soft(self):
+        self.seed([make_item(7)], presented=["movie:7"])
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), {"movie:8"}, {"movie:10"}, ["trakt_watched: stale"]),
+        ):
+            status, payload = self.post_generation(rev, [self.candidate(10)])
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["rejected"][0]["reason"], "already_watched")
+
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), {"movie:8"}, set(), ["trakt_watched: unavailable"]),
+        ):
+            status, payload = self.post_generation(rev, [self.candidate(8)])
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["accepted"], [])
+        self.assertEqual(payload["rejected"][0]["reason"], "already_in_library")
+
+
+class HermesGenerationContextContractTests(GenerationApiTestCase):
+    def test_context_has_sorted_deduplicated_watched_ids_and_excludes_authoritative_rows(self):
+        self.seed(
+            [make_item(1), make_item(2, media_type="tv"), make_item(3)],
+            presented=["movie:1", "tv:2", "movie:3"],
+        )
+        watched = discover_routes.WatchedSnapshot(
+            frozenset({"tv:42", "movie:42", "movie:42"}),
+            "2026-08-11T12:00:00+00:00",
+            "stale",
+        )
+        library = discover_routes.LibraryExclusionSnapshot.from_maps(
+            {1: "movie-jf"}, {2: "tv-jf"}, status="fresh", last_successful_refresh_at=None
+        )
+        with mock.patch.object(
+            discover_routes, "_trakt_watched_snapshot", return_value=watched
+        ) as watched_snapshot, mock.patch.object(
+            discover_routes, "_library_exclusion_snapshot", return_value=library
+        ), mock.patch.object(
+            discover_routes, "_enrich_hermes_posters", side_effect=lambda values: values
+        ), mock.patch.object(
+            discover_routes, "_get_tracked_media_ids", return_value=([], [])
+        ), mock.patch.object(
+            discover_routes, "send_json", side_effect=lambda _h, _s, payload: setattr(self, "payload", payload)
+        ):
+            discover_routes.handle_discover_hermes_get(object())
+        watched_snapshot.assert_called_once_with()
+        context = self.payload["context"]
+        self.assertEqual(context["watched_media_ids"], ["movie:42", "tv:42"])
+        self.assertEqual(context["in_library_media_ids"], ["movie:1", "tv:2"])
+        self.assertNotIn("movie:1", context["required_retain"])
+        self.assertNotIn("tv:2", context["required_retain"])
+        self.assertIn("movie:3", context["required_retain"])
+
+    def test_context_normalizes_duplicate_watched_iterable_at_boundary(self):
+        watched = discover_routes.WatchedSnapshot(
+            ["tv:42", "movie:42", "movie:42"],
+            "2026-08-11T12:00:00+00:00",
+            "stale",
+        )
+        snapshot = discover_routes.LibraryExclusionSnapshot.from_maps(
+            {}, {}, status="fresh", last_successful_refresh_at=None
+        )
+        context = discover_routes._hermes_generation_context(
+            {"items": []}, snapshot, watched
+        )
+        self.assertEqual(context["watched_media_ids"], ["movie:42", "tv:42"])
+
+    def test_prompt_documents_watched_deny_list_and_server_rejection(self):
+        prompt_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "recommendations",
+            "HERMES_DISCOVER_PROMPT.md",
+        )
+        with open(prompt_path, encoding="utf-8") as handle:
+            prompt = handle.read()
+        self.assertIn("watched_media_ids", prompt)
+        self.assertIn('"retain": true', prompt)
+        self.assertIn("already_watched", prompt)
 
 
 class FeedbackPatchTests(GenerationApiTestCase):

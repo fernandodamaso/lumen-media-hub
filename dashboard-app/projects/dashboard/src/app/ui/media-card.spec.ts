@@ -82,6 +82,16 @@ describe('MmMediaCard', () => {
     expect(root.querySelector('.mm-media-card__overlay')).toBeNull();
   });
 
+  it('renders neither caption when placement is none', () => {
+    const fixture = TestBed.createComponent(MmMediaCard);
+    fixture.componentRef.setInput('captionPlacement', 'none');
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    expect(root.querySelector('.mm-media-card__overlay')).toBeNull();
+    expect(root.querySelector('.mm-media-card__caption')).toBeNull();
+  });
+
   it('retries network artwork when retryToken changes after an image error', () => {
     const fixture = TestBed.createComponent(MmMediaCard);
     fixture.componentRef.setInput('imageUrl', 'https://example.com/poster.jpg');

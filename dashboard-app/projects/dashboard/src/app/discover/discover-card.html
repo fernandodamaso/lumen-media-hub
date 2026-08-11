@@ -5,7 +5,7 @@
       [subtitle]="meta()"
       [imageUrl]="item().posterUrl"
       [art]="fallbackArt()"
-      [framed]="false"
+      [captionPlacement]="'none'"
     />
     @if (item().inLibrary || item().requestState === 'requested' || syncFailed() || item().feedback) {
       <div class="discover-card__badges">
@@ -23,6 +23,42 @@
         }
       </div>
     }
+    @if (showFeedback()) {
+      <div class="discover-card__overlay">
+        <div class="discover-card__feedback" role="group" [attr.aria-label]="'Feedback for ' + item().title">
+          @for (option of feedbackOptions; track option.value) {
+            <mm-icon-button
+              [label]="option.label"
+              [toggle]="true"
+              [pressed]="isFeedbackPressed(option.value)"
+              [disabled]="busy()"
+              [busy]="busy()"
+              (click)="feedback.emit(option.value)"
+            >
+              @switch (option.icon) {
+                @case ('thumbsUp') {
+                  <svg lucideThumbsUp [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+                }
+                @case ('thumbsDown') {
+                  <svg lucideThumbsDown [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+                }
+                @case ('eye') {
+                  <svg lucideEye [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+                }
+                @case ('skipForward') {
+                  <svg lucideSkipForward [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+                }
+              }
+            </mm-icon-button>
+          }
+        </div>
+      </div>
+    }
+  </div>
+
+  <div class="discover-card__caption">
+    <strong>{{ item().title }}</strong>
+    <small>{{ meta() }}</small>
   </div>
 
   @if (showSummary() && summaryText()) {
@@ -32,46 +68,15 @@
   }
 
   <footer class="discover-card__footer">
-    @if (showFeedback()) {
-      <div class="discover-card__feedback" role="group" [attr.aria-label]="'Feedback for ' + item().title">
-        @for (option of feedbackOptions; track option.value) {
-          <mm-icon-button
-            [label]="option.label"
-            [toggle]="true"
-            [pressed]="isFeedbackPressed(option.value)"
-            [disabled]="busy()"
-            [busy]="busy()"
-            (click)="feedback.emit(option.value)"
-          >
-            @switch (option.icon) {
-              @case ('thumbsUp') {
-                <svg lucideThumbsUp [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
-              }
-              @case ('thumbsDown') {
-                <svg lucideThumbsDown [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
-              }
-              @case ('eye') {
-                <svg lucideEye [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
-              }
-              @case ('skipForward') {
-                <svg lucideSkipForward [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
-              }
-            }
-          </mm-icon-button>
-        }
-      </div>
-    }
-    <div class="discover-card__actions">
-      <span class="discover-card__request-wrap" [attr.title]="requestAction().title">
-        <mm-button
-          [label]="requestAction().label"
-          variant="quiet"
-          [liftOnHover]="false"
-          [disabled]="requestAction().disabled || busy()"
-          [busy]="busy()"
-          (click)="onRequest()"
-        />
-      </span>
-    </div>
+    <span class="discover-card__request-wrap" [attr.title]="requestAction().title">
+      <mm-button
+        [label]="requestAction().label"
+        variant="quiet"
+        [liftOnHover]="false"
+        [disabled]="requestAction().disabled || busy()"
+        [busy]="busy()"
+        (click)="onRequest()"
+      />
+    </span>
   </footer>
 </article>

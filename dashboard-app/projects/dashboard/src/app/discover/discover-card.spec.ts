@@ -105,7 +105,7 @@ describe('DiscoverCard', () => {
     expect(fixtureHost(fixture).querySelector('.discover-card__badges')).toBeNull();
   });
 
-  it('keeps the footer for short, long, and absent summaries', () => {
+  it('keeps the request action for short, long, and absent summaries', () => {
     setItem({ tmdbId: 1, title: 'Short', reason: 'Brief' });
     expect(fixtureHost(fixture).querySelector('.discover-card__footer')).toBeTruthy();
 
@@ -120,6 +120,60 @@ describe('DiscoverCard', () => {
     setItem({ tmdbId: 1, title: 'No summary' });
     expect(fixtureHost(fixture).querySelector('.discover-card__summary')).toBeNull();
     expect(fixtureHost(fixture).querySelector('.discover-card__footer')).toBeTruthy();
+  });
+
+  it('keeps Request in a persistent footer outside the feedback overlay for every source', () => {
+    for (const source of [
+      { title: 'Hermes', showFeedback: true },
+      { title: 'Jellyseerr', showFeedback: false },
+      { title: 'Trakt', showFeedback: false },
+    ]) {
+      setItem({ tmdbId: 1, title: source.title });
+      const showFeedback = source.showFeedback;
+      fixture.componentRef.setInput('showFeedback', showFeedback);
+      fixture.detectChanges();
+
+      const root = fixtureHost(fixture);
+      const footer = root.querySelector('.discover-card__footer');
+      const overlay = root.querySelector('.discover-card__overlay');
+      const request = root.querySelector('.discover-card__footer mm-button button');
+
+      expect(footer).toBeTruthy();
+      expect(request).toBeTruthy();
+      expect(request?.textContent).toContain('Request');
+      if (showFeedback) {
+        expect(overlay).toBeTruthy();
+      } else {
+        expect(overlay).toBeNull();
+      }
+      expect(overlay ? overlay.contains(request) : false).toBe(false);
+    }
+  });
+
+  it('keeps feedback controls static for coarse any-pointer devices', () => {
+    const anyPointerCoarseRules = Array.from(document.styleSheets)
+      .flatMap((sheet) => {
+        try {
+          return Array.from(sheet.cssRules);
+        } catch {
+          return [];
+        }
+      })
+      .filter(
+        (rule): rule is CSSMediaRule =>
+          rule instanceof CSSMediaRule && rule.conditionText.includes('(any-pointer: coarse)'),
+      );
+    const overlayRule = anyPointerCoarseRules
+      .flatMap((rule) => Array.from(rule.cssRules))
+      .find(
+        (rule): rule is CSSStyleRule =>
+          rule instanceof CSSStyleRule &&
+          rule.selectorText.includes('.discover-card__overlay') &&
+          rule.style.position === 'static' &&
+          rule.style.pointerEvents === 'auto',
+      );
+
+    expect(overlayRule).toBeTruthy();
   });
 
   it('hides the summary when showSummary is false', () => {

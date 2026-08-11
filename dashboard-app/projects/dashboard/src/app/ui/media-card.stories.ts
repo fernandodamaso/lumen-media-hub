@@ -15,7 +15,7 @@ type MediaCardArgs = {
   art: string;
   href: string | null;
   linkLabel: string | null;
-  captionPlacement: 'overlay' | 'below';
+  captionPlacement: 'overlay' | 'below' | 'none';
   showPlayCue: boolean;
 };
 
@@ -36,7 +36,7 @@ const meta: Meta<MediaCardArgs> = {
     art: { control: 'text' },
     href: { control: 'text' },
     linkLabel: { control: 'text' },
-    captionPlacement: { control: 'select', options: ['overlay', 'below'] },
+    captionPlacement: { control: 'select', options: ['overlay', 'below', 'none'] },
     showPlayCue: { control: 'boolean' },
   },
   args: {

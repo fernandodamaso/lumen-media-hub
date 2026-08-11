@@ -4,7 +4,7 @@ import { MmProgress } from './progress';
 
 export type MmMediaCardLayout = 'portrait' | 'landscape';
 export type MmMediaCardTagTone = 'accent' | 'success';
-export type MmMediaCardCaptionPlacement = 'overlay' | 'below';
+export type MmMediaCardCaptionPlacement = 'overlay' | 'below' | 'none';
 
 @Component({
   selector: 'mm-media-card',

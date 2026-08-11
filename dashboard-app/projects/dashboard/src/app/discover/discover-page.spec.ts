@@ -33,6 +33,33 @@ describe('DiscoverPage', () => {
     expect(facade.setTab).toHaveBeenCalledWith('jellyseerr');
   });
 
+  it('keeps Request in the footer for every source and only mounts Hermes feedback', () => {
+    facade.status.set('ready');
+    facade.visibleItems.set([card({ title: 'Signal Drift' })]);
+    fixture.detectChanges();
+
+    for (const source of [
+      { label: 'Hermes', hasFeedback: true },
+      { label: 'Jellyseerr', hasFeedback: false },
+      { label: 'Trakt', hasFeedback: false },
+    ] as const) {
+      clickTab(source.label);
+      fixture.detectChanges();
+
+      const root = fixtureHost(fixture);
+      const request = root.querySelector('.discover-card__footer mm-button button');
+      expect(request).toBeTruthy();
+      expect(request?.textContent).toContain('Request');
+      const overlay = root.querySelector('.discover-card__overlay');
+      if (source.hasFeedback) {
+        expect(overlay).toBeTruthy();
+      } else {
+        expect(overlay).toBeNull();
+      }
+      expect(overlay ? overlay.contains(request) : false).toBe(false);
+    }
+  });
+
   it('disables request controls for unavailable items and keeps feedback separate', () => {
     facade.status.set('ready');
     facade.tab.set('hermes');

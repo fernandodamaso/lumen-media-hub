@@ -1,53 +1,93 @@
-# Media Manager Angular
+<div align="center">
 
-Angular 22 workspace for the Media Manager shell: a single `dashboard` app with local design system (`app/ui`) and API boundary (`app/media-stack`). Containerized with Nginx reverse proxy for Docker deployment.
+# ✦ Lumen Media Hub
 
-## Repository layout
+**A modern self-hosted media command center built with Angular.**
 
-This is a monorepo. The Angular workspace lives in [`dashboard-app/`](dashboard-app/) — **run all npm commands there**. The repo root carries the production media stack: `docker-compose.yml`, the `homepage-actions` Live API under `config/homepage-actions/`, and the Hermes recommendation contract under `config/recommendations/`.
+Discover what to watch, manage your library, follow downloads, monitor automation, and operate a complete media stack from one polished interface.
 
-## First-time install
+![Angular](https://img.shields.io/badge/Angular-22-DD0031?logo=angular&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Storybook](https://img.shields.io/badge/Storybook-10-FF4785?logo=storybook&logoColor=white)
+![Playwright](https://img.shields.io/badge/Playwright-tested-2EAD33?logo=playwright&logoColor=white)
+![Vitest](https://img.shields.io/badge/Vitest-tested-6E9F18?logo=vitest&logoColor=white)
 
-On a blank Windows machine (PowerShell 7+):
+</div>
 
-```powershell
-.\install.ps1 -Mode both
+---
+
+## What is Lumen?
+
+**Lumen Media Hub** is the front door to a self-hosted media environment.
+
+Instead of jumping between Jellyfin, Sonarr, Radarr, qBittorrent, recommendation tools, automation logs, and service dashboards, Lumen brings the information and actions that matter most into a single responsive application.
+
+It is also a portfolio-grade Angular project designed to demonstrate production-minded frontend architecture: standalone Angular, strict TypeScript, a local design system, explicit API boundaries, facade-based state, Docker deployment, automated quality gates, accessibility checks, and browser-level testing.
+
+### At a glance
+
+| | Capability | What Lumen does |
+|---|---|---|
+| 🎬 | **Watch & browse** | Continue watching, trending titles, recently added media, movies and series |
+| 🔎 | **Discover** | Combines Hermes, Jellyseerr and Trakt recommendation sources |
+| ➕ | **Request media** | Sends supported requests through the Live API |
+| ⬇️ | **Downloads** | Shows active qBittorrent transfers with pause/resume controls |
+| 📅 | **Upcoming releases** | Surfaces Sonarr calendar data directly in the shell |
+| ⚙️ | **Automation** | Summarizes automation state and exposes cron/report triage |
+| ❤️ | **Health** | Tracks service status, storage, warnings and recent activity |
+| 🧩 | **Design system** | Reusable Lumen primitives documented and tested in Storybook |
+| 🐳 | **Self-hosting** | Ships alongside the media stack through Docker Compose |
+
+---
+
+## The experience
+
+Lumen is organized around a persistent application shell with focused feature surfaces.
+
+| Route | Experience |
+|---|---|
+| `/` | Home dashboard with hero, stats, Continue Watching, Trending Now, Recently Added and downloads |
+| `/library` | Poster-based movie and series library with filtering |
+| `/discover` | Recommendations from Hermes, Jellyseerr and Trakt |
+| `/reports` | Status-weighted automation and cron-log triage |
+| Storybook | Interactive design-system showcase on port `6006` |
+
+The shell keeps high-value operational information visible without turning the product into an admin panel: upcoming releases, recent activity, service health, storage and command actions remain close at hand.
+
+---
+
+## How it works
+
+Lumen deliberately separates **product UI**, **application state**, and **transport details**.
+
+```text
+                              LUMEN MEDIA HUB
+
+┌──────────────────────────────── Browser ────────────────────────────────┐
+│                                                                         │
+│  Angular shell → feature pages → facades → MediaStackApi port          │
+│                                          │                              │
+│                           ┌──────────────┴──────────────┐               │
+│                           │                             │               │
+│                    Demo / mock mode               Live / HTTP mode      │
+│                           │                             │               │
+└───────────────────────────┼─────────────────────────────┼───────────────┘
+                            │                             │
+                       local fixtures               same-origin /api/*
+                                                          │
+                                                     Nginx proxy
+                                                          │
+                                                  homepage-actions
+                                                          │
+                  ┌───────────────────────────────────────┼──────────────┐
+                  │             │             │           │              │
+               Jellyfin      Sonarr        Radarr    qBittorrent    system data
 ```
 
-| Mode | What it does |
-|------|--------------|
-| `frontend-dev` | Checks Node 20+, runs `npm ci` in `dashboard-app/`, prints Demo and Docker Live-dev commands |
-| `stack` | Checks Docker, creates `.env` from `.env.example` (generated `ACTIONS_TOKEN`, prompted paths/password), pulls service images, Compose-builds the dashboard, starts the stack, and prints the API-key checklist |
-| `both` | `frontend-dev`, then `stack` |
+### Demo mode
 
-Flags: `-Force` recreates `.env`; `-Gpu` merges `docker-compose.gpu.yml` (NVIDIA transcoding).
-
-Prerequisites: Docker Desktop, Node.js 20+, PowerShell 7+. Optional: NVIDIA GPU + nvidia-container-toolkit for `-Gpu`.
-
-After `stack` mode, enable any selected optional profiles before opening those service UIs, copy each service API key into `.env`, then rerun Compose with the same profile flags to apply. The installer intentionally does not configure indexers, libraries, or service API keys — those need each app's first-run UI.
-
-## Compose profiles
-
-Plain `docker compose up -d` starts only the core stack: Jellyfin, qBittorrent, Sonarr, Radarr, Prowlarr, homepage-actions, and the Angular dashboard. Optional services use these profiles:
-
-| Profile | Services |
-|---------|----------|
-| `subtitles` | Bazarr |
-| `requests` | Jellyseerr |
-| `maintenance` | Maintainerr, Recyclarr, Unpackerr |
-| `indexer-tools` | FlareSolverr |
-
-Start selected profiles with:
-
-```powershell
-docker compose --profile subtitles --profile requests --profile maintenance --profile indexer-tools up -d
-```
-
-Set `BAZARR_ENABLED=true` and/or `JELLYSEERR_ENABLED=true` only after the matching service is configured. Disabled or unconfigured optional capabilities are omitted from actionable health; configured but unreachable services remain degraded/down. Keep normal host profile values in ignored local operational docs, not in `.env.example` or committed configuration.
-
-Existing hosts upgrading from the key-only setup must explicitly add `BAZARR_ENABLED=true` and/or `JELLYSEERR_ENABLED=true` to `.env` for each optional service they use, enable the matching Compose profiles, and run `docker compose up -d` again. API keys alone no longer enable these capabilities; leave the flags false for intentionally disabled services.
-
-## Quick start (Demo / mock)
+The default development experience runs entirely with in-process mock data. No private APIs, tokens, or media services are required.
 
 ```bash
 cd dashboard-app
@@ -55,144 +95,336 @@ npm ci
 npm start
 ```
 
-Open [http://localhost:4200/](http://localhost:4200/). Default startup uses in-process mock data (**Demo** badge) and makes no private API calls.
+Open `http://localhost:4200`.
 
-| Route | Surface |
-|-------|---------|
-| `/` | Lumen home: dashboard hero, stat strip, Continue Watching, Trending Now, Recently Added, downloads, and shell rails |
-| `/library` | Library poster grid with movie/series filtering |
-| `/reports` | Status-weighted automation / cron triage |
-| `/discover` | Hermes, Jellyseerr, and Trakt recommendations |
-| Storybook | Design-system showcase — `npm run storybook` → [http://localhost:6006/](http://localhost:6006/) |
+This makes the project easy to review as a frontend application without reproducing the complete home-media environment first.
 
-## Production deployment (Docker)
+### Live mode
 
-The production-live build is containerized with Nginx as reverse proxy. It must run on the same Docker network as the `homepage-actions` backend (typically `media_media-net`).
+The production application is served by Nginx. Browser requests to `/api/*` are proxied to the local `homepage-actions` service, which talks to the underlying media services.
+
+```text
+Browser → :3000
+  → Angular / Nginx
+    /        → Angular SPA
+    /api/*   → homepage-actions:8085
+                  → Jellyfin / Sonarr / Radarr / qBittorrent / system
+```
+
+The browser never needs direct credentials for those services.
+
+---
+
+## Architecture
+
+The Angular workspace lives in [`dashboard-app/`](dashboard-app/) and contains one standalone application named `dashboard`.
+
+```text
+projects/dashboard/src/app/
+├── dashboard/       home composition and dashboard widgets
+├── library/         media browsing
+├── discover/        recommendation sources and requests
+├── reports/         automation / cron triage
+├── calendar/        upcoming media
+├── automation/      automation state
+├── activity/        recent activity
+├── topbar/          persistent shell presentation
+├── right-rail/      health, activity and upcoming releases
+├── media-stack/     API port, adapters, DTOs and mappers
+└── ui/              Lumen design system and shared primitives
+```
+
+### Port → adapter → facade → page
+
+Feature code does not talk directly to backend services.
+
+```text
+MediaStackApi
+    │
+    ├── MockMediaStackApi   → Demo mode
+    └── HttpMediaStackApi   → Live mode
+            │
+         Facades
+            │
+      Feature pages
+            │
+      Lumen UI primitives
+```
+
+This keeps transport DTOs inside the API boundary and lets the same UI run against mock or real data without scattering environment checks through components.
+
+The codebase is feature-first: templates, styles, tests and Storybook stories stay with the components they describe rather than being split into generic global folders.
+
+For the deeper architecture, facade lifetimes, polling ownership, API endpoints and data-flow rules, see [`dashboard-app/docs/architecture.md`](dashboard-app/docs/architecture.md).
+
+---
+
+## Media stack
+
+A plain `docker compose up -d` starts the core stack.
+
+### Core services
+
+| Service | Role |
+|---|---|
+| **Lumen dashboard** | Unified Angular experience |
+| **Jellyfin** | Playback and media-library source |
+| **Sonarr** | Series management and release calendar |
+| **Radarr** | Movie management |
+| **Prowlarr** | Indexer management |
+| **qBittorrent** | Download client and transfer controls |
+| **homepage-actions** | Lumen's authenticated backend/API boundary |
+
+### Optional profiles
+
+| Compose profile | Services |
+|---|---|
+| `subtitles` | Bazarr |
+| `requests` | Jellyseerr |
+| `maintenance` | Maintainerr, Recyclarr, Unpackerr |
+| `indexer-tools` | FlareSolverr |
+
+Example:
+
+```powershell
+docker compose `
+  --profile subtitles `
+  --profile requests `
+  --profile maintenance `
+  --profile indexer-tools `
+  up -d
+```
+
+Optional capabilities are enabled explicitly. An intentionally disabled service is not treated as broken; an enabled but unreachable service is surfaced as degraded/down.
+
+---
+
+## First-time setup
+
+### Requirements
+
+- Docker Desktop
+- Node.js 20+
+- PowerShell 7+
+- Optional NVIDIA GPU + NVIDIA container tooling for hardware transcoding
+
+### Install frontend + stack
+
+From the repository root:
+
+```powershell
+.\install.ps1 -Mode both
+```
+
+Available modes:
+
+| Mode | Purpose |
+|---|---|
+| `frontend-dev` | Installs the Angular workspace for Demo development |
+| `stack` | Creates environment configuration and starts the Docker media stack |
+| `both` | Runs frontend setup, then stack setup |
+
+Useful flags:
+
+```powershell
+.\install.ps1 -Mode both -Force
+.\install.ps1 -Mode both -Gpu
+```
+
+The installer intentionally does **not** configure indexers, libraries or third-party API keys inside the individual media applications. Those remain explicit first-run service setup steps.
+
+---
+
+## Development workflows
+
+### Frontend-only Demo
 
 ```bash
-docker compose up -d --build dashboard
+cd dashboard-app
+npm ci
+npm start
 ```
 
-Compose uses [`dashboard-app/Dockerfile`](dashboard-app/Dockerfile) for the single production-live build.
+Runs on `http://localhost:4200` with mock data.
 
-The image is deployed through Docker Compose alongside the backend services. For local verification with an existing Compose setup:
+### Live development with Docker hot reload
 
-```bash
-docker run --rm -p 3000:80 \
-  --network media_media-net \
-  -e ACTIONS_TOKEN=... \
-  media-dashboard-angular:local
-```
-
-Open [http://127.0.0.1:3000/](http://127.0.0.1:3000/).
-
-### Media stack cutover (`D:\media`)
-
-Production dashboard on the stack is the Compose-built local Angular image; the Dockerfile remains the single production-live build path.
-
-| Phase | Command / check |
-|-------|-----------------|
-| Build and deploy | `docker compose up -d --build dashboard` |
-| Staging (done) | Compose service `dashboard-angular-stage` on `127.0.0.1:3001` — removed after M4 |
-| Production | `dashboard` service uses the Compose-built `media-dashboard-angular:local` image on `:3000` |
-| Smoke against stack | `SMOKE_BASE_URL=http://127.0.0.1:3000 npm run test:smoke` (from this repo; does not start `ng serve`) |
-
-**Request flow:**
-
-```
-Browser → http://127.0.0.1:3000
-  → Angular Nginx
-    /        → Angular static files
-    /api/*   → homepage-actions:8085/* (with X-Actions-Token header)
-```
-
-- Nginx strips `/api` via trailing-slash `proxy_pass`.
-- `ACTIONS_TOKEN` is injected by Compose/Nginx from the container environment and never emitted into JavaScript, HTML, or source maps.
-- The browser never sees the token and never connects directly to backend services.
-
-## Live development (Docker hot reload)
-
-Official Live development uses the Compose override so `ng serve` runs in Docker and publishes on **`:3000`** (same URL as production). From the **repo root**, with the stack already up and `ACTIONS_TOKEN` in `.env` (requires Docker Compose **2.24.4+** for `ports: !override` / `build: !reset`):
+From the repository root, with the media stack configured:
 
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate dashboard
 ```
 
-Open [http://127.0.0.1:3000/](http://127.0.0.1:3000/). SCSS/TS/HTML edits under `dashboard-app/` hot-reload without rebuilding the Nginx image.
+Runs on `http://127.0.0.1:3000` and hot-reloads Angular source while using the real Live API.
 
-The override container still runs `npm run start:live` internally (with `proxy.conf.js` and the Angular `live` configuration). Keep those scripts for the container; do not treat host `npm run start:live` as a supported workflow.
-
-## Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `npm start` | Demo serve (`:4200`) |
-| `npm run start:live` | Live serve with API proxy (**dev-container only**; used by `docker-compose.dev.yml`) |
-| `npm run lint` | Rigorous ESLint (typed + strict, used by `quality` gate) |
-| `npm run lint:fast` | Fast ESLint (day-to-day editing, used by `lint:agent`) |
-| `npm run lint:fix` | Rigorous ESLint with auto-fix |
-| `npm run lint:styles:fix` | Stylelint with auto-fix |
-| `npm run quality` | **Full gate** — lint + typecheck + styles + duplicates + dead-code + architecture in parallel |
-| `npm test -- --watch=false` | Vitest unit / facade / page specs |
-| `npm run test:smoke` | Playwright direct-route and assembled-app smoke checks (auto-starts dev server) |
-| `npm run build` | Canonical production (Demo mode) build |
-| `npm run build:live` | Production-live Docker build (optimized, no source maps, live backend) |
-| `npm run storybook` | Interactive Storybook (includes a11y addon / play functions) |
-| `npm run build:storybook` | Compile Storybook static output |
-| `npm run test:storybook` | Serve `storybook-static` and run interaction/a11y checks (`@storybook/test-runner`) |
-
-## Quality gate
-
-`npm run quality` runs all six checks in parallel via `concurrently`:
-
-| Tool | Command | Exit | Expected |
-|------|---------|------|----------|
-| **ESLint** (typed + strict) | `npm run lint` | **FAIL** on errors | Auto-fix with `npm run lint:fix` |
-| **TypeScript** | `npm run typecheck` | **FAIL** on errors | Fix type errors |
-| **Stylelint** | `npm run lint:styles` | **FAIL** on errors | Auto-fix with `npm run lint:styles:fix` |
-| **jscpd** (duplication) | `npm run quality:duplicates` | **FAIL** ≥3% | Refactor — do not add ignores |
-| **Knip** (dead code) | `npm run quality:dead-code` | **FAIL** on unused | Remove or justify exports |
-| **Dependency Cruiser** | `npm run quality:architecture` | **FAIL** on violations | Respect module boundaries |
-
-**PASS** = zero exit. **WARN / INFO** = tool-specific warnings that do not block. **FAIL** = non-zero exit.
-
-**Rules:**
-- Do not add ignore comments or abstractions solely to silence the gate.
-- Ponytail (lazy/simplification mindset) remains a review principle for agents, not a lint rule.
-- `no-orphans` is removed from Dependency Cruiser; Knip owns unused-code detection.
-- jscpd clones below 3% are informational — address during refactors.
-
-All six checks run independently: one failure does not kill the others. Commit hook and CI both enforce `npm run quality`. Tests and build run after quality in CI.
-
-## Appearance
-
-The application uses one dark theme: **Lumen**, with gold and violet accents on a near-black surface. Fonts (Fraunces, Inter, and JetBrains Mono) are self-hosted via Fontsource. There is no user theme selection or persisted theme state.
-
-## Architecture
-
-See [dashboard-app/docs/architecture.md](dashboard-app/docs/architecture.md) for the port → adapter → facade → page flow, Demo/Live modes, and operational link policy.
-
-## Testing
-
-- **Unit / integration:** Vitest via `ng test` (facades, boards, pages, shell navigation, API boundary).
-- **Storybook:** Interactive review via `npm run storybook`. CI runs `build:storybook` then `test:storybook` (play functions + a11y).
-- **Browser acceptance:** Playwright verifies direct routes, fallback routing, titles, the Lumen palette, responsive shell navigation, and the 390px, 1440px, and 1600px layouts via `npm run test:smoke`. Loading / empty / failure isolation that cannot be selected in Demo UI is covered by the named unit specs beside each feature.
-
-## Non-goals
-
-- Published to npm/hosting (private self-hosted Docker deployment)
-- Backend rewrite or secrets in this repo
-
-## Verification
+### Production
 
 ```bash
-npm ci
-npm start
-# in another shell:
+docker compose up -d --build dashboard
+```
+
+The production image uses a multi-stage build: Node compiles the Angular application and Nginx serves the optimized static output while proxying the Live API.
+
+---
+
+## Security model
+
+Lumen is designed so secrets stay outside the browser bundle.
+
+```text
+Compose environment
+      │
+      └── ACTIONS_TOKEN
+              │
+         Nginx envsubst
+              │
+      X-Actions-Token header
+              │
+        homepage-actions
+```
+
+- `ACTIONS_TOKEN` lives in the Docker environment.
+- Nginx injects the token into proxied `/api/*` requests.
+- The token is never emitted into Angular source, HTML, JavaScript bundles or source maps.
+- The browser talks to the same-origin Lumen API instead of directly authenticating against the underlying services.
+- Mutating actions such as media requests and torrent controls are handled through authenticated backend routes.
+
+---
+
+## Engineering quality
+
+This repository treats quality checks as a build gate rather than optional cleanup.
+
+```bash
+cd dashboard-app
+npm run quality
+```
+
+The gate runs six independent checks in parallel:
+
+| Check | Tool | Protects against |
+|---|---|---|
+| Typed linting | ESLint + angular-eslint | TypeScript and template issues |
+| Type checking | TypeScript | Invalid application types |
+| Styles | Stylelint | CSS/SCSS quality regressions |
+| Duplication | jscpd | Excessive copy/paste |
+| Dead code | Knip | Unused dependencies and exports |
+| Architecture | Dependency Cruiser | Invalid module boundaries |
+
+TypeScript strictness, Angular strict templates and standalone constraints are enabled across the application.
+
+---
+
+## Testing strategy
+
+Lumen uses multiple layers of tests because each catches a different class of failure.
+
+| Layer | Tooling | Focus |
+|---|---|---|
+| Unit / integration | **Vitest** | Facades, domain behavior, providers and feature composition |
+| Component system | **Storybook** | UI states, interaction and accessibility |
+| Browser acceptance | **Playwright** | Routes, responsive shell behavior and assembled application flows |
+| Static quality | **ESLint / TypeScript / Stylelint** | Code, template, type and style correctness |
+| Structural quality | **Knip / jscpd / Dependency Cruiser** | Dead code, duplication and architectural boundaries |
+
+Useful commands:
+
+```bash
 npm run quality
 npm test -- --watch=false
 npm run test:smoke
-npm run build
 npm run build:storybook
 npm run test:storybook
+npm run build
 ```
+
+Playwright coverage includes narrow mobile layouts and wide desktop layouts, while Storybook runs interaction and accessibility checks against the shared component system.
+
+---
+
+## Lumen design system
+
+The product uses one intentional visual identity rather than a generic component-library theme.
+
+**Lumen** combines:
+
+- near-black surfaces
+- warm gold and violet accents
+- Fraunces for expressive display typography
+- Inter for interface text
+- JetBrains Mono for technical/data treatments
+- self-hosted fonts through Fontsource
+- reusable local primitives under `app/ui`
+
+Run the component showcase with:
+
+```bash
+cd dashboard-app
+npm run storybook
+```
+
+Open `http://localhost:6006`.
+
+---
+
+## Repository layout
+
+```text
+lumen-media-hub/
+├── dashboard-app/              Angular 22 workspace
+│   ├── projects/dashboard/     Lumen application
+│   └── docs/architecture.md    Detailed frontend architecture
+├── config/
+│   ├── homepage-actions/       Live API boundary
+│   └── recommendations/        Hermes recommendation contract
+├── docker-compose.yml          Core + optional media services
+├── docker-compose.dev.yml      Live Angular hot-reload override
+├── docker-compose.gpu.yml      Optional NVIDIA configuration
+└── install.ps1                 First-time Windows setup
+```
+
+> **Run npm commands from `dashboard-app/`.** Docker and stack commands run from the repository root.
+
+---
+
+## Command reference
+
+From `dashboard-app/`:
+
+| Command | Purpose |
+|---|---|
+| `npm start` | Start Demo mode on `:4200` |
+| `npm run start:live` | Live Angular server used by the Docker dev container |
+| `npm run quality` | Run the full six-part quality gate |
+| `npm test -- --watch=false` | Run Vitest tests once |
+| `npm run test:smoke` | Run Playwright browser acceptance tests |
+| `npm run storybook` | Start Storybook on `:6006` |
+| `npm run test:storybook` | Run Storybook interaction/a11y tests |
+| `npm run build` | Build the Demo production configuration |
+| `npm run build:live` | Build the optimized Live application |
+
+---
+
+## Project goals
+
+Lumen is intentionally more than a skin over existing media apps.
+
+The goal is to create a cohesive **media experience layer** that answers the questions that matter most without exposing every knob from every underlying service:
+
+- **What should I watch next?**
+- **What is new in my library?**
+- **What is downloading right now?**
+- **What releases are coming up?**
+- **Is the stack healthy?**
+- **Did automation fail somewhere?**
+- **Can I act on it without opening five different dashboards?**
+
+That product focus drives the architecture as much as the technology does.
+
+---
+
+<div align="center">
+
+**Built as a self-hosted media hub and an exploration of production-grade Angular application architecture.**
+
+</div>

@@ -16,24 +16,28 @@ FRESHNESS_SECONDS = 15 * 60
 
 
 def _identity_for_entry(entry, media_type):
-    if not isinstance(entry, dict):
-        return None
-    member = entry.get("movie" if media_type == "movies" else "show") or entry
-    if not isinstance(member, dict):
-        return None
-    ids = member.get("ids")
-    if not isinstance(ids, dict):
-        return None
+    member = _validate_watched_entry(entry, media_type)
+    ids = member["ids"]
     tmdb_id = _normalize_tmdb_id(ids.get("tmdb"))
     if not tmdb_id:
         return None
     return f"{'movie' if media_type == 'movies' else 'tv'}:{tmdb_id}"
 
 
+def _validate_watched_entry(entry, media_type):
+    if media_type not in ("movies", "shows") or not isinstance(entry, dict):
+        raise ValueError("invalid Trakt watched item")
+    key = "movie" if media_type == "movies" else "show"
+    member = entry.get(key)
+    if not isinstance(member, dict) or not isinstance(member.get("ids"), dict):
+        raise ValueError("invalid Trakt watched item")
+    return member
+
+
 def parse_watched_identities(payload, media_type):
     """Return only typed TMDB identities from one Trakt watched page."""
     if media_type not in ("movies", "shows") or not isinstance(payload, list):
-        return set()
+        raise ValueError("invalid Trakt watched response")
     return {
         identity
         for entry in payload
@@ -156,12 +160,24 @@ class TraktWatchedService:
                 if not isinstance(payload, list):
                     raise ValueError("invalid Trakt watched response")
                 identities.update(parse_watched_identities(payload, media_type))
-                page_count = _header(headers, "X-Pagination-Page-Count")
+                raw_page = _header(headers, "X-Pagination-Page")
+                raw_page_count = _header(headers, "X-Pagination-Page-Count")
+                if page == 1 and raw_page is None and raw_page_count is None:
+                    break
                 try:
-                    page_count = int(page_count) if page_count is not None else None
+                    page_header = int(raw_page) if raw_page is not None else None
+                    page_count = int(raw_page_count) if raw_page_count is not None else None
                 except (TypeError, ValueError):
-                    page_count = None
-                if page_count is None or page >= page_count:
+                    raise ValueError("invalid Trakt watched pagination headers") from None
+                if page_header is not None and page_header != page:
+                    raise ValueError("inconsistent Trakt watched pagination page")
+                if page_count is None or page_count < 1:
+                    raise ValueError("invalid Trakt watched pagination page count")
+                if page == 1:
+                    expected_page_count = page_count
+                elif page_count != expected_page_count or page_header is None:
+                    raise ValueError("inconsistent Trakt watched pagination headers")
+                if page >= page_count:
                     break
                 page += 1
         return identities

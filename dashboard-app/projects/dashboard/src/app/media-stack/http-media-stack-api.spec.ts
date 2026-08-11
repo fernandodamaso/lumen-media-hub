@@ -10,9 +10,45 @@ import {
   mapLiveWatchNextItem,
   mapLiveSystemResourcesDisk,
   mapLiveTorrent,
+  requireExternalDiscoverPayload,
 } from './live-api.mappers';
 
 describe('live-api.mappers', () => {
+  it('accepts valid Trakt watched freshness statuses', () => {
+    for (const status of ['fresh', 'stale', 'unavailable'] as const) {
+      expect(() => {
+        requireExternalDiscoverPayload(
+          {
+            items: [],
+            watched_exclusion: {
+              status,
+              last_successful_refresh_at: status === 'unavailable' ? null : '2026-08-11T12:00:00Z',
+            },
+          },
+          'Trakt',
+        );
+      },
+      ).not.toThrow();
+    }
+  });
+
+  it('rejects invalid Trakt watched freshness wire values', () => {
+    expect(() => {
+      requireExternalDiscoverPayload(
+        { items: [], watched_exclusion: { status: 'broken', last_successful_refresh_at: null } },
+        'Trakt',
+      );
+    },
+    ).toThrow(/watched_exclusion is invalid/);
+    expect(() => {
+      requireExternalDiscoverPayload(
+        { items: [], watched_exclusion: { status: 'stale', last_successful_refresh_at: 42 } },
+        'Trakt',
+      );
+    },
+    ).toThrow(/watched_exclusion timestamp is invalid/);
+  });
+
   it('maps qbt torrents with downloaded from amount_left', () => {
     expect(
       mapLiveTorrent({

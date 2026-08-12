@@ -19,6 +19,12 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+const proxyContract = await readFile(new URL(import.meta.url), 'utf8');
+assert(
+  !/method:\s*['"]POST['"]/.test(proxyContract),
+  'Live cron-only denial probes must not use POST',
+);
+
 const bypass = proxyConfig['/api']?.bypass;
 assert(typeof bypass === 'function', 'Vite /api proxy must define bypass(req)');
 
@@ -65,15 +71,14 @@ assert(nginx.indexOf('return 404;', internalLocation) < publicLocation, 'Nginx d
 
 const baseUrl = process.env.SMOKE_BASE_URL || 'http://127.0.0.1:3000';
 try {
-  for (const path of [
-    '/api/internal/discover/hermes',
-    '/api/discover/hermes/generations',
-    '/api/discover/hermes/sync',
+  // Use HEAD for cron-only denials: the backend has no do_HEAD handler, so a misrouted probe returns 501 without invoking a mutating POST handler.
+  for (const { path, method } of [
+    { path: '/api/internal/discover/hermes', method: 'GET' },
+    { path: '/api/discover/hermes/generations', method: 'HEAD' },
+    { path: '/api/discover/hermes/sync', method: 'HEAD' },
   ]) {
     const response = await fetch(`${baseUrl}${path}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: '{}',
+      method,
     });
     assert(response.status === 404, `${baseUrl}${path} returned HTTP ${response.status}`);
   }

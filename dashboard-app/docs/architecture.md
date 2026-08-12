@@ -241,6 +241,8 @@ The browser and cron routes have separate ownership:
 - **Browser private attempts:** `/api/internal/*`, `/api/discover/hermes/generations`, and `/api/discover/hermes/sync` → **404**
 - **Hermes cron direct API:** `GET http://localhost:8085/internal/discover/hermes`, `POST http://localhost:8085/discover/hermes/generations`, and `POST http://localhost:8085/discover/hermes/sync`
 
+Operational safety: test dashboard denial for the two cron-only routes with non-mutating `HEAD` probes. Never send `POST` to `/api/discover/hermes/generations` or `/api/discover/hermes/sync` during a proxy check.
+
 Hermes uses the direct host routes with a valid `X-Actions-Token` and approved `Origin`; direct requests without the token return 401. Revision, presented identities, watched identities, and generation context remain internal.
 
 ## Docker build

@@ -305,6 +305,25 @@ function Get-ConfiguredEnvValue([hashtable]$Map, [string]$Name) {
   return ''
 }
 
+function Get-TraktTokenStatePath([hashtable]$Map) {
+  $tokenPath = Get-ConfiguredEnvValue $Map 'TRAKT_TOKEN_PATH'
+  if (-not $tokenPath) { $tokenPath = '/state/trakt-token.json' }
+  $tokenPath = [Environment]::ExpandEnvironmentVariables($tokenPath)
+
+  $stateRoot = Get-ConfiguredEnvValue $Map 'TRAKT_STATE_PATH'
+  if (-not $stateRoot) { $stateRoot = Join-Path $RepoRoot '.state\trakt' }
+  $stateRoot = [Environment]::ExpandEnvironmentVariables($stateRoot)
+
+  if ($tokenPath -match '^/state[/\\](.+)$') {
+    $relative = ($Matches[1] -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+    return Join-Path $stateRoot $relative
+  }
+  if ([System.IO.Path]::IsPathRooted($tokenPath)) {
+    return $tokenPath
+  }
+  return Join-Path $stateRoot $tokenPath
+}
+
 function Invoke-TraktDeviceAuthorization {
   Assert-Command 'Invoke-WebRequest' 'PowerShell 7 is required.'
   if (-not (Test-Path -LiteralPath $EnvFile)) {
@@ -317,10 +336,8 @@ function Invoke-TraktDeviceAuthorization {
     throw 'Set TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET in the local .env before connecting Trakt.'
   }
 
-  $stateRoot = Get-ConfiguredEnvValue $envMap 'TRAKT_STATE_PATH'
-  if (-not $stateRoot) { $stateRoot = Join-Path $RepoRoot '.state\trakt' }
-  $stateRoot = [Environment]::ExpandEnvironmentVariables($stateRoot)
-  $statePath = Join-Path $stateRoot 'trakt-token.json'
+  $statePath = Get-TraktTokenStatePath $envMap
+  $stateRoot = Split-Path -Parent $statePath
   New-Item -ItemType Directory -Force -Path $stateRoot | Out-Null
 
   # An existing state may be revoked even when its JSON shape is valid. Always

@@ -118,12 +118,16 @@ class WatchedSnapshotStore:
         identities = value.get("identities")
         if not isinstance(refreshed_at, str) or not isinstance(identities, list):
             return None
+        if not _valid_refreshed_at(refreshed_at):
+            return None
         if any(not _valid_identity(identity) for identity in identities):
             return None
         return WatchedSnapshot(frozenset(identities), refreshed_at, "stale")
 
     def replace(self, identities, *, refreshed_at):
         identities = set(identities)
+        if not _valid_refreshed_at(refreshed_at):
+            raise ValueError("invalid watched snapshot timestamp")
         if any(not _valid_identity(identity) for identity in identities):
             raise ValueError("invalid watched snapshot identity")
         parent = os.path.dirname(os.path.abspath(self.path))
@@ -154,6 +158,16 @@ class WatchedSnapshotStore:
                     os.unlink(temporary)
                 except OSError:
                     pass
+
+
+def _valid_refreshed_at(value):
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
 
 
 def _valid_identity(value):

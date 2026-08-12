@@ -231,6 +231,40 @@ class WatchedCacheTests(unittest.TestCase):
                 )
             self.assertIsNone(store.load())
 
+    def test_rejects_malformed_persisted_timestamp_as_unusable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WatchedSnapshotStore(os.path.join(tmp, "trakt-watched.json"))
+            with open(store.path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "schema_version": 1,
+                        "refreshed_at": "not-a-timestamp",
+                        "identities": ["movie:1"],
+                    },
+                    handle,
+                )
+            self.assertIsNone(store.load())
+
+    def test_malformed_timestamp_cache_falls_back_to_unavailable_without_usable_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WatchedSnapshotStore(os.path.join(tmp, "trakt-watched.json"))
+            with open(store.path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "schema_version": 1,
+                        "refreshed_at": "not-a-timestamp",
+                        "identities": ["movie:1"],
+                    },
+                    handle,
+                )
+            service = TraktWatchedService(
+                get_page=mock.Mock(side_effect=RuntimeError("down")),
+                store=store,
+            )
+            snapshot = service.snapshot()
+            self.assertEqual(snapshot.status, "unavailable")
+            self.assertEqual(snapshot.identities, set())
+
 
 if __name__ == "__main__":
     unittest.main()

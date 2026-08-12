@@ -175,7 +175,7 @@ Root field `presented_media_ids` is the durable, append-only deny set: every com
 ## Dashboard behavior
 
 - **Hermes tab** (default): shows only `source: "hermes"` items from browser `/api/discover/hermes`. That response contains dashboard-safe item fields, request state, and exclusion freshness/warning state only. It must not contain `revision`, `presented_media_ids`, `context`, typed Arr/Jellyfin/Trakt identity sets, `required_retain`, or taste data. Browser `/api/internal/*` returns **404**. Hermes uses the authenticated direct host route `http://localhost:8085/internal/discover/hermes`, which returns **401** without the token and is never called by browser code.
-- **Request more**: `POST /discover/hermes/request-more` queues an on-demand generation (`generation-request.json`, git-ignored runtime data). The Active grid shows a trailing **Request more recommendations** button. The flag clears automatically after a successful `POST /discover/hermes/generations`. Hermes still runs on its cron (`0 10 * * *`); the queue is a signal for that next run, not an instant agent spawn.
+- **Request more**: browser `POST /api/discover/hermes/request-more` queues an on-demand generation (`generation-request.json`, git-ignored runtime data). The Active grid shows a trailing **Request more recommendations** button. The flag clears automatically after the cron calls the direct-host `POST http://localhost:8085/discover/hermes/generations`. Hermes still runs on its cron (`0 10 * * *`); the browser queue is a signal for that next run, not an instant agent spawn.
 - **Jellyseerr / Trakt tabs**: browse-only proxies; feedback buttons are Hermes-only.
 - Feedback writes via `PATCH /discover/hermes/{id}` (dashboard-only, not Jellyfin thumbs).
 - Request writes go through **Radarr/Sonarr directly** as unmonitored library entries (`monitored=false`, no search). Movies use Radarr; TV uses Sonarr. If the Arr add succeeds but the dashboard annotation cannot be committed, the API returns `dashboard_state_persisted=false` with the Arr id, queues durable reconciliation, and exposes the Hermes id on `GET /discover/hermes` as `pending_request_sync`. The dashboard shows `Added to Sonarr/Radarr; dashboard synchronization failed.`, keeps Request disabled across refresh/remount, and does not invite an immediate duplicate request.
@@ -184,7 +184,17 @@ Root field `presented_media_ids` is the durable, append-only deny set: every com
 
 See `HERMES_DISCOVER_PROMPT.md` for the full agent prompt and registration command.
 
-Daily schedule: `0 10 * * *` — job prompt is a **pointer** to that file (do not inline the markdown). Hermes reads authenticated direct host `GET http://localhost:8085/internal/discover/hermes` for revision, `presented_media_ids`, and `context` (typed Arr/Jellyfin/Trakt-watched deny sets + complete `required_retain` candidates + taste). It must not use browser `/api/discover/hermes` for those fields. Hermes filters Trakt picks against the snapshot and uses the authenticated actions-API Trakt proxy's normalized `items[].type` and `items[].tmdb_id` fields rather than raw Trakt IDs. It submits candidates to `POST /discover/hermes/generations` (retrying a 409 only after a fresh internal snapshot), treats rejections as authoritative, logs to `tmp/hermes-discover.log`, then `POST /discover/hermes/sync`. It never writes `recommendations.json` directly — the prompt is a quality and workflow specification, not a data-integrity boundary; the API enforces the invariants.
+Daily schedule: `0 10 * * *` — job prompt is a **pointer** to that file (do not inline the markdown). Generation and collection sync are direct-host cron routes:
+
+```text
+GET  http://localhost:8085/internal/discover/hermes
+POST http://localhost:8085/discover/hermes/generations
+POST http://localhost:8085/discover/hermes/sync
+```
+
+The dashboard cannot proxy these private routes: browser `/api/internal/*`, `/api/discover/hermes/generations`, and `/api/discover/hermes/sync` return **404**. Hermes reads the authenticated direct host snapshot for `revision`, `presented_media_ids`, and `context` (typed Arr/Jellyfin/Trakt-watched deny sets + complete `required_retain` candidates + taste). It must not use browser `/api/discover/hermes` for those fields. Hermes filters Trakt picks against the snapshot and uses the authenticated actions-API Trakt proxy's normalized `items[].type` and `items[].tmdb_id` fields rather than raw Trakt IDs. It submits candidates to the direct-host generation route (retrying a 409 only after a fresh internal snapshot), treats rejections as authoritative, logs to `tmp/hermes-discover.log`, then calls the direct-host sync route. It never writes `recommendations.json` directly — the prompt is a quality and workflow specification, not a data-integrity boundary; the API enforces the invariants.
+
+Request More remains browser-owned: `POST /api/discover/hermes/request-more` queues an on-demand generation signal for the next cron run; it does not invoke Hermes immediately.
 
 ## Trakt credentials
 
@@ -201,4 +211,4 @@ Used by Hermes cron and the dashboard Trakt Discover tab (`GET /discover/trakt`)
 
 ## Jellyfin collection
 
-`POST /discover/hermes/sync` rebuilds the **Hermes Picks** Jellyfin collection from in-library Hermes items (excludes `disliked` / `skipped` feedback).
+Direct-host cron `POST http://localhost:8085/discover/hermes/sync` rebuilds the **Hermes Picks** Jellyfin collection from in-library Hermes items (excludes `disliked` / `skipped` feedback).

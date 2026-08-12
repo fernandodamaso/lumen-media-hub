@@ -367,6 +367,8 @@ Make library and watched exclusions authoritative during Hermes generation so fu
 - [ ] Allow the transaction to rotate existing excluded items while preserving feedback and request fields.
 - [ ] Update the Hermes generation prompt to treat watched IDs as a deny list and to avoid resubmitting them as keepers.
 - [ ] Keep stale exclusion failures soft: log sanitized degradation and use the available cached sets.
+- [ ] Add proxy contract tests proving browser `/api/internal/*`, `/api/discover/hermes/generations`, and `/api/discover/hermes/sync` return 404; preserve browser access to the public Hermes read and Request More queue signal.
+- [ ] Keep Hermes generation and collection sync on the direct host cron routes at `http://localhost:8085`; the dashboard must not proxy them.
 - [ ] Run the full generation and recommendation-store suites.
 
 ### Acceptance criteria
@@ -379,6 +381,7 @@ Make library and watched exclusions authoritative during Hermes generation so fu
 - [ ] Feedback, request state, and timestamps survive rotation.
 - [ ] The prompt and server enforcement describe the same rules.
 - [ ] The public dashboard contract exposes only browser-safe fields and exclusion freshness; Hermes reads generation-only revision/context from the separately authenticated internal snapshot.
+- [ ] Browser private Hermes attempts return 404, while `/api/discover/hermes` and `/api/discover/hermes/request-more` remain browser-accessible and generation/sync use the direct host cron routes.
 
 ### Verification
 
@@ -443,6 +446,7 @@ This issue is a verification gate, not permission for unrelated cleanup.
 - [ ] Credentials and private history remain local and ignored.
 - [ ] Documentation matches the shipped behavior.
 - [ ] Browser responses and reconnect/degradation errors contain no credentials, raw watch history, or generation-only identity sets.
+- [ ] Browser `/api/internal/*`, `/api/discover/hermes/generations`, and `/api/discover/hermes/sync` return 404; browser `/api/discover/hermes` and `/api/discover/hermes/request-more` remain available; generation and collection sync remain owned by the direct-host cron routes `POST http://localhost:8085/discover/hermes/generations` and `POST http://localhost:8085/discover/hermes/sync`.
 - [ ] Unrelated dirty work remains intact.
 
 ### Verification

@@ -12,6 +12,8 @@ If the browser request to `/api/discover/hermes` includes `"generation_request":
 
 Read `GET http://localhost:8085/internal/discover/hermes` with the `X-Actions-Token` header and an approved `Origin`. This authenticated internal route is the only generation snapshot source; do not substitute browser `/api/discover/hermes`. Browser `/api/internal/*` returns **404**. Direct internal access without the token returns **401**. The response contains exactly `ok`, `revision`, `presented_media_ids`, and `context`:
 
+The dashboard cannot proxy Hermes generation or collection-sync work: browser `/api/internal/*`, `/api/discover/hermes/generations`, and `/api/discover/hermes/sync` return **404**. Request More is a browser-owned queue signal at `/api/discover/hermes/request-more`; it does not run generation immediately. Use the direct host routes below for cron work.
+
 - `revision` — required as `base_revision` when you submit;
 - `presented_media_ids` — durable deny list: every composite `movie:<id>` or `tv:<id>` identity ever presented. A `legacy:<id>` entry is a conservative v2 tombstone that blocks both types;
 - `context` — **use this; do not curl Sonarr, Radarr, or Jellyfin yourself**:

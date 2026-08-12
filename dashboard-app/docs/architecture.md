@@ -66,7 +66,7 @@ is owned and stopped by `DashboardPage`; shell polling remains with `App`.
 Browser → http://127.0.0.1:3000
   → Angular Nginx container
     /        → Angular static SPA (production-live build)
-    /api/*   → homepage-actions:8085/* (Nginx strips /api prefix; /api/internal/* returns 404)
+    /api/*   → homepage-actions:8085/* (Nginx strips /api prefix; private Hermes paths below return 404)
                   → qBittorrent / Jellyfin / system resources
 ```
 
@@ -194,7 +194,14 @@ Design-system showcase is Storybook (`npm run storybook`), not an in-app `/ui` r
 
 Backend security (fail-closed `ACTIONS_TOKEN`, per-torrent qBT routes, CORS allowlist) is implemented in `D:\media\config\homepage-actions` (Milestone 1, commit `f0b4213` on the media stack repo).
 
-The browser must use `/api/discover/hermes` for the public Discover response. Browser `/api/internal/*` requests return 404. Hermes uses the direct host route `http://localhost:8085/internal/discover/hermes` with a valid `X-Actions-Token` and approved `Origin`; direct requests without the token return 401. Revision, presented identities, watched identities, and generation context remain internal.
+The browser and cron routes have separate ownership:
+
+- **Browser public read:** `/api/discover/hermes`
+- **Browser queue action:** `/api/discover/hermes/request-more`
+- **Browser private attempts:** `/api/internal/*`, `/api/discover/hermes/generations`, and `/api/discover/hermes/sync` → **404**
+- **Hermes cron direct API:** `GET http://localhost:8085/internal/discover/hermes`, `POST http://localhost:8085/discover/hermes/generations`, and `POST http://localhost:8085/discover/hermes/sync`
+
+Hermes uses the direct host routes with a valid `X-Actions-Token` and approved `Origin`; direct requests without the token return 401. Revision, presented identities, watched identities, and generation context remain internal.
 
 ## Docker build
 

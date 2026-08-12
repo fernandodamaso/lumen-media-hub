@@ -49,6 +49,8 @@ class ActionsHandler(BaseHTTPRequestHandler):
             reports.handle_cron_logs(self)
         elif path == "/discover/hermes":
             discover.handle_discover_hermes_get(self)
+        elif path == "/internal/discover/hermes":
+            discover.handle_discover_hermes_generation_snapshot(self)
         elif path == "/discover/jellyseerr":
             discover.handle_discover_jellyseerr(self, query)
         elif path == "/discover/trakt":

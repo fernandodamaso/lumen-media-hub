@@ -267,7 +267,9 @@ services:
       - JELLYSEERR_ENABLED=${JELLYSEERR_ENABLED:-false}
       - JELLYSEERR_API_KEY=${JELLYSEERR_API_KEY}
       - TRAKT_CLIENT_ID=${TRAKT_CLIENT_ID}
-      - TRAKT_ACCESS_TOKEN=${TRAKT_ACCESS_TOKEN}
+      - TRAKT_CLIENT_SECRET=${TRAKT_CLIENT_SECRET}
+      - TRAKT_TOKEN_PATH=${TRAKT_TOKEN_PATH:-/state/trakt-token.json}
+      - TRAKT_WATCHED_PATH=${TRAKT_WATCHED_PATH:-/state/trakt-watched.json}
       - RECOMMENDATIONS_PATH=/recommendations/recommendations.json
       - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:4200,http://127.0.0.1:4200
       - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
@@ -276,6 +278,7 @@ services:
     volumes:
       - ./config/homepage-actions:/app:ro
       - ./config/recommendations:/recommendations
+      - ${TRAKT_STATE_PATH:-./.state/trakt}:/state
       - ${ROOT_PATH}:/data:ro
     working_dir: /app
     command: python main.py

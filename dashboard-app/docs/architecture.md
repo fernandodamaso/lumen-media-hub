@@ -66,7 +66,7 @@ is owned and stopped by `DashboardPage`; shell polling remains with `App`.
 Browser → http://127.0.0.1:3000
   → Angular Nginx container
     /        → Angular static SPA (production-live build)
-    /api/*   → homepage-actions:8085/* (Nginx strips /api prefix)
+    /api/*   → homepage-actions:8085/* (Nginx strips /api prefix; private Hermes paths below return 404)
                   → qBittorrent / Jellyfin / system resources
 ```
 
@@ -150,10 +150,66 @@ npm run test:smoke
 | `/api/activity` | GET | Recent activity feed for the right rail |
 | `/api/automation/summary` | GET | Service health and warnings |
 | `/api/cron/logs` | GET | Automation run logs |
-| `/api/discover/hermes` | GET | Hermes recommendations |
+| `/api/discover/hermes` | GET | Browser-safe Hermes recommendations |
+| `http://localhost:8085/internal/discover/hermes` | GET | Authenticated Hermes generation snapshot; direct access without token is 401 |
 | `/api/discover/jellyseerr` | GET | Jellyseerr discover |
 | `/api/discover/trakt` | GET | Trakt discover |
 | `/api/discover/request` | POST | Request media (token required) |
+
+### Trakt authentication and watched cache
+
+`homepage-actions` owns Trakt OAuth. Run `install.ps1 -Mode connect-trakt` once
+with the local `TRAKT_CLIENT_ID` and `TRAKT_CLIENT_SECRET`; it atomically saves
+the renewable access/refresh-token state in the ignored host directory mounted
+as writable `/state`. The backend application mount remains read-only, and no
+OAuth credential reaches Angular, Nginx, logs, or browser responses.
+
+The watched cache at `TRAKT_WATCHED_PATH` stores only a refresh timestamp and
+typed `movie:<id>` / `tv:<id>` identities. It refreshes within a 15-minute
+in-memory freshness window and never persists raw Trakt history. A stale cache
+continues filtering with a warning; if no cache exists, filtering fails open
+with an unavailable warning. The dashboard uses the public freshness state,
+not the private identity set.
+
+#### Operator diagnostic sequence
+
+`watched_exclusion.status = stale` and the dashboard warning `Watched filtering
+is using a cached snapshot` describe cache freshness. They are not proof that
+the Trakt access token, refresh token, client ID, or client secret is invalid.
+
+After recreating services, wait until both `homepage-actions` and `dashboard`
+are ready. Query all five public Discover feeds twice:
+
+- `/api/discover/hermes`
+- `/api/discover/trakt?type=movies`
+- `/api/discover/trakt?type=shows`
+- `/api/discover/jellyseerr?kind=movies`
+- `/api/discover/jellyseerr?kind=tv`
+
+Require `watched_exclusion.status = fresh` in both rounds. If the APIs are
+fresh but T3 still shows the cached warning, reload or reopen `/discover` and
+inspect the new browser state. An earlier DOM snapshot is not an acceptance
+failure.
+
+Before recommending reconnection, inspect the configured state without printing
+secrets. Confirm required `.env` fields and token-state fields are present,
+compare the access-token expiry timestamp with the current time, and make
+read-only direct Trakt watched-movies and watched-shows requests. Treat a
+missing or expired token as invalid, and do not treat a token with less than 60
+seconds of remaining validity as healthy: this is the backend refresh
+threshold. Report only presence, expiry metadata, HTTP status, and counts. Do
+not call the Trakt token endpoint only to test a refresh token: a refresh
+exchange rotates credential state.
+
+Run `install.ps1 -Mode connect-trakt` only when current evidence shows that
+reconnection is required, such as `reconnect_required`, a persistent
+authenticated `401` after the backend refresh attempt, missing token state, or
+failed direct authenticated reads. This is an interactive,
+credential-changing recovery step. Never print tokens, client secrets,
+token-state contents, raw watched history, or account identifiers.
+
+The acceptance rule is therefore: both API rounds are fresh, and the browser
+state is freshly loaded before any cached-warning decision is made.
 
 Storage uses `/system/resources` (not `/storage/overview`) and labels the volume from the backend mount path (e.g., `Media volume (/data)`). Library stats are derived from concurrent `/jellyfin/movies` and `/jellyfin/series` requests rather than a dedicated stats endpoint.
 
@@ -177,6 +233,17 @@ Design-system showcase is Storybook (`npm run storybook`), not an in-app `/ui` r
 - SABnzbd is excluded from the live application shell; only qBittorrent on port `8081` remains as a download client.
 
 Backend security (fail-closed `ACTIONS_TOKEN`, per-torrent qBT routes, CORS allowlist) is implemented in `D:\media\config\homepage-actions` (Milestone 1, commit `f0b4213` on the media stack repo).
+
+The browser and cron routes have separate ownership:
+
+- **Browser public read:** `/api/discover/hermes`
+- **Browser queue action:** `/api/discover/hermes/request-more`
+- **Browser private attempts:** `/api/internal/*`, `/api/discover/hermes/generations`, and `/api/discover/hermes/sync` → **404**
+- **Hermes cron direct API:** `GET http://localhost:8085/internal/discover/hermes`, `POST http://localhost:8085/discover/hermes/generations`, and `POST http://localhost:8085/discover/hermes/sync`
+
+Operational safety: test dashboard denial for the two cron-only routes with non-mutating `HEAD` probes. Never send `POST` to `/api/discover/hermes/generations` or `/api/discover/hermes/sync` during a proxy check.
+
+Hermes uses the direct host routes with a valid `X-Actions-Token` and approved `Origin`; direct requests without the token return 401. Revision, presented identities, watched identities, and generation context remain internal.
 
 ## Docker build
 

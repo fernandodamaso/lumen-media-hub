@@ -19,7 +19,9 @@ import {
   ExternalDiscoverItem,
   HermesDiscover,
   JellyseerrDiscoverKind,
+  LibraryExclusionState,
   TraktDiscoverType,
+  WatchedExclusionState,
 } from './discover.models';
 
 export type DiscoverStatus = 'loading' | 'ready' | 'empty' | 'disabled' | 'error';
@@ -34,6 +36,13 @@ const STALE_HINT = ' Results may be stale.';
 interface ExternalBrowseCacheEntry {
   items: ExternalDiscoverItem[];
   availability: ExternalDiscoverAvailability;
+  libraryExclusion?: LibraryExclusionState;
+  watchedExclusion?: WatchedExclusionState;
+}
+
+interface NoticeState {
+  text: string;
+  tone: 'success' | 'warning' | 'danger' | 'info';
 }
 
 /** Re-export for specs; canonical home is `media-stack/scheduled-poll`. */
@@ -53,8 +62,9 @@ export class DiscoverFacade {
 
   private readonly _status = signal<DiscoverStatus>('loading');
   private readonly _error = signal('');
-  private readonly _notice = signal('');
-  private readonly _noticeTone = signal<'success' | 'warning' | 'danger' | 'info'>('info');
+  private readonly _mutationNotice = signal<NoticeState | null>(null);
+  private readonly _browseNotice = signal<NoticeState | null>(null);
+  private readonly _exclusionNotice = signal('');
 
   private readonly _hermesItems = signal<DiscoverItem[]>([]);
   private readonly _generationPending = signal(false);
@@ -71,12 +81,24 @@ export class DiscoverFacade {
   private generationObserved = false;
 
   private hermesRequestId = 0;
-  private jellyseerrRequestId = 0;
-  private traktRequestId = 0;
-  /** Highest generation whose success payload was committed (Hermes). */
-  private hermesAppliedId = 0;
-  private jellyseerrAppliedId = 0;
-  private traktAppliedId = 0;
+  private readonly jellyseerrGeneration: Record<JellyseerrDiscoverKind, number> = {
+    trending: 0,
+    movies: 0,
+    tv: 0,
+  };
+  private readonly jellyseerrAppliedGeneration: Record<JellyseerrDiscoverKind, number> = {
+    trending: 0,
+    movies: 0,
+    tv: 0,
+  };
+  private readonly traktGeneration: Record<TraktDiscoverType, number> = {
+    movies: 0,
+    shows: 0,
+  };
+  private readonly traktAppliedGeneration: Record<TraktDiscoverType, number> = {
+    movies: 0,
+    shows: 0,
+  };
   /** True after at least one successful Hermes payload (including empty). */
   private hermesLoaded = false;
 
@@ -87,8 +109,24 @@ export class DiscoverFacade {
   readonly traktType = this._traktType.asReadonly();
   readonly status = this._status.asReadonly();
   readonly error = this._error.asReadonly();
-  readonly notice = this._notice.asReadonly();
-  readonly noticeTone = this._noticeTone.asReadonly();
+  readonly notice = computed(() => {
+    return [
+      this._mutationNotice()?.text,
+      this._browseNotice()?.text,
+      this._exclusionNotice(),
+    ].filter((notice): notice is string => Boolean(notice)).join(' ');
+  });
+  readonly noticeTone = computed(() => {
+    const tones = [
+      this._mutationNotice()?.tone,
+      this._browseNotice()?.tone,
+      this._exclusionNotice() ? 'warning' as const : undefined,
+    ].filter((tone): tone is NoticeState['tone'] => Boolean(tone));
+    return tones.reduce<NoticeState['tone']>((highest, tone) =>
+      this.noticeSeverity(tone) > this.noticeSeverity(highest) ? tone : highest,
+      'info',
+    );
+  });
   readonly busyItemId = this._busyItemId.asReadonly();
   readonly requestingMore = this._requestingMore.asReadonly();
   readonly generationPending = this._generationPending.asReadonly();
@@ -130,7 +168,9 @@ export class DiscoverFacade {
     const changed = this._tab() !== tab;
     if (changed) {
       this._tab.set(tab);
-      this._notice.set('');
+      this.clearMutationNotice();
+      this.clearBrowseNotice();
+      this._exclusionNotice.set('');
     }
     await this.refreshCurrentTab();
     this.restartPolling();
@@ -161,19 +201,16 @@ export class DiscoverFacade {
   async submitFeedback(id: string, feedback: DiscoverFeedback): Promise<void> {
     if (this._busyItemId()) return;
     this._busyItemId.set(id);
-    this._notice.set('');
+    this.clearMutationNotice();
     try {
       const result = await this.api.submitHermesFeedback(id, feedback);
       if (!result.ok) {
-        this._noticeTone.set('danger');
-        this._notice.set(result.error ?? 'Could not save feedback.');
+        this.setMutationNotice(result.error ?? 'Could not save feedback.', 'danger');
         return;
       }
-      this._noticeTone.set('success');
-      this._notice.set(result.message ?? 'Feedback saved.');
+      this.setMutationNotice(result.message ?? 'Feedback saved.', 'success');
       // Drop in-flight Hermes loads started before this feedback so stale polls cannot undo the archive.
       this.hermesRequestId++;
-      this.hermesAppliedId = this.hermesRequestId;
       // Archive immediately so liked/watched leave Active even before reload settles.
       this._hermesItems.update((items) =>
         items.map((item) =>
@@ -190,8 +227,7 @@ export class DiscoverFacade {
       this.syncVisibleStatus();
       await this.loadHermes();
     } catch {
-      this._noticeTone.set('danger');
-      this._notice.set('Could not save feedback. Try again.');
+      this.setMutationNotice('Could not save feedback. Try again.', 'danger');
     } finally {
       this._busyItemId.set(null);
     }
@@ -202,7 +238,7 @@ export class DiscoverFacade {
     const action = resolveRequestAction(item, { syncFailed: this.isSyncFailed(item) });
     if (action.disabled) return;
     this._busyItemId.set(item.id);
-    this._notice.set('');
+    this.clearMutationNotice();
     try {
       const result = await this.api.requestMedia({
         mediaType: item.type,
@@ -210,25 +246,21 @@ export class DiscoverFacade {
         hermesId: item.hermesId,
       });
       if (!result.ok) {
-        this._noticeTone.set('danger');
-        this._notice.set(result.error ?? 'Could not request media.');
+        this.setMutationNotice(result.error ?? 'Could not request media.', 'danger');
         return;
       }
       if (result.dashboard_state_persisted === false) {
         this.addSyncFailed(item);
-        this._noticeTone.set('warning');
-        this._notice.set(result.message ?? 'Added to Sonarr/Radarr; dashboard synchronization failed.');
+        this.setMutationNotice(result.message ?? 'Added to Sonarr/Radarr; dashboard synchronization failed.', 'warning');
       } else {
         this.markRequested(item.type, item.tmdbId);
-        this._noticeTone.set('success');
-        this._notice.set(result.message ?? 'Requested.');
+        this.setMutationNotice(result.message ?? 'Requested.', 'success');
       }
       if (this._tab() === 'hermes') {
         await this.loadHermes();
       }
     } catch {
-      this._noticeTone.set('danger');
-      this._notice.set('Could not request media. Try again.');
+      this.setMutationNotice('Could not request media. Try again.', 'danger');
     } finally {
       this._busyItemId.set(null);
     }
@@ -237,27 +269,23 @@ export class DiscoverFacade {
   async requestMore(): Promise<void> {
     if (this._requestingMore() || this._generationPending()) return;
     this._requestingMore.set(true);
-    this._notice.set('');
+    this.clearMutationNotice();
     try {
       const result = await this.api.requestHermesMore();
       if (!result.ok) {
-        this._noticeTone.set('danger');
-        this._notice.set(result.error ?? 'Could not queue more recommendations.');
+        this.setMutationNotice(result.error ?? 'Could not queue more recommendations.', 'danger');
         return;
       }
       this._generationPending.set(true);
       this.generationObserved = false;
       if (result.already_pending) {
-        this._noticeTone.set('info');
-        this._notice.set(result.message ?? 'A recommendation refresh is already pending.');
+        this.setMutationNotice(result.message ?? 'A recommendation refresh is already pending.', 'info');
       } else {
-        this._noticeTone.set('success');
-        this._notice.set(result.message ?? 'More recommendations queued.');
+        this.setMutationNotice(result.message ?? 'More recommendations queued.', 'success');
       }
       await this.loadHermes();
     } catch {
-      this._noticeTone.set('danger');
-      this._notice.set('Could not queue more recommendations. Try again.');
+      this.setMutationNotice('Could not queue more recommendations. Try again.', 'danger');
     } finally {
       this._requestingMore.set(false);
     }
@@ -307,8 +335,6 @@ export class DiscoverFacade {
     this.poll.stop();
     if (invalidateInFlight) {
       this.hermesRequestId++;
-      this.jellyseerrRequestId++;
-      this.traktRequestId++;
     }
   }
 
@@ -330,21 +356,18 @@ export class DiscoverFacade {
       if (!response.ok) {
         // Failures only apply when still current — a stale failure must not clobber newer work.
         if (!this.isCurrentHermesRequest(requestId)) return;
-        this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
+        this.applyBrowseFailure(isInitial, LOAD_ERROR, undefined, true);
         return;
       }
-      // Valid success may still commit when superseded, as long as it is not older than an
-      // already-applied generation (so a late good payload can recover an exclusive error).
-      if (requestId < this.hermesAppliedId) return;
+      if (!this.isCurrentHermesRequest(requestId)) return;
       this.applyHermesPayload(response);
-      this.hermesAppliedId = requestId;
       this.hermesLoaded = true;
       if (this._tab() !== 'hermes') return;
       this.commitBrowseSuccessCount(this.visibleItems().length, requestId, this.hermesRequestId);
     } catch {
       if (signal?.aborted) return;
       if (!this.isCurrentHermesRequest(requestId)) return;
-      this.applyBrowseFailure(isInitial, LOAD_ERROR);
+      this.applyBrowseFailure(isInitial, LOAD_ERROR, undefined, true);
     }
   }
 
@@ -354,84 +377,110 @@ export class DiscoverFacade {
 
   private async loadJellyseerr(kind: JellyseerrDiscoverKind, signal?: AbortSignal): Promise<void> {
     await this.loadExternalBrowse({
-      nextRequestId: () => ++this.jellyseerrRequestId,
-      currentRequestId: () => this.jellyseerrRequestId,
-      appliedId: () => this.jellyseerrAppliedId,
-      setAppliedId: (id) => {
-        this.jellyseerrAppliedId = id;
+      nextGeneration: () => ++this.jellyseerrGeneration[kind],
+      currentGeneration: () => this.jellyseerrGeneration[kind],
+      appliedGeneration: () => this.jellyseerrAppliedGeneration[kind],
+      setAppliedGeneration: (generation) => {
+        this.jellyseerrAppliedGeneration[kind] = generation;
       },
       isActive: () => this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind,
       cached: () => this._jellyseerrCache()[kind],
-      writeCache: (items, availability) => {
-        this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: { items, availability } }));
+      writeCache: (items, availability, libraryExclusion, watchedExclusion) => {
+        this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: { items, availability, libraryExclusion, watchedExclusion } }));
       },
       fetch: () => this.api.listJellyseerrDiscover(kind, signal),
+      allowReconnect: false,
       signal,
     });
   }
 
   private async loadTrakt(type: TraktDiscoverType, signal?: AbortSignal): Promise<void> {
     await this.loadExternalBrowse({
-      nextRequestId: () => ++this.traktRequestId,
-      currentRequestId: () => this.traktRequestId,
-      appliedId: () => this.traktAppliedId,
-      setAppliedId: (id) => {
-        this.traktAppliedId = id;
+      nextGeneration: () => ++this.traktGeneration[type],
+      currentGeneration: () => this.traktGeneration[type],
+      appliedGeneration: () => this.traktAppliedGeneration[type],
+      setAppliedGeneration: (generation) => {
+        this.traktAppliedGeneration[type] = generation;
       },
       isActive: () => this._tab() === 'trakt' && this._traktType() === type,
       cached: () => this._traktCache()[type],
-      writeCache: (items, availability) => {
-        this._traktCache.update((cache) => ({ ...cache, [type]: { items, availability } }));
+      writeCache: (items, availability, libraryExclusion, watchedExclusion) => {
+        this._traktCache.update((cache) => ({ ...cache, [type]: { items, availability, libraryExclusion, watchedExclusion } }));
       },
       fetch: () => this.api.listTraktDiscover(type, signal),
+      allowReconnect: true,
       signal,
     });
   }
 
   /** Shared Jellyseerr/Trakt browse load: cache prime, generation guard, soft failure. */
   private async loadExternalBrowse(opts: {
-    nextRequestId: () => number;
-    currentRequestId: () => number;
-    appliedId: () => number;
-    setAppliedId: (id: number) => void;
+    nextGeneration: () => number;
+    currentGeneration: () => number;
+    appliedGeneration: () => number;
+    setAppliedGeneration: (generation: number) => void;
     isActive: () => boolean;
     cached: () => ExternalBrowseCacheEntry | undefined;
-    writeCache: (items: ExternalDiscoverItem[], availability: ExternalDiscoverAvailability) => void;
+    writeCache: (
+      items: ExternalDiscoverItem[],
+      availability: ExternalDiscoverAvailability,
+      libraryExclusion?: LibraryExclusionState,
+      watchedExclusion?: WatchedExclusionState,
+    ) => void;
     fetch: () => Promise<{
       ok: boolean;
       items: ExternalDiscoverItem[];
       availability?: ExternalDiscoverAvailability;
+      library_exclusion?: LibraryExclusionState;
+      watched_exclusion?: WatchedExclusionState;
       error?: string;
+      code?: 'reconnect_required';
     }>;
     signal?: AbortSignal;
+    allowReconnect: boolean;
   }): Promise<void> {
-    const requestId = opts.nextRequestId();
+    const generation = opts.nextGeneration();
     const isActive = opts.isActive();
     const isInitial = this.primeBrowseCache(isActive, opts.cached());
     try {
       const response = await opts.fetch();
       if (!response.ok) {
-        if (requestId !== opts.currentRequestId()) return;
-        if (opts.isActive()) this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
+        if (generation !== opts.currentGeneration()) return;
+        if (opts.isActive()) {
+          this.applyBrowseFailure(
+            isInitial,
+            LOAD_ERROR,
+            opts.allowReconnect ? response.code : undefined,
+            true,
+          );
+        }
         return;
       }
       const availability = response.availability ?? 'available';
-      if (availability === 'disabled' && (requestId !== opts.currentRequestId() || !opts.isActive())) return;
-      if (requestId < opts.appliedId()) return;
-      opts.writeCache(availability === 'disabled' ? [] : response.items, availability);
-      opts.setAppliedId(requestId);
+      if (generation !== opts.currentGeneration() || !opts.isActive()) return;
+      if (generation < opts.appliedGeneration()) return;
+      opts.writeCache(
+        availability === 'disabled' ? [] : response.items,
+        availability,
+        response.library_exclusion,
+        response.watched_exclusion,
+      );
+      opts.setAppliedGeneration(generation);
       if (!opts.isActive()) return;
       if (availability === 'disabled') {
         this._status.set('disabled');
         this._error.set('');
-        this._notice.set('');
+        this.clearBrowseNotice();
+        this._exclusionNotice.set('');
         return;
       }
-      this.commitBrowseSuccess(response.items, requestId, opts.currentRequestId());
-    } catch {
+      this.applyExclusionNotice(response.library_exclusion, response.watched_exclusion);
+      this.commitBrowseSuccess(response.items, generation, opts.currentGeneration());
+    } catch (error) {
       if (opts.signal?.aborted) return;
-      if (requestId !== opts.currentRequestId() || !opts.isActive()) return;
-      this.applyBrowseFailure(isInitial, LOAD_ERROR);
+      if (generation !== opts.currentGeneration() || !opts.isActive()) return;
+      const code = opts.allowReconnect ? (error as { code?: unknown }).code : undefined;
+      this.applyBrowseFailure(isInitial, LOAD_ERROR, code, true);
     }
   }
 
@@ -445,10 +494,38 @@ export class DiscoverFacade {
         this._status.set(cached.items.length ? 'ready' : 'empty');
       }
       this._error.set('');
+      this.applyExclusionNotice(cached.libraryExclusion, cached.watchedExclusion);
     } else {
       this._status.set('loading');
     }
     return !cached;
+  }
+
+  private applyExclusionNotice(library?: LibraryExclusionState, watched?: WatchedExclusionState): void {
+    const tab = this._tab();
+    let source = 'Trakt';
+    if (tab === 'hermes') source = 'Hermes';
+    else if (tab === 'jellyseerr') source = 'Jellyseerr';
+    const notices: string[] = [];
+    if (library?.status === 'stale') {
+      notices.push(`Library filtering is using a cached snapshot. Showing ${source} recommendations.`);
+    } else if (library?.status === 'unavailable') {
+      notices.push(`Library filtering is unavailable. Showing ${source} recommendations.`);
+    }
+    if (watched?.status === 'stale') {
+      notices.push(
+        tab === 'jellyseerr'
+          ? 'Watched filtering is using a cached snapshot. Showing Jellyseerr recommendations.'
+          : 'Watched filtering is using a cached snapshot.',
+      );
+    } else if (watched?.status === 'unavailable') {
+      notices.push(`Watched filtering is unavailable. Showing ${source} recommendations.`);
+    }
+    if (notices.length) {
+      this._exclusionNotice.set(notices.join(' '));
+    } else {
+      this._exclusionNotice.set('');
+    }
   }
 
   private commitBrowseSuccess(
@@ -468,7 +545,7 @@ export class DiscoverFacade {
     if (!isCurrent && this._status() !== 'error') return;
     this._status.set(itemCount ? 'ready' : 'empty');
     this._error.set('');
-    if (this._notice() === REFRESH_NOTICE) this._notice.set('');
+    this.clearBrowseNotice();
   }
 
   /**
@@ -476,28 +553,71 @@ export class DiscoverFacade {
    * Initial failures (no last-good) flip to exclusive error.
    * Mutation notices stay visible; a refresh failure appends a stale hint rather than replacing them.
    */
-  private applyBrowseFailure(isInitial: boolean, message: string): void {
+  private applyBrowseFailure(
+    isInitial: boolean,
+    message: string,
+    code?: unknown,
+    safeExternalError = false,
+  ): void {
+    const reconnectRequired = code === 'reconnect_required';
+    if (reconnectRequired) {
+      this.setBrowseNotice('Trakt reconnect required. Run .\\install.ps1 -Mode connect-trakt.', 'warning');
+      if (isInitial) {
+        this._status.set('error');
+        this._error.set(LOAD_ERROR);
+      }
+      return;
+    }
     if (!isInitial) {
-      const notice = this._notice();
-      if (!notice || notice === REFRESH_NOTICE) {
-        this._noticeTone.set('warning');
-        this._notice.set(REFRESH_NOTICE);
-      } else if (!notice.includes(STALE_HINT)) {
-        this._notice.set(`${notice}${STALE_HINT}`);
+      if (safeExternalError) {
+        this.setBrowseNotice(REFRESH_NOTICE, 'warning');
+      } else if (this._mutationNotice()) {
+        this.setBrowseNotice(STALE_HINT.trim(), 'warning');
+      } else {
+        this.setBrowseNotice(REFRESH_NOTICE, 'warning');
       }
       return;
     }
     this._status.set('error');
     this._error.set(message);
-    this._notice.set('');
+    this.clearBrowseNotice();
+    this._exclusionNotice.set('');
   }
 
   private applyHermesPayload(response: HermesDiscover): void {
     this._hermesItems.set(response.items);
+    if (this._tab() === 'hermes') {
+      this.applyExclusionNotice(response.library_exclusion, response.watched_exclusion);
+    }
     this.seedRequestedFromHermes(response.items);
     this.applyPendingRequestSync(response.items, response.pending_request_sync);
     this.reconcileSyncFailed(response.items);
     this.applyGenerationPending(Boolean(response.generation_request));
+  }
+
+  private setMutationNotice(text: string, tone: NoticeState['tone']): void {
+    this._mutationNotice.set({ text, tone });
+  }
+
+  private clearMutationNotice(): void {
+    this._mutationNotice.set(null);
+  }
+
+  private setBrowseNotice(text: string, tone: NoticeState['tone']): void {
+    this._browseNotice.set({ text, tone });
+  }
+
+  private clearBrowseNotice(): void {
+    this._browseNotice.set(null);
+  }
+
+  private noticeSeverity(tone: NoticeState['tone']): number {
+    switch (tone) {
+      case 'danger': return 3;
+      case 'warning': return 2;
+      case 'success': return 1;
+      default: return 0;
+    }
   }
 
   private applyGenerationPending(apiPending: boolean): void {

@@ -37,6 +37,8 @@ export type DiscoverCardItem = {
   feedback: DiscoverFeedback | null;
   requestState: 'requested' | null;
   inLibrary: boolean;
+  excludedReason?: 'in_library' | 'watched_on_trakt' | null;
+  watchedOnTrakt?: boolean;
   posterUrl?: string | null;
   rating?: number | null;
 };
@@ -52,7 +54,9 @@ export function toHermesCardItem(item: DiscoverItem): DiscoverCardItem {
     reason: item.reason,
     feedback: item.feedback,
     requestState: item.request_state,
-    inLibrary: Boolean(item.in_library),
+    inLibrary: item.in_library || item.excluded_reason === 'in_library',
+    excludedReason: item.excluded_reason,
+    watchedOnTrakt: item.watched_on_trakt === true,
     posterUrl: item.poster_url,
     rating: item.rating,
   };
@@ -78,6 +82,7 @@ export function toExternalCardItem(
     feedback: null,
     requestState,
     inLibrary: false,
+    watchedOnTrakt: false,
     posterUrl: item.poster_url,
     rating: item.rating,
   };
@@ -126,13 +131,15 @@ export function resolveRequestAction(
 export function matchesHistoryFilter(item: DiscoverItem, filter: DiscoverHistoryFilter): boolean {
   if (filter === 'all') return true;
   if (filter === 'requested') return item.request_state === 'requested';
-  if (filter === 'watched') return item.feedback === 'watched' || item.feedback === 'liked';
+  if (filter === 'watched') return item.feedback === 'watched' || item.feedback === 'liked' || item.watched_on_trakt === true;
   return item.feedback === filter;
 }
 
 /** Active Hermes browse excludes any title that already has feedback (liked leaves the queue). */
-export function isHermesActiveItem(item: Pick<DiscoverItem, 'active' | 'feedback'>): boolean {
-  return item.active && item.feedback == null;
+export function isHermesActiveItem(
+  item: Pick<DiscoverItem, 'active' | 'feedback' | 'excluded_reason' | 'watched_on_trakt'>,
+): boolean {
+  return item.active && item.feedback == null && item.excluded_reason !== 'in_library' && item.excluded_reason !== 'watched_on_trakt' && item.watched_on_trakt !== true;
 }
 
 /** Liked also counts as watched for pressed UI and history filtering. */
@@ -164,7 +171,30 @@ export function matchesDiscoverSearch(
   return haystacks.some((part) => part.toLowerCase().includes(needle));
 }
 
-const mapDiscoverItem = (dto: MediaStackDiscoverItemDto): DiscoverItem => ({ ...dto });
+const mapDiscoverItem = (dto: MediaStackDiscoverItemDto): DiscoverItem => ({
+  id: dto.id,
+  source: dto.source,
+  type: dto.type,
+  title: dto.title,
+  year: dto.year,
+  tmdb_id: dto.tmdb_id,
+  reason: dto.reason,
+  active: dto.active,
+  feedback: dto.feedback,
+  feedback_at: dto.feedback_at,
+  request_state: dto.request_state,
+  requested_at: dto.requested_at,
+  jellyseerr_request_id: dto.jellyseerr_request_id,
+  in_library: dto.in_library,
+  excluded_reason: dto.excluded_reason,
+  watched_on_trakt: dto.watched_on_trakt,
+  jellyfin_id: dto.jellyfin_id,
+  poster_path: dto.poster_path,
+  poster_url: dto.poster_url,
+  added_at: dto.added_at,
+  notes: dto.notes,
+  rating: dto.rating,
+});
 
 const mapExternalDiscoverItem = (dto: MediaStackExternalDiscoverItemDto): ExternalDiscoverItem => ({
   ...dto,
@@ -175,6 +205,8 @@ export const mapHermesDiscover = (dto: MediaStackHermesDiscoverDto): HermesDisco
   items: (dto.items ?? []).map(mapDiscoverItem),
   pending_request_sync: dto.pending_request_sync,
   generation_request: dto.generation_request,
+  library_exclusion: dto.library_exclusion,
+  watched_exclusion: dto.watched_exclusion,
   error: dto.error,
 });
 
@@ -182,10 +214,19 @@ export const mapExternalDiscover = (dto: MediaStackExternalDiscoverDto): Externa
   ok: dto.ok,
   items: (dto.items ?? []).map(mapExternalDiscoverItem),
   availability: dto.enabled === false ? 'disabled' : 'available',
+  ...(dto.code === 'reconnect_required' ? { code: dto.code } : {}),
+  library_exclusion: dto.library_exclusion,
+  watched_exclusion: dto.watched_exclusion,
   error: dto.error,
 });
 
-export const mapDiscoverAction = (dto: MediaStackDiscoverActionDto): DiscoverAction => ({ ...dto });
+export const mapDiscoverAction = (dto: MediaStackDiscoverActionDto): DiscoverAction => {
+  const { code, ...rest } = dto;
+  return {
+    ...rest,
+    ...(code === 'reconnect_required' ? { code } : {}),
+  };
+};
 
 export const toDiscoverRequestPayloadDto = (
   payload: DiscoverRequestPayload,

@@ -7,6 +7,18 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
+    location = /api/discover/hermes/generations {
+        return 404;
+    }
+
+    location = /api/discover/hermes/sync {
+        return 404;
+    }
+
+    location ^~ /api/internal/ {
+        return 404;
+    }
+
     location /api/ {
         proxy_pass http://homepage-actions:8085/;
         proxy_set_header Host $host;

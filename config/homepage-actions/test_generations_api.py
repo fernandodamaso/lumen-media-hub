@@ -67,17 +67,21 @@ class GenerationApiTestCase(unittest.TestCase):
         self._old_store = config.RECOMMENDATIONS_STORE
         self._old_token = config.ACTIONS_TOKEN
         self._old_jellyseerr_key = config.JELLYSEERR_API_KEY
+        self._old_cors_origins = config.CORS_ORIGINS
         self._old_reconciliation_path = config.RECONCILIATION_PATH
         self._old_generation_request_path = config.GENERATION_REQUEST_PATH
 
         config.RECOMMENDATIONS_STORE = self.store
         config.ACTIONS_TOKEN = TOKEN
+        config.CORS_ORIGINS = ["http://localhost:3000"]
         config.RECONCILIATION_PATH = os.path.join(self.tmpdir, "reconciliation.json")
         config.GENERATION_REQUEST_PATH = os.path.join(
             self.tmpdir, "generation-request.json"
         )
         discover_routes._tracked_media_cache["expires"] = 0.0
         discover_routes._tracked_media_cache["ids"] = []
+        discover_routes._tracked_media_cache["errors"] = []
+        discover_routes._tracked_media_cache["has_success"] = False
         self.addCleanup(self._restore_config)
         self.addCleanup(lambda: reconciliation.stop_reconciliation_scheduler(timeout=1.0))
 
@@ -92,6 +96,7 @@ class GenerationApiTestCase(unittest.TestCase):
         config.RECOMMENDATIONS_STORE = self._old_store
         config.ACTIONS_TOKEN = self._old_token
         config.JELLYSEERR_API_KEY = self._old_jellyseerr_key
+        config.CORS_ORIGINS = self._old_cors_origins
         config.RECONCILIATION_PATH = self._old_reconciliation_path
         config.GENERATION_REQUEST_PATH = self._old_generation_request_path
 
@@ -109,11 +114,13 @@ class GenerationApiTestCase(unittest.TestCase):
 
         return self.store.update(_apply)
 
-    def request(self, method, path, body=None, token=TOKEN):
+    def request(self, method, path, body=None, token=TOKEN, origin=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         headers = {"Content-Type": "application/json"}
         if token is not None:
             headers["X-Actions-Token"] = token
+        if origin is not None:
+            headers["Origin"] = origin
         raw = json.dumps(body).encode("utf-8") if body is not None else None
         try:
             conn.request(method, path, body=raw, headers=headers)
@@ -577,15 +584,15 @@ class RevisionConflictTests(GenerationApiTestCase):
 
 
 class GetAndRetiredRouteTests(GenerationApiTestCase):
-    def test_get_exposes_v2_state_without_legacy_status(self):
+    def test_get_exposes_only_dashboard_state_without_store_metadata(self):
         self.seed(
             [make_item(1), make_item(2, active=False), make_item(3, feedback="liked")],
             presented=["movie:1", "movie:2", "movie:3"],
         )
         status, payload = self.request("GET", "/discover/hermes")
         self.assertEqual(status, 200)
-        self.assertEqual(payload["revision"], self.current_doc()["revision"])
-        self.assertEqual(payload["presented_media_ids"], ["movie:1", "movie:2", "movie:3"])
+        for private_key in ("version", "revision", "updated_at", "presented_media_ids", "context"):
+            self.assertNotIn(private_key, payload)
         by_tmdb = {item["tmdb_id"]: item for item in payload["items"]}
         self.assertTrue(by_tmdb[1]["active"])
         self.assertFalse(by_tmdb[2]["active"])
@@ -595,7 +602,7 @@ class GetAndRetiredRouteTests(GenerationApiTestCase):
         for item in payload["items"]:
             self.assertNotIn("status", item)
 
-    def test_get_exposes_generation_context(self):
+    def test_get_does_not_expose_generation_context(self):
         self.seed(
             [
                 make_item(1),
@@ -610,29 +617,51 @@ class GetAndRetiredRouteTests(GenerationApiTestCase):
             "routes.discover._get_tracked_media_ids",
             return_value=(["movie:100", "tv:200"], []),
         ), mock.patch(
-            "routes.discover._get_in_library_media_ids",
-            return_value=(["movie:300"], []),
+            "routes.discover._library_exclusion_snapshot",
+            return_value=discover_routes.LibraryExclusionSnapshot.from_maps(
+                {300: "movie-jf"}, {}, status="fresh", last_successful_refresh_at=None
+            ),
         ):
             status, payload = self.request("GET", "/discover/hermes")
         self.assertEqual(status, 200)
-        context = payload["context"]
-        self.assertEqual(context["tracked_media_ids"], ["movie:100", "tv:200"])
-        self.assertEqual(context["in_library_media_ids"], ["movie:300"])
-        self.assertEqual(sorted(context["required_retain"]), ["movie:1"])
-        self.assertEqual(
-            [entry["identity"] for entry in context["taste"]["liked"]], ["movie:2"]
+        self.assertNotIn("context", payload)
+        self.assertEqual(payload["library_exclusion"]["status"], "fresh")
+        self.assertEqual(payload["watched_exclusion"]["status"], "unavailable")
+        for item in payload["items"]:
+            self.assertNotIn("identity", item)
+
+    def test_get_projects_watched_hermes_items_without_writing_store(self):
+        self.seed([make_item(7), make_item(8, active=False), make_item(9, feedback="liked")])
+        watched = discover_routes.WatchedSnapshot(
+            frozenset({"movie:7", "movie:8", "movie:9"}),
+            "2026-08-11T12:00:00+00:00",
+            "fresh",
         )
+        with open(self.path, "rb") as handle:
+            before = handle.read()
+        with mock.patch.object(discover_routes, "_trakt_watched_snapshot", return_value=watched) as watched_snapshot, \
+                mock.patch.object(
+                    discover_routes,
+                    "_library_exclusion_snapshot",
+                    return_value=discover_routes.LibraryExclusionSnapshot.from_maps(
+                        {}, {}, status="fresh", last_successful_refresh_at=None
+                    ),
+                ), \
+                mock.patch.object(discover_routes, "_enrich_hermes_posters", side_effect=lambda values: values), \
+                mock.patch.object(discover_routes, "_hermes_generation_context", return_value={}):
+            status, payload = self.request("GET", "/discover/hermes")
+        with open(self.path, "rb") as handle:
+            after = handle.read()
+        self.assertEqual(status, 200)
+        watched_snapshot.assert_called_once_with()
+        self.assertEqual(before, after)
+        by_tmdb = {item["tmdb_id"]: item for item in payload["items"]}
         self.assertEqual(
-            [entry["identity"] for entry in context["taste"]["disliked"]], ["movie:3"]
+            [(by_tmdb[tmdb_id]["active"], by_tmdb[tmdb_id]["excluded_reason"], by_tmdb[tmdb_id]["watched_on_trakt"])
+             for tmdb_id in (7, 8, 9)],
+            [(False, "watched_on_trakt", True)] * 3,
         )
-        self.assertEqual(
-            [entry["identity"] for entry in context["taste"]["skipped"]], ["movie:4"]
-        )
-        self.assertEqual(
-            [entry["identity"] for entry in context["taste"]["watched"]],
-            ["movie:2", "movie:5"],
-        )
-        self.assertNotIn("context_errors", context)
+        self.assertEqual(by_tmdb[9]["feedback"], "liked")
 
     def test_retired_upsert_route_returns_410(self):
         status, payload = self.request(
@@ -644,11 +673,233 @@ class GetAndRetiredRouteTests(GenerationApiTestCase):
         self.assertEqual(self.current_doc()["items"], [])
 
 
+class InternalGenerationSnapshotTests(GenerationApiTestCase):
+    def snapshot(self, token=TOKEN, origin="http://localhost:3000"):
+        return self.request(
+            "GET",
+            "/internal/discover/hermes",
+            token=token,
+            origin=origin,
+        )
+
+    def test_missing_and_wrong_token_are_unauthorized(self):
+        for token in (None, "wrong-token"):
+            with self.subTest(token=token):
+                status, payload = self.snapshot(token=token)
+                self.assertEqual(status, 401)
+                self.assertEqual(payload, {"ok": False, "error": "Unauthorized"})
+
+    def test_disallowed_origin_is_forbidden(self):
+        status, payload = self.snapshot(origin="https://attacker.example")
+        self.assertEqual(status, 403)
+        self.assertEqual(payload, {"ok": False, "error": "Origin not allowed"})
+
+    def test_valid_snapshot_has_exact_keys_and_complete_retain_candidates(self):
+        self.seed([make_item(7)], presented=["movie:7"])
+        with mock.patch.object(
+            discover_routes,
+            "_get_tracked_media_ids",
+            return_value=([], []),
+        ), mock.patch.object(
+            discover_routes,
+            "_library_exclusion_snapshot",
+            return_value=discover_routes.LibraryExclusionSnapshot.from_maps(
+                {}, {}, status="fresh", last_successful_refresh_at=None
+            ),
+        ), mock.patch.object(
+            discover_routes,
+            "_trakt_watched_snapshot",
+            return_value=discover_routes.WatchedSnapshot(frozenset(), None, "fresh"),
+        ):
+            status, payload = self.snapshot()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(set(payload), {"ok", "revision", "presented_media_ids", "context"})
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["revision"], self.current_doc()["revision"])
+        self.assertEqual(payload["presented_media_ids"], ["movie:7"])
+        self.assertEqual(
+            payload["context"]["required_retain"],
+            [{
+                "type": "movie",
+                "title": "Title 7",
+                "year": 2000,
+                "tmdb_id": 7,
+                "reason": "fixture",
+                "retain": True,
+            }],
+        )
+
+    def test_revision_and_presented_ids_are_same_document_and_snapshot_is_usable(self):
+        self.seed([make_item(7)], presented=["movie:7"])
+        patches = [
+            mock.patch.object(discover_routes, "_get_tracked_media_ids", return_value=([], [])),
+            mock.patch.object(
+                discover_routes,
+                "_library_exclusion_snapshot",
+                return_value=discover_routes.LibraryExclusionSnapshot.from_maps(
+                    {}, {}, status="fresh", last_successful_refresh_at=None
+                ),
+            ),
+            mock.patch.object(
+                discover_routes,
+                "_trakt_watched_snapshot",
+                return_value=discover_routes.WatchedSnapshot(frozenset(), None, "fresh"),
+            ),
+        ]
+        with patches[0], patches[1], patches[2]:
+            status, snapshot = self.snapshot()
+            self.assertEqual(status, 200)
+            candidates = snapshot["context"]["required_retain"] + [self.candidate(8)]
+            status, result = self.post_generation(snapshot["revision"], candidates)
+        self.assertEqual(status, 200)
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.current_doc()["revision"], snapshot["revision"] + 1)
+
+    def test_stale_snapshot_returns_409_without_mutating_transaction(self):
+        self.seed([make_item(7)], presented=["movie:7"])
+        status, snapshot = self.snapshot()
+        self.assertEqual(status, 200)
+        self.store.update(lambda doc: doc["items"][0].update({"feedback": "liked"}))
+        before = self.current_doc()
+
+        status, payload = self.post_generation(
+            snapshot["revision"], [self.candidate(8)]
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"], "stale_base_revision")
+        self.assertEqual(self.current_doc(), before)
+
+    def test_public_response_excludes_injected_private_and_unknown_fields(self):
+        self.seed([make_item(7)], presented=["movie:7"])
+
+        def inject_private_fields(doc):
+            doc["secret"] = "TOKEN raw-history HTML https://upstream.example"
+            doc["unknown_top_level"] = {"path": "C:\\private\\history"}
+            doc["items"][0].update(
+                {
+                    "secret": "TOKEN",
+                    "raw_history": "watched title movie:909",
+                    "unknown_row_property": "should stay private",
+                }
+            )
+
+        self.store.update(inject_private_fields)
+        status, payload = self.request("GET", "/discover/hermes")
+        encoded = json.dumps(payload)
+        self.assertEqual(status, 200)
+        for private in (
+            "TOKEN",
+            "raw-history",
+            "watched title",
+            "unknown_row_property",
+            "unknown_top_level",
+            "revision",
+            "presented_media_ids",
+            "context",
+        ):
+            self.assertNotIn(private, encoded)
+
+
+class DiscoverSafeErrorBoundaryTests(GenerationApiTestCase):
+    SECRET_ERROR = "path=C:\\private\\token SECRET raw-history=Watched Title <html> upstream=https://evil.example"
+
+    def test_browser_visible_provider_and_operation_errors_are_fixed(self):
+        cases = (
+            ("GET", "/discover/hermes", 500, "Discover recommendations are temporarily unavailable", "RECOMMENDATIONS_STORE.load"),
+            ("GET", "/discover/jellyseerr?kind=trending", 502, "Jellyseerr is temporarily unavailable", "_jellyseerr_get"),
+            ("GET", "/discover/trakt?type=movies", 502, "Trakt temporarily unavailable", "_trakt_get"),
+            ("POST", "/discover/hermes/sync", 502, "Hermes collection is temporarily unavailable", "sync_hermes_collection"),
+            ("POST", "/discover/hermes/request-more", 500, "Generation request could not be queued", "_request_hermes_generation"),
+            ("POST", "/discover/request/reconcile", 500, "Request reconciliation is temporarily unavailable", "run_reconciliation_cycle"),
+        )
+        for method, path, expected_status, expected, operation in cases:
+            with self.subTest(operation=operation), mock.patch("builtins.print") as printed:
+                if operation == "RECOMMENDATIONS_STORE.load":
+                    patcher = mock.patch.object(
+                        self.store, "load", side_effect=RuntimeError(self.SECRET_ERROR)
+                    )
+                elif operation == "_jellyseerr_get":
+                    patcher = mock.patch.object(
+                        discover_routes, operation, side_effect=RuntimeError(self.SECRET_ERROR)
+                    )
+                elif operation == "_trakt_get":
+                    patcher = mock.patch.object(
+                        discover_routes, operation, side_effect=RuntimeError(self.SECRET_ERROR)
+                    )
+                elif operation == "sync_hermes_collection":
+                    patcher = mock.patch.object(
+                        discover_routes, operation, side_effect=RuntimeError(self.SECRET_ERROR)
+                    )
+                elif operation == "_request_hermes_generation":
+                    patcher = mock.patch.object(
+                        discover_routes, operation, side_effect=rs.RecommendationError(self.SECRET_ERROR)
+                    )
+                else:
+                    patcher = mock.patch.object(
+                        discover_routes, operation, side_effect=RuntimeError(self.SECRET_ERROR)
+                    )
+                with patcher, mock.patch.object(config, "TRAKT_CLIENT_ID", "client-id"), mock.patch.object(
+                    config, "JELLYSEERR_ENABLED", True
+                ), mock.patch.object(config, "JELLYSEERR_API_KEY", "jellyseerr-key"):
+                    status, payload = self.request(method, path)
+            self.assertEqual(status, expected_status)
+            self.assertEqual(payload["error"], expected)
+            self.assertNotIn(self.SECRET_ERROR, json.dumps(payload))
+            self.assertNotIn(self.SECRET_ERROR, " ".join(str(call) for call in printed.call_args_list))
+
+    def test_feedback_request_generation_and_best_effort_logs_are_sanitized(self):
+        self.seed([make_item(7)], presented=["movie:7"])
+        with mock.patch.object(
+            self.store, "update", side_effect=RuntimeError(self.SECRET_ERROR)
+        ):
+            status, payload = self.request(
+                "PATCH", "/discover/hermes/hermes-movie-7", {"status": "liked"}
+            )
+        self.assertEqual(status, 500)
+        self.assertEqual(payload["error"], "Feedback could not be saved")
+
+        with mock.patch.object(
+            discover_routes,
+            "_add_to_arr_unmonitored",
+            side_effect=RuntimeError(self.SECRET_ERROR),
+        ):
+            status, payload = self.request(
+                "POST",
+                "/discover/request",
+                {"mediaType": "movie", "mediaId": 7},
+            )
+        self.assertEqual(status, 502)
+        self.assertEqual(payload["error"], "Unable to add this title to the library")
+
+        with mock.patch.object(
+            discover_routes,
+            "_resolve_poster_paths",
+            side_effect=RuntimeError(self.SECRET_ERROR),
+        ), mock.patch.object(
+            discover_routes,
+            "_hermes_exclusion_sets",
+            return_value=(set(), set(), set(), []),
+        ), mock.patch("builtins.print") as printed:
+            status, payload = self.post_generation(
+                self.current_doc()["revision"], [self.candidate(8)]
+            )
+        self.assertEqual(status, 200)
+        self.assertNotIn(self.SECRET_ERROR, json.dumps(payload))
+        self.assertNotIn(self.SECRET_ERROR, " ".join(str(call) for call in printed.call_args_list))
+
+        with mock.patch.object(config, "JELLYFIN_API_KEY", "jellyfin-key"), mock.patch.object(
+            discover_routes, "sync_hermes_collection", side_effect=RuntimeError(self.SECRET_ERROR)
+        ):
+            result = discover_routes._sync_hermes_collection_best_effort()
+        self.assertEqual(result, {"ok": False, "error": "Hermes collection is temporarily unavailable"})
+
 class ExclusionEnforcementTests(GenerationApiTestCase):
     def test_already_tracked_candidate_rejected(self):
         with mock.patch(
             "routes.discover._hermes_exclusion_sets",
-            return_value=({"movie:777"}, set(), []),
+            return_value=({"movie:777"}, set(), set(), []),
         ):
             status, payload = self.post_generation(0, [self.candidate(777)])
         self.assertEqual(status, 200)
@@ -669,7 +920,7 @@ class ExclusionEnforcementTests(GenerationApiTestCase):
     def test_already_in_library_candidate_rejected(self):
         with mock.patch(
             "routes.discover._hermes_exclusion_sets",
-            return_value=(set(), {"movie:888"}, []),
+            return_value=(set(), {"movie:888"}, set(), []),
         ):
             status, payload = self.post_generation(0, [self.candidate(888)])
         self.assertEqual(status, 200)
@@ -690,11 +941,386 @@ class ExclusionEnforcementTests(GenerationApiTestCase):
     def test_tracked_takes_precedence_over_in_library(self):
         with mock.patch(
             "routes.discover._hermes_exclusion_sets",
-            return_value=({"movie:999"}, {"movie:999"}, []),
+            return_value=({"movie:999"}, {"movie:999"}, set(), []),
         ):
             status, payload = self.post_generation(0, [self.candidate(999)])
         self.assertEqual(status, 200)
         self.assertEqual(payload["rejected"][0]["reason"], "already_tracked")
+
+    def test_already_watched_candidate_rejected_with_typed_identity(self):
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), set(), {"movie:777"}, []),
+        ):
+            status, payload = self.post_generation(0, [self.candidate(777)])
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["accepted"], [])
+        self.assertEqual(
+            payload["rejected"],
+            [
+                {
+                    "index": 0,
+                    "identity": "movie:777",
+                    "tmdb_id": 777,
+                    "reason": "already_watched",
+                }
+            ],
+        )
+        self.assertIsNone(self.item_by_tmdb(self.current_doc(), 777))
+
+    def test_watched_typed_identity_does_not_reject_same_numeric_tv_candidate(self):
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), set(), {"movie:777"}, []),
+        ):
+            status, payload = self.post_generation(
+                0, [self.candidate(777, media_type="tv")]
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["accepted"][0]["identity"], "tv:777")
+
+    def test_tracked_and_library_precedence_is_preserved_over_watched(self):
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=({"movie:999"}, {"movie:999"}, {"movie:999"}, []),
+        ):
+            status, payload = self.post_generation(0, [self.candidate(999)])
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["rejected"][0]["reason"], "already_tracked")
+
+    def test_legacy_tombstone_blocks_both_typed_candidates(self):
+        self.seed([], presented=["legacy:777"])
+        status, payload = self.post_generation(
+            1,
+            [self.candidate(777), self.candidate(777, media_type="tv")],
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["accepted"], [])
+        self.assertEqual(
+            [(entry["identity"], entry["reason"]) for entry in payload["rejected"]],
+            [("movie:777", "already_presented"), ("tv:777", "already_presented")],
+        )
+        self.assertEqual(self.current_doc()["presented_media_ids"], ["legacy:777"])
+
+
+class WatchedGenerationRotationTests(GenerationApiTestCase):
+    def test_excluded_active_rows_cannot_be_explicitly_retained(self):
+        self.seed(
+            [make_item(7), make_item(8), make_item(9)],
+            presented=["movie:7", "movie:8", "movie:9"],
+        )
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), {"movie:8"}, {"movie:7"}, []),
+        ):
+            status, payload = self.post_generation(
+                rev,
+                [
+                    self.candidate(7, retain=True),
+                    self.candidate(8, retain=True),
+                    self.candidate(10),
+                ],
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            [(entry["identity"], entry["reason"]) for entry in payload["rejected"]],
+            [("movie:7", "already_watched"), ("movie:8", "already_in_library")],
+        )
+        self.assertEqual(sorted(payload["rotated"]), ["movie:7", "movie:8"])
+        self.assertFalse(self.item_by_tmdb(self.current_doc(), 7)["active"])
+        self.assertFalse(self.item_by_tmdb(self.current_doc(), 8)["active"])
+        self.assertTrue(self.item_by_tmdb(self.current_doc(), 9)["active"])
+
+    def test_excluded_active_rows_rotate_even_without_retain_flag(self):
+        self.seed(
+            [make_item(7), make_item(8)],
+            presented=["movie:7", "movie:8"],
+        )
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), {"movie:8"}, {"movie:7"}, []),
+        ):
+            status, payload = self.post_generation(
+                rev,
+                [self.candidate(7), self.candidate(8)],
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            [(entry["identity"], entry["reason"]) for entry in payload["rejected"]],
+            [("movie:7", "already_watched"), ("movie:8", "already_in_library")],
+        )
+        self.assertEqual(sorted(payload["rotated"]), ["movie:7", "movie:8"])
+        self.assertFalse(self.item_by_tmdb(self.current_doc(), 7)["active"])
+        self.assertFalse(self.item_by_tmdb(self.current_doc(), 8)["active"])
+
+    def test_excluded_active_rows_rotate_and_preserve_all_metadata(self):
+        watched = make_item(7, feedback="liked", request_state="requested")
+        watched["feedback_at"] = "2026-01-02T00:00:00Z"
+        watched["requested_at"] = "2026-01-03T00:00:00Z"
+        watched["jellyseerr_request_id"] = 77
+        watched["added_at"] = "2025-12-01T00:00:00Z"
+        library = make_item(8)
+        library["feedback_at"] = None
+        library["requested_at"] = None
+        library["jellyseerr_request_id"] = None
+        library["added_at"] = "2025-12-02T00:00:00Z"
+        untouched = make_item(9)
+        self.seed(
+            [watched, library, untouched],
+            presented=["movie:7", "movie:8", "movie:9"],
+        )
+        before = {
+            key: watched[key]
+            for key in (
+                "id", "identity", "type", "tmdb_id", "feedback", "feedback_at",
+                "request_state", "requested_at", "jellyseerr_request_id", "added_at",
+            )
+        }
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), {"movie:8"}, {"movie:7"}, []),
+        ):
+            status, payload = self.post_generation(rev, [self.candidate(10)])
+        self.assertEqual(status, 200)
+        self.assertEqual(sorted(payload["rotated"]), ["movie:7", "movie:8"])
+        self.assertNotIn("movie:9", payload["rotated"])
+        self.assertTrue(self.item_by_tmdb(self.current_doc(), 9)["active"])
+        rotated_watched = self.item_by_tmdb(self.current_doc(), 7)
+        self.assertFalse(rotated_watched["active"])
+        self.assertEqual(
+            {key: rotated_watched[key] for key in before}, before
+        )
+        self.assertFalse(self.item_by_tmdb(self.current_doc(), 8)["active"])
+
+    def test_stale_watched_snapshot_is_enforced_and_unavailable_is_soft(self):
+        self.seed([make_item(7)], presented=["movie:7"])
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), {"movie:8"}, {"movie:10"}, ["trakt_watched: stale"]),
+        ):
+            status, payload = self.post_generation(rev, [self.candidate(10)])
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["rejected"][0]["reason"], "already_watched")
+
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=(set(), {"movie:8"}, set(), ["trakt_watched: unavailable"]),
+        ):
+            status, payload = self.post_generation(rev, [self.candidate(8)])
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["accepted"], [])
+        self.assertEqual(payload["rejected"][0]["reason"], "already_in_library")
+
+
+class TrackedGenerationRotationTests(GenerationApiTestCase):
+    def test_tracked_active_identity_is_not_required_retain(self):
+        self.seed(
+            [make_item(7), make_item(8)],
+            presented=["movie:7", "movie:8"],
+        )
+        tracked = {"movie:7"}
+        snapshot = discover_routes.LibraryExclusionSnapshot.from_maps(
+            {}, {}, status="fresh", last_successful_refresh_at=None
+        )
+        watched = discover_routes.WatchedSnapshot(frozenset(), None, "fresh")
+        with mock.patch.object(
+            discover_routes, "_get_tracked_media_ids", return_value=(sorted(tracked), [])
+        ):
+            context = discover_routes._hermes_generation_context(
+                self.current_doc(), snapshot, watched
+            )
+        retained = {item["type"] + ":" + str(item["tmdb_id"]) for item in context["required_retain"]}
+        self.assertNotIn("movie:7", retained)
+        self.assertIn("movie:8", retained)
+
+    def test_tracked_active_identity_retain_is_rejected_and_rotated(self):
+        tracked = make_item(7, feedback="liked", request_state="requested")
+        tracked["feedback_at"] = "2026-02-02T00:00:00Z"
+        tracked["requested_at"] = "2026-02-03T00:00:00Z"
+        tracked["jellyseerr_request_id"] = 707
+        tracked["added_at"] = "2025-12-07T00:00:00Z"
+        before = {
+            key: tracked[key]
+            for key in (
+                "id", "identity", "type", "tmdb_id", "feedback", "feedback_at",
+                "request_state", "requested_at", "jellyseerr_request_id", "added_at",
+            )
+        }
+        self.seed([tracked, make_item(8)], presented=["movie:7", "movie:8"])
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=({"movie:7"}, set(), set(), []),
+        ):
+            status, payload = self.post_generation(
+                rev, [self.candidate(7, retain=True)]
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["rejected"][0]["reason"], "already_tracked")
+        self.assertEqual(payload["rotated"], ["movie:7"])
+        rotated = self.item_by_tmdb(self.current_doc(), 7)
+        self.assertFalse(rotated["active"])
+        self.assertEqual({key: rotated[key] for key in before}, before)
+        self.assertTrue(self.item_by_tmdb(self.current_doc(), 8)["active"])
+
+    def test_tracked_active_omission_rotates_but_unrelated_untouched_stays_active(self):
+        self.seed(
+            [make_item(7), make_item(8)],
+            presented=["movie:7", "movie:8"],
+        )
+        rev = self.current_doc()["revision"]
+        with mock.patch(
+            "routes.discover._hermes_exclusion_sets",
+            return_value=({"movie:7"}, set(), set(), []),
+        ):
+            status, payload = self.post_generation(rev, [])
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["rotated"], ["movie:7"])
+        self.assertFalse(self.item_by_tmdb(self.current_doc(), 7)["active"])
+        self.assertTrue(self.item_by_tmdb(self.current_doc(), 8)["active"])
+
+
+class HermesGenerationContextContractTests(GenerationApiTestCase):
+    def test_get_keeps_watched_filtering_badges_without_generation_context(self):
+        self.seed(
+            [make_item(1), make_item(2, media_type="tv"), make_item(3)],
+            presented=["movie:1", "tv:2", "movie:3"],
+        )
+        watched = discover_routes.WatchedSnapshot(
+            frozenset({"tv:42", "movie:42", "movie:42"}),
+            "2026-08-11T12:00:00+00:00",
+            "stale",
+        )
+        library = discover_routes.LibraryExclusionSnapshot.from_maps(
+            {1: "movie-jf"}, {2: "tv-jf"}, status="fresh", last_successful_refresh_at=None
+        )
+        with mock.patch.object(
+            discover_routes, "_trakt_watched_snapshot", return_value=watched
+        ) as watched_snapshot, mock.patch.object(
+            discover_routes, "_library_exclusion_snapshot", return_value=library
+        ), mock.patch.object(
+            discover_routes, "_enrich_hermes_posters", side_effect=lambda values: values
+        ), mock.patch.object(
+            discover_routes, "_get_tracked_media_ids", return_value=([], [])
+        ), mock.patch.object(
+            discover_routes, "send_json", side_effect=lambda _h, _s, payload: setattr(self, "payload", payload)
+        ):
+            discover_routes.handle_discover_hermes_get(object())
+        watched_snapshot.assert_called_once_with()
+        self.assertNotIn("context", self.payload)
+        self.assertEqual(self.payload["watched_exclusion"]["status"], "stale")
+        self.assertEqual(self.payload["items"][0]["excluded_reason"], "in_library")
+        self.assertEqual(self.payload["items"][1]["excluded_reason"], "in_library")
+
+    def test_context_normalizes_duplicate_watched_iterable_at_boundary(self):
+        watched = discover_routes.WatchedSnapshot(
+            ["tv:42", "movie:42", "movie:42"],
+            "2026-08-11T12:00:00+00:00",
+            "stale",
+        )
+        snapshot = discover_routes.LibraryExclusionSnapshot.from_maps(
+            {}, {}, status="fresh", last_successful_refresh_at=None
+        )
+        context = discover_routes._hermes_generation_context(
+            {"items": []}, snapshot, watched
+        )
+        self.assertEqual(context["watched_media_ids"], ["movie:42", "tv:42"])
+
+    def test_watched_active_identity_is_absent_from_required_retain(self):
+        self.seed(
+            [make_item(7), make_item(8, media_type="tv")],
+            presented=["movie:7", "tv:8"],
+        )
+        snapshot = discover_routes.LibraryExclusionSnapshot.from_maps(
+            {}, {}, status="fresh", last_successful_refresh_at=None
+        )
+        watched = discover_routes.WatchedSnapshot(
+            frozenset({"movie:7"}), "2026-08-11T12:00:00+00:00", "stale"
+        )
+        with mock.patch.object(
+            discover_routes, "_get_tracked_media_ids", return_value=([], [])
+        ):
+            context = discover_routes._hermes_generation_context(
+                self.current_doc(), snapshot, watched
+            )
+        self.assertIn("movie:7", context["watched_media_ids"])
+        retained = {item["type"] + ":" + str(item["tmdb_id"]) for item in context["required_retain"]}
+        self.assertNotIn("movie:7", retained)
+        self.assertIn("tv:8", retained)
+
+    def test_unavailable_watched_acquisition_is_soft_and_sanitized(self):
+        def fail_watched_fetch(_path):
+            raise RuntimeError(
+                "credential=SECRET_TOKEN raw-history=Watched Title movie:909"
+            )
+
+        watched_service = discover_routes.TraktWatchedService(fail_watched_fetch)
+        library = discover_routes.LibraryExclusionSnapshot.from_maps(
+            {}, {}, status="fresh", last_successful_refresh_at=None
+        )
+        with mock.patch.object(
+            discover_routes, "_TRAKT_WATCHED_SERVICE", watched_service
+        ), mock.patch.object(
+            discover_routes,
+            "_get_tracked_media_ids",
+            return_value=([], ["radarr: SECRET_TOKEN raw-history=Watched Title movie:909"]),
+        ), mock.patch.object(
+            discover_routes, "_library_exclusion_snapshot", return_value=library
+        ), mock.patch("builtins.print") as printed:
+            tracked, in_library, watched, errors = discover_routes._hermes_exclusion_sets()
+            status, payload = self.post_generation(0, [self.candidate(910)])
+            context = discover_routes._hermes_generation_context(
+                {"items": []}, library
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(tracked, set())
+        self.assertEqual(in_library, set())
+        self.assertEqual(watched, set())
+        self.assertEqual(
+            errors, ["radarr: unavailable", "trakt_watched: unavailable"]
+        )
+        self.assertEqual(
+            context["context_errors"],
+            ["radarr: unavailable", "trakt_watched: unavailable"],
+        )
+        logged = " ".join(str(call) for call in printed.call_args_list)
+        for secret in ("SECRET_TOKEN", "Watched Title", "movie:909"):
+            self.assertNotIn(secret, logged)
+        for error in context["context_errors"]:
+            self.assertNotIn("SECRET_TOKEN", error)
+            self.assertNotIn("Watched Title", error)
+            self.assertNotIn("movie:909", error)
+
+    def test_prompt_documents_watched_deny_list_and_server_rejection(self):
+        prompt_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "recommendations",
+            "HERMES_DISCOVER_PROMPT.md",
+        )
+        with open(prompt_path, encoding="utf-8") as handle:
+            prompt = handle.read()
+        self.assertIn("watched_media_ids", prompt)
+        self.assertIn('"retain": true', prompt)
+        self.assertIn("already_watched", prompt)
+        self.assertIn("Trakt watched", prompt)
+        self.assertIn("tracked, library, and watched", prompt)
+
+    def test_prompt_uses_normalized_trakt_item_identity_fields(self):
+        prompt_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "recommendations",
+            "HERMES_DISCOVER_PROMPT.md",
+        )
+        with open(prompt_path, encoding="utf-8") as handle:
+            prompt = handle.read()
+        self.assertIn("items[].type", prompt)
+        self.assertIn("items[].tmdb_id", prompt)
+        self.assertNotIn("ids.tmdb", prompt)
 
 
 class FeedbackPatchTests(GenerationApiTestCase):

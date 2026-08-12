@@ -3,6 +3,12 @@ type DiscoverMediaType = 'movie' | 'tv';
 export type DiscoverSourceTab = 'hermes' | 'jellyseerr' | 'trakt';
 export type JellyseerrDiscoverKind = 'trending' | 'movies' | 'tv';
 export type TraktDiscoverType = 'movies' | 'shows';
+type LibraryExclusionStatus = 'fresh' | 'stale' | 'unavailable';
+
+export interface LibraryExclusionState {
+  status: LibraryExclusionStatus;
+  last_successful_refresh_at: string | null;
+}
 
 export interface DiscoverItem {
   id: string;
@@ -19,6 +25,8 @@ export interface DiscoverItem {
   requested_at: string | null;
   jellyseerr_request_id: number | null;
   in_library?: boolean;
+  excluded_reason?: 'in_library' | 'watched_on_trakt' | null;
+  watched_on_trakt?: boolean;
   jellyfin_id?: string | null;
   poster_path?: string | null;
   poster_url?: string | null;
@@ -41,6 +49,12 @@ export interface ExternalDiscoverItem {
 }
 
 export type ExternalDiscoverAvailability = 'available' | 'disabled';
+type WatchedExclusionStatus = 'fresh' | 'stale' | 'unavailable';
+
+export interface WatchedExclusionState {
+  status: WatchedExclusionStatus;
+  last_successful_refresh_at: string | null;
+}
 
 export interface HermesDiscover {
   ok: boolean;
@@ -48,17 +62,23 @@ export interface HermesDiscover {
   pending_request_sync?: { id: string; jellyseerr_request_id: number }[];
   generation_request?: { requested_at: string; status: 'pending' } | null;
   error?: string;
+  library_exclusion?: LibraryExclusionState;
+  watched_exclusion?: WatchedExclusionState;
 }
 
 export interface ExternalDiscover {
   ok: boolean;
   items: ExternalDiscoverItem[];
   availability?: ExternalDiscoverAvailability;
+  code?: 'reconnect_required';
   error?: string;
+  library_exclusion?: LibraryExclusionState;
+  watched_exclusion?: WatchedExclusionState;
 }
 
 export interface DiscoverAction {
   ok: boolean;
+  code?: 'reconnect_required';
   error?: string;
   message?: string;
   partial_success?: boolean;

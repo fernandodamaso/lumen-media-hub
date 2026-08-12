@@ -223,6 +223,7 @@ Available modes:
 | `frontend-dev` | Installs the Angular workspace for Demo development |
 | `stack` | Creates environment configuration and starts the Docker media stack |
 | `both` | Runs frontend setup, then stack setup |
+| `connect-trakt` | Authorizes the local Trakt OAuth app and saves renewable state under the ignored host state directory |
 
 Useful flags:
 
@@ -230,6 +231,13 @@ Useful flags:
 .\install.ps1 -Mode both -Force
 .\install.ps1 -Mode both -Gpu
 ```
+
+For Trakt Discover, set `TRAKT_CLIENT_ID` and `TRAKT_CLIENT_SECRET` in the
+local `.env`, then run `.\install.ps1 -Mode connect-trakt`. The backend stores
+access and refresh tokens under the writable `/state` mount and replaces both
+tokens atomically. Its private watched cache keeps only typed movie/show
+identities for 15 minutes; raw history is never persisted. A stale cache keeps
+filtering with a warning, while an unavailable cache fails open with a warning.
 
 The installer intentionally does **not** configure indexers, libraries or third-party API keys inside the individual media applications. Those remain explicit first-run service setup steps.
 

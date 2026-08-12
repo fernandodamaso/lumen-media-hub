@@ -33,6 +33,54 @@ describe('DiscoverPage', () => {
     expect(facade.setTab).toHaveBeenCalledWith('jellyseerr');
   });
 
+  it('renders the preserved Hermes History card with an In library badge', () => {
+    facade.status.set('ready');
+    facade.tab.set('hermes');
+    facade.visibleItems.set([
+      card({ title: 'The Bear', inLibrary: true, excludedReason: 'in_library' }),
+    ]);
+    fixture.detectChanges();
+
+    clickHermesView('History');
+    facade.hermesView.set('history');
+    fixture.detectChanges();
+
+    expect(facade.setHermesView).toHaveBeenCalledWith('history');
+    expect(fixtureHost(fixture).textContent).toContain('The Bear');
+    expect(fixtureHost(fixture).textContent).toContain('In library');
+  });
+
+  it('renders a Watched on Trakt badge for automatic watched projection', () => {
+    facade.status.set('ready');
+    facade.tab.set('hermes');
+    facade.visibleItems.set([
+      card({ title: 'The Bear', watchedOnTrakt: true, excludedReason: 'watched_on_trakt' }),
+    ]);
+    fixture.detectChanges();
+
+    expect(fixtureHost(fixture).textContent).toContain('Watched on Trakt');
+    expect(fixtureHost(fixture).textContent).not.toContain('In library');
+  });
+
+  it('renders the watched snapshot warning for Hermes', () => {
+    facade.status.set('ready');
+    facade.notice.set('Watched filtering is using a cached snapshot.');
+    fixture.detectChanges();
+
+    expect(fixtureHost(fixture).textContent).toContain('Watched filtering is using a cached snapshot.');
+  });
+
+  it('renders the complete Hermes unavailable message', () => {
+    facade.status.set('ready');
+    facade.notice.set('Watched filtering is unavailable. Showing Hermes recommendations.');
+    fixture.detectChanges();
+
+    expect(fixtureHost(fixture).textContent).toContain(
+      'Watched filtering is unavailable. Showing Hermes recommendations.',
+    );
+    expect(fixtureHost(fixture).textContent).not.toContain('Showing Trakt recommendations');
+  });
+
   it('keeps Request in the footer for every source and only mounts Hermes feedback', () => {
     facade.status.set('ready');
     facade.visibleItems.set([card({ title: 'Signal Drift' })]);
@@ -334,6 +382,7 @@ function card(overrides: Partial<DiscoverCardItem> = {}): DiscoverCardItem {
     feedback: null,
     requestState: null,
     inLibrary: false,
+    watchedOnTrakt: false,
     ...overrides,
   };
 }

@@ -7,10 +7,13 @@
       [art]="fallbackArt()"
       [captionPlacement]="'none'"
     />
-    @if (item().inLibrary || item().requestState === 'requested' || syncFailed() || item().feedback) {
+    @if (item().inLibrary || item().watchedOnTrakt || item().requestState === 'requested' || syncFailed() || item().feedback) {
       <div class="discover-card__badges">
         @if (item().inLibrary) {
           <mm-status tone="success">In library</mm-status>
+        }
+        @if (item().watchedOnTrakt && !item().inLibrary) {
+          <mm-status tone="info">Watched on Trakt</mm-status>
         }
         @if (item().requestState === 'requested') {
           <mm-status tone="info">Requested</mm-status>

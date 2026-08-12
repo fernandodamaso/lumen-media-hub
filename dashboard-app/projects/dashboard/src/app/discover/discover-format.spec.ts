@@ -9,6 +9,7 @@ import {
   toExternalCardItem,
   toHermesCardItem,
 } from './discover-format';
+import { mapHermesDiscover } from './discover-format';
 
 function hermesItem(overrides: Partial<DiscoverItem> = {}): DiscoverItem {
   return {
@@ -31,6 +32,51 @@ function hermesItem(overrides: Partial<DiscoverItem> = {}): DiscoverItem {
 }
 
 describe('discover-format', () => {
+  it('whitelists Hermes item fields and drops backend-only metadata', () => {
+    const mapped = mapHermesDiscover({
+      ok: true,
+      items: [{
+        id: 'item-1',
+        source: 'hermes',
+        type: 'movie',
+        title: 'Signal Drift',
+        year: 2024,
+        tmdb_id: 101001,
+        active: true,
+        feedback: null,
+        feedback_at: null,
+        request_state: null,
+        requested_at: null,
+        jellyseerr_request_id: null,
+        in_library: false,
+        added_at: '2026-07-10T12:00:00Z',
+        token: 'secret-token',
+        watched_at: '2026-07-10T12:00:00Z',
+        provider_metadata: { internal_id: 'private' },
+      } as never],
+    });
+
+    expect(mapped.items[0]).toEqual({
+      id: 'item-1',
+      source: 'hermes',
+      type: 'movie',
+      title: 'Signal Drift',
+      year: 2024,
+      tmdb_id: 101001,
+      active: true,
+      feedback: null,
+      feedback_at: null,
+      request_state: null,
+      requested_at: null,
+      jellyseerr_request_id: null,
+      in_library: false,
+      added_at: '2026-07-10T12:00:00Z',
+    });
+    expect(mapped.items[0]).not.toHaveProperty('token');
+    expect(mapped.items[0]).not.toHaveProperty('watched_at');
+    expect(mapped.items[0]).not.toHaveProperty('provider_metadata');
+  });
+
   it('maps request button labels and titles to the contract matrix', () => {
     expect(resolveRequestAction({ tmdbId: 0, requestState: null, inLibrary: false })).toEqual({
       label: 'No TMDB ID',
@@ -135,5 +181,38 @@ describe('discover-format', () => {
     expect(
       toExternalCardItem({ type: 'tv', title: 'Relay', tmdb_id: 9 }, 'trakt', new Set(['tv:9'])).requestState,
     ).toBe('requested');
+  });
+
+  it('keeps an in-library Hermes item out of Active while preserving it for History', () => {
+    const item = hermesItem({ active: true, excluded_reason: 'in_library', in_library: true });
+    expect(isHermesActiveItem(item)).toBe(false);
+    expect(toHermesCardItem(item)).toMatchObject({ inLibrary: true, excludedReason: 'in_library' });
+  });
+
+  it('derives the In library badge from the exclusion reason', () => {
+    const item = hermesItem({ in_library: false, excluded_reason: 'in_library' });
+    expect(toHermesCardItem(item).inLibrary).toBe(true);
+  });
+
+  it('keeps a Trakt-watched Hermes item out of Active and in the Watched History filter', () => {
+    const item = hermesItem({ active: true, excluded_reason: 'watched_on_trakt', watched_on_trakt: true });
+    expect(isHermesActiveItem(item)).toBe(false);
+    expect(matchesHistoryFilter(item, 'watched')).toBe(true);
+    expect(toHermesCardItem(item)).toMatchObject({
+      watchedOnTrakt: true,
+      excludedReason: 'watched_on_trakt',
+      inLibrary: false,
+    });
+  });
+
+  it('keeps library precedence while retaining Watched filter eligibility', () => {
+    const item = hermesItem({ active: true, excluded_reason: 'in_library', in_library: true, watched_on_trakt: true });
+    expect(isHermesActiveItem(item)).toBe(false);
+    expect(matchesHistoryFilter(item, 'watched')).toBe(true);
+    expect(toHermesCardItem(item)).toMatchObject({
+      watchedOnTrakt: true,
+      excludedReason: 'in_library',
+      inLibrary: true,
+    });
   });
 });

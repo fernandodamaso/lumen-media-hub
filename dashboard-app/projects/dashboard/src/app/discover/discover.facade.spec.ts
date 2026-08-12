@@ -4,6 +4,8 @@ import { DiscoverAction, DiscoverFeedback, DiscoverItem, DiscoverRequestPayload,
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { DiscoverFacade, SCHEDULED_REFRESH_TIMEOUT_MS } from './discover.facade';
 
+type ExclusionFixture = { status: 'fresh' | 'stale' | 'unavailable'; last_successful_refresh_at: string | null };
+
 describe('DiscoverFacade', () => {
   let api: MockApi;
   let facade: DiscoverFacade;
@@ -52,6 +54,208 @@ describe('DiscoverFacade', () => {
     expect(facade.error()).toBe('');
     expect(facade.notice()).toBe('');
     expect(facade.visibleItems()).toEqual([]);
+  });
+
+  it('warns when Jellyseerr watched filtering is stale or unavailable and clears on fresh recovery', async () => {
+    api.jellyseerrWatchedExclusion = { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' };
+    await facade.setTab('jellyseerr');
+    expect(facade.notice()).toContain('Jellyseerr');
+    expect(facade.notice()).toContain('cached snapshot');
+
+    api.jellyseerrWatchedExclusion = { status: 'unavailable', last_successful_refresh_at: null };
+    await facade.setTab('jellyseerr');
+    expect(facade.notice()).toContain('Watched filtering is unavailable');
+    expect(facade.notice()).toContain('Jellyseerr');
+
+    api.jellyseerrWatchedExclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:15:00Z' };
+    await facade.setTab('jellyseerr');
+    expect(facade.notice()).toBe('');
+  });
+
+  it('warns and recovers library filtering independently for Hermes, Jellyseerr, and Trakt', async () => {
+    api.hermes.library_exclusion = { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' };
+    await facade.setTab('hermes');
+    expect(facade.notice()).toContain('Library filtering');
+    api.hermes.library_exclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:01:00Z' };
+    await facade.setTab('hermes');
+    expect(facade.notice()).toBe('');
+
+    api.jellyseerrLibraryExclusion = { status: 'unavailable', last_successful_refresh_at: null };
+    await facade.setTab('jellyseerr');
+    expect(facade.notice()).toContain('Library filtering is unavailable');
+    api.jellyseerrLibraryExclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:02:00Z' };
+    await facade.setTab('jellyseerr');
+    expect(facade.notice()).toBe('');
+
+    api.traktLibraryExclusion = { status: 'stale', last_successful_refresh_at: '2026-08-11T12:03:00Z' };
+    await facade.setTab('trakt');
+    expect(facade.notice()).toContain('Library filtering is using a cached snapshot');
+    api.traktLibraryExclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:04:00Z' };
+    await facade.setTab('trakt');
+    expect(facade.notice()).toBe('');
+  });
+
+  it('keeps watched and library warnings visible together and recovers each independently', async () => {
+    api.traktWatchedExclusion = { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' };
+    api.traktLibraryExclusion = { status: 'unavailable', last_successful_refresh_at: null };
+    await facade.setTab('trakt');
+    expect(facade.notice()).toContain('Watched filtering');
+    expect(facade.notice()).toContain('Library filtering');
+
+    api.traktWatchedExclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:01:00Z' };
+    await facade.setTab('trakt');
+    expect(facade.notice()).not.toContain('Watched filtering');
+    expect(facade.notice()).toContain('Library filtering');
+    api.traktLibraryExclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:02:00Z' };
+    await facade.setTab('trakt');
+    expect(facade.notice()).toBe('');
+  });
+
+  it('does not let a late Jellyseerr library state overwrite the active Trakt warning', async () => {
+    const deferred = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      availability: ExternalDiscoverAvailability;
+      library_exclusion: { status: 'stale' | 'unavailable'; last_successful_refresh_at: string | null };
+      watched_exclusion: { status: 'fresh'; last_successful_refresh_at: string | null };
+    }>();
+    api.jellyseerrGate = deferred.promise;
+    const jellyseerrLoad = facade.setTab('jellyseerr');
+    await facade.setTab('trakt');
+    api.traktLibraryExclusion = { status: 'unavailable', last_successful_refresh_at: null };
+    await facade.setTab('trakt');
+    expect(facade.notice()).toContain('Trakt');
+
+    deferred.resolve({
+      ok: true,
+      items: api.jellyseerr.trending,
+      availability: 'available',
+      library_exclusion: { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' },
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await jellyseerrLoad;
+    expect(facade.tab()).toBe('trakt');
+    expect(facade.notice()).toContain('Trakt');
+    expect(facade.notice()).not.toContain('Jellyseerr');
+  });
+
+  it('keeps Trakt cards and warns when watched filtering is unavailable', async () => {
+    api.traktWatchedExclusion = { status: 'unavailable', last_successful_refresh_at: null };
+
+    await facade.setTab('trakt');
+
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trakt Horizon']);
+    expect(facade.notice()).toContain('Watched filtering is unavailable');
+  });
+
+  it('shows a stale watched warning and clears it after a fresh refresh', async () => {
+    api.traktWatchedExclusion = {
+      status: 'stale',
+      last_successful_refresh_at: '2026-08-11T12:00:00+00:00',
+    };
+    await facade.setTab('trakt');
+    expect(facade.notice()).toContain('cached snapshot');
+
+    api.traktWatchedExclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:15:00+00:00' };
+    await facade.setTab('trakt');
+    expect(facade.notice()).toBe('');
+  });
+
+  it('shows a stale watched warning for Hermes and clears it after fresh recovery', async () => {
+    api.hermes.watched_exclusion = {
+      status: 'stale',
+      last_successful_refresh_at: '2026-08-11T12:00:00+00:00',
+    };
+    await facade.setTab('hermes');
+
+    expect(facade.visibleItems()).toHaveLength(1);
+    expect(facade.notice()).toContain('cached snapshot');
+
+    api.hermes.watched_exclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:15:00+00:00' };
+    await facade.setTab('hermes');
+    expect(facade.visibleItems()).toHaveLength(1);
+    expect(facade.notice()).toBe('');
+  });
+
+  it('shows an unavailable watched warning for Hermes while preserving cards', async () => {
+    api.hermes.watched_exclusion = { status: 'unavailable', last_successful_refresh_at: null };
+    await facade.setTab('hermes');
+
+    expect(facade.visibleItems()).toHaveLength(1);
+    expect(facade.notice()).toBe('Watched filtering is unavailable. Showing Hermes recommendations.');
+  });
+
+  it('renders the local Trakt reconnect instruction only for the safe backend code', async () => {
+    api.traktError = { message: 'Trakt reconnect required', code: 'reconnect_required' };
+    await facade.setTab('trakt');
+    expect(facade.notice()).toBe('Trakt reconnect required. Run .\\install.ps1 -Mode connect-trakt.');
+
+    api.traktError = { message: 'Trakt request failed' };
+    await facade.setTab('trakt');
+    expect(facade.notice()).not.toContain('connect-trakt');
+  });
+
+  it('uses safe copy for Hermes browse failures and does not expose backend text', async () => {
+    api.hermes = { ok: false, items: [], error: '<script>backend-secret</script>' };
+
+    await facade.setTab('hermes');
+
+    expect(facade.status()).toBe('error');
+    expect(facade.error()).toBe('Discover is temporarily unavailable. Try again.');
+    expect(facade.notice()).toBe('');
+    expect(facade.notice()).not.toContain('backend-secret');
+  });
+
+  it('composes mutation and exclusion notices with spacing and warning tone', async () => {
+    api.hermes.library_exclusion = { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' };
+    await facade.setTab('hermes');
+    api.requestResult = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
+    await facade.requestItem(facade.visibleItems()[0]);
+
+    expect(facade.notice()).toBe(
+      'Requested. Library filtering is using a cached snapshot. Showing Hermes recommendations.',
+    );
+    expect(facade.noticeTone()).toBe('warning');
+
+    api.hermes.library_exclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:15:00Z' };
+    await facade.setTab('hermes');
+    expect(facade.notice()).toBe('Requested.');
+    expect(facade.noticeTone()).toBe('success');
+  });
+
+  it('does not show a Trakt reconnect command for Jellyseerr errors', async () => {
+    api.jellyseerrError = { message: 'internal reconnect', code: 'reconnect_required' };
+
+    await facade.setTab('jellyseerr');
+
+    expect(facade.error()).toBe('Discover is temporarily unavailable. Try again.');
+    expect(facade.notice()).toBe('');
+    expect(facade.notice()).not.toContain('connect-trakt');
+  });
+
+  it('uses safe load-error copy for arbitrary Trakt backend error text', async () => {
+    await facade.setTab('trakt');
+    api.traktError = { message: '<img src=x onerror=alert(1)>' };
+
+    await facade.setTab('trakt');
+
+    expect(facade.notice()).toBe('Could not refresh. Showing last loaded results.');
+    expect(facade.notice()).not.toContain('onerror');
+  });
+
+  it('keeps a mutation notice while exclusion freshness changes and recovers', async () => {
+    await facade.setTab('hermes');
+    api.requestResult = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
+    api.hermes.library_exclusion = { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' };
+    await facade.requestItem(facade.visibleItems()[0]);
+
+    expect(facade.notice()).toContain('Requested.');
+    expect(facade.notice()).toContain('Library filtering');
+
+    api.hermes.library_exclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:15:00Z' };
+    await facade.setTab('hermes');
+
+    expect(facade.notice()).toBe('Requested.');
   });
 
   it('preserves disabled Jellyseerr availability while a tab refresh is pending', async () => {
@@ -156,6 +360,46 @@ describe('DiscoverFacade', () => {
     facade.setHermesView('history');
     facade.setHistoryFilter('watched');
     expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(true);
+  });
+
+  it('moves an excluded Hermes item from Active to History without removing it', async () => {
+    api.hermes.items = [
+      {
+        ...api.hermes.items[0],
+        title: 'The Bear',
+        active: true,
+        in_library: true,
+        excluded_reason: 'in_library',
+      },
+    ];
+
+    await facade.setTab('hermes');
+    expect(facade.visibleItems()).toEqual([]);
+
+    facade.setHermesView('history');
+    expect(facade.visibleItems()).toMatchObject([
+      { title: 'The Bear', inLibrary: true, excludedReason: 'in_library' },
+    ]);
+  });
+
+  it('moves a projected Trakt-watched Hermes item from Active to Watched History', async () => {
+    api.hermes.items = [
+      {
+        ...api.hermes.items[0],
+        active: true,
+        excluded_reason: 'watched_on_trakt',
+        watched_on_trakt: true,
+      },
+    ];
+
+    await facade.setTab('hermes');
+    expect(facade.visibleItems()).toEqual([]);
+
+    facade.setHermesView('history');
+    facade.setHistoryFilter('watched');
+    expect(facade.visibleItems()).toMatchObject([
+      { title: 'Signal Drift', watchedOnTrakt: true, excludedReason: 'watched_on_trakt' },
+    ]);
   });
 
   it('requestItem calls only requestMedia and tracks sync-failed notices', async () => {
@@ -362,6 +606,26 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trending Ember']);
   });
 
+  it('does not let a late Hermes success clear the active Trakt watched warning', async () => {
+    const { promise: hermesGate, resolve: releaseHermes } = Promise.withResolvers<HermesDiscover>();
+    api.hermesGate = hermesGate;
+    const pending = facade.setTab('hermes');
+    await Promise.resolve();
+
+    api.traktWatchedExclusion = { status: 'unavailable', last_successful_refresh_at: null };
+    await facade.setTab('trakt');
+    expect(facade.notice()).toBe('Watched filtering is unavailable. Showing Trakt recommendations.');
+
+    releaseHermes({
+      ...api.hermes,
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await pending;
+
+    expect(facade.tab()).toBe('trakt');
+    expect(facade.notice()).toBe('Watched filtering is unavailable. Showing Trakt recommendations.');
+  });
+
   it('ignores stale Jellyseerr failures after switching to Trakt', async () => {
     const { promise: jellyseerrGate, resolve: releaseJellyseerr } = Promise.withResolvers<{
       ok: boolean;
@@ -439,6 +703,86 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Neon Archive']);
   });
 
+  it('does not commit an older same-kind Jellyseerr success while a newer request is pending', async () => {
+    const first = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      availability?: ExternalDiscoverAvailability;
+      watched_exclusion?: ExclusionFixture;
+    }>();
+    api.jellyseerrGate = first.promise;
+    const firstLoad = facade.setTab('jellyseerr');
+    await Promise.resolve();
+
+    const second = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      availability?: ExternalDiscoverAvailability;
+      watched_exclusion?: ExclusionFixture;
+    }>();
+    api.jellyseerrGate = second.promise;
+    const secondLoad = facade.setTab('jellyseerr');
+    await Promise.resolve();
+
+    first.resolve({
+      ok: true,
+      items: [{ type: 'movie', title: 'Older Jellyseerr', tmdb_id: 91 }],
+      watched_exclusion: { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' },
+    });
+    await firstLoad;
+    expect(facade.visibleItems()).toEqual([]);
+    expect(facade.notice()).not.toContain('cached snapshot');
+
+    second.resolve({
+      ok: true,
+      items: [{ type: 'movie', title: 'Newer Jellyseerr', tmdb_id: 92 }],
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await secondLoad;
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Newer Jellyseerr']);
+  });
+
+  it('does not commit an older same-type Trakt success while a newer request is pending', async () => {
+    const first = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      library_exclusion?: ExclusionFixture;
+      watched_exclusion?: ExclusionFixture;
+    }>();
+    api.traktGate = first.promise;
+    const firstLoad = facade.setTab('trakt');
+    await Promise.resolve();
+
+    const second = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      library_exclusion?: ExclusionFixture;
+      watched_exclusion?: ExclusionFixture;
+    }>();
+    api.traktGate = second.promise;
+    const secondLoad = facade.setTab('trakt');
+    await Promise.resolve();
+
+    first.resolve({
+      ok: true,
+      items: [{ type: 'movie', title: 'Older Trakt', tmdb_id: 81 }],
+      library_exclusion: { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' },
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await firstLoad;
+    expect(facade.visibleItems()).toEqual([]);
+    expect(facade.notice()).not.toContain('cached snapshot');
+
+    second.resolve({
+      ok: true,
+      items: [{ type: 'movie', title: 'Newer Trakt', tmdb_id: 82 }],
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await secondLoad;
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Newer Trakt']);
+  });
+
   it('retains last-good Hermes results when a background refresh fails', async () => {
     await facade.setTab('hermes');
     expect(facade.status()).toBe('ready');
@@ -449,7 +793,7 @@ describe('DiscoverFacade', () => {
     expect(facade.status()).toBe('ready');
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
     expect(facade.noticeTone()).toBe('warning');
-    expect(facade.notice()).toContain('Showing last loaded');
+    expect(facade.notice()).toBe('Could not refresh. Showing last loaded results.');
   });
 
   it('retains an empty Hermes last-good state when a later refresh fails', async () => {
@@ -463,14 +807,14 @@ describe('DiscoverFacade', () => {
     expect(facade.status()).toBe('empty');
     expect(facade.error()).toBe('');
     expect(facade.noticeTone()).toBe('warning');
-    expect(facade.notice()).toContain('Showing last loaded');
+    expect(facade.notice()).toBe('Could not refresh. Showing last loaded results.');
   });
 
   it('hard-errors on the initial Hermes load failure', async () => {
     api.hermes = { ok: false, items: [], error: 'Hermes offline' };
     await facade.setTab('hermes');
     expect(facade.status()).toBe('error');
-    expect(facade.error()).toContain('Hermes offline');
+    expect(facade.error()).toBe('Discover is temporarily unavailable. Try again.');
     expect(facade.visibleItems()).toEqual([]);
   });
 
@@ -481,12 +825,12 @@ describe('DiscoverFacade', () => {
     await facade.requestItem(facade.visibleItems()[0]);
     expect(facade.status()).toBe('ready');
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
-    expect(facade.noticeTone()).toBe('success');
+    expect(facade.noticeTone()).toBe('warning');
     expect(facade.notice()).toContain('Requested');
-    expect(facade.notice()).toContain('may be stale');
+    expect(facade.notice()).toBe('Requested. Could not refresh. Showing last loaded results.');
   });
 
-  it('applies a superseded successful Hermes payload when recovering an exclusive error', async () => {
+  it('ignores a superseded Hermes success after a newer failure', async () => {
     const { promise: firstGate, resolve: releaseFirst } = Promise.withResolvers<HermesDiscover>();
     api.hermesGate = firstGate;
     const first = facade.setTab('hermes');
@@ -518,9 +862,50 @@ describe('DiscoverFacade', () => {
       ],
     });
     await first;
-    expect(facade.status()).toBe('ready');
-    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Recovered Title']);
-    expect(facade.error()).toBe('');
+    expect(facade.status()).toBe('error');
+    expect(facade.visibleItems()).toEqual([]);
+    expect(facade.error()).toBe('Discover is temporarily unavailable. Try again.');
+  });
+
+  it('does not cache an inactive Jellyseerr response after navigating away and back', async () => {
+    const { promise, resolve } = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      availability?: ExternalDiscoverAvailability;
+      library_exclusion?: ExclusionFixture;
+      watched_exclusion?: ExclusionFixture;
+    }>();
+    api.jellyseerrGate = promise;
+    const pending = facade.setTab('jellyseerr');
+    await Promise.resolve();
+
+    await facade.setTab('hermes');
+    resolve({
+      ok: true,
+      items: [{ type: 'movie', title: 'Stale Jellyseerr', tmdb_id: 991 }],
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await pending;
+
+    const { promise: current, resolve: releaseCurrent } = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      availability?: ExternalDiscoverAvailability;
+      library_exclusion?: ExclusionFixture;
+      watched_exclusion?: ExclusionFixture;
+    }>();
+    api.jellyseerrGate = current;
+    const returned = facade.setTab('jellyseerr');
+    await Promise.resolve();
+    expect(facade.visibleItems()).toEqual([]);
+    releaseCurrent({
+      ok: true,
+      items: [{ type: 'movie', title: 'Fresh Jellyseerr', tmdb_id: 992 }],
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await returned;
   });
 
   it('keeps browse status ready while a request mutation is busy', async () => {
@@ -667,6 +1052,8 @@ async function flush(): Promise<void> {
 class MockApi implements MediaStackApi {
   hermes: HermesDiscover = {
     ok: true,
+    library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     items: [
       {
         id: 'hermes-eligible',
@@ -695,6 +1082,21 @@ class MockApi implements MediaStackApi {
     movies: [{ type: 'movie', title: 'Trakt Horizon', tmdb_id: 4 }],
     shows: [{ type: 'tv', title: 'Trakt Relay', tmdb_id: 5 }],
   };
+  traktWatchedExclusion: ExclusionFixture = {
+    status: 'fresh',
+    last_successful_refresh_at: null,
+  };
+  jellyseerrWatchedExclusion: ExclusionFixture = {
+    status: 'fresh', last_successful_refresh_at: null,
+  };
+  jellyseerrLibraryExclusion: ExclusionFixture = {
+    status: 'fresh', last_successful_refresh_at: null,
+  };
+  traktLibraryExclusion: ExclusionFixture = {
+    status: 'fresh', last_successful_refresh_at: null,
+  };
+  traktError: { message: string; code?: 'reconnect_required' } | null = null;
+  jellyseerrError: { message: string; code?: 'reconnect_required' } | null = null;
   hermesCalls = 0;
   jellyseerrCalls: JellyseerrDiscoverKind[] = [];
   traktCalls: TraktDiscoverType[] = [];
@@ -709,6 +1111,14 @@ class MockApi implements MediaStackApi {
     ok: boolean;
     items: ExternalDiscoverItem[];
     availability?: ExternalDiscoverAvailability;
+    library_exclusion?: ExclusionFixture;
+    watched_exclusion?: ExclusionFixture;
+  }> | null = null;
+  traktGate: Promise<{
+    ok: boolean;
+    items: ExternalDiscoverItem[];
+    library_exclusion?: ExclusionFixture;
+    watched_exclusion?: ExclusionFixture;
   }> | null = null;
   jellyseerrAvailability: 'available' | 'disabled' = 'available';
   requestGate: Promise<DiscoverAction> | null = null;
@@ -790,6 +1200,9 @@ class MockApi implements MediaStackApi {
   }
   listJellyseerrDiscover(kind: JellyseerrDiscoverKind, signal?: AbortSignal) {
     this.jellyseerrCalls.push(kind);
+    if (this.jellyseerrError) {
+      return Promise.reject(Object.assign(new Error(this.jellyseerrError.message), { code: this.jellyseerrError.code }));
+    }
     if (this.jellyseerrGate) {
       const gate = this.jellyseerrGate;
       this.jellyseerrGate = null;
@@ -799,11 +1212,24 @@ class MockApi implements MediaStackApi {
       ok: true,
       items: this.jellyseerr[kind].map((item) => ({ ...item })),
       availability: this.jellyseerrAvailability,
+      library_exclusion: this.jellyseerrLibraryExclusion,
+      watched_exclusion: this.jellyseerrWatchedExclusion,
     });
   }
   listTraktDiscover(type: TraktDiscoverType, _signal?: AbortSignal) {
     this.traktCalls.push(type);
-    return Promise.resolve({ ok: true, items: this.trakt[type].map((item) => ({ ...item })) });
+    if (this.traktGate) {
+      const gate = this.traktGate;
+      this.traktGate = null;
+      return gate;
+    }
+    if (this.traktError) return Promise.reject(Object.assign(new Error(this.traktError.message), { code: this.traktError.code }));
+    return Promise.resolve({
+      ok: true,
+      items: this.trakt[type].map((item) => ({ ...item })),
+      library_exclusion: this.traktLibraryExclusion,
+      watched_exclusion: this.traktWatchedExclusion,
+    });
   }
   requestMedia(payload: DiscoverRequestPayload) {
     this.requestCalls.push(payload);

@@ -788,6 +788,16 @@ export function requireHermesDiscoverPayload(data: Record<string, unknown>): voi
 
   requirePendingRequestSync(data['pending_request_sync']);
   requireGenerationRequest(data['generation_request']);
+  const library = data['library_exclusion'];
+  if (library === undefined || library === null) {
+    throw new Error('Malformed Hermes response: library_exclusion is required');
+  }
+  requireLibraryExclusion(library, 'Hermes');
+  const watched = data['watched_exclusion'];
+  if (watched === undefined || watched === null) {
+    throw new Error('Malformed Hermes response: watched_exclusion is required');
+  }
+  requireWatchedExclusion(watched, 'Hermes');
 }
 
 function requirePendingRequestSync(pending: unknown): void {
@@ -837,6 +847,43 @@ export function requireExternalDiscoverPayload(
   items.forEach((item, index) => {
     requireLiveExternalDiscoverItem(item, index, resource);
   });
+  // Disabled Jellyseerr is an explicit capability response and has no source snapshots.
+  if (resource === 'Jellyseerr' && data['enabled'] === false) return;
+  const library = data['library_exclusion'];
+  if (library === undefined || library === null) {
+    throw new Error(`Malformed ${resource} response: library_exclusion is required`);
+  }
+  requireLibraryExclusion(library, resource);
+  const watched = data['watched_exclusion'];
+  if (watched === undefined || watched === null) {
+    throw new Error(`Malformed ${resource} response: watched_exclusion is required`);
+  }
+  requireWatchedExclusion(watched, resource);
+}
+
+function requireWatchedExclusion(value: unknown, resource: 'Hermes' | 'Jellyseerr' | 'Trakt'): void {
+  if (value === undefined || value === null) return;
+  if (!isRecord(value) || !['fresh', 'stale', 'unavailable'].includes(String(value['status']))) {
+    throw new Error(`Malformed ${resource} response: watched_exclusion is invalid`);
+  }
+  if (value['last_successful_refresh_at'] !== null && typeof value['last_successful_refresh_at'] !== 'string') {
+    throw new Error(`Malformed ${resource} response: watched_exclusion timestamp is invalid`);
+  }
+  if (typeof value['last_successful_refresh_at'] === 'string' && Number.isNaN(Date.parse(value['last_successful_refresh_at']))) {
+    throw new Error(`Malformed ${resource} response: watched_exclusion timestamp is invalid`);
+  }
+}
+
+function requireLibraryExclusion(value: unknown, resource: 'Hermes' | 'Jellyseerr' | 'Trakt'): void {
+  if (!isRecord(value) || !['fresh', 'stale', 'unavailable'].includes(String(value['status']))) {
+    throw new Error(`Malformed ${resource} response: library_exclusion is invalid`);
+  }
+  if (value['last_successful_refresh_at'] !== null && typeof value['last_successful_refresh_at'] !== 'string') {
+    throw new Error(`Malformed ${resource} response: library_exclusion timestamp is invalid`);
+  }
+  if (typeof value['last_successful_refresh_at'] === 'string' && Number.isNaN(Date.parse(value['last_successful_refresh_at']))) {
+    throw new Error(`Malformed ${resource} response: library_exclusion timestamp is invalid`);
+  }
 }
 
 /**
@@ -876,6 +923,16 @@ function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDisco
   const requestedAt = optionalNullableString(raw, 'requested_at', index, 'Hermes') ?? null;
   const jellyseerrRequestId = optionalNullableFiniteNumber(raw, 'jellyseerr_request_id', index, 'Hermes');
   const inLibrary = optionalBoolean(raw, 'in_library', index, 'Hermes');
+  const watchedOnTrakt = optionalBoolean(raw, 'watched_on_trakt', index, 'Hermes');
+  const excludedReasonRaw = optionalNullableString(raw, 'excluded_reason', index, 'Hermes');
+  if (
+    excludedReasonRaw !== undefined &&
+    excludedReasonRaw !== null &&
+    excludedReasonRaw !== 'in_library' &&
+    excludedReasonRaw !== 'watched_on_trakt'
+  ) {
+    throw new Error(`Malformed Hermes response: member ${index} has invalid excluded_reason`);
+  }
   const jellyfinId = optionalNullableString(raw, 'jellyfin_id', index, 'Hermes');
   const posterPath = optionalNullableString(raw, 'poster_path', index, 'Hermes');
   const posterUrl = optionalNullableString(raw, 'poster_url', index, 'Hermes');
@@ -897,6 +954,8 @@ function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDisco
     requested_at: requestedAt,
     jellyseerr_request_id: jellyseerrRequestId ?? null,
     in_library: inLibrary,
+    excluded_reason: excludedReasonRaw,
+    watched_on_trakt: watchedOnTrakt,
     jellyfin_id: jellyfinId,
     poster_path: posterPath,
     poster_url: posterUrl,

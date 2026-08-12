@@ -4,7 +4,8 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import config as settings
 from clients.arr import _add_to_arr_unmonitored, _arr_get
@@ -16,10 +17,13 @@ from clients.jellyfin import (
     jellyfin_get,
     jellyfin_post,
 )
-from clients.jellyseerr import _jellyseerr_get, _trakt_get
+from clients.jellyseerr import _jellyseerr_get, _trakt_get, _trakt_get_page
+from clients.trakt import TraktAuthError
+from trakt_history import TraktWatchedService, WatchedSnapshot, WatchedSnapshotStore
 from http_support import (
     _BodyTooLarge,
     _read_json_body,
+    _reject_internal_get,
     _reject_mutating,
     send_json,
 )
@@ -54,10 +58,93 @@ from shared import (
 
 VALID_FEEDBACK_STATUSES = frozenset({"liked", "disliked", "watched", "skipped"})
 
+# Keep the dashboard response independent from the recommendation-store schema.
+# In particular, identity sets and generation context are server-only data.
+_HERMES_PUBLIC_ITEM_FIELDS = frozenset(
+    {
+        "id", "source", "type", "title", "year", "tmdb_id", "reason", "active",
+        "feedback", "feedback_at", "request_state", "requested_at",
+        "jellyseerr_request_id", "in_library", "excluded_reason", "watched_on_trakt",
+        "jellyfin_id", "poster_path", "poster_url", "added_at", "notes", "rating",
+    }
+)
 
-_TMDB_LIBRARY_CACHE = {"expires": 0.0, "movie": {}, "tv": {}}
+
+@dataclass(frozen=True)
+class LibraryExclusionSnapshot:
+    """Last known playable Jellyfin identities used by all Discover sources."""
+
+    movie: dict
+    tv: dict
+    status: str
+    last_successful_refresh_at: str | None
+
+    @classmethod
+    def from_maps(cls, movie, tv, *, status, last_successful_refresh_at):
+        return cls(dict(movie or {}), dict(tv or {}), status, last_successful_refresh_at)
+
+    @property
+    def identities(self):
+        return {
+            f"movie:{normalized}"
+            for tmdb_id in self.movie
+            for normalized in [_normalize_tmdb_id(tmdb_id)]
+            if normalized
+        } | {
+            f"tv:{normalized}"
+            for tmdb_id in self.tv
+            for normalized in [_normalize_tmdb_id(tmdb_id)]
+            if normalized
+        }
+
+    def contains(self, item_type, tmdb_id):
+        kind = "tv" if item_type == "tv" else "movie"
+        normalized = _normalize_tmdb_id(tmdb_id)
+        return bool(normalized and normalized in self._map(kind))
+
+    def jellyfin_id(self, item_type, tmdb_id):
+        kind = "tv" if item_type == "tv" else "movie"
+        normalized = _normalize_tmdb_id(tmdb_id)
+        return self._map(kind).get(normalized) if normalized else None
+
+    def _map(self, kind):
+        return self.tv if kind == "tv" else self.movie
+
+    def public(self):
+        return {
+            "status": self.status,
+            "last_successful_refresh_at": self.last_successful_refresh_at,
+        }
+
+
+_TMDB_LIBRARY_CACHE = {
+    "expires": 0.0,
+    "movie": {},
+    "tv": {},
+    "status": "unavailable",
+    "last_successful_refresh_at": None,
+}
 _TMDB_LIBRARY_CACHE_TTL = 90.0
 _TMDB_LIBRARY_CACHE_LOCK = threading.Lock()
+_TRAKT_WATCHED_SERVICE = None
+_TRAKT_WATCHED_SERVICE_LOCK = threading.Lock()
+
+
+def _trakt_watched_snapshot():
+    global _TRAKT_WATCHED_SERVICE
+    with _TRAKT_WATCHED_SERVICE_LOCK:
+        if _TRAKT_WATCHED_SERVICE is None:
+            _TRAKT_WATCHED_SERVICE = TraktWatchedService(
+                _trakt_get_page,
+                store=WatchedSnapshotStore(settings.TRAKT_WATCHED_PATH),
+            )
+        return _TRAKT_WATCHED_SERVICE.snapshot()
+
+
+def _filter_watched_items(items, snapshot):
+    if snapshot.status == "unavailable":
+        return items
+    return [item for item in items if not snapshot.contains(item.get("type"), item.get("tmdb_id"))]
 
 
 def _provider_tmdb_id(raw):
@@ -97,7 +184,16 @@ def _fetch_tmdb_map_for_type(item_type):
 
 def _tmdb_library_maps():
     if not settings.JELLYFIN_API_KEY:
-        return {"movie": {}, "tv": {}}
+        with _TMDB_LIBRARY_CACHE_LOCK:
+            has_last_good = _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None
+            if has_last_good:
+                _TMDB_LIBRARY_CACHE["status"] = "stale"
+                return {
+                    "movie": _TMDB_LIBRARY_CACHE["movie"],
+                    "tv": _TMDB_LIBRARY_CACHE["tv"],
+                }
+            _TMDB_LIBRARY_CACHE["status"] = "unavailable"
+            return {"movie": {}, "tv": {}}
     now = time.time()
     with _TMDB_LIBRARY_CACHE_LOCK:
         if now < _TMDB_LIBRARY_CACHE["expires"]:
@@ -105,30 +201,56 @@ def _tmdb_library_maps():
                 "movie": _TMDB_LIBRARY_CACHE["movie"],
                 "tv": _TMDB_LIBRARY_CACHE["tv"],
             }
-        movie_map = _TMDB_LIBRARY_CACHE["movie"]
-        tv_map = _TMDB_LIBRARY_CACHE["tv"]
+        previous_movie_map = _TMDB_LIBRARY_CACHE["movie"]
+        previous_tv_map = _TMDB_LIBRARY_CACHE["tv"]
         try:
-            movie_map = _fetch_tmdb_map_for_type("Movie")
-            tv_map = _fetch_tmdb_map_for_type("Series")
-            _TMDB_LIBRARY_CACHE["movie"] = movie_map
-            _TMDB_LIBRARY_CACHE["tv"] = tv_map
+            refreshed_movie_map = _fetch_tmdb_map_for_type("Movie")
+            refreshed_tv_map = _fetch_tmdb_map_for_type("Series")
+            _TMDB_LIBRARY_CACHE["movie"] = refreshed_movie_map
+            _TMDB_LIBRARY_CACHE["tv"] = refreshed_tv_map
             _TMDB_LIBRARY_CACHE["expires"] = now + _TMDB_LIBRARY_CACHE_TTL
+            _TMDB_LIBRARY_CACHE["status"] = "fresh"
+            _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] = datetime.now(
+                timezone.utc
+            ).isoformat(timespec="seconds")
         except Exception:
-            pass
-        return {"movie": movie_map, "tv": tv_map}
+            _TMDB_LIBRARY_CACHE["status"] = (
+                "stale"
+                if _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None
+                else "unavailable"
+            )
+            return {"movie": previous_movie_map, "tv": previous_tv_map}
+        return {"movie": refreshed_movie_map, "tv": refreshed_tv_map}
 
 
-def _enrich_hermes_library_flags(items):
-    if not settings.JELLYFIN_API_KEY or not items:
+def _library_exclusion_snapshot():
+    """Return the cached library exclusion set and its refresh health."""
+    maps = _tmdb_library_maps()
+    with _TMDB_LIBRARY_CACHE_LOCK:
+        status = _TMDB_LIBRARY_CACHE["status"]
+        refreshed_at = _TMDB_LIBRARY_CACHE["last_successful_refresh_at"]
+    return LibraryExclusionSnapshot.from_maps(
+        maps.get("movie"),
+        maps.get("tv"),
+        status=status,
+        last_successful_refresh_at=refreshed_at,
+    )
+
+
+# Explicit name for callers that prefer the getter convention.
+_get_library_exclusion_snapshot = _library_exclusion_snapshot
+
+
+def _enrich_hermes_library_flags(items, snapshot=None):
+    if not items:
         for item in items:
             item.setdefault("in_library", False)
             item.setdefault("jellyfin_id", None)
         return items
-    maps = _tmdb_library_maps()
+    snapshot = snapshot or _library_exclusion_snapshot()
     for item in items:
         tmdb_id = _normalize_tmdb_id(item.get("tmdb_id"))
-        bucket = "tv" if (item.get("type") or "movie") == "tv" else "movie"
-        jf_id = maps.get(bucket, {}).get(tmdb_id) if tmdb_id else None
+        jf_id = snapshot.jellyfin_id(item.get("type"), tmdb_id)
         item["in_library"] = bool(jf_id)
         item["jellyfin_id"] = jf_id
     return items
@@ -275,9 +397,12 @@ def _resolve_poster_paths(requests):
                 resolved[key] = path
                 if not found:
                     failed += 1
-    except Exception as e:
+    except Exception as error:
         # Degrade, never fail the caller: unresolved keys get no poster.
-        print(f"[poster-enrich] batch aborted: {e}", flush=True)
+        print(
+            f"[poster-enrich] batch aborted exception={type(error).__name__}",
+            flush=True,
+        )
         for key in pending:
             resolved.setdefault(key, None)
         return resolved
@@ -479,34 +604,97 @@ def _sync_hermes_collection_best_effort():
         return None
     try:
         return sync_hermes_collection()
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    except Exception:
+        return {"ok": False, "error": "Hermes collection is temporarily unavailable"}
+
+
+def _hermes_item_for_client(item, snapshot=None, watched_snapshot=None):
+    """Project exclusions for a read without writing the recommendation store."""
+    projected = dict(item)
+    watched_on_trakt = bool(
+        watched_snapshot
+        and watched_snapshot.status != "unavailable"
+        and watched_snapshot.contains(projected.get("type"), projected.get("tmdb_id"))
+    )
+    projected["watched_on_trakt"] = watched_on_trakt
+    if projected.get("feedback") is not None:
+        projected["active"] = False
+    if snapshot and snapshot.contains(projected.get("type"), projected.get("tmdb_id")):
+        projected["active"] = False
+        projected["in_library"] = True
+        projected["jellyfin_id"] = snapshot.jellyfin_id(
+            projected.get("type"), projected.get("tmdb_id")
+        )
+        projected["excluded_reason"] = "in_library"
+    elif watched_on_trakt:
+        projected["active"] = False
+        projected["excluded_reason"] = "watched_on_trakt"
+    return projected
+
+
+def _hermes_public_item(item):
+    """Return only fields declared by the dashboard Hermes item contract."""
+    return {key: item[key] for key in _HERMES_PUBLIC_ITEM_FIELDS if key in item}
+
+
+def _filter_library_items(items, snapshot):
+    """Filter external cards by typed TMDB identity only."""
+    return [
+        item for item in items
+        if not snapshot.contains(item.get("type"), item.get("tmdb_id"))
+    ]
 
 
 def handle_discover_hermes_get(handler):
     try:
         data = settings.RECOMMENDATIONS_STORE.load()
-    except RecommendationError as e:
-        send_json(handler, 500, {"ok": False, "error": f"Store load failed: {e}"})
+        snapshot = _library_exclusion_snapshot()
+        watched_snapshot = _trakt_watched_snapshot()
+        items = [
+            _hermes_item_for_client(item, snapshot, watched_snapshot)
+            for item in _hermes_items(data)
+        ]
+        items = _enrich_hermes_posters(_enrich_hermes_library_flags(items, snapshot))
+        items = [_hermes_public_item(item) for item in items]
+    except Exception:
+        send_json(handler, 500, {"ok": False, "error": "Discover recommendations are temporarily unavailable"})
         return
-    items = _enrich_hermes_posters(
-        _enrich_hermes_library_flags(
-            [_hermes_item_for_client(item) for item in _hermes_items(data)]
-        )
-    )
     send_json(
         handler,
         200,
         {
             "ok": True,
-            "version": data.get("version", 3),
-            "revision": data.get("revision", 0),
-            "updated_at": data.get("updated_at", ""),
-            "presented_media_ids": data.get("presented_media_ids", []),
             "pending_request_sync": _pending_request_sync_public(),
             "generation_request": _generation_request_public(),
-            "context": _hermes_generation_context(data),
+            "library_exclusion": snapshot.public(),
+            "watched_exclusion": watched_snapshot.public(),
             "items": items,
+        },
+    )
+
+
+def handle_discover_hermes_generation_snapshot(handler):
+    """Return the private, server-built input required by Hermes generation.
+
+    This route is deliberately separate from the dashboard GET.  It remains
+    protected by the actions token and is not a browser-facing data contract.
+    """
+    if _reject_internal_get(handler):
+        return
+    try:
+        data = settings.RECOMMENDATIONS_STORE.load()
+        context = _hermes_generation_context(data)
+    except Exception:
+        send_json(handler, 500, {"ok": False, "error": "Generation snapshot is temporarily unavailable"})
+        return
+    send_json(
+        handler,
+        200,
+        {
+            "ok": True,
+            "revision": data.get("revision", 0),
+            "presented_media_ids": list(data.get("presented_media_ids", [])),
+            "context": context,
         },
     )
 
@@ -519,6 +707,9 @@ def handle_discover_hermes_patch(handler, item_id):
         return
     except json.JSONDecodeError:
         send_json(handler, 400, {"ok": False, "error": "Invalid JSON body"})
+        return
+    if not isinstance(body, dict):
+        send_json(handler, 400, {"ok": False, "error": "Expected a JSON object body"})
         return
 
     status = (body.get("status") or "").strip()
@@ -544,8 +735,8 @@ def handle_discover_hermes_patch(handler, item_id):
     except HermesItemNotFound:
         send_json(handler, 404, {"ok": False, "error": "Item not found"})
         return
-    except RecommendationError as e:
-        send_json(handler, 500, {"ok": False, "error": f"Store rejected update: {e}"})
+    except Exception:
+        send_json(handler, 500, {"ok": False, "error": "Feedback could not be saved"})
         return
 
     payload = {"ok": True, "id": item_id, "status": status}
@@ -635,7 +826,7 @@ def _should_auto_retain_hermes_item(item):
 
 HERMES_TASTE_CAP = 50
 TRACKED_MEDIA_CACHE_TTL = float(os.environ.get("TRACKED_MEDIA_CACHE_TTL", "60"))
-_tracked_media_cache = {"expires": 0.0, "ids": []}
+_tracked_media_cache = {"expires": 0.0, "ids": [], "errors": [], "has_success": False}
 _tracked_media_cache_lock = threading.Lock()
 
 
@@ -649,33 +840,49 @@ def _build_tracked_media_ids():
                 tmdb_id = _normalize_tmdb_id(movie.get("tmdbId"))
                 if tmdb_id:
                     ids.add(f"movie:{tmdb_id}")
-        except Exception as e:
-            errors.append(f"radarr: {e}")
+        except Exception:
+            errors.append("radarr: unavailable")
     if settings.SONARR_API_KEY:
         try:
             for series in _arr_get(settings.SONARR_URL, settings.SONARR_API_KEY, "/api/v3/series"):
                 tmdb_id = _normalize_tmdb_id(series.get("tmdbId"))
                 if tmdb_id:
                     ids.add(f"tv:{tmdb_id}")
-        except Exception as e:
-            errors.append(f"sonarr: {e}")
+        except Exception:
+            errors.append("sonarr: unavailable")
     return sorted(ids), errors
 
 
 def _get_tracked_media_ids():
-    """Cached Arr tracked identities; soft-fail to empty on errors."""
+    """Cached Arr tracked identities; preserve a complete stale set on errors."""
     now = time.monotonic()
     with _tracked_media_cache_lock:
         if now < _tracked_media_cache["expires"]:
-            return list(_tracked_media_cache["ids"]), []
+            return list(_tracked_media_cache["ids"]), list(_tracked_media_cache["errors"])
     ids, errors = _build_tracked_media_ids()
+    errors = [_safe_arr_error(error) for error in errors]
     with _tracked_media_cache_lock:
-        _tracked_media_cache["ids"] = list(ids)
-        # Cache successes longer; on errors keep a short empty cache so polls
-        # do not hammer a down Arr, but recover within the TTL window.
+        if errors:
+            # A partial Arr response must never replace a complete deny set.
+            # Before the first complete refresh, retain the existing soft-fail
+            # behavior and expose whatever provider data was available.
+            result = (
+                list(_tracked_media_cache["ids"])
+                if _tracked_media_cache["has_success"]
+                else list(ids)
+            )
+            if not _tracked_media_cache["has_success"]:
+                _tracked_media_cache["ids"] = list(ids)
+        else:
+            result = list(ids)
+            _tracked_media_cache["ids"] = list(ids)
+            _tracked_media_cache["has_success"] = True
+        _tracked_media_cache["errors"] = list(errors)
+        # Cache successes longer; on errors keep a short retry window so a
+        # failed provider does not prevent recovery for the full cache TTL.
         ttl = TRACKED_MEDIA_CACHE_TTL if not errors else min(TRACKED_MEDIA_CACHE_TTL, 15.0)
         _tracked_media_cache["expires"] = time.monotonic() + ttl
-        return list(_tracked_media_cache["ids"]), errors
+        return result, errors
 
 
 def _in_library_media_ids_from_maps(maps):
@@ -695,34 +902,44 @@ def _get_in_library_media_ids():
     try:
         maps = _tmdb_library_maps()
         return _in_library_media_ids_from_maps(maps), []
-    except Exception as e:
-        return [], [f"jellyfin: {e}"]
+    except Exception:
+        return [], ["jellyfin: unavailable"]
 
 
-def _hermes_required_retain(items):
-    """Active identities Hermes must keep (untouched only)."""
-    retain = []
+def _safe_arr_error(error):
+    value = str(error)
+    for provider in ("radarr", "sonarr"):
+        if value.startswith(f"{provider}:"):
+            return f"{provider}: unavailable"
+    return "arr: unavailable"
+
+
+def _hermes_required_retain(
+    items, *, excluded_tracked=None, excluded_library=None, excluded_watched=None
+):
+    """Complete generation candidates Hermes must keep."""
+    excluded = (
+        set(excluded_tracked or ())
+        | set(excluded_library or ())
+        | set(excluded_watched or ())
+    )
+    retain = {}
     for item in items:
         if not item.get("active"):
             continue
         if not _should_auto_retain_hermes_item(item):
             continue
         identity = item.get("identity") or _hermes_identity(item)
-        if identity:
-            retain.append(identity)
-    return retain
-
-
-def _hermes_item_for_client(item):
-    """Project store rows for Discover clients.
-
-    Feedbacked titles always read as inactive so they appear in History even
-    when a legacy row still has active=true in the store.
-    """
-    projected = dict(item)
-    if projected.get("feedback") is not None:
-        projected["active"] = False
-    return projected
+        if identity and identity not in excluded:
+            retain[identity] = {
+                "type": item["type"],
+                "title": item["title"],
+                "year": item.get("year"),
+                "tmdb_id": item["tmdb_id"],
+                "reason": item.get("reason", ""),
+                "retain": True,
+            }
+    return [retain[identity] for identity in sorted(retain)]
 
 
 def _hermes_taste_entry(item):
@@ -759,20 +976,54 @@ def _hermes_taste_summary(items, cap=HERMES_TASTE_CAP):
 def _hermes_exclusion_sets():
     """Live exclude sets for generation commits (fresh enough via caches)."""
     tracked, tracked_errors = _get_tracked_media_ids()
-    in_library, library_errors = _get_in_library_media_ids()
-    return set(tracked), set(in_library), tracked_errors + library_errors
+    library_snapshot = _library_exclusion_snapshot()
+    in_library = _in_library_media_ids_from_maps(
+        {"movie": library_snapshot.movie, "tv": library_snapshot.tv}
+    )
+    watched_snapshot = _trakt_watched_snapshot()
+    errors = [_safe_arr_error(error) for error in tracked_errors]
+    if library_snapshot.status == "unavailable":
+        errors.append("jellyfin: unavailable")
+    if watched_snapshot.status == "unavailable":
+        errors.append("trakt_watched: unavailable")
+    watched = (
+        set(watched_snapshot.identities)
+        if watched_snapshot.status != "unavailable"
+        else set()
+    )
+    return set(tracked), set(in_library), watched, errors
 
 
-def _hermes_generation_context(data):
+def _hermes_generation_context(data, snapshot=None, watched_snapshot=None):
     """Server-built helpers so Hermes need not curl Arr/Jellyfin itself."""
     items = list(_hermes_items(data))
     tracked, tracked_errors = _get_tracked_media_ids()
-    in_library, library_errors = _get_in_library_media_ids()
-    errors = tracked_errors + library_errors
+    snapshot = snapshot or _library_exclusion_snapshot()
+    in_library = _in_library_media_ids_from_maps(
+        {"movie": snapshot.movie, "tv": snapshot.tv}
+    )
+    watched_snapshot = watched_snapshot or _trakt_watched_snapshot()
+    watched = (
+        sorted(set(watched_snapshot.identities))
+        if watched_snapshot.status != "unavailable"
+        else []
+    )
+    errors = [_safe_arr_error(error) for error in tracked_errors]
+    if snapshot.status == "unavailable":
+        errors.append("jellyfin: unavailable")
+    if watched_snapshot.status == "unavailable":
+        errors.append("trakt_watched: unavailable")
     context = {
-        "tracked_media_ids": tracked,
-        "in_library_media_ids": in_library,
-        "required_retain": _hermes_required_retain(items),
+        "tracked_media_ids": sorted(set(tracked)),
+        "in_library_media_ids": sorted(set(in_library)),
+        "watched_media_ids": watched,
+        "library_exclusion": snapshot.public(),
+        "required_retain": _hermes_required_retain(
+            items,
+            excluded_tracked=tracked,
+            excluded_library=in_library,
+            excluded_watched=watched,
+        ),
         "taste": _hermes_taste_summary(items),
     }
     if errors:
@@ -789,8 +1040,10 @@ def handle_discover_hermes_generations(handler):
     Sonarr/Radarr or Jellyfin are rejected as ``already_tracked`` /
     ``already_in_library``. Active items omitted from the batch are rotated
     to history with all feedback/request fields preserved — **except** untouched
-    actives, which are auto-retained so Hermes cannot hide titles the user has
-    not finished with. Liked/watched/disliked/skipped settle in History.
+    actives outside the authoritative library and watched exclusion sets, which
+    are auto-retained so Hermes cannot hide titles the user has not finished
+    with. Excluded, liked, watched, disliked, skipped, and requested actives
+    settle in History.
     The whole commit
     — acceptances, rotations, deny-list appends — is one store transaction,
     and a stale ``base_revision`` aborts with HTTP 409 before any change.
@@ -851,11 +1104,29 @@ def handle_discover_hermes_generations(handler):
         candidate_posters = _resolve_poster_paths(
             [(c["type"], c["tmdb_id"]) for c in candidates]
         )
-    except Exception as e:
-        print(f"[poster-enrich] generation preparation failed: {e}", flush=True)
+    except Exception as error:
+        print(
+            "[poster-enrich] generation preparation failed "
+            f"exception={type(error).__name__}",
+            flush=True,
+        )
         candidate_posters = {}
 
-    tracked_set, in_library_set, exclusion_errors = _hermes_exclusion_sets()
+    try:
+        exclusion_snapshot = _hermes_exclusion_sets()
+    except Exception as error:
+        print(
+            "[hermes-generations] exclusion context failed "
+            f"exception={type(error).__name__}",
+            flush=True,
+        )
+        send_json(
+            handler,
+            502,
+            {"ok": False, "error": "Generation context is temporarily unavailable"},
+        )
+        return
+    tracked_set, in_library_set, watched_set, exclusion_errors = exclusion_snapshot
     if exclusion_errors:
         print(
             f"[hermes-generations] exclusion context degraded: {exclusion_errors}",
@@ -890,6 +1161,40 @@ def handle_discover_hermes_generations(handler):
             identity = candidate["identity"]
             existing = active_by_identity.get(identity)
             if existing is not None:
+                # An authoritative deny cannot be overridden by an existing
+                # active row, whether or not Hermes included retain=true.
+                # Leave it untouched in this loop so rotation moves it to
+                # History while preserving its metadata.
+                if identity in tracked_set:
+                    rejected.append(
+                        {
+                            "index": candidate["index"],
+                            "identity": identity,
+                            "tmdb_id": tmdb_id,
+                            "reason": "already_tracked",
+                        }
+                    )
+                    continue
+                if identity in in_library_set:
+                    rejected.append(
+                        {
+                            "index": candidate["index"],
+                            "identity": identity,
+                            "tmdb_id": tmdb_id,
+                            "reason": "already_in_library",
+                        }
+                    )
+                    continue
+                if identity in watched_set:
+                    rejected.append(
+                        {
+                            "index": candidate["index"],
+                            "identity": identity,
+                            "tmdb_id": tmdb_id,
+                            "reason": "already_watched",
+                        }
+                    )
+                    continue
                 if not candidate["retain"]:
                     rejected.append(
                         {
@@ -946,6 +1251,15 @@ def handle_discover_hermes_generations(handler):
                         "reason": "already_in_library",
                     }
                 )
+            elif identity in watched_set:
+                rejected.append(
+                    {
+                        "index": candidate["index"],
+                        "identity": identity,
+                        "tmdb_id": tmdb_id,
+                        "reason": "already_watched",
+                    }
+                )
             else:
                 item = {
                     "id": f"hermes-{identity.replace(':', '-')}",
@@ -985,7 +1299,12 @@ def handle_discover_hermes_generations(handler):
             ):
                 identity = item.get("identity") or _hermes_identity(item)
                 # Hard rule: never rotate untouched actives.
-                if _should_auto_retain_hermes_item(item):
+                if (
+                    identity not in tracked_set
+                    and identity not in in_library_set
+                    and identity not in watched_set
+                    and _should_auto_retain_hermes_item(item)
+                ):
                     retained.append(identity)
                     continue
                 item["active"] = False
@@ -1006,16 +1325,16 @@ def handle_discover_hermes_generations(handler):
             },
         )
         return
-    except RecommendationError as e:
-        send_json(handler, 500, {"ok": False, "error": f"Store rejected generation: {e}"})
+    except Exception:
+        send_json(handler, 500, {"ok": False, "error": "Generation could not be saved"})
         return
 
     try:
         _clear_generation_request()
-    except RecommendationError as e:
+    except Exception as error:
         print(
             f"[discover-hermes] generation committed but failed to clear "
-            f"on-demand request: {e}",
+            f"on-demand request exception={type(error).__name__}",
             flush=True,
         )
 
@@ -1039,8 +1358,8 @@ def handle_discover_hermes_sync(handler):
     try:
         result = sync_hermes_collection()
         send_json(handler, 200, result)
-    except Exception as e:
-        send_json(handler, 502, {"ok": False, "error": str(e)})
+    except Exception:
+        send_json(handler, 502, {"ok": False, "error": "Hermes collection is temporarily unavailable"})
 
 
 def handle_discover_hermes_request_more(handler):
@@ -1049,8 +1368,8 @@ def handle_discover_hermes_request_more(handler):
         return
     try:
         result = _request_hermes_generation()
-    except RecommendationError as e:
-        send_json(handler, 500, {"ok": False, "error": str(e)})
+    except Exception:
+        send_json(handler, 500, {"ok": False, "error": "Generation request could not be queued"})
         return
     send_json(handler, 200, result)
 
@@ -1102,18 +1421,25 @@ def handle_discover_jellyseerr(handler, query):
         results = payload.get("results") if isinstance(payload, dict) else payload
         if not isinstance(results, list):
             results = []
-        items = [_map_jellyseerr_result(item) for item in results if item]
+        snapshot = _library_exclusion_snapshot()
+        items = _filter_library_items(
+            [_map_jellyseerr_result(item) for item in results if item], snapshot
+        )
+        watched_snapshot = _trakt_watched_snapshot()
+        items = _filter_watched_items(items, watched_snapshot)
         send_json(
             handler,
             200,
             {
                 "ok": True,
                 "generatedAt": datetime.now().isoformat(timespec="seconds"),
+                "library_exclusion": snapshot.public(),
+                "watched_exclusion": watched_snapshot.public(),
                 "items": items,
             },
         )
-    except Exception as e:
-        send_json(handler, 502, {"ok": False, "error": str(e)})
+    except Exception:
+        send_json(handler, 502, {"ok": False, "error": "Jellyseerr is temporarily unavailable"})
 
 
 
@@ -1166,25 +1492,38 @@ def handle_discover_trakt(handler, query):
     media_type = (query.get("type") or ["movies"])[0]
     if media_type not in ("movies", "shows"):
         media_type = "movies"
-    if not settings.TRAKT_CLIENT_ID or not settings.TRAKT_ACCESS_TOKEN:
+    if not settings.TRAKT_CLIENT_ID:
         send_json(handler, 503, {"ok": False, "error": "Trakt OAuth not configured"})
         return
     try:
         results = _trakt_get(
-            f"/recommendations/{media_type}?limit=25&ignore_collected=true&extended=full,images"
+            f"/recommendations/{media_type}?limit=25&ignore_collected=true&ignore_watched=true&extended=full,images"
         )
-        items = [_map_trakt_result(item, media_type) for item in results if item]
+        watched_snapshot = _trakt_watched_snapshot()
+        snapshot = _library_exclusion_snapshot()
+        items = _filter_library_items(
+            [_map_trakt_result(item, media_type) for item in results if item], snapshot
+        )
+        items = _filter_watched_items(items, watched_snapshot)
         send_json(
             handler,
             200,
             {
                 "ok": True,
                 "generatedAt": datetime.now().isoformat(timespec="seconds"),
+                "library_exclusion": snapshot.public(),
+                "watched_exclusion": watched_snapshot.public(),
                 "items": items,
             },
         )
-    except Exception as e:
-        send_json(handler, 502, {"ok": False, "error": str(e)})
+    except TraktAuthError as error:
+        send_json(
+            handler,
+            503,
+            {"ok": False, "error": "Trakt reconnect required", "code": "reconnect_required"},
+        )
+    except Exception:
+        send_json(handler, 502, {"ok": False, "error": "Trakt temporarily unavailable"})
 
 
 def handle_discover_request(handler):
@@ -1213,8 +1552,8 @@ def handle_discover_request(handler):
     if hermes_id:
         try:
             current = settings.RECOMMENDATIONS_STORE.load()
-        except RecommendationError as e:
-            send_json(handler, 500, {"ok": False, "error": f"Store load failed: {e}"})
+        except RecommendationError:
+            send_json(handler, 500, {"ok": False, "error": "Discover recommendations are temporarily unavailable"})
             return
         item = _find_hermes_item(current, hermes_id)
         if not item:
@@ -1231,11 +1570,11 @@ def handle_discover_request(handler):
 
     try:
         arr_result = _add_to_arr_unmonitored(media_type, media_id)
-    except RecommendationError as e:
-        send_json(handler, 502, {"ok": False, "error": str(e)})
+    except RecommendationError:
+        send_json(handler, 502, {"ok": False, "error": "Unable to add this title to the library"})
         return
-    except Exception as e:
-        send_json(handler, 502, {"ok": False, "error": str(e)})
+    except Exception:
+        send_json(handler, 502, {"ok": False, "error": "Unable to add this title to the library"})
         return
 
     arr_id = arr_result.get("arr_id")
@@ -1252,9 +1591,9 @@ def handle_discover_request(handler):
 
         try:
             settings.RECOMMENDATIONS_STORE.update(_apply)
-        except Exception as e:
+        except Exception as error:
             dashboard_state_persisted = False
-            persistence_error = type(e).__name__
+            persistence_error = type(error).__name__
             try:
                 _enqueue_request_reconciliation(hermes_id, arr_id)
                 reconciliation_queued = True
@@ -1262,17 +1601,13 @@ def handle_discover_request(handler):
                 reconciliation_queued = False
                 print(
                     "[discover-request] reconciliation enqueue failed "
-                    f"hermes_id={hermes_id!r} "
-                    f"arr_id={arr_id!r} "
-                    f"error={type(queue_error).__name__}",
+                    f"exception={type(queue_error).__name__}",
                     flush=True,
                 )
             print(
                 "[discover-request] Arr add succeeded but dashboard state "
                 "persistence diverged "
-                f"hermes_id={hermes_id!r} "
-                f"arr_id={arr_id!r} "
-                f"error={persistence_error}",
+                f"exception={persistence_error}",
                 flush=True,
             )
 
@@ -1324,7 +1659,5 @@ def handle_discover_request(handler):
 def handle_discover_request_reconcile(handler):
     try:
         send_json(handler, 200, run_reconciliation_cycle())
-    except RecommendationError as e:
-        send_json(handler, 500, {"ok": False, "error": str(e)})
-    except OSError as e:
-        send_json(handler, 500, {"ok": False, "error": f"Reconciliation failed: {e}"})
+    except Exception:
+        send_json(handler, 500, {"ok": False, "error": "Request reconciliation is temporarily unavailable"})

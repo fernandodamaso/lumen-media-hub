@@ -70,6 +70,9 @@ import {
   requireSoftEnvelope,
 } from './http-response';
 
+const DISCOVER_LOAD_ERROR = 'Discover is temporarily unavailable. Try again.';
+const TRAKT_RECONNECT_ERROR = 'Trakt reconnect required';
+
 /** Narrow validated envelopes to Record so require* payload helpers accept them. */
 function requireEnvelopeRecord(data: OkEnvelope, fallback: string): OkEnvelopeRecord {
   if (!isRecord(data)) {
@@ -473,7 +476,8 @@ export class HttpMediaStackApi implements MediaStackApi {
       if (signal?.aborted) {
         throw new DOMException('The operation was aborted.', 'AbortError');
       }
-      throw this.toError(error, `GET ${path} failed`);
+      const isDiscoverBrowse = path.startsWith('/discover/jellyseerr') || path.startsWith('/discover/trakt');
+      throw this.toError(error, isDiscoverBrowse ? DISCOVER_LOAD_ERROR : `GET ${path} failed`, isDiscoverBrowse);
     }
   }
 
@@ -553,14 +557,19 @@ export class HttpMediaStackApi implements MediaStackApi {
     }
   }
 
-  private toError(error: unknown, fallback: string): Error {
+  private toError(error: unknown, fallback: string, safeDiscoverError = false): Error {
     if (error instanceof HttpErrorResponse) {
       const body: unknown = error.error;
+      if (isRecord(body) && body['code'] === 'reconnect_required') {
+        const mapped = new Error(TRAKT_RECONNECT_ERROR);
+        Object.assign(mapped, { code: 'reconnect_required' as const });
+        return mapped;
+      }
       if (isRecord(body) && typeof body['error'] === 'string' && body['error'].trim()) {
-        return new Error(body['error']);
+        return new Error(safeDiscoverError ? fallback : body['error']);
       }
       if (typeof body === 'string' && body.trim()) {
-        return new Error(body);
+        return new Error(safeDiscoverError ? fallback : body);
       }
       return new Error(error.message || `HTTP ${error.status}` || fallback);
     }

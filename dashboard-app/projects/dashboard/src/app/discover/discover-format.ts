@@ -196,7 +196,13 @@ export const mapExternalDiscover = (dto: MediaStackExternalDiscoverDto): Externa
   error: dto.error,
 });
 
-export const mapDiscoverAction = (dto: MediaStackDiscoverActionDto): DiscoverAction => ({ ...dto });
+export const mapDiscoverAction = (dto: MediaStackDiscoverActionDto): DiscoverAction => {
+  const { code, ...rest } = dto;
+  return {
+    ...rest,
+    ...(code === 'reconnect_required' ? { code } : {}),
+  };
+};
 
 export const toDiscoverRequestPayloadDto = (
   payload: DiscoverRequestPayload,

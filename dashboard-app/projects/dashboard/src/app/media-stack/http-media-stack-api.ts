@@ -557,7 +557,11 @@ export class HttpMediaStackApi implements MediaStackApi {
     if (error instanceof HttpErrorResponse) {
       const body: unknown = error.error;
       if (isRecord(body) && typeof body['error'] === 'string' && body['error'].trim()) {
-        return new Error(body['error']);
+        const mapped = new Error(body['error']);
+        if (body['code'] === 'reconnect_required') {
+          Object.assign(mapped, { code: 'reconnect_required' as const });
+        }
+        return mapped;
       }
       if (typeof body === 'string' && body.trim()) {
         return new Error(body);

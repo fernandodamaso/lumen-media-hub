@@ -5,7 +5,7 @@ export type JellyseerrDiscoverKind = 'trending' | 'movies' | 'tv';
 export type TraktDiscoverType = 'movies' | 'shows';
 type LibraryExclusionStatus = 'fresh' | 'stale' | 'unavailable';
 
-interface LibraryExclusionState {
+export interface LibraryExclusionState {
   status: LibraryExclusionStatus;
   last_successful_refresh_at: string | null;
 }
@@ -77,6 +77,7 @@ export interface ExternalDiscover {
 
 export interface DiscoverAction {
   ok: boolean;
+  code?: 'reconnect_required';
   error?: string;
   message?: string;
   partial_success?: boolean;

@@ -10,10 +10,46 @@ import {
   mapLiveWatchNextItem,
   mapLiveSystemResourcesDisk,
   mapLiveTorrent,
+  requireHermesDiscoverPayload,
   requireExternalDiscoverPayload,
 } from './live-api.mappers';
 
 describe('live-api.mappers', () => {
+  it('requires and validates library exclusion freshness for every Discover source', () => {
+    for (const resource of ['Hermes', 'Jellyseerr', 'Trakt'] as const) {
+      expect(() => {
+        const payload: Record<string, unknown> = {
+          items: [],
+          library_exclusion: { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' },
+          watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+        };
+        if (resource === 'Hermes') requireHermesDiscoverPayload(payload);
+        else requireExternalDiscoverPayload(payload, resource);
+      }).not.toThrow();
+    }
+  });
+
+  it('fails safe on malformed library status and timestamp', () => {
+    expect(() => { requireExternalDiscoverPayload({
+      items: [],
+      library_exclusion: { status: 'broken', last_successful_refresh_at: null },
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    }, 'Jellyseerr'); }).toThrow(/library_exclusion is invalid/);
+    expect(() => { requireExternalDiscoverPayload({
+      items: [],
+      library_exclusion: { status: 'stale', last_successful_refresh_at: 42 },
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    }, 'Trakt'); }).toThrow(/library_exclusion timestamp is invalid/);
+  });
+
+  it('preserves only the safe reconnect code on action mappings', async () => {
+    const { mapDiscoverAction } = await import('../discover/discover-format');
+    expect(mapDiscoverAction({ ok: false, error: 'Trakt reconnect required', code: 'reconnect_required' })).toMatchObject({
+      ok: false,
+      code: 'reconnect_required',
+    });
+    expect(mapDiscoverAction({ ok: false, error: 'failed', code: 'token-secret' })).not.toHaveProperty('code');
+  });
   it('accepts valid Trakt watched freshness statuses', () => {
     for (const status of ['fresh', 'stale', 'unavailable'] as const) {
       expect(() => {

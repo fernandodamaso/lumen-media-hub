@@ -73,6 +73,7 @@ export interface MediaStackExternalDiscoverDto {
 
 export interface MediaStackDiscoverActionDto {
   ok: boolean;
+  code?: string;
   error?: string;
   message?: string;
   partial_success?: boolean;

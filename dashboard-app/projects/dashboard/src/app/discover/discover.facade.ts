@@ -19,6 +19,7 @@ import {
   ExternalDiscoverItem,
   HermesDiscover,
   JellyseerrDiscoverKind,
+  LibraryExclusionState,
   TraktDiscoverType,
   WatchedExclusionState,
 } from './discover.models';
@@ -35,6 +36,7 @@ const STALE_HINT = ' Results may be stale.';
 interface ExternalBrowseCacheEntry {
   items: ExternalDiscoverItem[];
   availability: ExternalDiscoverAvailability;
+  libraryExclusion?: LibraryExclusionState;
   watchedExclusion?: WatchedExclusionState;
 }
 
@@ -364,8 +366,8 @@ export class DiscoverFacade {
       },
       isActive: () => this._tab() === 'jellyseerr' && this._jellyseerrKind() === kind,
       cached: () => this._jellyseerrCache()[kind],
-      writeCache: (items, availability, watchedExclusion) => {
-        this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: { items, availability, watchedExclusion } }));
+      writeCache: (items, availability, libraryExclusion, watchedExclusion) => {
+        this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: { items, availability, libraryExclusion, watchedExclusion } }));
       },
       fetch: () => this.api.listJellyseerrDiscover(kind, signal),
       signal,
@@ -382,8 +384,8 @@ export class DiscoverFacade {
       },
       isActive: () => this._tab() === 'trakt' && this._traktType() === type,
       cached: () => this._traktCache()[type],
-      writeCache: (items, availability, watchedExclusion) => {
-        this._traktCache.update((cache) => ({ ...cache, [type]: { items, availability, watchedExclusion } }));
+      writeCache: (items, availability, libraryExclusion, watchedExclusion) => {
+        this._traktCache.update((cache) => ({ ...cache, [type]: { items, availability, libraryExclusion, watchedExclusion } }));
       },
       fetch: () => this.api.listTraktDiscover(type, signal),
       signal,
@@ -398,13 +400,20 @@ export class DiscoverFacade {
     setAppliedId: (id: number) => void;
     isActive: () => boolean;
     cached: () => ExternalBrowseCacheEntry | undefined;
-    writeCache: (items: ExternalDiscoverItem[], availability: ExternalDiscoverAvailability, watchedExclusion?: WatchedExclusionState) => void;
+    writeCache: (
+      items: ExternalDiscoverItem[],
+      availability: ExternalDiscoverAvailability,
+      libraryExclusion?: LibraryExclusionState,
+      watchedExclusion?: WatchedExclusionState,
+    ) => void;
     fetch: () => Promise<{
       ok: boolean;
       items: ExternalDiscoverItem[];
       availability?: ExternalDiscoverAvailability;
+      library_exclusion?: LibraryExclusionState;
       watched_exclusion?: WatchedExclusionState;
       error?: string;
+      code?: 'reconnect_required';
     }>;
     signal?: AbortSignal;
   }): Promise<void> {
@@ -415,13 +424,18 @@ export class DiscoverFacade {
       const response = await opts.fetch();
       if (!response.ok) {
         if (requestId !== opts.currentRequestId()) return;
-        if (opts.isActive()) this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
+        if (opts.isActive()) this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR, response.code);
         return;
       }
       const availability = response.availability ?? 'available';
       if (availability === 'disabled' && (requestId !== opts.currentRequestId() || !opts.isActive())) return;
       if (requestId < opts.appliedId()) return;
-      opts.writeCache(availability === 'disabled' ? [] : response.items, availability, response.watched_exclusion);
+      opts.writeCache(
+        availability === 'disabled' ? [] : response.items,
+        availability,
+        response.library_exclusion,
+        response.watched_exclusion,
+      );
       opts.setAppliedId(requestId);
       if (!opts.isActive()) return;
       if (availability === 'disabled') {
@@ -430,12 +444,14 @@ export class DiscoverFacade {
         this._notice.set('');
         return;
       }
-      this.applyWatchedNotice(response.watched_exclusion);
+      this.applyExclusionNotice(response.library_exclusion, response.watched_exclusion);
       this.commitBrowseSuccess(response.items, requestId, opts.currentRequestId());
-    } catch {
+    } catch (error) {
       if (opts.signal?.aborted) return;
       if (requestId !== opts.currentRequestId() || !opts.isActive()) return;
-      this.applyBrowseFailure(isInitial, LOAD_ERROR);
+      const message = error instanceof Error && error.message ? error.message : LOAD_ERROR;
+      const code = (error as { code?: unknown }).code;
+      this.applyBrowseFailure(isInitial, message, code);
     }
   }
 
@@ -449,29 +465,39 @@ export class DiscoverFacade {
         this._status.set(cached.items.length ? 'ready' : 'empty');
       }
       this._error.set('');
-      this.applyWatchedNotice(cached.watchedExclusion);
+      this.applyExclusionNotice(cached.libraryExclusion, cached.watchedExclusion);
     } else {
       this._status.set('loading');
     }
     return !cached;
   }
 
-  private applyWatchedNotice(watched?: WatchedExclusionState): void {
+  private applyExclusionNotice(library?: LibraryExclusionState, watched?: WatchedExclusionState): void {
     const tab = this._tab();
-    if (tab !== 'trakt' && tab !== 'hermes') return;
-    if (!watched || watched.status === 'fresh') {
-      if (this._notice().startsWith('Watched filtering is ')) {
-        this._notice.set('');
-      }
-      return;
+    let source = 'Trakt';
+    if (tab === 'hermes') source = 'Hermes';
+    else if (tab === 'jellyseerr') source = 'Jellyseerr';
+    const notices: string[] = [];
+    if (library?.status === 'stale') {
+      notices.push(`Library filtering is using a cached snapshot. Showing ${source} recommendations.`);
+    } else if (library?.status === 'unavailable') {
+      notices.push(`Library filtering is unavailable. Showing ${source} recommendations.`);
     }
-    this._noticeTone.set('warning');
-    if (watched.status === 'stale') {
-      this._notice.set('Watched filtering is using a cached snapshot.');
-      return;
+    if (watched?.status === 'stale') {
+      notices.push(
+        tab === 'jellyseerr'
+          ? 'Watched filtering is using a cached snapshot. Showing Jellyseerr recommendations.'
+          : 'Watched filtering is using a cached snapshot.',
+      );
+    } else if (watched?.status === 'unavailable') {
+      notices.push(`Watched filtering is unavailable. Showing ${source} recommendations.`);
     }
-    const source = tab === 'hermes' ? 'Hermes' : 'Trakt';
-    this._notice.set(`Watched filtering is unavailable. Showing ${source} recommendations.`);
+    if (notices.length) {
+      this._noticeTone.set('warning');
+      this._notice.set(notices.join(' '));
+    } else if (this._notice().includes('filtering')) {
+      this._notice.set('');
+    }
   }
 
   private commitBrowseSuccess(
@@ -499,7 +525,18 @@ export class DiscoverFacade {
    * Initial failures (no last-good) flip to exclusive error.
    * Mutation notices stay visible; a refresh failure appends a stale hint rather than replacing them.
    */
-  private applyBrowseFailure(isInitial: boolean, message: string): void {
+  private applyBrowseFailure(isInitial: boolean, message: string, code?: unknown): void {
+    const reconnectRequired = code === 'reconnect_required';
+    if (reconnectRequired) {
+      const reconnectNotice = `${message}. Run .\\install.ps1 -Mode connect-trakt.`;
+      this._noticeTone.set('warning');
+      this._notice.set(reconnectNotice);
+      if (isInitial) {
+        this._status.set('error');
+        this._error.set(message);
+      }
+      return;
+    }
     if (!isInitial) {
       const notice = this._notice();
       if (!notice || notice === REFRESH_NOTICE) {
@@ -518,7 +555,7 @@ export class DiscoverFacade {
   private applyHermesPayload(response: HermesDiscover): void {
     this._hermesItems.set(response.items);
     if (this._tab() === 'hermes') {
-      this.applyWatchedNotice(response.watched_exclusion);
+      this.applyExclusionNotice(response.library_exclusion, response.watched_exclusion);
     }
     this.seedRequestedFromHermes(response.items);
     this.applyPendingRequestSync(response.items, response.pending_request_sync);

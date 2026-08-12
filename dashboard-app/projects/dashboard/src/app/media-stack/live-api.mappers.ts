@@ -788,6 +788,8 @@ export function requireHermesDiscoverPayload(data: Record<string, unknown>): voi
 
   requirePendingRequestSync(data['pending_request_sync']);
   requireGenerationRequest(data['generation_request']);
+  const library = data['library_exclusion'];
+  if (library !== undefined && library !== null) requireLibraryExclusion(library, 'Hermes');
   const watched = data['watched_exclusion'];
   if (watched === undefined || watched === null) {
     throw new Error('Malformed Hermes response: watched_exclusion is required');
@@ -842,6 +844,10 @@ export function requireExternalDiscoverPayload(
   items.forEach((item, index) => {
     requireLiveExternalDiscoverItem(item, index, resource);
   });
+  // Disabled Jellyseerr is an explicit capability response and has no source snapshots.
+  if (resource === 'Jellyseerr' && data['enabled'] === false) return;
+  const library = data['library_exclusion'];
+  if (library !== undefined && library !== null) requireLibraryExclusion(library, resource);
   const watched = data['watched_exclusion'];
   if (resource === 'Trakt' && (watched === undefined || watched === null)) {
     throw new Error('Malformed Trakt response: watched_exclusion is required');
@@ -858,6 +864,21 @@ function requireWatchedExclusion(value: unknown, resource: 'Hermes' | 'Jellyseer
   }
   if (value['last_successful_refresh_at'] !== null && typeof value['last_successful_refresh_at'] !== 'string') {
     throw new Error(`Malformed ${resource} response: watched_exclusion timestamp is invalid`);
+  }
+  if (typeof value['last_successful_refresh_at'] === 'string' && Number.isNaN(Date.parse(value['last_successful_refresh_at']))) {
+    throw new Error(`Malformed ${resource} response: watched_exclusion timestamp is invalid`);
+  }
+}
+
+function requireLibraryExclusion(value: unknown, resource: 'Hermes' | 'Jellyseerr' | 'Trakt'): void {
+  if (!isRecord(value) || !['fresh', 'stale', 'unavailable'].includes(String(value['status']))) {
+    throw new Error(`Malformed ${resource} response: library_exclusion is invalid`);
+  }
+  if (value['last_successful_refresh_at'] !== null && typeof value['last_successful_refresh_at'] !== 'string') {
+    throw new Error(`Malformed ${resource} response: library_exclusion timestamp is invalid`);
+  }
+  if (typeof value['last_successful_refresh_at'] === 'string' && Number.isNaN(Date.parse(value['last_successful_refresh_at']))) {
+    throw new Error(`Malformed ${resource} response: library_exclusion timestamp is invalid`);
   }
 }
 

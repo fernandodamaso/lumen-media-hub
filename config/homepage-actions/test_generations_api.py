@@ -1094,6 +1094,18 @@ class HermesGenerationContextContractTests(GenerationApiTestCase):
         self.assertIn("Trakt watched", prompt)
         self.assertIn("tracked, library, and watched", prompt)
 
+    def test_prompt_uses_normalized_trakt_item_identity_fields(self):
+        prompt_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "recommendations",
+            "HERMES_DISCOVER_PROMPT.md",
+        )
+        with open(prompt_path, encoding="utf-8") as handle:
+            prompt = handle.read()
+        self.assertIn("items[].type", prompt)
+        self.assertIn("items[].tmdb_id", prompt)
+        self.assertNotIn("ids.tmdb", prompt)
+
 
 class FeedbackPatchTests(GenerationApiTestCase):
     def test_patch_requested_status_rejected(self):

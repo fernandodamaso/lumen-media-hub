@@ -39,7 +39,7 @@ Trakt is an input signal, not a tab dump. Hermes items are curated picks, not a 
 - `GET http://localhost:8085/discover/trakt?type=movies`
 - `GET http://localhost:8085/discover/trakt?type=shows`
 - Header: `X-Actions-Token` from `.env` `ACTIONS_TOKEN`
-- The proxy returns a safe, normalized item list. It may return a temporary reconnect or unavailable error; continue with Jellyseerr and curated picks as described below.
+- The proxy returns a safe, normalized `items[]` list. Read each item's `items[].type` and `items[].tmdb_id` fields and build its typed identity as `<type>:<tmdb_id>`; do not read raw Trakt `ids` fields. It may return a temporary reconnect or unavailable error; continue with Jellyseerr and curated picks as described below.
 
 Optional weak popularity prior: use the actions API proxy (`GET http://localhost:8085/discover/jellyseerr?kind=movies` and `?kind=tv` with the `X-Actions-Token` header). Do **not** hit Jellyseerr directly — its API key is scoped to the Docker network and returns 403 from outside. The actions API proxy is the only supported path. Do **not** copy wholesale.
 
@@ -49,11 +49,11 @@ Optional weak popularity prior: use the actions API proxy (`GET http://localhost
 
 Target roughly **15–25 active recommendations** after the commit when starting from a small Active list. If many required keepers must be retained, the Active list may exceed 25 — that is correct; never rotate keepers just to hit a count. On a pending `generation_request`, prefer **+8–12 new** accepts on top of keepers rather than rebuilding the whole slate.
 
-- Drop any Trakt hit whose typed identity (`movie:<ids.tmdb>` or `tv:<ids.tmdb>`) is already in `presented_media_ids` — the API will reject it anyway; filtering first is just efficient. A matching `legacy:<ids.tmdb>` tombstone also blocks the candidate.
+- Drop any Trakt item whose typed identity (`<items[].type>:<items[].tmdb_id>`) is already in `presented_media_ids` — the API will reject it anyway; filtering first is just efficient. A matching `legacy:<items[].tmdb_id>` tombstone also blocks the candidate.
 - Drop any candidate whose typed identity is in `context.tracked_media_ids` or `context.in_library_media_ids`. The API also rejects these as `already_tracked` / `already_in_library` if you forget.
 - Drop any candidate whose typed identity is in `context.watched_media_ids`. The API rejects a new watched candidate as `already_watched`, preserving its typed identity in the rejection response.
 - Include **every** identity in `context.required_retain` with `"retain": true`. **Interacted** actives you omit (`liked` / `disliked` / `skipped` / `watched`, or `request_state` set) are rotated to history and can never return as new picks — omit those only when rotation is intentional. Untouched active rows outside the authoritative exclusion sets are auto-retained by the API even if omitted; still include them via `required_retain`.
-- Each candidate: `type` (`"movie"` or `"tv"`), `title`, `year`, `tmdb_id` (real IDs only — from Trakt `ids.tmdb` or TMDB search; never invent), `reason` (one short sentence why *this user* will like it, referencing liked patterns / Trakt signals). Optional `"retain": true`.
+- Each candidate: `type` (`"movie"` or `"tv"`), `title`, `year`, `tmdb_id` (real IDs only — from normalized Trakt `items[].tmdb_id` or TMDB search; never invent), `reason` (one short sentence why *this user* will like it, referencing liked patterns / Trakt signals). Optional `"retain": true`.
 - Prefer 4K-friendly mainstream releases aligned with this stack's quality goals.
 - Never modify feedback, request, or timestamp fields — you cannot; the API preserves them for retained items.
 

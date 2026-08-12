@@ -195,6 +195,44 @@ describe('DiscoverFacade', () => {
     expect(facade.notice()).not.toContain('connect-trakt');
   });
 
+  it('uses safe copy for Hermes browse failures and does not expose backend text', async () => {
+    api.hermes = { ok: false, items: [], error: '<script>backend-secret</script>' };
+
+    await facade.setTab('hermes');
+
+    expect(facade.status()).toBe('error');
+    expect(facade.error()).toBe('Discover is temporarily unavailable. Try again.');
+    expect(facade.notice()).toBe('');
+    expect(facade.notice()).not.toContain('backend-secret');
+  });
+
+  it('composes mutation and exclusion notices with spacing and warning tone', async () => {
+    api.hermes.library_exclusion = { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' };
+    await facade.setTab('hermes');
+    api.requestResult = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
+    await facade.requestItem(facade.visibleItems()[0]);
+
+    expect(facade.notice()).toBe(
+      'Requested. Library filtering is using a cached snapshot. Showing Hermes recommendations.',
+    );
+    expect(facade.noticeTone()).toBe('warning');
+
+    api.hermes.library_exclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:15:00Z' };
+    await facade.setTab('hermes');
+    expect(facade.notice()).toBe('Requested.');
+    expect(facade.noticeTone()).toBe('success');
+  });
+
+  it('does not show a Trakt reconnect command for Jellyseerr errors', async () => {
+    api.jellyseerrError = { message: 'internal reconnect', code: 'reconnect_required' };
+
+    await facade.setTab('jellyseerr');
+
+    expect(facade.error()).toBe('Discover is temporarily unavailable. Try again.');
+    expect(facade.notice()).toBe('');
+    expect(facade.notice()).not.toContain('connect-trakt');
+  });
+
   it('uses safe load-error copy for arbitrary Trakt backend error text', async () => {
     await facade.setTab('trakt');
     api.traktError = { message: '<img src=x onerror=alert(1)>' };
@@ -755,7 +793,7 @@ describe('DiscoverFacade', () => {
     expect(facade.status()).toBe('ready');
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
     expect(facade.noticeTone()).toBe('warning');
-    expect(facade.notice()).toContain('Showing last loaded');
+    expect(facade.notice()).toBe('Discover is temporarily unavailable. Try again.');
   });
 
   it('retains an empty Hermes last-good state when a later refresh fails', async () => {
@@ -769,14 +807,14 @@ describe('DiscoverFacade', () => {
     expect(facade.status()).toBe('empty');
     expect(facade.error()).toBe('');
     expect(facade.noticeTone()).toBe('warning');
-    expect(facade.notice()).toContain('Showing last loaded');
+    expect(facade.notice()).toBe('Discover is temporarily unavailable. Try again.');
   });
 
   it('hard-errors on the initial Hermes load failure', async () => {
     api.hermes = { ok: false, items: [], error: 'Hermes offline' };
     await facade.setTab('hermes');
     expect(facade.status()).toBe('error');
-    expect(facade.error()).toContain('Hermes offline');
+    expect(facade.error()).toBe('Discover is temporarily unavailable. Try again.');
     expect(facade.visibleItems()).toEqual([]);
   });
 
@@ -787,9 +825,9 @@ describe('DiscoverFacade', () => {
     await facade.requestItem(facade.visibleItems()[0]);
     expect(facade.status()).toBe('ready');
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
-    expect(facade.noticeTone()).toBe('success');
+    expect(facade.noticeTone()).toBe('warning');
     expect(facade.notice()).toContain('Requested');
-    expect(facade.notice()).toContain('may be stale');
+    expect(facade.notice()).toContain('Discover is temporarily unavailable. Try again.');
   });
 
   it('applies a superseded successful Hermes payload when recovering an exclusive error', async () => {
@@ -1017,6 +1055,7 @@ class MockApi implements MediaStackApi {
     status: 'fresh', last_successful_refresh_at: null,
   };
   traktError: { message: string; code?: 'reconnect_required' } | null = null;
+  jellyseerrError: { message: string; code?: 'reconnect_required' } | null = null;
   hermesCalls = 0;
   jellyseerrCalls: JellyseerrDiscoverKind[] = [];
   traktCalls: TraktDiscoverType[] = [];
@@ -1120,6 +1159,9 @@ class MockApi implements MediaStackApi {
   }
   listJellyseerrDiscover(kind: JellyseerrDiscoverKind, signal?: AbortSignal) {
     this.jellyseerrCalls.push(kind);
+    if (this.jellyseerrError) {
+      return Promise.reject(Object.assign(new Error(this.jellyseerrError.message), { code: this.jellyseerrError.code }));
+    }
     if (this.jellyseerrGate) {
       const gate = this.jellyseerrGate;
       this.jellyseerrGate = null;

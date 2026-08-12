@@ -112,14 +112,23 @@ export class DiscoverFacade {
   readonly status = this._status.asReadonly();
   readonly error = this._error.asReadonly();
   readonly notice = computed(() => {
-    const mutation = this._mutationNotice()?.text;
-    const browse = this._browseNotice()?.text;
-    const exclusion = this._exclusionNotice();
-    return [mutation, browse, exclusion].filter(Boolean).join('');
+    return [
+      this._mutationNotice()?.text,
+      this._browseNotice()?.text,
+      this._exclusionNotice(),
+    ].filter((notice): notice is string => Boolean(notice)).join(' ');
   });
-  readonly noticeTone = computed(() =>
-    this._mutationNotice()?.tone ?? this._browseNotice()?.tone ?? (this._exclusionNotice() ? 'warning' : 'info'),
-  );
+  readonly noticeTone = computed(() => {
+    const tones = [
+      this._mutationNotice()?.tone,
+      this._browseNotice()?.tone,
+      this._exclusionNotice() ? 'warning' as const : undefined,
+    ].filter((tone): tone is NoticeState['tone'] => Boolean(tone));
+    return tones.reduce<NoticeState['tone']>((highest, tone) =>
+      this.noticeSeverity(tone) > this.noticeSeverity(highest) ? tone : highest,
+      'info',
+    );
+  });
   readonly busyItemId = this._busyItemId.asReadonly();
   readonly requestingMore = this._requestingMore.asReadonly();
   readonly generationPending = this._generationPending.asReadonly();
@@ -350,7 +359,7 @@ export class DiscoverFacade {
       if (!response.ok) {
         // Failures only apply when still current — a stale failure must not clobber newer work.
         if (!this.isCurrentHermesRequest(requestId)) return;
-        this.applyBrowseFailure(isInitial, response.error ?? LOAD_ERROR);
+        this.applyBrowseFailure(isInitial, LOAD_ERROR, undefined, true);
         return;
       }
       // Valid success may still commit when superseded, as long as it is not older than an
@@ -364,7 +373,7 @@ export class DiscoverFacade {
     } catch {
       if (signal?.aborted) return;
       if (!this.isCurrentHermesRequest(requestId)) return;
-      this.applyBrowseFailure(isInitial, LOAD_ERROR);
+      this.applyBrowseFailure(isInitial, LOAD_ERROR, undefined, true);
     }
   }
 
@@ -386,6 +395,7 @@ export class DiscoverFacade {
         this._jellyseerrCache.update((cache) => ({ ...cache, [kind]: { items, availability, libraryExclusion, watchedExclusion } }));
       },
       fetch: () => this.api.listJellyseerrDiscover(kind, signal),
+      allowReconnect: false,
       signal,
     });
   }
@@ -404,6 +414,7 @@ export class DiscoverFacade {
         this._traktCache.update((cache) => ({ ...cache, [type]: { items, availability, libraryExclusion, watchedExclusion } }));
       },
       fetch: () => this.api.listTraktDiscover(type, signal),
+      allowReconnect: true,
       signal,
     });
   }
@@ -432,6 +443,7 @@ export class DiscoverFacade {
       code?: 'reconnect_required';
     }>;
     signal?: AbortSignal;
+    allowReconnect: boolean;
   }): Promise<void> {
     const generation = opts.nextGeneration();
     const isActive = opts.isActive();
@@ -440,7 +452,14 @@ export class DiscoverFacade {
       const response = await opts.fetch();
       if (!response.ok) {
         if (generation !== opts.currentGeneration()) return;
-        if (opts.isActive()) this.applyBrowseFailure(isInitial, LOAD_ERROR, response.code, true);
+        if (opts.isActive()) {
+          this.applyBrowseFailure(
+            isInitial,
+            LOAD_ERROR,
+            opts.allowReconnect ? response.code : undefined,
+            true,
+          );
+        }
         return;
       }
       const availability = response.availability ?? 'available';
@@ -467,7 +486,7 @@ export class DiscoverFacade {
     } catch (error) {
       if (opts.signal?.aborted) return;
       if (generation !== opts.currentGeneration() || !opts.isActive()) return;
-      const code = (error as { code?: unknown }).code;
+      const code = opts.allowReconnect ? (error as { code?: unknown }).code : undefined;
       this.applyBrowseFailure(isInitial, LOAD_ERROR, code, true);
     }
   }
@@ -568,8 +587,7 @@ export class DiscoverFacade {
     }
     this._status.set('error');
     this._error.set(message);
-    if (safeExternalError) this.setBrowseNotice(LOAD_ERROR, 'warning');
-    else this.clearBrowseNotice();
+    this.clearBrowseNotice();
     this._exclusionNotice.set('');
   }
 
@@ -598,6 +616,15 @@ export class DiscoverFacade {
 
   private clearBrowseNotice(): void {
     this._browseNotice.set(null);
+  }
+
+  private noticeSeverity(tone: NoticeState['tone']): number {
+    switch (tone) {
+      case 'danger': return 3;
+      case 'warning': return 2;
+      case 'success': return 1;
+      default: return 0;
+    }
   }
 
   private applyGenerationPending(apiPending: boolean): void {

@@ -789,7 +789,10 @@ export function requireHermesDiscoverPayload(data: Record<string, unknown>): voi
   requirePendingRequestSync(data['pending_request_sync']);
   requireGenerationRequest(data['generation_request']);
   const library = data['library_exclusion'];
-  if (library !== undefined && library !== null) requireLibraryExclusion(library, 'Hermes');
+  if (library === undefined || library === null) {
+    throw new Error('Malformed Hermes response: library_exclusion is required');
+  }
+  requireLibraryExclusion(library, 'Hermes');
   const watched = data['watched_exclusion'];
   if (watched === undefined || watched === null) {
     throw new Error('Malformed Hermes response: watched_exclusion is required');
@@ -847,14 +850,15 @@ export function requireExternalDiscoverPayload(
   // Disabled Jellyseerr is an explicit capability response and has no source snapshots.
   if (resource === 'Jellyseerr' && data['enabled'] === false) return;
   const library = data['library_exclusion'];
+  if (resource === 'Trakt' && (library === undefined || library === null)) {
+    throw new Error(`Malformed ${resource} response: library_exclusion is required`);
+  }
   if (library !== undefined && library !== null) requireLibraryExclusion(library, resource);
   const watched = data['watched_exclusion'];
-  if (resource === 'Trakt' && (watched === undefined || watched === null)) {
-    throw new Error('Malformed Trakt response: watched_exclusion is required');
+  if (watched === undefined || watched === null) {
+    throw new Error(`Malformed ${resource} response: watched_exclusion is required`);
   }
-  if (watched !== undefined && watched !== null) {
-    requireWatchedExclusion(watched, resource);
-  }
+  requireWatchedExclusion(watched, resource);
 }
 
 function requireWatchedExclusion(value: unknown, resource: 'Hermes' | 'Jellyseerr' | 'Trakt'): void {

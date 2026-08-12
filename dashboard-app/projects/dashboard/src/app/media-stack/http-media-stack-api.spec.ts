@@ -56,6 +56,7 @@ describe('live-api.mappers', () => {
         requireExternalDiscoverPayload(
           {
             items: [],
+            library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
             watched_exclusion: {
               status,
               last_successful_refresh_at: status === 'unavailable' ? null : '2026-08-11T12:00:00Z',
@@ -71,14 +72,14 @@ describe('live-api.mappers', () => {
   it('rejects invalid Trakt watched freshness wire values', () => {
     expect(() => {
       requireExternalDiscoverPayload(
-        { items: [], watched_exclusion: { status: 'broken', last_successful_refresh_at: null } },
+        { items: [], library_exclusion: { status: 'fresh', last_successful_refresh_at: null }, watched_exclusion: { status: 'broken', last_successful_refresh_at: null } },
         'Trakt',
       );
     },
     ).toThrow(/watched_exclusion is invalid/);
     expect(() => {
       requireExternalDiscoverPayload(
-        { items: [], watched_exclusion: { status: 'stale', last_successful_refresh_at: 42 } },
+        { items: [], library_exclusion: { status: 'fresh', last_successful_refresh_at: null }, watched_exclusion: { status: 'stale', last_successful_refresh_at: 42 } },
         'Trakt',
       );
     },
@@ -87,13 +88,44 @@ describe('live-api.mappers', () => {
 
   it('requires watched freshness on successful Trakt envelopes only', () => {
     expect(() => {
-      requireExternalDiscoverPayload({ items: [] }, 'Trakt');
+      requireExternalDiscoverPayload({ items: [], library_exclusion: { status: 'fresh', last_successful_refresh_at: null } }, 'Trakt');
     }).toThrow(
       /watched_exclusion is required/,
     );
     expect(() => {
       requireExternalDiscoverPayload({ items: [] }, 'Jellyseerr');
-    }).not.toThrow();
+    }).toThrow(/watched_exclusion is required/);
+  });
+
+  it('requires library freshness on successful Hermes and Trakt envelopes', () => {
+    for (const resource of ['Hermes', 'Trakt'] as const) {
+      expect(() => {
+        const payload: Record<string, unknown> = {
+          items: [],
+          watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+        };
+        if (resource === 'Hermes') requireHermesDiscoverPayload(payload);
+        else requireExternalDiscoverPayload(payload, resource);
+      }).toThrow(/library_exclusion is required/);
+
+      expect(() => {
+        const payload: Record<string, unknown> = {
+          items: [],
+          library_exclusion: null,
+          watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+        };
+        if (resource === 'Hermes') requireHermesDiscoverPayload(payload);
+        else requireExternalDiscoverPayload(payload, resource);
+      }).toThrow(/library_exclusion is required/);
+    }
+  });
+
+  it('requires watched freshness on enabled Jellyseerr envelopes', () => {
+    expect(() => { requireExternalDiscoverPayload({ items: [], enabled: true }, 'Jellyseerr'); })
+      .toThrow(/watched_exclusion is required/);
+    expect(() => { requireExternalDiscoverPayload({ items: [], enabled: true, watched_exclusion: null }, 'Jellyseerr'); })
+      .toThrow(/watched_exclusion is required/);
+    expect(() => { requireExternalDiscoverPayload({ items: [], enabled: false }, 'Jellyseerr'); }).not.toThrow();
   });
 
   it('maps qbt torrents with downloaded from amount_left', () => {
@@ -1088,6 +1120,7 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/discover/hermes').flush({
       ok: true,
       items: [],
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     });
     await expect(hermes).resolves.toMatchObject({ ok: true, items: [] });
@@ -1100,6 +1133,7 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/discover/trakt?type=movies').flush({
       ok: true,
       items: [],
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     });
     await expect(trakt).resolves.toMatchObject({ ok: true });
@@ -1118,12 +1152,41 @@ describe('HttpMediaStackApi', () => {
       .flush({
         ok: true,
         items: [{ type: 'tv', title: 'Severance', tmdb_id: 95396, trakt_slug: 'severance', poster_url: null, rating: null }],
+        library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
         watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       });
     const result = await trakt;
     expect(result.ok).toBe(true);
     expect(result.items).toHaveLength(1);
     expect(result.items[0].trakt_slug).toBe('severance');
+  });
+
+  it('sanitizes failed external browse transport text and preserves only reconnect code', async () => {
+    const failed = api.listTraktDiscover('movies');
+    http.expectOne('/api/discover/trakt?type=movies').flush(
+      { error: '<script>alert(1)</script>', code: 'backend_secret' },
+      { status: 503, statusText: 'Unavailable' },
+    );
+    await expect(failed).rejects.toThrow('Discover is temporarily unavailable. Try again.');
+    await expect(failed).rejects.not.toThrow('backend_secret');
+
+    const reconnect = api.listTraktDiscover('movies');
+    http.expectOne('/api/discover/trakt?type=movies').flush(
+      { error: 'internal details', code: 'reconnect_required' },
+      { status: 401, statusText: 'Unauthorized' },
+    );
+    await expect(reconnect).rejects.toMatchObject({
+      message: 'Trakt reconnect required',
+      code: 'reconnect_required',
+    });
+
+    const softReconnect = api.listTraktDiscover('movies');
+    http.expectOne('/api/discover/trakt?type=movies').flush({
+      ok: false,
+      error: '<script>secret</script>',
+      code: 'reconnect_required',
+    });
+    await expect(softReconnect).resolves.toMatchObject({ ok: false, code: 'reconnect_required' });
   });
 
   it('returns soft ok:false envelopes for discover actions and cron logs', async () => {
@@ -1298,6 +1361,7 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/discover/hermes').flush({
       ok: true,
       items: [],
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     });
     await expect(hermes).resolves.toMatchObject({
@@ -1309,9 +1373,9 @@ describe('HttpMediaStackApi', () => {
 
   it('requires valid watched exclusion state on successful Hermes envelopes', async () => {
     for (const payload of [
-      { ok: true, items: [] },
-      { ok: true, items: [], watched_exclusion: null },
-      { ok: true, items: [], watched_exclusion: { status: 'broken', last_successful_refresh_at: null } },
+      { ok: true, items: [], library_exclusion: { status: 'fresh', last_successful_refresh_at: null } },
+      { ok: true, items: [], library_exclusion: { status: 'fresh', last_successful_refresh_at: null }, watched_exclusion: null },
+      { ok: true, items: [], library_exclusion: { status: 'fresh', last_successful_refresh_at: null }, watched_exclusion: { status: 'broken', last_successful_refresh_at: null } },
     ]) {
       const pending = api.listHermesRecommendations();
       http.expectOne('/api/discover/hermes').flush(payload);
@@ -1323,6 +1387,8 @@ describe('HttpMediaStackApi', () => {
     const missingTitle = api.listHermesRecommendations();
     http.expectOne('/api/discover/hermes').flush({
       ok: true,
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       items: [
         {
           id: 'hermes-1',
@@ -1340,6 +1406,7 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/discover/jellyseerr?kind=trending').flush({
       ok: true,
       items: [{ type: 'movie', title: 'Untitled' }],
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     });
     await expect(missingTmdb).rejects.toThrow(/missing tmdb_id/);
 
@@ -1347,6 +1414,7 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/discover/trakt?type=movies').flush({
       ok: true,
       items: [{ type: 'anime', title: 'Bad', tmdb_id: 9 }],
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     });
     await expect(badType).rejects.toThrow(/missing type/);
@@ -1376,6 +1444,7 @@ describe('HttpMediaStackApi', () => {
       ],
       pending_request_sync: [{ id: 'hermes-1', jellyseerr_request_id: 55 }],
       generation_request: { requested_at: '2026-07-12T00:00:00Z', status: 'pending' },
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       watched_exclusion: { status: 'stale', last_successful_refresh_at: '2026-07-11T12:00:00Z' },
     });
     await expect(pending).resolves.toMatchObject({

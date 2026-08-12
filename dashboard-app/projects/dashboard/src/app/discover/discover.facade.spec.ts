@@ -195,6 +195,31 @@ describe('DiscoverFacade', () => {
     expect(facade.notice()).not.toContain('connect-trakt');
   });
 
+  it('uses safe load-error copy for arbitrary Trakt backend error text', async () => {
+    await facade.setTab('trakt');
+    api.traktError = { message: '<img src=x onerror=alert(1)>' };
+
+    await facade.setTab('trakt');
+
+    expect(facade.notice()).toBe('Discover is temporarily unavailable. Try again.');
+    expect(facade.notice()).not.toContain('onerror');
+  });
+
+  it('keeps a mutation notice while exclusion freshness changes and recovers', async () => {
+    await facade.setTab('hermes');
+    api.requestResult = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
+    api.hermes.library_exclusion = { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' };
+    await facade.requestItem(facade.visibleItems()[0]);
+
+    expect(facade.notice()).toContain('Requested.');
+    expect(facade.notice()).toContain('Library filtering');
+
+    api.hermes.library_exclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:15:00Z' };
+    await facade.setTab('hermes');
+
+    expect(facade.notice()).toBe('Requested.');
+  });
+
   it('preserves disabled Jellyseerr availability while a tab refresh is pending', async () => {
     api.jellyseerrAvailability = 'disabled';
     await facade.setTab('jellyseerr');
@@ -640,6 +665,86 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Neon Archive']);
   });
 
+  it('does not commit an older same-kind Jellyseerr success while a newer request is pending', async () => {
+    const first = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      availability?: ExternalDiscoverAvailability;
+      watched_exclusion?: ExclusionFixture;
+    }>();
+    api.jellyseerrGate = first.promise;
+    const firstLoad = facade.setTab('jellyseerr');
+    await Promise.resolve();
+
+    const second = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      availability?: ExternalDiscoverAvailability;
+      watched_exclusion?: ExclusionFixture;
+    }>();
+    api.jellyseerrGate = second.promise;
+    const secondLoad = facade.setTab('jellyseerr');
+    await Promise.resolve();
+
+    first.resolve({
+      ok: true,
+      items: [{ type: 'movie', title: 'Older Jellyseerr', tmdb_id: 91 }],
+      watched_exclusion: { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' },
+    });
+    await firstLoad;
+    expect(facade.visibleItems()).toEqual([]);
+    expect(facade.notice()).not.toContain('cached snapshot');
+
+    second.resolve({
+      ok: true,
+      items: [{ type: 'movie', title: 'Newer Jellyseerr', tmdb_id: 92 }],
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await secondLoad;
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Newer Jellyseerr']);
+  });
+
+  it('does not commit an older same-type Trakt success while a newer request is pending', async () => {
+    const first = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      library_exclusion?: ExclusionFixture;
+      watched_exclusion?: ExclusionFixture;
+    }>();
+    api.traktGate = first.promise;
+    const firstLoad = facade.setTab('trakt');
+    await Promise.resolve();
+
+    const second = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      library_exclusion?: ExclusionFixture;
+      watched_exclusion?: ExclusionFixture;
+    }>();
+    api.traktGate = second.promise;
+    const secondLoad = facade.setTab('trakt');
+    await Promise.resolve();
+
+    first.resolve({
+      ok: true,
+      items: [{ type: 'movie', title: 'Older Trakt', tmdb_id: 81 }],
+      library_exclusion: { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' },
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await firstLoad;
+    expect(facade.visibleItems()).toEqual([]);
+    expect(facade.notice()).not.toContain('cached snapshot');
+
+    second.resolve({
+      ok: true,
+      items: [{ type: 'movie', title: 'Newer Trakt', tmdb_id: 82 }],
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await secondLoad;
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Newer Trakt']);
+  });
+
   it('retains last-good Hermes results when a background refresh fails', async () => {
     await facade.setTab('hermes');
     expect(facade.status()).toBe('ready');
@@ -926,6 +1031,14 @@ class MockApi implements MediaStackApi {
     ok: boolean;
     items: ExternalDiscoverItem[];
     availability?: ExternalDiscoverAvailability;
+    library_exclusion?: ExclusionFixture;
+    watched_exclusion?: ExclusionFixture;
+  }> | null = null;
+  traktGate: Promise<{
+    ok: boolean;
+    items: ExternalDiscoverItem[];
+    library_exclusion?: ExclusionFixture;
+    watched_exclusion?: ExclusionFixture;
   }> | null = null;
   jellyseerrAvailability: 'available' | 'disabled' = 'available';
   requestGate: Promise<DiscoverAction> | null = null;
@@ -1022,6 +1135,11 @@ class MockApi implements MediaStackApi {
   }
   listTraktDiscover(type: TraktDiscoverType, _signal?: AbortSignal) {
     this.traktCalls.push(type);
+    if (this.traktGate) {
+      const gate = this.traktGate;
+      this.traktGate = null;
+      return gate;
+    }
     if (this.traktError) return Promise.reject(Object.assign(new Error(this.traktError.message), { code: this.traktError.code }));
     return Promise.resolve({
       ok: true,

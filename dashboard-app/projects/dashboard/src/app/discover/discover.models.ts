@@ -70,6 +70,7 @@ export interface ExternalDiscover {
   ok: boolean;
   items: ExternalDiscoverItem[];
   availability?: ExternalDiscoverAvailability;
+  code?: 'reconnect_required';
   error?: string;
   library_exclusion?: LibraryExclusionState;
   watched_exclusion?: WatchedExclusionState;

@@ -95,6 +95,22 @@ The dev container still runs `npm run start:live` internally. Keep `start:live` 
 
 Production Angular is the Compose-built local image `media-dashboard-angular:local` (Nginx reverse proxy on the Compose network, published on `127.0.0.1:3000`). Compose runs the single production build in `dashboard-app/Dockerfile`.
 
+## Trakt freshness and reconnection checks
+
+`watched_exclusion.status = stale` and the dashboard warning `Watched filtering is using a cached snapshot` are freshness signals. They do not prove that the Trakt access token, refresh token, client ID, or client secret is invalid.
+
+After recreating services, wait for both `homepage-actions` and `dashboard` to be ready. Query each public Discover feed twice and require `watched_exclusion.status = fresh` in both rounds:
+
+- `/api/discover/hermes`
+- `/api/discover/trakt?type=movies`
+- `/api/discover/trakt?type=shows`
+- `/api/discover/jellyseerr?kind=movies`
+- `/api/discover/jellyseerr?kind=tv`
+
+If the APIs are fresh but T3 still shows the cached warning, reload or reopen `/discover` and inspect the new browser state. Do not fail acceptance from an earlier DOM snapshot.
+
+Before recommending `install.ps1 -Mode connect-trakt`, check the configured state without printing secrets: confirm required `.env` and token-state fields are present, confirm access-token expiry metadata, and make read-only direct Trakt watched-movies and watched-shows requests. Report only presence, expiry metadata, HTTP status, and counts. Do not call the Trakt token endpoint only to test a refresh token: a refresh exchange rotates credential state. Use `connect-trakt` only for evidence such as `reconnect_required`, a persistent authenticated `401` after backend refresh, missing token state, or failed direct authenticated reads. It is an interactive credential-changing recovery step. Never print tokens, client secrets, token-state contents, raw watched history, or account identifiers.
+
 ## Applying changes the user can see (agents)
 
 **Default Live iteration uses the hot-reload override on `:3000`.** Without that override, `:3000` is the static Nginx image and UI edits need a rebuild.

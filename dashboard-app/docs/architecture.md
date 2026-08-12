@@ -171,6 +171,43 @@ continues filtering with a warning; if no cache exists, filtering fails open
 with an unavailable warning. The dashboard uses the public freshness state,
 not the private identity set.
 
+#### Operator diagnostic sequence
+
+`watched_exclusion.status = stale` and the dashboard warning `Watched filtering
+is using a cached snapshot` describe cache freshness. They are not proof that
+the Trakt access token, refresh token, client ID, or client secret is invalid.
+
+After recreating services, wait until both `homepage-actions` and `dashboard`
+are ready. Query all five public Discover feeds twice:
+
+- `/api/discover/hermes`
+- `/api/discover/trakt?type=movies`
+- `/api/discover/trakt?type=shows`
+- `/api/discover/jellyseerr?kind=movies`
+- `/api/discover/jellyseerr?kind=tv`
+
+Require `watched_exclusion.status = fresh` in both rounds. If the APIs are
+fresh but T3 still shows the cached warning, reload or reopen `/discover` and
+inspect the new browser state. An earlier DOM snapshot is not an acceptance
+failure.
+
+Before recommending reconnection, inspect the configured state without printing
+secrets. Confirm required `.env` fields and token-state fields are present,
+confirm access-token expiry metadata, and make read-only direct Trakt
+watched-movies and watched-shows requests. Report only presence, expiry
+metadata, HTTP status, and counts. Do not call the Trakt token endpoint only to
+test a refresh token: a refresh exchange rotates credential state.
+
+Run `install.ps1 -Mode connect-trakt` only when current evidence shows that
+reconnection is required, such as `reconnect_required`, a persistent
+authenticated `401` after the backend refresh attempt, missing token state, or
+failed direct authenticated reads. This is an interactive,
+credential-changing recovery step. Never print tokens, client secrets,
+token-state contents, raw watched history, or account identifiers.
+
+The acceptance rule is therefore: both API rounds are fresh, and the browser
+state is freshly loaded before any cached-warning decision is made.
+
 Storage uses `/system/resources` (not `/storage/overview`) and labels the volume from the backend mount path (e.g., `Media volume (/data)`). Library stats are derived from concurrent `/jellyfin/movies` and `/jellyfin/series` requests rather than a dedicated stats endpoint.
 
 ## Routes

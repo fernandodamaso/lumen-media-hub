@@ -1,7 +1,6 @@
 import unittest
 from types import SimpleNamespace
 from unittest import mock
-import time
 
 from routes import discover as routes
 from clients.trakt import TraktAuthError
@@ -19,18 +18,21 @@ class TrackedArrCacheTests(unittest.TestCase):
 
     def test_success_then_total_failure_preserves_last_good_combined_set(self):
         with mock.patch.object(
+            routes, "TRACKED_MEDIA_CACHE_TTL", 60.0
+        ), mock.patch.object(
+            routes.time, "monotonic", return_value=100.0
+        ), mock.patch.object(
             routes,
             "_build_tracked_media_ids",
             side_effect=[
                 (["movie:101", "tv:202"], []),
                 ([], ["radarr: unavailable", "sonarr: unavailable"]),
             ],
-        ):
+        ) as build_tracked:
             self.assertEqual(
                 routes._get_tracked_media_ids(), (["movie:101", "tv:202"], [])
             )
             routes._tracked_media_cache["expires"] = 0.0
-            before_retry = time.monotonic()
             ids, errors = routes._get_tracked_media_ids()
             cached_ids, cached_errors = routes._get_tracked_media_ids()
 
@@ -38,9 +40,8 @@ class TrackedArrCacheTests(unittest.TestCase):
         self.assertEqual(errors, ["radarr: unavailable", "sonarr: unavailable"])
         self.assertEqual(cached_ids, ids)
         self.assertEqual(cached_errors, errors)
-        self.assertLessEqual(
-            routes._tracked_media_cache["expires"] - before_retry, 15.0
-        )
+        self.assertEqual(routes._tracked_media_cache["expires"], 115.0)
+        self.assertEqual(build_tracked.call_count, 2)
 
     def test_success_then_one_provider_failure_preserves_complete_last_good_set(self):
         with mock.patch.object(

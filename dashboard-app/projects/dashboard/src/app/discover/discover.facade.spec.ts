@@ -830,7 +830,7 @@ describe('DiscoverFacade', () => {
     expect(facade.notice()).toBe('Requested. Could not refresh. Showing last loaded results.');
   });
 
-  it('applies a superseded successful Hermes payload when recovering an exclusive error', async () => {
+  it('ignores a superseded Hermes success after a newer failure', async () => {
     const { promise: firstGate, resolve: releaseFirst } = Promise.withResolvers<HermesDiscover>();
     api.hermesGate = firstGate;
     const first = facade.setTab('hermes');
@@ -862,9 +862,50 @@ describe('DiscoverFacade', () => {
       ],
     });
     await first;
-    expect(facade.status()).toBe('ready');
-    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Recovered Title']);
-    expect(facade.error()).toBe('');
+    expect(facade.status()).toBe('error');
+    expect(facade.visibleItems()).toEqual([]);
+    expect(facade.error()).toBe('Discover is temporarily unavailable. Try again.');
+  });
+
+  it('does not cache an inactive Jellyseerr response after navigating away and back', async () => {
+    const { promise, resolve } = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      availability?: ExternalDiscoverAvailability;
+      library_exclusion?: ExclusionFixture;
+      watched_exclusion?: ExclusionFixture;
+    }>();
+    api.jellyseerrGate = promise;
+    const pending = facade.setTab('jellyseerr');
+    await Promise.resolve();
+
+    await facade.setTab('hermes');
+    resolve({
+      ok: true,
+      items: [{ type: 'movie', title: 'Stale Jellyseerr', tmdb_id: 991 }],
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await pending;
+
+    const { promise: current, resolve: releaseCurrent } = Promise.withResolvers<{
+      ok: boolean;
+      items: ExternalDiscoverItem[];
+      availability?: ExternalDiscoverAvailability;
+      library_exclusion?: ExclusionFixture;
+      watched_exclusion?: ExclusionFixture;
+    }>();
+    api.jellyseerrGate = current;
+    const returned = facade.setTab('jellyseerr');
+    await Promise.resolve();
+    expect(facade.visibleItems()).toEqual([]);
+    releaseCurrent({
+      ok: true,
+      items: [{ type: 'movie', title: 'Fresh Jellyseerr', tmdb_id: 992 }],
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+    await returned;
   });
 
   it('keeps browse status ready while a request mutation is busy', async () => {

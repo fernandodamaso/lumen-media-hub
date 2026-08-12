@@ -81,8 +81,6 @@ export class DiscoverFacade {
   private generationObserved = false;
 
   private hermesRequestId = 0;
-  /** Highest generation whose success payload was committed (Hermes). */
-  private hermesAppliedId = 0;
   private readonly jellyseerrGeneration: Record<JellyseerrDiscoverKind, number> = {
     trending: 0,
     movies: 0,
@@ -213,7 +211,6 @@ export class DiscoverFacade {
       this.setMutationNotice(result.message ?? 'Feedback saved.', 'success');
       // Drop in-flight Hermes loads started before this feedback so stale polls cannot undo the archive.
       this.hermesRequestId++;
-      this.hermesAppliedId = this.hermesRequestId;
       // Archive immediately so liked/watched leave Active even before reload settles.
       this._hermesItems.update((items) =>
         items.map((item) =>
@@ -362,11 +359,8 @@ export class DiscoverFacade {
         this.applyBrowseFailure(isInitial, LOAD_ERROR, undefined, true);
         return;
       }
-      // Valid success may still commit when superseded, as long as it is not older than an
-      // already-applied generation (so a late good payload can recover an exclusive error).
-      if (requestId < this.hermesAppliedId) return;
+      if (!this.isCurrentHermesRequest(requestId)) return;
       this.applyHermesPayload(response);
-      this.hermesAppliedId = requestId;
       this.hermesLoaded = true;
       if (this._tab() !== 'hermes') return;
       this.commitBrowseSuccessCount(this.visibleItems().length, requestId, this.hermesRequestId);
@@ -463,8 +457,7 @@ export class DiscoverFacade {
         return;
       }
       const availability = response.availability ?? 'available';
-      if (generation !== opts.currentGeneration()) return;
-      if (availability === 'disabled' && !opts.isActive()) return;
+      if (generation !== opts.currentGeneration() || !opts.isActive()) return;
       if (generation < opts.appliedGeneration()) return;
       opts.writeCache(
         availability === 'disabled' ? [] : response.items,

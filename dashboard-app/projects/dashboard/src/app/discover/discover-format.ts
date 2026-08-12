@@ -171,7 +171,30 @@ export function matchesDiscoverSearch(
   return haystacks.some((part) => part.toLowerCase().includes(needle));
 }
 
-const mapDiscoverItem = (dto: MediaStackDiscoverItemDto): DiscoverItem => ({ ...dto });
+const mapDiscoverItem = (dto: MediaStackDiscoverItemDto): DiscoverItem => ({
+  id: dto.id,
+  source: dto.source,
+  type: dto.type,
+  title: dto.title,
+  year: dto.year,
+  tmdb_id: dto.tmdb_id,
+  reason: dto.reason,
+  active: dto.active,
+  feedback: dto.feedback,
+  feedback_at: dto.feedback_at,
+  request_state: dto.request_state,
+  requested_at: dto.requested_at,
+  jellyseerr_request_id: dto.jellyseerr_request_id,
+  in_library: dto.in_library,
+  excluded_reason: dto.excluded_reason,
+  watched_on_trakt: dto.watched_on_trakt,
+  jellyfin_id: dto.jellyfin_id,
+  poster_path: dto.poster_path,
+  poster_url: dto.poster_url,
+  added_at: dto.added_at,
+  notes: dto.notes,
+  rating: dto.rating,
+});
 
 const mapExternalDiscoverItem = (dto: MediaStackExternalDiscoverItemDto): ExternalDiscoverItem => ({
   ...dto,

@@ -9,6 +9,7 @@ import {
   toExternalCardItem,
   toHermesCardItem,
 } from './discover-format';
+import { mapHermesDiscover } from './discover-format';
 
 function hermesItem(overrides: Partial<DiscoverItem> = {}): DiscoverItem {
   return {
@@ -31,6 +32,51 @@ function hermesItem(overrides: Partial<DiscoverItem> = {}): DiscoverItem {
 }
 
 describe('discover-format', () => {
+  it('whitelists Hermes item fields and drops backend-only metadata', () => {
+    const mapped = mapHermesDiscover({
+      ok: true,
+      items: [{
+        id: 'item-1',
+        source: 'hermes',
+        type: 'movie',
+        title: 'Signal Drift',
+        year: 2024,
+        tmdb_id: 101001,
+        active: true,
+        feedback: null,
+        feedback_at: null,
+        request_state: null,
+        requested_at: null,
+        jellyseerr_request_id: null,
+        in_library: false,
+        added_at: '2026-07-10T12:00:00Z',
+        token: 'secret-token',
+        watched_at: '2026-07-10T12:00:00Z',
+        provider_metadata: { internal_id: 'private' },
+      } as never],
+    });
+
+    expect(mapped.items[0]).toEqual({
+      id: 'item-1',
+      source: 'hermes',
+      type: 'movie',
+      title: 'Signal Drift',
+      year: 2024,
+      tmdb_id: 101001,
+      active: true,
+      feedback: null,
+      feedback_at: null,
+      request_state: null,
+      requested_at: null,
+      jellyseerr_request_id: null,
+      in_library: false,
+      added_at: '2026-07-10T12:00:00Z',
+    });
+    expect(mapped.items[0]).not.toHaveProperty('token');
+    expect(mapped.items[0]).not.toHaveProperty('watched_at');
+    expect(mapped.items[0]).not.toHaveProperty('provider_metadata');
+  });
+
   it('maps request button labels and titles to the contract matrix', () => {
     expect(resolveRequestAction({ tmdbId: 0, requestState: null, inLibrary: false })).toEqual({
       label: 'No TMDB ID',

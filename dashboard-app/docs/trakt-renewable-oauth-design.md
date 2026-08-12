@@ -70,8 +70,9 @@ Compose provides:
 - `TRAKT_CLIENT_ID`;
 - `TRAKT_CLIENT_SECRET`;
 - `TRAKT_TOKEN_PATH`, pointing inside `/state`.
+- `TRAKT_WATCHED_PATH`, pointing inside `/state`.
 
-`TRAKT_ACCESS_TOKEN` remains a migration fallback only until renewable OAuth is verified. It is then removed from Compose, `.env.example`, and setup documentation.
+`install.ps1 -Mode connect-trakt` creates or replaces the local access/refresh-token state atomically. The backend refreshes access tokens automatically and rotates both tokens together. The private watched-identity cache is refreshed in memory for 15 minutes, stores only typed movie/show identities and its refresh timestamp, and never persists raw Trakt history. A stale cache continues filtering with a warning; without a cache, filtering fails open with an unavailable warning.
 
 ## Error handling
 
@@ -118,5 +119,4 @@ Final verification includes the full backend suite, Angular quality gate, Compos
 3. Add and test `connect-trakt`.
 4. Complete one device authorization with the user.
 5. Recreate `homepage-actions` and verify movies and shows return `200`.
-6. Remove the fixed access-token fallback.
-7. Re-run the complete verification matrix and restore the dashboard on port 3000.
+6. Re-run the complete verification matrix and restore the dashboard on port 3000.

@@ -24,7 +24,6 @@ def _trakt_client():
         client_secret=settings.TRAKT_CLIENT_SECRET,
         token_path=settings.TRAKT_TOKEN_PATH,
         timeout=settings.TIMEOUT,
-        fallback_access_token=settings.TRAKT_ACCESS_TOKEN,
     )
     return client
 

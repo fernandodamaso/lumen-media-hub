@@ -1,5 +1,7 @@
 import json
 import os
+import inspect
+from pathlib import Path
 import tempfile
 import threading
 import time
@@ -68,6 +70,32 @@ class TraktClientTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmpdir.cleanup()
+
+    def test_static_access_token_compatibility_path_is_removed(self):
+        import config as settings
+
+        self.assertFalse(hasattr(settings, "TRAKT_" + "ACCESS_TOKEN"))
+        self.assertNotIn("fallback_access_token", inspect.signature(TraktClient).parameters)
+
+    def test_final_repository_contract_has_no_static_token_configuration(self):
+        static_token_name = "TRAKT_" + "ACCESS_TOKEN"
+        tracked_paths = (
+            ".env.example",
+            "docker-compose.yml",
+            "README.md",
+            "dashboard-app/docs/architecture.md",
+            "dashboard-app/docs/trakt-renewable-oauth-design.md",
+            "config/recommendations/README.md",
+            "config/recommendations/HERMES_DISCOVER_PROMPT.md",
+        )
+        for relative_path in tracked_paths:
+            content = (Path(REPO_ROOT) / relative_path).read_text(encoding="utf-8")
+            self.assertNotIn(static_token_name, content, relative_path)
+
+        env_example = (Path(REPO_ROOT) / ".env.example").read_text(encoding="utf-8")
+        compose = (Path(REPO_ROOT) / "docker-compose.yml").read_text(encoding="utf-8")
+        self.assertIn("TRAKT_WATCHED_PATH=/state/trakt-watched.json", env_example)
+        self.assertIn("TRAKT_WATCHED_PATH=${TRAKT_WATCHED_PATH:-/state/trakt-watched.json}", compose)
 
     def client(self, transport):
         return TraktClient(

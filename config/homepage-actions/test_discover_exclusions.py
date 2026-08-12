@@ -156,7 +156,6 @@ class DiscoverExclusionTests(unittest.TestCase):
         ]
         captured = {}
         with mock.patch.object(routes.settings, "TRAKT_CLIENT_ID", "id"), \
-                mock.patch.object(routes.settings, "TRAKT_ACCESS_TOKEN", "token"), \
                 mock.patch.object(routes, "_trakt_get", return_value=raw), \
                 mock.patch.object(routes, "_library_exclusion_snapshot", return_value=self.snapshot), \
                 mock.patch.object(routes, "send_json", side_effect=lambda _h, _s, payload: captured.update(payload)):

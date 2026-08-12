@@ -34,12 +34,12 @@ Build a compact taste index from `context.taste` (and skim active `items` only i
 
 ### 2. Pull Trakt personalization (input only)
 
-Trakt is an input signal, not a tab dump. Hermes items are curated picks, not a Trakt mirror.
+Trakt is an input signal, not a tab dump. Hermes items are curated picks, not a Trakt mirror. Use the authenticated actions-API proxy; it owns renewable OAuth, the private watched-identity cache, and library/watched filtering.
 
-- `GET https://api.trakt.tv/recommendations/movies?limit=25&ignore_collected=true&extended=full`
-- `GET https://api.trakt.tv/recommendations/shows?limit=25&ignore_collected=true&extended=full`
-- Headers: `Content-Type: application/json`, `trakt-api-version: 2`, `trakt-api-key: {TRAKT_CLIENT_ID}`, `Authorization: Bearer {TRAKT_ACCESS_TOKEN}`
-- Credentials from `.env`: `TRAKT_CLIENT_ID`, `TRAKT_ACCESS_TOKEN`
+- `GET http://localhost:8085/discover/trakt?type=movies`
+- `GET http://localhost:8085/discover/trakt?type=shows`
+- Header: `X-Actions-Token` from `.env` `ACTIONS_TOKEN`
+- The proxy returns a safe, normalized item list. It may return a temporary reconnect or unavailable error; continue with Jellyseerr and curated picks as described below.
 
 Optional weak popularity prior: use the actions API proxy (`GET http://localhost:8085/discover/jellyseerr?kind=movies` and `?kind=tv` with the `X-Actions-Token` header). Do **not** hit Jellyseerr directly — its API key is scoped to the Docker network and returns 403 from outside. The actions API proxy is the only supported path. Do **not** copy wholesale.
 

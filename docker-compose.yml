@@ -268,8 +268,8 @@ services:
       - JELLYSEERR_API_KEY=${JELLYSEERR_API_KEY}
       - TRAKT_CLIENT_ID=${TRAKT_CLIENT_ID}
       - TRAKT_CLIENT_SECRET=${TRAKT_CLIENT_SECRET}
-      - TRAKT_ACCESS_TOKEN=${TRAKT_ACCESS_TOKEN}
       - TRAKT_TOKEN_PATH=${TRAKT_TOKEN_PATH:-/state/trakt-token.json}
+      - TRAKT_WATCHED_PATH=${TRAKT_WATCHED_PATH:-/state/trakt-watched.json}
       - RECOMMENDATIONS_PATH=/recommendations/recommendations.json
       - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:4200,http://127.0.0.1:4200
       - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}

@@ -193,7 +193,9 @@ Add to `.env` (not committed):
 - `TRAKT_CLIENT_ID` — from https://trakt.tv/oauth/applications
 - `TRAKT_CLIENT_SECRET` — local Trakt OAuth application secret used by the refresh client and `install.ps1 -Mode connect-trakt`
 - `TRAKT_TOKEN_PATH` — renewable token state path inside the backend (`/state/trakt-token.json` by default)
-- `TRAKT_ACCESS_TOKEN` — migration-only bearer fallback while renewable state is created; do not expose it to the browser
+- `TRAKT_WATCHED_PATH` — private watched-identity cache path inside the backend (`/state/trakt-watched.json` by default)
+
+Run `install.ps1 -Mode connect-trakt` once to authorize the local Trakt application. The backend atomically replaces access and refresh tokens and refreshes access tokens before expiry. Watched history is fetched through the backend, cached for 15 minutes, and reduced to typed movie/show identities; raw history is never persisted. A stale cache remains active with a warning, while an unavailable cache fails open with a warning.
 
 Used by Hermes cron and the dashboard Trakt Discover tab (`GET /discover/trakt`).
 

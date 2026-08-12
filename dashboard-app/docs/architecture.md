@@ -155,6 +155,21 @@ npm run test:smoke
 | `/api/discover/trakt` | GET | Trakt discover |
 | `/api/discover/request` | POST | Request media (token required) |
 
+### Trakt authentication and watched cache
+
+`homepage-actions` owns Trakt OAuth. Run `install.ps1 -Mode connect-trakt` once
+with the local `TRAKT_CLIENT_ID` and `TRAKT_CLIENT_SECRET`; it atomically saves
+the renewable access/refresh-token state in the ignored host directory mounted
+as writable `/state`. The backend application mount remains read-only, and no
+OAuth credential reaches Angular, Nginx, logs, or browser responses.
+
+The watched cache at `TRAKT_WATCHED_PATH` stores only a refresh timestamp and
+typed `movie:<id>` / `tv:<id>` identities. It refreshes within a 15-minute
+in-memory freshness window and never persists raw Trakt history. A stale cache
+continues filtering with a warning; if no cache exists, filtering fails open
+with an unavailable warning. The dashboard uses the public freshness state,
+not the private identity set.
+
 Storage uses `/system/resources` (not `/storage/overview`) and labels the volume from the backend mount path (e.g., `Media volume (/data)`). Library stats are derived from concurrent `/jellyfin/movies` and `/jellyfin/series` requests rather than a dedicated stats endpoint.
 
 ## Routes

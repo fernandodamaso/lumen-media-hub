@@ -132,7 +132,6 @@ class TraktClient:
         transport=None,
         clock=None,
         timeout=10,
-        fallback_access_token="",
     ):
         self.client_id = client_id or ""
         self.client_secret = client_secret or ""
@@ -140,7 +139,6 @@ class TraktClient:
         self.transport = transport or _urllib_transport
         self.clock = clock or time.time
         self.timeout = timeout
-        self.fallback_access_token = fallback_access_token or ""
 
     def _call(self, method, url, headers, body=None):
         try:
@@ -166,10 +164,6 @@ class TraktClient:
                 raise TraktAuthError() from error
             if state:
                 return state
-        if self.fallback_access_token:
-            # Migration-only access token. It cannot be refreshed, so it is
-            # used only while a renewable state file is being created.
-            return TraktTokenState(self.fallback_access_token, "", float("inf"), self.clock())
         raise TraktAuthError()
 
     def _refresh_locked(self, state):

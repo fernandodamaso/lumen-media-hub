@@ -577,15 +577,15 @@ class RevisionConflictTests(GenerationApiTestCase):
 
 
 class GetAndRetiredRouteTests(GenerationApiTestCase):
-    def test_get_exposes_v2_state_without_legacy_status(self):
+    def test_get_exposes_only_dashboard_state_without_store_metadata(self):
         self.seed(
             [make_item(1), make_item(2, active=False), make_item(3, feedback="liked")],
             presented=["movie:1", "movie:2", "movie:3"],
         )
         status, payload = self.request("GET", "/discover/hermes")
         self.assertEqual(status, 200)
-        self.assertEqual(payload["revision"], self.current_doc()["revision"])
-        self.assertEqual(payload["presented_media_ids"], ["movie:1", "movie:2", "movie:3"])
+        for private_key in ("version", "revision", "updated_at", "presented_media_ids", "context"):
+            self.assertNotIn(private_key, payload)
         by_tmdb = {item["tmdb_id"]: item for item in payload["items"]}
         self.assertTrue(by_tmdb[1]["active"])
         self.assertFalse(by_tmdb[2]["active"])
@@ -595,7 +595,7 @@ class GetAndRetiredRouteTests(GenerationApiTestCase):
         for item in payload["items"]:
             self.assertNotIn("status", item)
 
-    def test_get_exposes_generation_context(self):
+    def test_get_does_not_expose_generation_context(self):
         self.seed(
             [
                 make_item(1),
@@ -617,24 +617,11 @@ class GetAndRetiredRouteTests(GenerationApiTestCase):
         ):
             status, payload = self.request("GET", "/discover/hermes")
         self.assertEqual(status, 200)
-        context = payload["context"]
-        self.assertEqual(context["tracked_media_ids"], ["movie:100", "tv:200"])
-        self.assertEqual(context["in_library_media_ids"], ["movie:300"])
-        self.assertEqual(sorted(context["required_retain"]), ["movie:1"])
-        self.assertEqual(
-            [entry["identity"] for entry in context["taste"]["liked"]], ["movie:2"]
-        )
-        self.assertEqual(
-            [entry["identity"] for entry in context["taste"]["disliked"]], ["movie:3"]
-        )
-        self.assertEqual(
-            [entry["identity"] for entry in context["taste"]["skipped"]], ["movie:4"]
-        )
-        self.assertEqual(
-            [entry["identity"] for entry in context["taste"]["watched"]],
-            ["movie:2", "movie:5"],
-        )
-        self.assertEqual(context["context_errors"], ["trakt_watched: unavailable"])
+        self.assertNotIn("context", payload)
+        self.assertEqual(payload["library_exclusion"]["status"], "fresh")
+        self.assertEqual(payload["watched_exclusion"]["status"], "unavailable")
+        for item in payload["items"]:
+            self.assertNotIn("identity", item)
 
     def test_get_projects_watched_hermes_items_without_writing_store(self):
         self.seed([make_item(7), make_item(8, active=False), make_item(9, feedback="liked")])
@@ -969,7 +956,7 @@ class TrackedGenerationRotationTests(GenerationApiTestCase):
 
 
 class HermesGenerationContextContractTests(GenerationApiTestCase):
-    def test_context_has_sorted_deduplicated_watched_ids_and_excludes_authoritative_rows(self):
+    def test_get_keeps_watched_filtering_badges_without_generation_context(self):
         self.seed(
             [make_item(1), make_item(2, media_type="tv"), make_item(3)],
             presented=["movie:1", "tv:2", "movie:3"],
@@ -995,12 +982,10 @@ class HermesGenerationContextContractTests(GenerationApiTestCase):
         ):
             discover_routes.handle_discover_hermes_get(object())
         watched_snapshot.assert_called_once_with()
-        context = self.payload["context"]
-        self.assertEqual(context["watched_media_ids"], ["movie:42", "tv:42"])
-        self.assertEqual(context["in_library_media_ids"], ["movie:1", "tv:2"])
-        self.assertNotIn("movie:1", context["required_retain"])
-        self.assertNotIn("tv:2", context["required_retain"])
-        self.assertIn("movie:3", context["required_retain"])
+        self.assertNotIn("context", self.payload)
+        self.assertEqual(self.payload["watched_exclusion"]["status"], "stale")
+        self.assertEqual(self.payload["items"][0]["excluded_reason"], "in_library")
+        self.assertEqual(self.payload["items"][1]["excluded_reason"], "in_library")
 
     def test_context_normalizes_duplicate_watched_iterable_at_boundary(self):
         watched = discover_routes.WatchedSnapshot(

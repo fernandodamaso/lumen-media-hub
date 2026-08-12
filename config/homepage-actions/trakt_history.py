@@ -213,12 +213,13 @@ class TraktWatchedService:
             now = self.clock()
             if self._snapshot is not None and self._loaded_at is not None and now - self._loaded_at < self.freshness_seconds:
                 return self._snapshot
-            previous = (
-                self._snapshot
-                if self._snapshot is not None and self._snapshot.status != "unavailable"
-                else (self.store.load() if self.store else None)
-            )
+            previous = None
             try:
+                previous = (
+                    self._snapshot
+                    if self._snapshot is not None and self._snapshot.status != "unavailable"
+                    else (self.store.load() if self.store else None)
+                )
                 identities = self.fetch_identities()
                 refreshed_at = self._now_iso()
                 if self.store:

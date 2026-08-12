@@ -249,6 +249,48 @@ class DiscoverExclusionTests(unittest.TestCase):
         self.assertTrue(projected["in_library"])
         self.assertTrue(projected["watched_on_trakt"])
 
+    def test_hermes_get_public_response_drops_private_item_fields_and_context(self):
+        item = {
+            "id": "hermes-movie-42", "identity": "movie:42", "source": "hermes",
+            "type": "movie", "title": "Public title", "year": 2026, "tmdb_id": 42,
+            "reason": "fixture", "active": True, "feedback": None,
+            "feedback_at": None, "request_state": None, "requested_at": None,
+            "jellyseerr_request_id": None, "added_at": "2026-01-01T00:00:00Z",
+            "watched_identities": ["movie:42"], "watched_at": "private-history",
+            "token": "private-token", "provider_metadata": {"secret": "value"},
+        }
+        captured = {}
+        store_data = {"version": 3, "revision": 4, "items": [item]}
+        with mock.patch.object(routes.settings.RECOMMENDATIONS_STORE, "load", return_value=store_data), \
+                mock.patch.object(routes, "_library_exclusion_snapshot", return_value=self.snapshot), \
+                mock.patch.object(routes, "_trakt_watched_snapshot", return_value=WatchedSnapshot(frozenset(), None, "fresh")), \
+                mock.patch.object(routes, "_enrich_hermes_posters", side_effect=lambda values: values), \
+                mock.patch.object(routes, "_hermes_generation_context", return_value={"watched_media_ids": ["movie:42"], "secret": "value"}), \
+                mock.patch.object(routes, "send_json", side_effect=lambda _h, _s, payload: captured.update(payload)):
+            routes.handle_discover_hermes_get(SimpleNamespace())
+
+        self.assertNotIn("context", captured)
+        public_item = captured["items"][0]
+        self.assertEqual(public_item["title"], "Public title")
+        self.assertNotIn("identity", public_item)
+        self.assertNotIn("watched_identities", public_item)
+        self.assertNotIn("watched_at", public_item)
+        self.assertNotIn("token", public_item)
+        self.assertNotIn("provider_metadata", public_item)
+
+    def test_hermes_get_public_response_keeps_exclusion_badges(self):
+        item = {
+            "id": "hermes-movie-42", "source": "hermes", "type": "movie", "title": "Watched",
+            "tmdb_id": 42, "active": True, "feedback": None,
+        }
+        captured, _ = self._hermes_get(
+            [item],
+            watched=WatchedSnapshot(frozenset({"movie:42"}), "2026-08-11T12:00:00+00:00", "fresh"),
+        )
+        self.assertEqual(captured["items"][0]["excluded_reason"], "watched_on_trakt")
+        self.assertTrue(captured["items"][0]["watched_on_trakt"])
+        self.assertEqual(captured["watched_exclusion"]["status"], "fresh")
+
     def test_jellyfin_failure_keeps_last_good_map_as_stale(self):
         old_cache = dict(routes._TMDB_LIBRARY_CACHE)
         try:

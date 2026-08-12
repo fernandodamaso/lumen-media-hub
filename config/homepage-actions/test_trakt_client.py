@@ -48,6 +48,14 @@ class TraktTokenStoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             store.load()
 
+    def test_load_sanitizes_unexpected_filesystem_errors(self):
+        store = TraktTokenStore(self.path)
+        leaked = r"C:\private\trakt-token.json: access denied"
+        with mock.patch("clients.trakt.open", side_effect=PermissionError(leaked)):
+            with self.assertRaisesRegex(RuntimeError, "^Trakt temporarily unavailable$") as context:
+                store.load()
+        self.assertNotIn(leaked, str(context.exception))
+
     def test_failed_atomic_replace_preserves_previous_state(self):
         store = TraktTokenStore(self.path)
         original = TraktTokenState("access-a", "refresh-a", 2_000, 1_000)
@@ -169,6 +177,15 @@ class TraktClientTests(unittest.TestCase):
             self.client(lambda *args: self.fail("invalid state must not call Trakt")).get("/recommendations/movies")
         self.assertEqual(context.exception.code, "reconnect_required")
         self.assertEqual(str(context.exception), "Trakt reconnect required")
+
+    def test_state_sanitizes_unexpected_token_store_read_errors(self):
+        client = self.client(lambda *args: self.fail("state read must fail before transport"))
+        client.token_store = mock.Mock()
+        leaked = r"C:\private\trakt-token.json: access denied"
+        client.token_store.load.side_effect = PermissionError(leaked)
+        with self.assertRaisesRegex(RuntimeError, "^Trakt temporarily unavailable$") as context:
+            client._state()
+        self.assertNotIn(leaked, str(context.exception))
 
     def test_concurrent_proactive_refreshes_rotate_once(self):
         refresh_started = threading.Event()

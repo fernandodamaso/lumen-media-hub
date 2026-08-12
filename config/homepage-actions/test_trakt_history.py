@@ -131,6 +131,17 @@ class WatchedCacheTests(unittest.TestCase):
         now[0] = 1900
         self.assertEqual(service.snapshot().status, "unavailable")
 
+    def test_unexpected_snapshot_store_read_error_is_unavailable(self):
+        store = mock.Mock()
+        store.load.side_effect = PermissionError(r"C:\private\trakt-watched.json: access denied")
+        service = TraktWatchedService(
+            get_page=mock.Mock(side_effect=RuntimeError("network down")),
+            store=store,
+        )
+        snapshot = service.snapshot()
+        self.assertEqual(snapshot.status, "unavailable")
+        self.assertEqual(snapshot.identities, set())
+
     def test_fresh_empty_snapshot_remains_last_good_after_failure(self):
         now = [1000]
         get_page = mock.Mock(return_value=([], {}))

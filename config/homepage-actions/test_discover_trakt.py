@@ -80,6 +80,16 @@ class TraktWatchedExclusionRouteTests(unittest.TestCase):
         self.assertEqual([item["tmdb_id"] for item in captured["items"]], [7])
         self.assertEqual(captured["watched_exclusion"]["status"], "unavailable")
 
+    def test_route_sanitizes_unexpected_trakt_errors(self):
+        responses = []
+        leaked = r"C:\private\trakt-token.json: permission denied"
+        with mock.patch.object(routes.settings, "TRAKT_CLIENT_ID", "id"), \
+                mock.patch.object(routes, "_trakt_get", side_effect=PermissionError(leaked)), \
+                mock.patch.object(routes, "send_json", side_effect=lambda _h, status, payload: responses.append((status, payload))):
+            routes.handle_discover_trakt(SimpleNamespace(), {"type": ["movies"]})
+        self.assertEqual(responses, [(502, {"ok": False, "error": "Trakt temporarily unavailable"})])
+        self.assertNotIn(leaked, str(responses))
+
 
 if __name__ == "__main__":
     unittest.main()

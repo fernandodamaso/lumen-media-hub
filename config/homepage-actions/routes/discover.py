@@ -57,6 +57,17 @@ from shared import (
 
 VALID_FEEDBACK_STATUSES = frozenset({"liked", "disliked", "watched", "skipped"})
 
+# Keep the dashboard response independent from the recommendation-store schema.
+# In particular, identity sets and generation context are server-only data.
+_HERMES_PUBLIC_ITEM_FIELDS = frozenset(
+    {
+        "id", "source", "type", "title", "year", "tmdb_id", "reason", "active",
+        "feedback", "feedback_at", "request_state", "requested_at",
+        "jellyseerr_request_id", "in_library", "excluded_reason", "watched_on_trakt",
+        "jellyfin_id", "poster_path", "poster_url", "added_at", "notes", "rating",
+    }
+)
+
 
 @dataclass(frozen=True)
 class LibraryExclusionSnapshot:
@@ -617,6 +628,11 @@ def _hermes_item_for_client(item, snapshot=None, watched_snapshot=None):
     return projected
 
 
+def _hermes_public_item(item):
+    """Return only fields declared by the dashboard Hermes item contract."""
+    return {key: item[key] for key in _HERMES_PUBLIC_ITEM_FIELDS if key in item}
+
+
 def _filter_library_items(items, snapshot):
     """Filter external cards by typed TMDB identity only."""
     return [
@@ -638,18 +654,14 @@ def handle_discover_hermes_get(handler):
         for item in _hermes_items(data)
     ]
     items = _enrich_hermes_posters(_enrich_hermes_library_flags(items, snapshot))
+    items = [_hermes_public_item(item) for item in items]
     send_json(
         handler,
         200,
         {
             "ok": True,
-            "version": data.get("version", 3),
-            "revision": data.get("revision", 0),
-            "updated_at": data.get("updated_at", ""),
-            "presented_media_ids": data.get("presented_media_ids", []),
             "pending_request_sync": _pending_request_sync_public(),
             "generation_request": _generation_request_public(),
-            "context": _hermes_generation_context(data, snapshot, watched_snapshot),
             "library_exclusion": snapshot.public(),
             "watched_exclusion": watched_snapshot.public(),
             "items": items,
@@ -1432,10 +1444,10 @@ def handle_discover_trakt(handler, query):
         send_json(
             handler,
             503,
-            {"ok": False, "error": str(error), "code": error.code},
+            {"ok": False, "error": "Trakt reconnect required", "code": "reconnect_required"},
         )
-    except Exception as e:
-        send_json(handler, 502, {"ok": False, "error": str(e)})
+    except Exception:
+        send_json(handler, 502, {"ok": False, "error": "Trakt temporarily unavailable"})
 
 
 def handle_discover_request(handler):

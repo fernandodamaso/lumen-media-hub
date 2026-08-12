@@ -72,6 +72,8 @@ class TraktTokenStore:
             return None
         except (json.JSONDecodeError, UnicodeDecodeError):
             raise ValueError("invalid Trakt token state") from None
+        except OSError as error:
+            raise RuntimeError("Trakt temporarily unavailable") from error
 
     def replace(self, state):
         if not isinstance(state, TraktTokenState):
@@ -162,6 +164,8 @@ class TraktClient:
                 state = self.token_store.load()
             except ValueError as error:
                 raise TraktAuthError() from error
+            except OSError as error:
+                raise RuntimeError("Trakt temporarily unavailable") from error
             if state:
                 return state
         raise TraktAuthError()

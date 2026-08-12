@@ -80,6 +80,8 @@ class GenerationApiTestCase(unittest.TestCase):
         )
         discover_routes._tracked_media_cache["expires"] = 0.0
         discover_routes._tracked_media_cache["ids"] = []
+        discover_routes._tracked_media_cache["errors"] = []
+        discover_routes._tracked_media_cache["has_success"] = False
         self.addCleanup(self._restore_config)
         self.addCleanup(lambda: reconciliation.stop_reconciliation_scheduler(timeout=1.0))
 
@@ -897,7 +899,7 @@ class ExclusionEnforcementTests(GenerationApiTestCase):
     def test_already_tracked_candidate_rejected(self):
         with mock.patch(
             "routes.discover._hermes_exclusion_sets",
-            return_value=({"movie:777"}, set(), []),
+            return_value=({"movie:777"}, set(), set(), []),
         ):
             status, payload = self.post_generation(0, [self.candidate(777)])
         self.assertEqual(status, 200)
@@ -918,7 +920,7 @@ class ExclusionEnforcementTests(GenerationApiTestCase):
     def test_already_in_library_candidate_rejected(self):
         with mock.patch(
             "routes.discover._hermes_exclusion_sets",
-            return_value=(set(), {"movie:888"}, []),
+            return_value=(set(), {"movie:888"}, set(), []),
         ):
             status, payload = self.post_generation(0, [self.candidate(888)])
         self.assertEqual(status, 200)
@@ -939,7 +941,7 @@ class ExclusionEnforcementTests(GenerationApiTestCase):
     def test_tracked_takes_precedence_over_in_library(self):
         with mock.patch(
             "routes.discover._hermes_exclusion_sets",
-            return_value=({"movie:999"}, {"movie:999"}, []),
+            return_value=({"movie:999"}, {"movie:999"}, set(), []),
         ):
             status, payload = self.post_generation(0, [self.candidate(999)])
         self.assertEqual(status, 200)

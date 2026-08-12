@@ -826,7 +826,7 @@ def _should_auto_retain_hermes_item(item):
 
 HERMES_TASTE_CAP = 50
 TRACKED_MEDIA_CACHE_TTL = float(os.environ.get("TRACKED_MEDIA_CACHE_TTL", "60"))
-_tracked_media_cache = {"expires": 0.0, "ids": []}
+_tracked_media_cache = {"expires": 0.0, "ids": [], "errors": [], "has_success": False}
 _tracked_media_cache_lock = threading.Lock()
 
 
@@ -854,19 +854,35 @@ def _build_tracked_media_ids():
 
 
 def _get_tracked_media_ids():
-    """Cached Arr tracked identities; soft-fail to empty on errors."""
+    """Cached Arr tracked identities; preserve a complete stale set on errors."""
     now = time.monotonic()
     with _tracked_media_cache_lock:
         if now < _tracked_media_cache["expires"]:
-            return list(_tracked_media_cache["ids"]), []
+            return list(_tracked_media_cache["ids"]), list(_tracked_media_cache["errors"])
     ids, errors = _build_tracked_media_ids()
+    errors = [_safe_arr_error(error) for error in errors]
     with _tracked_media_cache_lock:
-        _tracked_media_cache["ids"] = list(ids)
-        # Cache successes longer; on errors keep a short empty cache so polls
-        # do not hammer a down Arr, but recover within the TTL window.
+        if errors:
+            # A partial Arr response must never replace a complete deny set.
+            # Before the first complete refresh, retain the existing soft-fail
+            # behavior and expose whatever provider data was available.
+            result = (
+                list(_tracked_media_cache["ids"])
+                if _tracked_media_cache["has_success"]
+                else list(ids)
+            )
+            if not _tracked_media_cache["has_success"]:
+                _tracked_media_cache["ids"] = list(ids)
+        else:
+            result = list(ids)
+            _tracked_media_cache["ids"] = list(ids)
+            _tracked_media_cache["has_success"] = True
+        _tracked_media_cache["errors"] = list(errors)
+        # Cache successes longer; on errors keep a short retry window so a
+        # failed provider does not prevent recovery for the full cache TTL.
         ttl = TRACKED_MEDIA_CACHE_TTL if not errors else min(TRACKED_MEDIA_CACHE_TTL, 15.0)
         _tracked_media_cache["expires"] = time.monotonic() + ttl
-        return list(_tracked_media_cache["ids"]), errors
+        return result, errors
 
 
 def _in_library_media_ids_from_maps(maps):
@@ -1110,12 +1126,7 @@ def handle_discover_hermes_generations(handler):
             {"ok": False, "error": "Generation context is temporarily unavailable"},
         )
         return
-    if len(exclusion_snapshot) == 3:
-        # Compatibility for callers that provide the pre-watched seam.
-        tracked_set, in_library_set, exclusion_errors = exclusion_snapshot
-        watched_set = set()
-    else:
-        tracked_set, in_library_set, watched_set, exclusion_errors = exclusion_snapshot
+    tracked_set, in_library_set, watched_set, exclusion_errors = exclusion_snapshot
     if exclusion_errors:
         print(
             f"[hermes-generations] exclusion context degraded: {exclusion_errors}",

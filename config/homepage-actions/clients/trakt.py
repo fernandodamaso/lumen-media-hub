@@ -248,7 +248,9 @@ class TraktClient:
         try:
             return self._request(path, state)
         except TraktHttpError as error:
-            raise RuntimeError("Trakt request unauthorized") from error
+            if error.status == 401:
+                raise TraktAuthError() from error
+            raise
 
     def get(self, path):
         return self.get_page(path).payload

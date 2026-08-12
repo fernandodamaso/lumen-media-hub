@@ -147,15 +147,17 @@ class TraktClientTests(unittest.TestCase):
         self.assertEqual(len(api_calls), 2)
         self.assertEqual(api_calls[-1][2]["Authorization"], "Bearer access-new")
 
-    def test_second_401_does_not_loop(self):
+    def test_second_401_requires_reconnect_without_leaking_details(self):
         def transport(method, url, headers, body):
             self.calls.append((method, url, headers, body))
             if url.endswith("/oauth/token"):
                 return FakeResponse(200, {"access_token": "access-new", "refresh_token": "refresh-new", "expires_in": 3600})
             return FakeResponse(401, {})
 
-        with self.assertRaisesRegex(RuntimeError, "Trakt request unauthorized"):
+        with self.assertRaises(TraktAuthError) as context:
             self.client(transport).get("/recommendations/movies")
+        self.assertEqual(context.exception.code, "reconnect_required")
+        self.assertEqual(str(context.exception), "Trakt reconnect required")
         self.assertEqual(len([call for call in self.calls if "/recommendations/" in call[1]]), 2)
 
     def test_refresh_rejection_is_safe_and_contains_no_secret(self):

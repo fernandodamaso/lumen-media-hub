@@ -4,6 +4,7 @@ from unittest import mock
 
 from routes import discover as routes
 from routes.discover import _map_trakt_result
+from clients.trakt import TraktAuthError
 from trakt_history import WatchedSnapshot
 
 
@@ -88,6 +89,38 @@ class TraktWatchedExclusionRouteTests(unittest.TestCase):
                 mock.patch.object(routes, "send_json", side_effect=lambda _h, status, payload: responses.append((status, payload))):
             routes.handle_discover_trakt(SimpleNamespace(), {"type": ["movies"]})
         self.assertEqual(responses, [(502, {"ok": False, "error": "Trakt temporarily unavailable"})])
+
+    def test_route_maps_persistent_trakt_auth_rejection_to_reconnect(self):
+        responses = []
+        leaked = "refresh-token-secret"
+        with mock.patch.object(routes.settings, "TRAKT_CLIENT_ID", "id"), \
+                mock.patch.object(
+                    routes,
+                    "_trakt_get",
+                    side_effect=TraktAuthError("reconnect_required", leaked),
+                ), \
+                mock.patch.object(
+                    routes,
+                    "send_json",
+                    side_effect=lambda _handler, status, payload: responses.append(
+                        (status, payload)
+                    ),
+                ):
+            routes.handle_discover_trakt(SimpleNamespace(), {"type": ["movies"]})
+
+        self.assertEqual(
+            responses,
+            [
+                (
+                    503,
+                    {
+                        "ok": False,
+                        "error": "Trakt reconnect required",
+                        "code": "reconnect_required",
+                    },
+                )
+            ],
+        )
         self.assertNotIn(leaked, str(responses))
 
 

@@ -1,9 +1,62 @@
 import unittest
 from types import SimpleNamespace
 from unittest import mock
+import time
 
 from routes import discover as routes
+from clients.trakt import TraktAuthError
 from trakt_history import WatchedSnapshot
+
+
+class TrackedArrCacheTests(unittest.TestCase):
+    def setUp(self):
+        self.original_cache = dict(routes._tracked_media_cache)
+        routes._tracked_media_cache.update(
+            {"expires": 0.0, "ids": [], "errors": [], "has_success": False}
+        )
+        self.addCleanup(routes._tracked_media_cache.clear)
+        self.addCleanup(routes._tracked_media_cache.update, self.original_cache)
+
+    def test_success_then_total_failure_preserves_last_good_combined_set(self):
+        with mock.patch.object(
+            routes,
+            "_build_tracked_media_ids",
+            side_effect=[
+                (["movie:101", "tv:202"], []),
+                ([], ["radarr: unavailable", "sonarr: unavailable"]),
+            ],
+        ):
+            self.assertEqual(
+                routes._get_tracked_media_ids(), (["movie:101", "tv:202"], [])
+            )
+            routes._tracked_media_cache["expires"] = 0.0
+            before_retry = time.monotonic()
+            ids, errors = routes._get_tracked_media_ids()
+            cached_ids, cached_errors = routes._get_tracked_media_ids()
+
+        self.assertEqual(ids, ["movie:101", "tv:202"])
+        self.assertEqual(errors, ["radarr: unavailable", "sonarr: unavailable"])
+        self.assertEqual(cached_ids, ids)
+        self.assertEqual(cached_errors, errors)
+        self.assertLessEqual(
+            routes._tracked_media_cache["expires"] - before_retry, 15.0
+        )
+
+    def test_success_then_one_provider_failure_preserves_complete_last_good_set(self):
+        with mock.patch.object(
+            routes,
+            "_build_tracked_media_ids",
+            side_effect=[
+                (["movie:101", "tv:202"], []),
+                (["movie:101"], ["sonarr: unavailable"]),
+            ],
+        ):
+            routes._get_tracked_media_ids()
+            routes._tracked_media_cache["expires"] = 0.0
+            ids, errors = routes._get_tracked_media_ids()
+
+        self.assertEqual(ids, ["movie:101", "tv:202"])
+        self.assertEqual(errors, ["sonarr: unavailable"])
 
 
 class DiscoverExclusionTests(unittest.TestCase):

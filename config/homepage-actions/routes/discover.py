@@ -23,6 +23,7 @@ from trakt_history import TraktWatchedService, WatchedSnapshot, WatchedSnapshotS
 from http_support import (
     _BodyTooLarge,
     _read_json_body,
+    _reject_internal_get,
     _reject_mutating,
     send_json,
 )
@@ -396,9 +397,12 @@ def _resolve_poster_paths(requests):
                 resolved[key] = path
                 if not found:
                     failed += 1
-    except Exception as e:
+    except Exception as error:
         # Degrade, never fail the caller: unresolved keys get no poster.
-        print(f"[poster-enrich] batch aborted: {e}", flush=True)
+        print(
+            f"[poster-enrich] batch aborted exception={type(error).__name__}",
+            flush=True,
+        )
         for key in pending:
             resolved.setdefault(key, None)
         return resolved
@@ -600,8 +604,8 @@ def _sync_hermes_collection_best_effort():
         return None
     try:
         return sync_hermes_collection()
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    except Exception:
+        return {"ok": False, "error": "Hermes collection is temporarily unavailable"}
 
 
 def _hermes_item_for_client(item, snapshot=None, watched_snapshot=None):
@@ -644,17 +648,17 @@ def _filter_library_items(items, snapshot):
 def handle_discover_hermes_get(handler):
     try:
         data = settings.RECOMMENDATIONS_STORE.load()
-    except RecommendationError as e:
-        send_json(handler, 500, {"ok": False, "error": f"Store load failed: {e}"})
+        snapshot = _library_exclusion_snapshot()
+        watched_snapshot = _trakt_watched_snapshot()
+        items = [
+            _hermes_item_for_client(item, snapshot, watched_snapshot)
+            for item in _hermes_items(data)
+        ]
+        items = _enrich_hermes_posters(_enrich_hermes_library_flags(items, snapshot))
+        items = [_hermes_public_item(item) for item in items]
+    except Exception:
+        send_json(handler, 500, {"ok": False, "error": "Discover recommendations are temporarily unavailable"})
         return
-    snapshot = _library_exclusion_snapshot()
-    watched_snapshot = _trakt_watched_snapshot()
-    items = [
-        _hermes_item_for_client(item, snapshot, watched_snapshot)
-        for item in _hermes_items(data)
-    ]
-    items = _enrich_hermes_posters(_enrich_hermes_library_flags(items, snapshot))
-    items = [_hermes_public_item(item) for item in items]
     send_json(
         handler,
         200,
@@ -669,6 +673,32 @@ def handle_discover_hermes_get(handler):
     )
 
 
+def handle_discover_hermes_generation_snapshot(handler):
+    """Return the private, server-built input required by Hermes generation.
+
+    This route is deliberately separate from the dashboard GET.  It remains
+    protected by the actions token and is not a browser-facing data contract.
+    """
+    if _reject_internal_get(handler):
+        return
+    try:
+        data = settings.RECOMMENDATIONS_STORE.load()
+        context = _hermes_generation_context(data)
+    except Exception:
+        send_json(handler, 500, {"ok": False, "error": "Generation snapshot is temporarily unavailable"})
+        return
+    send_json(
+        handler,
+        200,
+        {
+            "ok": True,
+            "revision": data.get("revision", 0),
+            "presented_media_ids": list(data.get("presented_media_ids", [])),
+            "context": context,
+        },
+    )
+
+
 def handle_discover_hermes_patch(handler, item_id):
     try:
         body = _read_json_body(handler)
@@ -677,6 +707,9 @@ def handle_discover_hermes_patch(handler, item_id):
         return
     except json.JSONDecodeError:
         send_json(handler, 400, {"ok": False, "error": "Invalid JSON body"})
+        return
+    if not isinstance(body, dict):
+        send_json(handler, 400, {"ok": False, "error": "Expected a JSON object body"})
         return
 
     status = (body.get("status") or "").strip()
@@ -702,8 +735,8 @@ def handle_discover_hermes_patch(handler, item_id):
     except HermesItemNotFound:
         send_json(handler, 404, {"ok": False, "error": "Item not found"})
         return
-    except RecommendationError as e:
-        send_json(handler, 500, {"ok": False, "error": f"Store rejected update: {e}"})
+    except Exception:
+        send_json(handler, 500, {"ok": False, "error": "Feedback could not be saved"})
         return
 
     payload = {"ok": True, "id": item_id, "status": status}
@@ -807,16 +840,16 @@ def _build_tracked_media_ids():
                 tmdb_id = _normalize_tmdb_id(movie.get("tmdbId"))
                 if tmdb_id:
                     ids.add(f"movie:{tmdb_id}")
-        except Exception as e:
-            errors.append(f"radarr: {e}")
+        except Exception:
+            errors.append("radarr: unavailable")
     if settings.SONARR_API_KEY:
         try:
             for series in _arr_get(settings.SONARR_URL, settings.SONARR_API_KEY, "/api/v3/series"):
                 tmdb_id = _normalize_tmdb_id(series.get("tmdbId"))
                 if tmdb_id:
                     ids.add(f"tv:{tmdb_id}")
-        except Exception as e:
-            errors.append(f"sonarr: {e}")
+        except Exception:
+            errors.append("sonarr: unavailable")
     return sorted(ids), errors
 
 
@@ -853,20 +886,28 @@ def _get_in_library_media_ids():
     try:
         maps = _tmdb_library_maps()
         return _in_library_media_ids_from_maps(maps), []
-    except Exception as e:
-        return [], [f"jellyfin: {e}"]
+    except Exception:
+        return [], ["jellyfin: unavailable"]
+
+
+def _safe_arr_error(error):
+    value = str(error)
+    for provider in ("radarr", "sonarr"):
+        if value.startswith(f"{provider}:"):
+            return f"{provider}: unavailable"
+    return "arr: unavailable"
 
 
 def _hermes_required_retain(
     items, *, excluded_tracked=None, excluded_library=None, excluded_watched=None
 ):
-    """Active identities Hermes must keep, excluding authoritative deny sets."""
+    """Complete generation candidates Hermes must keep."""
     excluded = (
         set(excluded_tracked or ())
         | set(excluded_library or ())
         | set(excluded_watched or ())
     )
-    retain = set()
+    retain = {}
     for item in items:
         if not item.get("active"):
             continue
@@ -874,8 +915,15 @@ def _hermes_required_retain(
             continue
         identity = item.get("identity") or _hermes_identity(item)
         if identity and identity not in excluded:
-            retain.add(identity)
-    return sorted(retain)
+            retain[identity] = {
+                "type": item["type"],
+                "title": item["title"],
+                "year": item.get("year"),
+                "tmdb_id": item["tmdb_id"],
+                "reason": item.get("reason", ""),
+                "retain": True,
+            }
+    return [retain[identity] for identity in sorted(retain)]
 
 
 def _hermes_taste_entry(item):
@@ -917,7 +965,7 @@ def _hermes_exclusion_sets():
         {"movie": library_snapshot.movie, "tv": library_snapshot.tv}
     )
     watched_snapshot = _trakt_watched_snapshot()
-    errors = [f"{str(error).split(':', 1)[0]}: unavailable" for error in tracked_errors]
+    errors = [_safe_arr_error(error) for error in tracked_errors]
     if library_snapshot.status == "unavailable":
         errors.append("jellyfin: unavailable")
     if watched_snapshot.status == "unavailable":
@@ -944,7 +992,7 @@ def _hermes_generation_context(data, snapshot=None, watched_snapshot=None):
         if watched_snapshot.status != "unavailable"
         else []
     )
-    errors = [f"{str(error).split(':', 1)[0]}: unavailable" for error in tracked_errors]
+    errors = [_safe_arr_error(error) for error in tracked_errors]
     if snapshot.status == "unavailable":
         errors.append("jellyfin: unavailable")
     if watched_snapshot.status == "unavailable":
@@ -1040,11 +1088,28 @@ def handle_discover_hermes_generations(handler):
         candidate_posters = _resolve_poster_paths(
             [(c["type"], c["tmdb_id"]) for c in candidates]
         )
-    except Exception as e:
-        print(f"[poster-enrich] generation preparation failed: {e}", flush=True)
+    except Exception as error:
+        print(
+            "[poster-enrich] generation preparation failed "
+            f"exception={type(error).__name__}",
+            flush=True,
+        )
         candidate_posters = {}
 
-    exclusion_snapshot = _hermes_exclusion_sets()
+    try:
+        exclusion_snapshot = _hermes_exclusion_sets()
+    except Exception as error:
+        print(
+            "[hermes-generations] exclusion context failed "
+            f"exception={type(error).__name__}",
+            flush=True,
+        )
+        send_json(
+            handler,
+            502,
+            {"ok": False, "error": "Generation context is temporarily unavailable"},
+        )
+        return
     if len(exclusion_snapshot) == 3:
         # Compatibility for callers that provide the pre-watched seam.
         tracked_set, in_library_set, exclusion_errors = exclusion_snapshot
@@ -1249,16 +1314,16 @@ def handle_discover_hermes_generations(handler):
             },
         )
         return
-    except RecommendationError as e:
-        send_json(handler, 500, {"ok": False, "error": f"Store rejected generation: {e}"})
+    except Exception:
+        send_json(handler, 500, {"ok": False, "error": "Generation could not be saved"})
         return
 
     try:
         _clear_generation_request()
-    except RecommendationError as e:
+    except Exception as error:
         print(
             f"[discover-hermes] generation committed but failed to clear "
-            f"on-demand request: {e}",
+            f"on-demand request exception={type(error).__name__}",
             flush=True,
         )
 
@@ -1282,8 +1347,8 @@ def handle_discover_hermes_sync(handler):
     try:
         result = sync_hermes_collection()
         send_json(handler, 200, result)
-    except Exception as e:
-        send_json(handler, 502, {"ok": False, "error": str(e)})
+    except Exception:
+        send_json(handler, 502, {"ok": False, "error": "Hermes collection is temporarily unavailable"})
 
 
 def handle_discover_hermes_request_more(handler):
@@ -1292,8 +1357,8 @@ def handle_discover_hermes_request_more(handler):
         return
     try:
         result = _request_hermes_generation()
-    except RecommendationError as e:
-        send_json(handler, 500, {"ok": False, "error": str(e)})
+    except Exception:
+        send_json(handler, 500, {"ok": False, "error": "Generation request could not be queued"})
         return
     send_json(handler, 200, result)
 
@@ -1362,8 +1427,8 @@ def handle_discover_jellyseerr(handler, query):
                 "items": items,
             },
         )
-    except Exception as e:
-        send_json(handler, 502, {"ok": False, "error": str(e)})
+    except Exception:
+        send_json(handler, 502, {"ok": False, "error": "Jellyseerr is temporarily unavailable"})
 
 
 
@@ -1476,8 +1541,8 @@ def handle_discover_request(handler):
     if hermes_id:
         try:
             current = settings.RECOMMENDATIONS_STORE.load()
-        except RecommendationError as e:
-            send_json(handler, 500, {"ok": False, "error": f"Store load failed: {e}"})
+        except RecommendationError:
+            send_json(handler, 500, {"ok": False, "error": "Discover recommendations are temporarily unavailable"})
             return
         item = _find_hermes_item(current, hermes_id)
         if not item:
@@ -1494,11 +1559,11 @@ def handle_discover_request(handler):
 
     try:
         arr_result = _add_to_arr_unmonitored(media_type, media_id)
-    except RecommendationError as e:
-        send_json(handler, 502, {"ok": False, "error": str(e)})
+    except RecommendationError:
+        send_json(handler, 502, {"ok": False, "error": "Unable to add this title to the library"})
         return
-    except Exception as e:
-        send_json(handler, 502, {"ok": False, "error": str(e)})
+    except Exception:
+        send_json(handler, 502, {"ok": False, "error": "Unable to add this title to the library"})
         return
 
     arr_id = arr_result.get("arr_id")
@@ -1515,9 +1580,9 @@ def handle_discover_request(handler):
 
         try:
             settings.RECOMMENDATIONS_STORE.update(_apply)
-        except Exception as e:
+        except Exception as error:
             dashboard_state_persisted = False
-            persistence_error = type(e).__name__
+            persistence_error = type(error).__name__
             try:
                 _enqueue_request_reconciliation(hermes_id, arr_id)
                 reconciliation_queued = True
@@ -1525,17 +1590,13 @@ def handle_discover_request(handler):
                 reconciliation_queued = False
                 print(
                     "[discover-request] reconciliation enqueue failed "
-                    f"hermes_id={hermes_id!r} "
-                    f"arr_id={arr_id!r} "
-                    f"error={type(queue_error).__name__}",
+                    f"exception={type(queue_error).__name__}",
                     flush=True,
                 )
             print(
                 "[discover-request] Arr add succeeded but dashboard state "
                 "persistence diverged "
-                f"hermes_id={hermes_id!r} "
-                f"arr_id={arr_id!r} "
-                f"error={persistence_error}",
+                f"exception={persistence_error}",
                 flush=True,
             )
 
@@ -1587,7 +1648,5 @@ def handle_discover_request(handler):
 def handle_discover_request_reconcile(handler):
     try:
         send_json(handler, 200, run_reconciliation_cycle())
-    except RecommendationError as e:
-        send_json(handler, 500, {"ok": False, "error": str(e)})
-    except OSError as e:
-        send_json(handler, 500, {"ok": False, "error": f"Reconciliation failed: {e}"})
+    except Exception:
+        send_json(handler, 500, {"ok": False, "error": "Request reconciliation is temporarily unavailable"})

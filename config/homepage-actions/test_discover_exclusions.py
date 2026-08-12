@@ -116,7 +116,10 @@ class DiscoverExclusionTests(unittest.TestCase):
                 mock.patch.object(routes, "_trakt_watched_snapshot") as watched_snapshot, \
                 mock.patch.object(routes, "send_json", side_effect=lambda _h, status, payload: responses.append((status, payload))):
             routes.handle_discover_jellyseerr(SimpleNamespace(), {"kind": ["movies"]})
-        self.assertEqual(responses, [(502, {"ok": False, "error": "upstream down"})])
+        self.assertEqual(
+            responses,
+            [(502, {"ok": False, "error": "Jellyseerr is temporarily unavailable"})],
+        )
         watched_snapshot.assert_not_called()
 
     def test_jellyseerr_library_and_watched_exclusions_preserve_card_metadata(self):

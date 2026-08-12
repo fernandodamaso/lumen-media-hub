@@ -66,7 +66,7 @@ is owned and stopped by `DashboardPage`; shell polling remains with `App`.
 Browser → http://127.0.0.1:3000
   → Angular Nginx container
     /        → Angular static SPA (production-live build)
-    /api/*   → homepage-actions:8085/* (Nginx strips /api prefix)
+    /api/*   → homepage-actions:8085/* (Nginx strips /api prefix; /api/internal/* returns 404)
                   → qBittorrent / Jellyfin / system resources
 ```
 
@@ -150,7 +150,8 @@ npm run test:smoke
 | `/api/activity` | GET | Recent activity feed for the right rail |
 | `/api/automation/summary` | GET | Service health and warnings |
 | `/api/cron/logs` | GET | Automation run logs |
-| `/api/discover/hermes` | GET | Hermes recommendations |
+| `/api/discover/hermes` | GET | Browser-safe Hermes recommendations |
+| `http://localhost:8085/internal/discover/hermes` | GET | Authenticated Hermes generation snapshot; direct access without token is 401 |
 | `/api/discover/jellyseerr` | GET | Jellyseerr discover |
 | `/api/discover/trakt` | GET | Trakt discover |
 | `/api/discover/request` | POST | Request media (token required) |
@@ -192,6 +193,8 @@ Design-system showcase is Storybook (`npm run storybook`), not an in-app `/ui` r
 - SABnzbd is excluded from the live application shell; only qBittorrent on port `8081` remains as a download client.
 
 Backend security (fail-closed `ACTIONS_TOKEN`, per-torrent qBT routes, CORS allowlist) is implemented in `D:\media\config\homepage-actions` (Milestone 1, commit `f0b4213` on the media stack repo).
+
+The browser must use `/api/discover/hermes` for the public Discover response. Browser `/api/internal/*` requests return 404. Hermes uses the direct host route `http://localhost:8085/internal/discover/hermes` with a valid `X-Actions-Token` and approved `Origin`; direct requests without the token return 401. Revision, presented identities, watched identities, and generation context remain internal.
 
 ## Docker build
 

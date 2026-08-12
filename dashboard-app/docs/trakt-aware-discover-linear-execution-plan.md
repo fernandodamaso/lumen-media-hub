@@ -37,6 +37,13 @@ Make Discover Active a reliable source of unwatched, unowned recommendations:
 
 All credentials, tokens, and watched-state data stay local. Do not add a dashboard authentication/settings feature.
 
+#### Browser privacy and generation snapshot contract
+
+- The public dashboard `GET /discover/hermes` returns only browser-safe recommendation/history fields, request state, and exclusion freshness (`fresh`, `stale`, or `unavailable`) plus a sanitized warning when needed.
+- The public response must not include `revision`, `presented_media_ids`, `context`, `required_retain`, taste data, or typed Arr/Jellyfin/Trakt identity sets. These are generation-control data, not dashboard data.
+- Hermes reads those generation-control fields from the authenticated direct host route `http://localhost:8085/internal/discover/hermes` with `X-Actions-Token` and an approved `Origin`. The browser reads `/api/discover/hermes`; browser `/api/internal/*` returns **404**, and direct internal access without the token returns **401**.
+- Reconnect, stale-cache, and unavailable errors must be safe for browser-facing responses and logs: no token, secret, raw watched-history record, or unbounded identity dump. A stale snapshot may continue filtering; an unavailable snapshot must state that watched filtering is unavailable and follow the approved fail-open behavior.
+
 References: [Trakt authentication](https://docs.trakt.tv/docs/authentication-oauth), [token exchange](https://docs.trakt.tv/reference/postoauthtoken), and [watched pagination guidance](https://roadmap.trakt.tv/changelog).
 
 #### Acceptance criteria
@@ -348,6 +355,7 @@ Make library and watched exclusions authoritative during Hermes generation so fu
 ### Execution checklist
 
 - [ ] Add failing tests for generation context containing `watched_media_ids`.
+- [ ] Define and test the authenticated internal generation snapshot contract separately from the public dashboard Hermes GET; keep revision, presented identities, context, and typed deny sets out of browser responses.
 - [ ] Add failing tests proving excluded Active identities are absent from `required_retain`.
 - [ ] Add failing tests for new watched candidate rejection as `already_watched`.
 - [ ] Add failing tests proving an existing watched or in-library Active row rotates during a successful generation commit.
@@ -370,6 +378,7 @@ Make library and watched exclusions authoritative during Hermes generation so fu
 - [ ] Never-twice and presented-identity invariants remain intact.
 - [ ] Feedback, request state, and timestamps survive rotation.
 - [ ] The prompt and server enforcement describe the same rules.
+- [ ] The public dashboard contract exposes only browser-safe fields and exclusion freshness; Hermes reads generation-only revision/context from the separately authenticated internal snapshot.
 
 ### Verification
 
@@ -433,6 +442,7 @@ This issue is a verification gate, not permission for unrelated cleanup.
 - [ ] Renewable OAuth is verified and `TRAKT_ACCESS_TOKEN` is removed, so no temporary compatibility path remains.
 - [ ] Credentials and private history remain local and ignored.
 - [ ] Documentation matches the shipped behavior.
+- [ ] Browser responses and reconnect/degradation errors contain no credentials, raw watch history, or generation-only identity sets.
 - [ ] Unrelated dirty work remains intact.
 
 ### Verification

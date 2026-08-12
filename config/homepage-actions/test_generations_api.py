@@ -67,11 +67,13 @@ class GenerationApiTestCase(unittest.TestCase):
         self._old_store = config.RECOMMENDATIONS_STORE
         self._old_token = config.ACTIONS_TOKEN
         self._old_jellyseerr_key = config.JELLYSEERR_API_KEY
+        self._old_cors_origins = config.CORS_ORIGINS
         self._old_reconciliation_path = config.RECONCILIATION_PATH
         self._old_generation_request_path = config.GENERATION_REQUEST_PATH
 
         config.RECOMMENDATIONS_STORE = self.store
         config.ACTIONS_TOKEN = TOKEN
+        config.CORS_ORIGINS = ["http://localhost:3000"]
         config.RECONCILIATION_PATH = os.path.join(self.tmpdir, "reconciliation.json")
         config.GENERATION_REQUEST_PATH = os.path.join(
             self.tmpdir, "generation-request.json"
@@ -92,6 +94,7 @@ class GenerationApiTestCase(unittest.TestCase):
         config.RECOMMENDATIONS_STORE = self._old_store
         config.ACTIONS_TOKEN = self._old_token
         config.JELLYSEERR_API_KEY = self._old_jellyseerr_key
+        config.CORS_ORIGINS = self._old_cors_origins
         config.RECONCILIATION_PATH = self._old_reconciliation_path
         config.GENERATION_REQUEST_PATH = self._old_generation_request_path
 
@@ -109,11 +112,13 @@ class GenerationApiTestCase(unittest.TestCase):
 
         return self.store.update(_apply)
 
-    def request(self, method, path, body=None, token=TOKEN):
+    def request(self, method, path, body=None, token=TOKEN, origin=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         headers = {"Content-Type": "application/json"}
         if token is not None:
             headers["X-Actions-Token"] = token
+        if origin is not None:
+            headers["Origin"] = origin
         raw = json.dumps(body).encode("utf-8") if body is not None else None
         try:
             conn.request(method, path, body=raw, headers=headers)
@@ -666,6 +671,228 @@ class GetAndRetiredRouteTests(GenerationApiTestCase):
         self.assertEqual(self.current_doc()["items"], [])
 
 
+class InternalGenerationSnapshotTests(GenerationApiTestCase):
+    def snapshot(self, token=TOKEN, origin="http://localhost:3000"):
+        return self.request(
+            "GET",
+            "/internal/discover/hermes",
+            token=token,
+            origin=origin,
+        )
+
+    def test_missing_and_wrong_token_are_unauthorized(self):
+        for token in (None, "wrong-token"):
+            with self.subTest(token=token):
+                status, payload = self.snapshot(token=token)
+                self.assertEqual(status, 401)
+                self.assertEqual(payload, {"ok": False, "error": "Unauthorized"})
+
+    def test_disallowed_origin_is_forbidden(self):
+        status, payload = self.snapshot(origin="https://attacker.example")
+        self.assertEqual(status, 403)
+        self.assertEqual(payload, {"ok": False, "error": "Origin not allowed"})
+
+    def test_valid_snapshot_has_exact_keys_and_complete_retain_candidates(self):
+        self.seed([make_item(7)], presented=["movie:7"])
+        with mock.patch.object(
+            discover_routes,
+            "_get_tracked_media_ids",
+            return_value=([], []),
+        ), mock.patch.object(
+            discover_routes,
+            "_library_exclusion_snapshot",
+            return_value=discover_routes.LibraryExclusionSnapshot.from_maps(
+                {}, {}, status="fresh", last_successful_refresh_at=None
+            ),
+        ), mock.patch.object(
+            discover_routes,
+            "_trakt_watched_snapshot",
+            return_value=discover_routes.WatchedSnapshot(frozenset(), None, "fresh"),
+        ):
+            status, payload = self.snapshot()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(set(payload), {"ok", "revision", "presented_media_ids", "context"})
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["revision"], self.current_doc()["revision"])
+        self.assertEqual(payload["presented_media_ids"], ["movie:7"])
+        self.assertEqual(
+            payload["context"]["required_retain"],
+            [{
+                "type": "movie",
+                "title": "Title 7",
+                "year": 2000,
+                "tmdb_id": 7,
+                "reason": "fixture",
+                "retain": True,
+            }],
+        )
+
+    def test_revision_and_presented_ids_are_same_document_and_snapshot_is_usable(self):
+        self.seed([make_item(7)], presented=["movie:7"])
+        patches = [
+            mock.patch.object(discover_routes, "_get_tracked_media_ids", return_value=([], [])),
+            mock.patch.object(
+                discover_routes,
+                "_library_exclusion_snapshot",
+                return_value=discover_routes.LibraryExclusionSnapshot.from_maps(
+                    {}, {}, status="fresh", last_successful_refresh_at=None
+                ),
+            ),
+            mock.patch.object(
+                discover_routes,
+                "_trakt_watched_snapshot",
+                return_value=discover_routes.WatchedSnapshot(frozenset(), None, "fresh"),
+            ),
+        ]
+        with patches[0], patches[1], patches[2]:
+            status, snapshot = self.snapshot()
+            self.assertEqual(status, 200)
+            candidates = snapshot["context"]["required_retain"] + [self.candidate(8)]
+            status, result = self.post_generation(snapshot["revision"], candidates)
+        self.assertEqual(status, 200)
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.current_doc()["revision"], snapshot["revision"] + 1)
+
+    def test_stale_snapshot_returns_409_without_mutating_transaction(self):
+        self.seed([make_item(7)], presented=["movie:7"])
+        status, snapshot = self.snapshot()
+        self.assertEqual(status, 200)
+        self.store.update(lambda doc: doc["items"][0].update({"feedback": "liked"}))
+        before = self.current_doc()
+
+        status, payload = self.post_generation(
+            snapshot["revision"], [self.candidate(8)]
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"], "stale_base_revision")
+        self.assertEqual(self.current_doc(), before)
+
+    def test_public_response_excludes_injected_private_and_unknown_fields(self):
+        self.seed([make_item(7)], presented=["movie:7"])
+
+        def inject_private_fields(doc):
+            doc["secret"] = "TOKEN raw-history HTML https://upstream.example"
+            doc["unknown_top_level"] = {"path": "C:\\private\\history"}
+            doc["items"][0].update(
+                {
+                    "secret": "TOKEN",
+                    "raw_history": "watched title movie:909",
+                    "unknown_row_property": "should stay private",
+                }
+            )
+
+        self.store.update(inject_private_fields)
+        status, payload = self.request("GET", "/discover/hermes")
+        encoded = json.dumps(payload)
+        self.assertEqual(status, 200)
+        for private in (
+            "TOKEN",
+            "raw-history",
+            "watched title",
+            "unknown_row_property",
+            "unknown_top_level",
+            "revision",
+            "presented_media_ids",
+            "context",
+        ):
+            self.assertNotIn(private, encoded)
+
+
+class DiscoverSafeErrorBoundaryTests(GenerationApiTestCase):
+    SECRET_ERROR = "path=C:\\private\\token SECRET raw-history=Watched Title <html> upstream=https://evil.example"
+
+    def test_browser_visible_provider_and_operation_errors_are_fixed(self):
+        cases = (
+            ("GET", "/discover/hermes", 500, "Discover recommendations are temporarily unavailable", "RECOMMENDATIONS_STORE.load"),
+            ("GET", "/discover/jellyseerr?kind=trending", 502, "Jellyseerr is temporarily unavailable", "_jellyseerr_get"),
+            ("GET", "/discover/trakt?type=movies", 502, "Trakt temporarily unavailable", "_trakt_get"),
+            ("POST", "/discover/hermes/sync", 502, "Hermes collection is temporarily unavailable", "sync_hermes_collection"),
+            ("POST", "/discover/hermes/request-more", 500, "Generation request could not be queued", "_request_hermes_generation"),
+            ("POST", "/discover/request/reconcile", 500, "Request reconciliation is temporarily unavailable", "run_reconciliation_cycle"),
+        )
+        for method, path, expected_status, expected, operation in cases:
+            with self.subTest(operation=operation), mock.patch("builtins.print") as printed:
+                if operation == "RECOMMENDATIONS_STORE.load":
+                    patcher = mock.patch.object(
+                        self.store, "load", side_effect=RuntimeError(self.SECRET_ERROR)
+                    )
+                elif operation == "_jellyseerr_get":
+                    patcher = mock.patch.object(
+                        discover_routes, operation, side_effect=RuntimeError(self.SECRET_ERROR)
+                    )
+                elif operation == "_trakt_get":
+                    patcher = mock.patch.object(
+                        discover_routes, operation, side_effect=RuntimeError(self.SECRET_ERROR)
+                    )
+                elif operation == "sync_hermes_collection":
+                    patcher = mock.patch.object(
+                        discover_routes, operation, side_effect=RuntimeError(self.SECRET_ERROR)
+                    )
+                elif operation == "_request_hermes_generation":
+                    patcher = mock.patch.object(
+                        discover_routes, operation, side_effect=rs.RecommendationError(self.SECRET_ERROR)
+                    )
+                else:
+                    patcher = mock.patch.object(
+                        discover_routes, operation, side_effect=RuntimeError(self.SECRET_ERROR)
+                    )
+                with patcher, mock.patch.object(config, "TRAKT_CLIENT_ID", "client-id"), mock.patch.object(
+                    config, "JELLYSEERR_ENABLED", True
+                ), mock.patch.object(config, "JELLYSEERR_API_KEY", "jellyseerr-key"):
+                    status, payload = self.request(method, path)
+            self.assertEqual(status, expected_status)
+            self.assertEqual(payload["error"], expected)
+            self.assertNotIn(self.SECRET_ERROR, json.dumps(payload))
+            self.assertNotIn(self.SECRET_ERROR, " ".join(str(call) for call in printed.call_args_list))
+
+    def test_feedback_request_generation_and_best_effort_logs_are_sanitized(self):
+        self.seed([make_item(7)], presented=["movie:7"])
+        with mock.patch.object(
+            self.store, "update", side_effect=RuntimeError(self.SECRET_ERROR)
+        ):
+            status, payload = self.request(
+                "PATCH", "/discover/hermes/hermes-movie-7", {"status": "liked"}
+            )
+        self.assertEqual(status, 500)
+        self.assertEqual(payload["error"], "Feedback could not be saved")
+
+        with mock.patch.object(
+            discover_routes,
+            "_add_to_arr_unmonitored",
+            side_effect=RuntimeError(self.SECRET_ERROR),
+        ):
+            status, payload = self.request(
+                "POST",
+                "/discover/request",
+                {"mediaType": "movie", "mediaId": 7},
+            )
+        self.assertEqual(status, 502)
+        self.assertEqual(payload["error"], "Unable to add this title to the library")
+
+        with mock.patch.object(
+            discover_routes,
+            "_resolve_poster_paths",
+            side_effect=RuntimeError(self.SECRET_ERROR),
+        ), mock.patch.object(
+            discover_routes,
+            "_hermes_exclusion_sets",
+            return_value=(set(), set(), set(), []),
+        ), mock.patch("builtins.print") as printed:
+            status, payload = self.post_generation(
+                self.current_doc()["revision"], [self.candidate(8)]
+            )
+        self.assertEqual(status, 200)
+        self.assertNotIn(self.SECRET_ERROR, json.dumps(payload))
+        self.assertNotIn(self.SECRET_ERROR, " ".join(str(call) for call in printed.call_args_list))
+
+        with mock.patch.object(config, "JELLYFIN_API_KEY", "jellyfin-key"), mock.patch.object(
+            discover_routes, "sync_hermes_collection", side_effect=RuntimeError(self.SECRET_ERROR)
+        ):
+            result = discover_routes._sync_hermes_collection_best_effort()
+        self.assertEqual(result, {"ok": False, "error": "Hermes collection is temporarily unavailable"})
+
 class ExclusionEnforcementTests(GenerationApiTestCase):
     def test_already_tracked_candidate_rejected(self):
         with mock.patch(
@@ -905,8 +1132,9 @@ class TrackedGenerationRotationTests(GenerationApiTestCase):
             context = discover_routes._hermes_generation_context(
                 self.current_doc(), snapshot, watched
             )
-        self.assertNotIn("movie:7", context["required_retain"])
-        self.assertIn("movie:8", context["required_retain"])
+        retained = {item["type"] + ":" + str(item["tmdb_id"]) for item in context["required_retain"]}
+        self.assertNotIn("movie:7", retained)
+        self.assertIn("movie:8", retained)
 
     def test_tracked_active_identity_retain_is_rejected_and_rotated(self):
         tracked = make_item(7, feedback="liked", request_state="requested")
@@ -1019,8 +1247,9 @@ class HermesGenerationContextContractTests(GenerationApiTestCase):
                 self.current_doc(), snapshot, watched
             )
         self.assertIn("movie:7", context["watched_media_ids"])
-        self.assertNotIn("movie:7", context["required_retain"])
-        self.assertIn("tv:8", context["required_retain"])
+        retained = {item["type"] + ":" + str(item["tmdb_id"]) for item in context["required_retain"]}
+        self.assertNotIn("movie:7", retained)
+        self.assertIn("tv:8", retained)
 
     def test_unavailable_watched_acquisition_is_soft_and_sanitized(self):
         def fail_watched_fetch(_path):

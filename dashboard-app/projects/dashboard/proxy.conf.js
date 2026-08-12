@@ -16,6 +16,9 @@ module.exports = {
     secure: false,
     changeOrigin: true,
     pathRewrite: { '^/api': '' },
+    bypass(req) {
+      if (req.url?.startsWith('/api/internal/')) return false;
+    },
     configure(proxy) {
       proxy.on('proxyReq', (proxyReq, req) => {
         const method = (req.method || 'GET').toUpperCase();

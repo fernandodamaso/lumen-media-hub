@@ -116,6 +116,17 @@ def _reject_mutating(handler):
     return False
 
 
+def _reject_internal_get(handler):
+    """Require both the actions token and an explicit approved Origin."""
+    if not _token_valid(handler):
+        send_json(handler, 401, {"ok": False, "error": "Unauthorized"})
+        return True
+    if not _request_origin(handler) or not _origin_allowed(handler):
+        send_json(handler, 403, {"ok": False, "error": "Origin not allowed"})
+        return True
+    return False
+
+
 def _reject_post(handler):
     return _reject_mutating(handler)
 

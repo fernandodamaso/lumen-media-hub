@@ -17,6 +17,7 @@
     "lint:styles:fix": "stylelint --fix \"projects/dashboard/**/*.{css,scss}\"",
     "lint:agent": "node scripts/eslint-agent.cjs",
     "lint:styles:agent": "node scripts/stylelint-agent.cjs",
+    "test:proxy-contract": "node scripts/proxy-contract-check.mjs",
     "typecheck": "tsc -p projects/dashboard/tsconfig.app.json --noEmit --pretty false",
     "quality:duplicates": "jscpd projects/dashboard/src --config .jscpd.json",
     "quality:dead-code": "knip --config knip.config.cjs",

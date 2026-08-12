@@ -19,12 +19,6 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-const proxyContract = await readFile(new URL(import.meta.url), 'utf8');
-assert(
-  !/method:\s*['"]POST['"]/.test(proxyContract),
-  'Live cron-only denial probes must not use POST',
-);
-
 const bypass = proxyConfig['/api']?.bypass;
 assert(typeof bypass === 'function', 'Vite /api proxy must define bypass(req)');
 
@@ -70,13 +64,26 @@ assert(syncLocation < publicLocation, 'Sync denial must precede /api/');
 assert(nginx.indexOf('return 404;', internalLocation) < publicLocation, 'Nginx denial must return 404');
 
 const baseUrl = process.env.SMOKE_BASE_URL || 'http://127.0.0.1:3000';
+const liveDenialProbes = [
+  { path: '/api/internal/discover/hermes', method: 'GET' },
+  { path: '/api/discover/hermes/generations', method: 'HEAD' },
+  { path: '/api/discover/hermes/sync', method: 'HEAD' },
+];
+for (const path of [
+  '/api/discover/hermes/generations',
+  '/api/discover/hermes/sync',
+]) {
+  const probe = liveDenialProbes.find((candidate) => candidate.path === path);
+  assert(probe?.method === 'HEAD', `${path} denial probe must use HEAD`);
+}
+const internalProbe = liveDenialProbes.find(
+  (candidate) => candidate.path === '/api/internal/discover/hermes',
+);
+assert(internalProbe?.method === 'GET', 'Internal Hermes denial probe must use GET');
+
 try {
   // Use HEAD for cron-only denials: the backend has no do_HEAD handler, so a misrouted probe returns 501 without invoking a mutating POST handler.
-  for (const { path, method } of [
-    { path: '/api/internal/discover/hermes', method: 'GET' },
-    { path: '/api/discover/hermes/generations', method: 'HEAD' },
-    { path: '/api/discover/hermes/sync', method: 'HEAD' },
-  ]) {
+  for (const { path, method } of liveDenialProbes) {
     const response = await fetch(`${baseUrl}${path}`, {
       method,
     });

@@ -193,10 +193,13 @@ failure.
 
 Before recommending reconnection, inspect the configured state without printing
 secrets. Confirm required `.env` fields and token-state fields are present,
-confirm access-token expiry metadata, and make read-only direct Trakt
-watched-movies and watched-shows requests. Report only presence, expiry
-metadata, HTTP status, and counts. Do not call the Trakt token endpoint only to
-test a refresh token: a refresh exchange rotates credential state.
+compare the access-token expiry timestamp with the current time, and make
+read-only direct Trakt watched-movies and watched-shows requests. Treat a
+missing or expired token as invalid, and do not treat a token with less than 60
+seconds of remaining validity as healthy: this is the backend refresh
+threshold. Report only presence, expiry metadata, HTTP status, and counts. Do
+not call the Trakt token endpoint only to test a refresh token: a refresh
+exchange rotates credential state.
 
 Run `install.ps1 -Mode connect-trakt` only when current evidence shows that
 reconnection is required, such as `reconnect_required`, a persistent

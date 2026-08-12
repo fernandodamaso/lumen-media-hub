@@ -850,10 +850,10 @@ export function requireExternalDiscoverPayload(
   // Disabled Jellyseerr is an explicit capability response and has no source snapshots.
   if (resource === 'Jellyseerr' && data['enabled'] === false) return;
   const library = data['library_exclusion'];
-  if (resource === 'Trakt' && (library === undefined || library === null)) {
+  if (library === undefined || library === null) {
     throw new Error(`Malformed ${resource} response: library_exclusion is required`);
   }
-  if (library !== undefined && library !== null) requireLibraryExclusion(library, resource);
+  requireLibraryExclusion(library, resource);
   const watched = data['watched_exclusion'];
   if (watched === undefined || watched === null) {
     throw new Error(`Malformed ${resource} response: watched_exclusion is required`);

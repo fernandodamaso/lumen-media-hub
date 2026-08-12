@@ -577,7 +577,7 @@ export class DiscoverFacade {
     }
     if (!isInitial) {
       if (safeExternalError) {
-        this.setBrowseNotice(LOAD_ERROR, 'warning');
+        this.setBrowseNotice(REFRESH_NOTICE, 'warning');
       } else if (this._mutationNotice()) {
         this.setBrowseNotice(STALE_HINT.trim(), 'warning');
       } else {

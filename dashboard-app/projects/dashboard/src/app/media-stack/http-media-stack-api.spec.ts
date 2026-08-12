@@ -93,7 +93,10 @@ describe('live-api.mappers', () => {
       /watched_exclusion is required/,
     );
     expect(() => {
-      requireExternalDiscoverPayload({ items: [] }, 'Jellyseerr');
+      requireExternalDiscoverPayload({
+        items: [],
+        library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+      }, 'Jellyseerr');
     }).toThrow(/watched_exclusion is required/);
   });
 
@@ -122,8 +125,27 @@ describe('live-api.mappers', () => {
 
   it('requires watched freshness on enabled Jellyseerr envelopes', () => {
     expect(() => { requireExternalDiscoverPayload({ items: [], enabled: true }, 'Jellyseerr'); })
+      .toThrow(/library_exclusion is required/);
+    expect(() => {
+      requireExternalDiscoverPayload({
+        items: [],
+        enabled: true,
+        library_exclusion: null,
+        watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+      }, 'Jellyseerr');
+    }).toThrow(/library_exclusion is required/);
+    expect(() => { requireExternalDiscoverPayload({
+      items: [],
+      enabled: true,
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    }, 'Jellyseerr'); })
       .toThrow(/watched_exclusion is required/);
-    expect(() => { requireExternalDiscoverPayload({ items: [], enabled: true, watched_exclusion: null }, 'Jellyseerr'); })
+    expect(() => { requireExternalDiscoverPayload({
+      items: [],
+      enabled: true,
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+      watched_exclusion: null,
+    }, 'Jellyseerr'); })
       .toThrow(/watched_exclusion is required/);
     expect(() => { requireExternalDiscoverPayload({ items: [], enabled: false }, 'Jellyseerr'); }).not.toThrow();
   });

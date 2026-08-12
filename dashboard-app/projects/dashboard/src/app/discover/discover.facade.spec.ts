@@ -239,7 +239,7 @@ describe('DiscoverFacade', () => {
 
     await facade.setTab('trakt');
 
-    expect(facade.notice()).toBe('Discover is temporarily unavailable. Try again.');
+    expect(facade.notice()).toBe('Could not refresh. Showing last loaded results.');
     expect(facade.notice()).not.toContain('onerror');
   });
 
@@ -793,7 +793,7 @@ describe('DiscoverFacade', () => {
     expect(facade.status()).toBe('ready');
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
     expect(facade.noticeTone()).toBe('warning');
-    expect(facade.notice()).toBe('Discover is temporarily unavailable. Try again.');
+    expect(facade.notice()).toBe('Could not refresh. Showing last loaded results.');
   });
 
   it('retains an empty Hermes last-good state when a later refresh fails', async () => {
@@ -807,7 +807,7 @@ describe('DiscoverFacade', () => {
     expect(facade.status()).toBe('empty');
     expect(facade.error()).toBe('');
     expect(facade.noticeTone()).toBe('warning');
-    expect(facade.notice()).toBe('Discover is temporarily unavailable. Try again.');
+    expect(facade.notice()).toBe('Could not refresh. Showing last loaded results.');
   });
 
   it('hard-errors on the initial Hermes load failure', async () => {
@@ -827,7 +827,7 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
     expect(facade.noticeTone()).toBe('warning');
     expect(facade.notice()).toContain('Requested');
-    expect(facade.notice()).toContain('Discover is temporarily unavailable. Try again.');
+    expect(facade.notice()).toBe('Requested. Could not refresh. Showing last loaded results.');
   });
 
   it('applies a superseded successful Hermes payload when recovering an exclusive error', async () => {

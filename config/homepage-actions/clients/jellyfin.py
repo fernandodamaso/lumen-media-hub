@@ -837,6 +837,10 @@ def _fetch_recently_available_items(limit):
             mapped = _map_recently_available_item(raw)
             if mapped:
                 accepted.append(mapped)
+                if len(accepted) >= limit:
+                    break
+        if len(accepted) >= limit:
+            break
         start_index += len(batch)
         if start_index >= total_record_count:
             break

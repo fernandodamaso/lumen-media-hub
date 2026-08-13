@@ -404,6 +404,42 @@ class RecentlyAvailableFetchTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["id"], "mv-fresh")
 
+    def test_stops_mapping_once_limit_reached(self):
+        episodes = [
+            {
+                "Id": f"ep-{index}",
+                "Type": "Episode",
+                "SeriesId": f"series-{index}",
+                "SeriesName": f"Show {index}",
+                "Name": f"Episode {index}",
+                "ParentIndexNumber": 1,
+                "IndexNumber": index,
+                "Path": f"/tv/show-{index}.mkv",
+                "DateCreated": f"2026-08-1{index}T12:00:00Z",
+            }
+            for index in range(5)
+        ]
+
+        with (
+            mock.patch.object(
+                jellyfin_client,
+                "jellyfin_get",
+                return_value={"Items": episodes, "TotalRecordCount": len(episodes)},
+            ),
+            mock.patch.object(jellyfin_client, "_jellyfin_items_path", return_value="/Users/u1/Items"),
+            mock.patch.object(jellyfin_client, "_watch_next_image", return_value=None),
+            mock.patch.object(jellyfin_client, "_watch_next_item_metadata", return_value={"thumbUrl": None}),
+            mock.patch.object(
+                jellyfin_client,
+                "_get_series_metadata",
+                return_value=jellyfin_client._empty_series_metadata(),
+            ) as metadata_mock,
+        ):
+            items = jellyfin_client._fetch_recently_available_items(2)
+
+        self.assertEqual(len(items), 2)
+        self.assertEqual(metadata_mock.call_count, 2)
+
     def test_payload_has_no_path_and_no_envelope_cache(self):
         with mock.patch.object(
             jellyfin_client,

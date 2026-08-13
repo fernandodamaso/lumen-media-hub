@@ -16,6 +16,7 @@ import {
 } from './wire/discover';
 import { MediaStackLibraryItemDto } from './wire/library';
 import { MediaStackWatchNextItemDto } from './wire/watch-next';
+import { MediaStackRecentlyAvailableItemDto } from './wire/recently-available';
 import { MediaStackStorageVolumeDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
 import { MediaStackActivityFeedDto, MediaStackActivityItemDto, MediaStackActivityKindDto, MediaStackActivitySourceDto, MediaStackActivitySourceStatusDto } from './wire/activity';
@@ -101,6 +102,39 @@ interface ValidatedLiveWatchNextItem {
 export interface LiveWatchNextListResponse {
   ok?: boolean;
   items?: LiveWatchNextItem[];
+  error?: string;
+}
+
+/** Jellyfin recently-available item from GET /jellyfin/recently-available. */
+interface LiveRecentlyAvailableItem {
+  id?: string;
+  parentId?: string | null;
+  title?: string;
+  subtitle?: string;
+  kind?: string;
+  availableAt?: string;
+  image?: string | null;
+  thumbUrl?: string | null;
+  playable?: boolean;
+  year?: number | null;
+}
+
+interface ValidatedLiveRecentlyAvailableItem {
+  id: string;
+  parentId: string | null;
+  title: string;
+  subtitle: string;
+  kind: 'movie' | 'episode';
+  availableAt: string;
+  image: string | null;
+  thumbUrl: string | null;
+  playable: true;
+  year: number | null;
+}
+
+export interface LiveRecentlyAvailableListResponse {
+  ok?: boolean;
+  items?: LiveRecentlyAvailableItem[];
   error?: string;
 }
 
@@ -450,6 +484,98 @@ export function mapLiveWatchNextItem(raw: unknown, index = 0): MediaStackWatchNe
     positionTicks: validated.positionTicks,
     backdropUrl: validated.backdropUrl,
     thumbUrl: validated.thumbUrl,
+  };
+}
+
+const hasExplicitTimezone = (value: string): boolean => /(?:Z|[+-]\d{2}:\d{2})$/i.test(value);
+
+function requireLiveRecentlyAvailableItem(raw: unknown, index = 0): ValidatedLiveRecentlyAvailableItem {
+  if (!isRecord(raw)) {
+    throw new Error(`Malformed recently-available response: member ${index} is not an object`);
+  }
+
+  const id = raw['id'];
+  const title = raw['title'];
+  const kindRaw = raw['kind'];
+  const availableAt = raw['availableAt'];
+  if (typeof id !== 'string' || !id.trim()) {
+    throw new Error(`Malformed recently-available response: member ${index} is missing id`);
+  }
+  if (typeof title !== 'string' || !title.trim()) {
+    throw new Error(`Malformed recently-available response: member ${index} is missing title`);
+  }
+  if (kindRaw !== 'movie' && kindRaw !== 'episode') {
+    throw new Error(`Malformed recently-available response: member ${index} has invalid kind`);
+  }
+  if (typeof availableAt !== 'string' || !availableAt.trim() || !hasExplicitTimezone(availableAt.trim())) {
+    throw new Error(`Malformed recently-available response: member ${index} has invalid availableAt`);
+  }
+  if (!Number.isFinite(Date.parse(availableAt.trim()))) {
+    throw new Error(`Malformed recently-available response: member ${index} has invalid availableAt`);
+  }
+  if (raw['playable'] !== true) {
+    throw new Error(`Malformed recently-available response: member ${index} is not playable`);
+  }
+
+  const subtitle = optionalString(raw, 'subtitle', index, 'recently-available') ?? '';
+  if (kindRaw === 'episode' && !subtitle.trim()) {
+    throw new Error(`Malformed recently-available response: member ${index} is missing subtitle`);
+  }
+  const parentIdRaw = raw['parentId'];
+  let parentId: string | null = null;
+  if (parentIdRaw !== undefined && parentIdRaw !== null) {
+    if (typeof parentIdRaw !== 'string') {
+      throw new Error(`Malformed recently-available response: member ${index} has invalid parentId`);
+    }
+    parentId = parentIdRaw.trim() || null;
+  }
+  if (kindRaw === 'episode' && !parentId) {
+    throw new Error(`Malformed recently-available response: member ${index} is missing parentId`);
+  }
+  if (kindRaw === 'movie' && parentId) {
+    throw new Error(`Malformed recently-available response: member ${index} movie parentId must be null`);
+  }
+
+  const year = optionalNullableFiniteNumber(raw, 'year', index, 'recently-available') ?? null;
+  if (year !== null && (!Number.isInteger(year) || typeof raw['year'] === 'boolean')) {
+    throw new Error(`Malformed recently-available response: member ${index} has invalid year`);
+  }
+
+  const image = optionalNullableString(raw, 'image', index, 'recently-available') ?? null;
+  const thumbUrl = optionalNullableString(raw, 'thumbUrl', index, 'recently-available') ?? null;
+
+  return {
+    id: id.trim(),
+    parentId,
+    title: title.trim(),
+    subtitle,
+    kind: kindRaw,
+    availableAt: availableAt.trim(),
+    image,
+    thumbUrl,
+    playable: true,
+    year,
+  };
+}
+
+export function mapLiveRecentlyAvailableItem(
+  raw: unknown,
+  index = 0,
+): MediaStackRecentlyAvailableItemDto {
+  const validated = requireLiveRecentlyAvailableItem(raw, index);
+  const posterUrl = validated.image ?? undefined;
+  return {
+    id: validated.id,
+    parentId: validated.parentId,
+    title: validated.title,
+    subtitle: validated.subtitle,
+    kind: validated.kind,
+    availableAt: validated.availableAt,
+    posterUrl,
+    artworkState: posterUrl ? 'ok' : 'missing',
+    thumbUrl: validated.thumbUrl,
+    playable: true,
+    year: validated.year,
   };
 }
 

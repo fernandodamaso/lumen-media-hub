@@ -21,6 +21,7 @@ import {
   LibraryStats,
 } from '../library/library.models';
 import { WatchNextResult } from '../library/watch-next.models';
+import { RecentlyAvailableResult } from '../library/recently-available.models';
 import { ActivityFeed } from '../activity/activity.models';
 import { mapActivityFeed } from '../activity/activity-format';
 import { AutomationService, AutomationSummary } from '../automation/automation.models';
@@ -38,6 +39,7 @@ import {
 } from '../discover/discover-format';
 import { mapLibraryItem, mapLibraryStats } from '../library/library-format';
 import { mapWatchNextItem } from '../library/watch-next-format';
+import { mapRecentlyAvailableResult } from '../library/recently-available-format';
 import { mapTorrent } from '../downloads/downloads-format';
 import { mapStorageOverview } from '../storage/storage-format';
 import { MediaStackArrLibraryDto } from './wire/calendar';
@@ -48,10 +50,12 @@ import {
   LiveActivityFeed,
   LiveJellyfinListResponse,
   LiveWatchNextListResponse,
+  LiveRecentlyAvailableListResponse,
   mapLiveActivityFeed,
   mapLiveAutomationSummary,
   mapLiveJellyfinItem,
   mapLiveWatchNextItem,
+  mapLiveRecentlyAvailableItem,
   mapLiveSystemResourcesDisk,
   mapLiveTorrent,
   requireExternalDiscoverPayload,
@@ -172,6 +176,34 @@ export class HttpMediaStackApi implements MediaStackApi {
       mapWatchNextItem(mapLiveWatchNextItem(item, index)),
     );
     return { items };
+  }
+
+  async listRecentlyAvailable(limit?: number, signal?: AbortSignal): Promise<RecentlyAvailableResult> {
+    const base = limit ?? 10;
+    const safe = Number.isFinite(base) ? base : 10;
+    const normalized = Math.max(1, Math.min(50, Math.floor(safe)));
+    const data = await this.getRaw<LiveRecentlyAvailableListResponse>(
+      `/jellyfin/recently-available?limit=${normalized}`,
+      signal,
+    );
+    const envelope = requireSoftEnvelope<OkEnvelope & { items?: unknown }>(
+      data,
+      'Failed to list recently available items',
+      (value) => {
+        requireArrayField(
+          requireEnvelopeRecord(value, 'Malformed recently-available response'),
+          'items',
+          'Malformed recently-available response',
+        );
+      },
+    );
+    if (!envelope.ok) {
+      throw new Error(envelope.error || 'Failed to list recently available items');
+    }
+    const items = (data.items ?? []).map((item, index) =>
+      mapLiveRecentlyAvailableItem(item, index),
+    );
+    return mapRecentlyAvailableResult(items);
   }
 
   async getActivity(limit = 20, signal?: AbortSignal): Promise<ActivityFeed> {

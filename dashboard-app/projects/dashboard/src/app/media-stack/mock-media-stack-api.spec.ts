@@ -305,6 +305,20 @@ describe('MockMediaStackApi', () => {
     expect(result.items).toEqual([]);
   });
 
+  it('lists recently available demo items newest-first with both kinds', async () => {
+    const api = createApi();
+    const result = await api.listRecentlyAvailable(3);
+    expect(result.items).toHaveLength(3);
+    expect(result.items[0].id).toBe('demo-ra-ep-30m');
+    expect(result.items.some((item) => item.kind === 'movie')).toBe(true);
+    expect(result.items.some((item) => item.kind === 'episode')).toBe(true);
+    expect(result.items.some((item) => item.artworkState === 'missing')).toBe(true);
+    const first = result.items[0];
+    first.title = 'Mutated';
+    const again = await api.listRecentlyAvailable(3);
+    expect(again.items[0].title).not.toBe('Mutated');
+  });
+
   it('serves an activity feed honoring the limit', async () => {
     const api: MediaStackApi = createApi();
     const feed = await api.getActivity();

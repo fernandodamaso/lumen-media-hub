@@ -13,7 +13,7 @@ Open [http://localhost:4200/](http://localhost:4200/). Default startup uses in-p
 
 | Route | Surface |
 |-------|---------|
-| `/` | Lumen home: dashboard hero, stat strip, Continue Watching, Trending Now, Recently Added, downloads, and shell rails |
+| `/` | Lumen home: dashboard hero, stat strip, Continue Watching, Newly Available, Trending in Trakt, downloads, and shell rails |
 | `/library` | Library poster grid with movie/series filtering |
 | `/reports` | Status-weighted automation / cron triage |
 | `/discover` | Hermes, Jellyseerr, and Trakt recommendations |

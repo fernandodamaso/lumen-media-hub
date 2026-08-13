@@ -163,7 +163,7 @@ test('dashboard layout stays within the viewport at mobile and desktop widths', 
     await expect(continueCard.locator('.mm-media-card__play-cue')).toBeVisible();
     await expect(continueCard.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '42');
 
-    const recentCard = page.locator('[data-testid="recent-rail"] mm-media-card').first();
+    const recentCard = page.locator('[data-testid="newly-available-rail"] mm-media-card').first();
     await expect(recentCard).toBeVisible();
     await expect(recentCard.locator('.mm-media-card__hit')).toHaveAttribute('href', /.+/);
     const railForward = page.getByRole('button', { name: 'Scroll Continue Watching forward' });

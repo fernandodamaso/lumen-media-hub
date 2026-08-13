@@ -9,15 +9,18 @@ import { DownloadsAction, DownloadsFacade, DownloadsStatus } from '../../downloa
 import { DownloadTorrent } from '../../downloads/downloads.models';
 import { LibraryStatsFacade, LibraryStatsStatus } from '../../library/library-stats.facade';
 import { LibraryItemsFacade, LibraryItemsStatus } from '../../library/library-items.facade';
+import { RecentlyAvailableFacade, RecentlyAvailableStatus } from '../../library/recently-available.facade';
+import { RecentlyAvailableItem } from '../../library/recently-available.models';
 import { WatchNextFacade, WatchNextStatus } from '../../library/watch-next.facade';
 import { WatchNextItem } from '../../library/watch-next.models';
-import { JELLYFIN_LINK_BASES, LibraryItem, LibraryStats } from '../../library/library.models';
+import { JELLYFIN_LINK_BASES, LibraryStats } from '../../library/library.models';
 import { StorageFacade } from '../../storage/storage.facade';
 import { StorageOverview } from '../../storage/storage.models';
 import { ActivityFacade } from '../../right-rail/activity.facade';
 import { TrendingFacade, TrendingItem, TrendingStatus } from '../trending.facade';
 import { HeroFacade } from '../dashboard-hero/hero.facade';
 import { fixtureHost } from '../../../testing/fixture-host';
+
 import { DashboardPage } from './dashboard-page';
 
 function watchNextItem(overrides: Partial<WatchNextItem> = {}): WatchNextItem {
@@ -44,17 +47,20 @@ function watchNextItem(overrides: Partial<WatchNextItem> = {}): WatchNextItem {
   };
 }
 
-function libraryItem(overrides: Partial<LibraryItem> = {}): LibraryItem {
+function recentlyAvailableItem(overrides: Partial<RecentlyAvailableItem> = {}): RecentlyAvailableItem {
   return {
-    id: 'lib-1',
-    title: 'After Us',
-    kind: 'series',
-    meta: '2026 · Series',
+    id: 'ra-ep-1',
+    parentId: 'series-1',
+    title: 'Saga of Tanya the Evil',
+    subtitle: 'S02E05 · Lamb',
+    kind: 'episode',
+    availableAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
     art: 'linear-gradient(#111, #222)',
-    overview: '',
-    href: null,
     artworkState: 'ok',
+    thumbUrl: 'http://jf/Items/series-1/Images/Thumb',
+    href: 'http://jf.local/web/index.html#!/details?id=ra-ep-1',
     playable: true,
+    year: 2026,
     ...overrides,
   };
 }
@@ -99,9 +105,17 @@ describe('DashboardPage composition', () => {
   };
   let libraryItems: {
     status: ReturnType<typeof signal<LibraryItemsStatus>>;
-    items: ReturnType<typeof signal<LibraryItem[]>>;
+    items: ReturnType<typeof signal<unknown[]>>;
     error: ReturnType<typeof signal<string>>;
     refresh: ReturnType<typeof vi.fn>;
+  };
+  let recentlyAvailable: {
+    status: ReturnType<typeof signal<RecentlyAvailableStatus>>;
+    items: ReturnType<typeof signal<RecentlyAvailableItem[]>>;
+    error: ReturnType<typeof signal<string>>;
+    refresh: ReturnType<typeof vi.fn>;
+    startPolling: ReturnType<typeof vi.fn>;
+    stopPolling: ReturnType<typeof vi.fn>;
   };
   let libraryStats: {
     status: ReturnType<typeof signal<LibraryStatsStatus>>;
@@ -132,9 +146,17 @@ describe('DashboardPage composition', () => {
     };
     libraryItems = {
       status: signal<LibraryItemsStatus>('ready'),
-      items: signal<LibraryItem[]>([libraryItem()]),
+      items: signal([]),
       error: signal(''),
       refresh: vi.fn(),
+    };
+    recentlyAvailable = {
+      status: signal<RecentlyAvailableStatus>('ready'),
+      items: signal<RecentlyAvailableItem[]>([recentlyAvailableItem()]),
+      error: signal(''),
+      refresh: vi.fn(),
+      startPolling: vi.fn(),
+      stopPolling: vi.fn(),
     };
     libraryStats = {
       status: signal<LibraryStatsStatus>('ready'),
@@ -191,6 +213,7 @@ describe('DashboardPage composition', () => {
         { provide: LibraryStatsFacade, useValue: libraryStats },
         { provide: LibraryItemsFacade, useValue: libraryItems },
         { provide: WatchNextFacade, useValue: watchNext },
+        { provide: RecentlyAvailableFacade, useValue: recentlyAvailable },
         { provide: TrendingFacade, useValue: trending },
         { provide: DownloadsFacade, useValue: downloads },
         { provide: StorageFacade, useValue: storage },
@@ -222,7 +245,10 @@ describe('DashboardPage composition', () => {
     expect(root.querySelector('mm-stat-strip')).toBeTruthy();
 
     const headings = Array.from(root.querySelectorAll('.rail-head h2')).map((node) => node.textContent.trim());
-    expect(headings).toEqual(['Continue Watching', 'Trending in Trakt', 'Recently Added']);
+    expect(headings).toEqual(['Continue Watching', 'Newly Available', 'Trending in Trakt']);
+    expect(root.querySelectorAll('[data-testid$="-rail"]')).toHaveLength(3);
+    expect(root.querySelector('[data-testid="recent-rail"]')).toBeNull();
+    expect(root.textContent).not.toContain('Recently Added');
     expect(root.querySelector('#downloads h2')?.textContent).toContain('Downloads');
     expect(root.querySelector('[data-testid="dashboard-grid"]')).toBeNull();
   });
@@ -296,11 +322,50 @@ describe('DashboardPage composition', () => {
     expect(link.getAttribute('aria-label')).toBe('Open Wasteland on Trakt');
   });
 
-  it('renders recently added landscape cards', () => {
+  it('renders newly available landscape cards', () => {
     fixture.detectChanges();
-    const card = fixtureHost(fixture).querySelector('[data-testid="recent-rail"] mm-media-card');
-    expect(card?.textContent).toContain('After Us');
-    expect(card?.textContent).toContain('2026 · Series');
+    const card = fixtureHost(fixture).querySelector('[data-testid="newly-available-rail"] mm-media-card');
+    expect(card?.textContent).toContain('Saga of Tanya the Evil');
+    expect(card?.textContent).toContain('S02E05 · Lamb');
+    expect(card?.textContent).toContain('Ready');
+    expect(card?.querySelector('.mm-media-card__tag')?.textContent).toContain('NEW');
+    expect(card?.querySelector('.mm-media-card__hit')?.getAttribute('aria-label')).toBe(
+      'Open Saga of Tanya the Evil, S02E05, Lamb in Jellyfin',
+    );
+    expect(card?.querySelector('[role="progressbar"]')).toBeNull();
+    expect(card?.querySelector('.mm-media-card__play-cue')).toBeNull();
+  });
+
+  it('renders movie newly available cards without year separator when year is missing', () => {
+    recentlyAvailable.items.set([
+      recentlyAvailableItem({
+        kind: 'movie',
+        parentId: null,
+        title: 'Mickey 17',
+        subtitle: '',
+        year: null,
+        availableAt: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
+      }),
+    ]);
+    fixture.detectChanges();
+    const card = fixtureHost(fixture).querySelector('[data-testid="newly-available-rail"] mm-media-card');
+    expect(card?.textContent).toContain('Mickey 17');
+    expect(card?.textContent).toContain('Movie · Ready');
+    expect(card?.querySelector('.mm-media-card__tag')).toBeNull();
+    expect(card?.querySelector('.mm-media-card__hit')?.getAttribute('aria-label')).toBe(
+      'Open Mickey 17 in Jellyfin',
+    );
+  });
+
+  it('omits NEW for items exactly 24 hours old', () => {
+    recentlyAvailable.items.set([
+      recentlyAvailableItem({
+        availableAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      }),
+    ]);
+    fixture.detectChanges();
+    const card = fixtureHost(fixture).querySelector('[data-testid="newly-available-rail"] mm-media-card');
+    expect(card?.querySelector('.mm-media-card__tag')).toBeNull();
   });
 
   it('renders the downloads queue with per-item pause and pause-all actions', () => {
@@ -317,50 +382,52 @@ describe('DashboardPage composition', () => {
     expect(downloads['runAction']).toHaveBeenCalledWith('pause');
   });
 
-  it('starts downloads polling on create and stops it on destroy; shell facades stay untouched', () => {
+  it('starts downloads and newly-available polling on create and stops on destroy', () => {
     fixture.detectChanges();
     expect(downloads['startPolling']).toHaveBeenCalledTimes(1);
+    expect(recentlyAvailable.startPolling).toHaveBeenCalledTimes(1);
     expect(trending.refresh).not.toHaveBeenCalled();
     expect(storage['startPolling']).toBeUndefined();
 
     fixture.destroy();
     expect(downloads['stopPolling']).toHaveBeenCalledTimes(1);
+    expect(recentlyAvailable.stopPolling).toHaveBeenCalledTimes(1);
   });
 
   it('refreshes all dashboard facades from onRefresh', () => {
     fixture.detectChanges();
     fixture.componentInstance.onRefresh();
-    for (const facade of [health, libraryStats, libraryItems, watchNext, trending, downloads, storage, calendar, automation, activity]) {
+    for (const facade of [health, libraryStats, libraryItems, watchNext, recentlyAvailable, trending, downloads, storage, calendar, automation, activity]) {
       expect(facade.refresh).toHaveBeenCalledTimes(1);
     }
   });
 
   it('resolves dashboard media links, preserves explicit hrefs, and leaves unavailable items inert', () => {
     watchNext.items.set([watchNextItem({ href: null })]);
-    libraryItems.items.set([libraryItem({ href: null })]);
+    recentlyAvailable.items.set([recentlyAvailableItem({ href: null })]);
     fixture.detectChanges();
 
     expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .mm-media-card__hit')?.getAttribute('href')).toBe(
       'http://jf.local/web/index.html#!/details?id=e1',
     );
-    expect(fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .mm-media-card__hit')?.getAttribute('href')).toBe(
-      'http://jf.local/web/index.html#!/details?id=lib-1',
+    expect(fixtureHost(fixture).querySelector('[data-testid="newly-available-rail"] .mm-media-card__hit')?.getAttribute('href')).toBe(
+      'http://jf.local/web/index.html#!/details?id=ra-ep-1',
     );
 
     watchNext.items.set([watchNextItem({ href: 'http://explicit/episode' })]);
-    libraryItems.items.set([libraryItem({ href: 'http://explicit/series' })]);
+    recentlyAvailable.items.set([recentlyAvailableItem({ href: 'http://explicit/episode' })]);
     fixture.detectChanges();
     expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .mm-media-card__hit')?.getAttribute('href')).toBe(
       'http://explicit/episode',
     );
-    expect(fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .mm-media-card__hit')?.getAttribute('href')).toBe(
-      'http://explicit/series',
+    expect(fixtureHost(fixture).querySelector('[data-testid="newly-available-rail"] .mm-media-card__hit')?.getAttribute('href')).toBe(
+      'http://explicit/episode',
     );
 
     watchNext.items.set([watchNextItem({ id: 'unknown', href: null, playable: false })]);
-    libraryItems.items.set([libraryItem({ id: 'unknown', href: null, playable: false })]);
+    recentlyAvailable.items.set([recentlyAvailableItem({ id: 'unknown', href: null })]);
     fixture.detectChanges();
     expect(fixtureHost(fixture).querySelector('[data-testid="cw-rail"] .mm-media-card__hit')).toBeNull();
-    expect(fixtureHost(fixture).querySelector('[data-testid="recent-rail"] .mm-media-card__hit')).toBeNull();
+    expect(fixtureHost(fixture).querySelector('[data-testid="newly-available-rail"] .mm-media-card__hit')).toBeNull();
   });
 });

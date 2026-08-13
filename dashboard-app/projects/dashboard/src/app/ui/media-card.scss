@@ -305,6 +305,24 @@
   z-index: 1;
 }
 
+.mm-media-card--landscape .mm-media-card__info {
+  min-width: 0;
+}
+
+.mm-media-card--landscape .mm-media-card__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mm-media-card--landscape .mm-media-card__sub {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .mm-media-card__name {
   font-family: var(--mm-font-display, 'Fraunces', Georgia, serif);
   font-size: 16px;

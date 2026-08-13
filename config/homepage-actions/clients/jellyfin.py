@@ -4,6 +4,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 
 import config as settings
 
@@ -684,6 +685,172 @@ def _get_watch_next_payload():
         payload = _fetch_watch_next_items()
         settings._jellyfin_cache[cache_key] = {"ts": time.monotonic(), "payload": payload}
         return payload
+
+
+RECENTLY_AVAILABLE_DEFAULT_LIMIT = 10
+RECENTLY_AVAILABLE_MAX_LIMIT = 50
+RECENTLY_AVAILABLE_PAGE_SIZE = 100
+RECENTLY_AVAILABLE_FIELDS = (
+    "Path,DateCreated,SeriesName,SeriesId,IndexNumber,ParentIndexNumber,"
+    "ProductionYear,ImageTags,BackdropImageTags,Overview,IsPlaceHolder,Type,Name,UserData"
+)
+RECENTLY_AVAILABLE_UPSTREAM_ERROR = "Jellyfin is temporarily unavailable"
+
+
+def _parse_recently_available_timestamp(value):
+    """Return a timezone-aware datetime plus canonical UTC ISO string, or None."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        normalized = text[:-1] + "+00:00"
+    elif len(text) >= 6 and text[-6] in "+-" and ":" in text[-6:]:
+        normalized = text
+    elif len(text) >= 5 and text[-5] in "+-" and text[-3] != ":":
+        normalized = f"{text[:-2]}:{text[-2:]}"
+    else:
+        return None
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    utc = parsed.astimezone(timezone.utc)
+    canonical = utc.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+    return utc, canonical
+
+
+def _recently_available_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _recently_available_item_is_watched(raw):
+    """True when Jellyfin marks the item fully played for the configured user."""
+    return bool((raw.get("UserData") or {}).get("Played"))
+
+
+def _recently_available_item_is_valid(raw):
+    """Require supported type, identity, real path, timestamp, and episode identity."""
+    item_type = raw.get("Type")
+    if item_type not in ("Movie", "Episode"):
+        return False
+    if _recently_available_item_is_watched(raw):
+        return False
+    item_id = raw.get("Id")
+    if not isinstance(item_id, str) or not item_id.strip():
+        return False
+    if _parse_recently_available_timestamp(raw.get("DateCreated")) is None:
+        return False
+    path = raw.get("Path")
+    if not isinstance(path, str) or not path.strip():
+        return False
+    if raw.get("IsPlaceHolder"):
+        return False
+    if "jellynext-virtual" in path.casefold():
+        return False
+    if item_type == "Movie":
+        return bool((raw.get("Name") or "").strip())
+    series_id = raw.get("SeriesId")
+    series_name = (raw.get("SeriesName") or "").strip()
+    episode_name = (raw.get("Name") or "").strip()
+    if not isinstance(series_id, str) or not series_id.strip():
+        return False
+    if not series_name or not episode_name:
+        return False
+    if not _recently_available_int(raw.get("ParentIndexNumber")):
+        return False
+    if not _recently_available_int(raw.get("IndexNumber")):
+        return False
+    return True
+
+
+def _map_recently_available_item(raw):
+    """Map one validated Jellyfin item to the public response member."""
+    if not _recently_available_item_is_valid(raw):
+        return None
+    parsed = _parse_recently_available_timestamp(raw.get("DateCreated"))
+    if not parsed:
+        return None
+    sort_dt, available_at = parsed
+    kind = _jellyfin_media_kind(raw)
+    if kind == "movie":
+        return {
+            "id": raw.get("Id"),
+            "parentId": None,
+            "kind": "movie",
+            "title": (raw.get("Name") or "").strip(),
+            "subtitle": "",
+            "year": raw.get("ProductionYear"),
+            "availableAt": available_at,
+            "image": _watch_next_image(raw),
+            "thumbUrl": _watch_next_item_metadata(raw)["thumbUrl"],
+            "playable": True,
+            "_sort_dt": sort_dt,
+        }
+    series_id = raw.get("SeriesId")
+    meta = _get_series_metadata(series_id)
+    thumb_url = meta.get("thumbUrl") or _watch_next_item_metadata(raw)["thumbUrl"]
+    year = raw.get("ProductionYear")
+    if year is None:
+        year = meta.get("year")
+    return {
+        "id": raw.get("Id"),
+        "parentId": series_id,
+        "kind": "episode",
+        "title": (raw.get("SeriesName") or "").strip(),
+        "subtitle": _format_episode_subtitle(raw),
+        "year": year,
+        "availableAt": available_at,
+        "image": _watch_next_image(raw),
+        "thumbUrl": thumb_url,
+        "playable": True,
+        "_sort_dt": sort_dt,
+    }
+
+
+def _fetch_recently_available_items(limit):
+    """Page Jellyfin until limit valid items are collected or results are exhausted."""
+    accepted = []
+    start_index = 0
+    total_record_count = None
+    while len(accepted) < limit:
+        data = jellyfin_get(
+            _jellyfin_items_path(),
+            {
+                "Recursive": "true",
+                "IncludeItemTypes": "Episode,Movie",
+                "Filters": "IsUnplayed",
+                "SortBy": "DateCreated",
+                "SortOrder": "Descending",
+                "StartIndex": str(start_index),
+                "Limit": str(RECENTLY_AVAILABLE_PAGE_SIZE),
+                "Fields": RECENTLY_AVAILABLE_FIELDS,
+            },
+        )
+        batch = data.get("Items") or []
+        if total_record_count is None:
+            total_record_count = data.get("TotalRecordCount", len(batch))
+        if not batch:
+            break
+        for raw in batch:
+            mapped = _map_recently_available_item(raw)
+            if mapped:
+                accepted.append(mapped)
+        start_index += len(batch)
+        if start_index >= total_record_count:
+            break
+    accepted.sort(key=lambda item: item["_sort_dt"], reverse=True)
+    return [
+        {key: value for key, value in item.items() if key != "_sort_dt"}
+        for item in accepted[:limit]
+    ]
+
+
+def _get_recently_available_payload(limit):
+    """Return {ok: True, items: [...]} sorted newest-first."""
+    return {"ok": True, "items": _fetch_recently_available_items(limit)}
+
 
 def jellyfin_post(path, query=None, method="POST"):
     url = f"{settings.JELLYFIN_URL}{path}"

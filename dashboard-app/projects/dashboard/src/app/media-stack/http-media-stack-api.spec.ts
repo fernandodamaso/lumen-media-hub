@@ -8,6 +8,7 @@ import {
   mapLiveJellyfinItem,
   mapLiveActivityFeed,
   mapLiveWatchNextItem,
+  mapLiveRecentlyAvailableItem,
   mapLiveSystemResourcesDisk,
   mapLiveTorrent,
   requireHermesDiscoverPayload,
@@ -443,6 +444,79 @@ describe('live-api.mappers', () => {
         progressPercent: Number.NaN,
       }),
     ).toThrow(/missing progressPercent/);
+  });
+
+  it('maps recently-available items and rejects malformed timestamps and parent identity', () => {
+    expect(
+      mapLiveRecentlyAvailableItem({
+        id: 'ep-1',
+        parentId: 'series-1',
+        title: 'Saga of Tanya the Evil',
+        subtitle: 'S02E05 · Lamb',
+        kind: 'episode',
+        image: '/img',
+        thumbUrl: '/thumb',
+        availableAt: '2026-08-11T12:14:33Z',
+        playable: true,
+        year: 2026,
+      }),
+    ).toMatchObject({
+      id: 'ep-1',
+      parentId: 'series-1',
+      kind: 'episode',
+      availableAt: '2026-08-11T12:14:33Z',
+      playable: true,
+      posterUrl: '/img',
+      thumbUrl: '/thumb',
+    });
+
+    expect(() =>
+      mapLiveRecentlyAvailableItem({
+        id: 'mv-1',
+        parentId: 'series-1',
+        title: 'Mickey 17',
+        subtitle: '',
+        kind: 'movie',
+        availableAt: '2026-08-11T12:14:33Z',
+        playable: true,
+      }),
+    ).toThrow(/movie parentId must be null/);
+
+    expect(() =>
+      mapLiveRecentlyAvailableItem({
+        id: 'ep-1',
+        parentId: 'series-1',
+        title: 'Show',
+        subtitle: 'S01E01',
+        kind: 'episode',
+        availableAt: '2026-08-11T12:14:33',
+        playable: true,
+      }),
+    ).toThrow(/availableAt/);
+
+    expect(() =>
+      mapLiveRecentlyAvailableItem({
+        id: 'ep-1',
+        parentId: 'series-1',
+        title: 'Show',
+        subtitle: 'S01E01',
+        kind: 'episode',
+        availableAt: '2026-08-11T12:14:33Z',
+        playable: false,
+      }),
+    ).toThrow(/not playable/);
+
+    expect(() =>
+      mapLiveRecentlyAvailableItem({
+        id: 'ep-1',
+        parentId: 'series-1',
+        title: 'Show',
+        subtitle: '',
+        kind: 'episode',
+        availableAt: '2026-08-11T12:14:33Z',
+        playable: true,
+      }),
+    ).toThrow(/missing subtitle/);
   });
 
   it('maps watch-next metadata and defaults missing fields to null', () => {
@@ -1652,6 +1726,71 @@ describe('HttpMediaStackApi', () => {
     const abort = new AbortController();
     const pending = api.listWatchNext(abort.signal);
     http.expectOne('/api/jellyfin/watch-next');
+    abort.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('GETs jellyfin recently-available with normalized limit and maps items', async () => {
+    const pending = api.listRecentlyAvailable(51);
+    const req = http.expectOne('/api/jellyfin/recently-available?limit=50');
+    req.flush({
+      ok: true,
+      items: [
+        {
+          id: 'ep-1',
+          parentId: 'series-1',
+          title: 'Saga of Tanya the Evil',
+          subtitle: 'S02E05 · Lamb',
+          kind: 'episode',
+          image: '/img',
+          thumbUrl: '/thumb',
+          availableAt: '2026-08-11T12:14:33Z',
+          playable: true,
+          year: 2026,
+        },
+        {
+          id: 'mv-1',
+          parentId: null,
+          title: 'Mickey 17',
+          subtitle: '',
+          kind: 'movie',
+          image: '/movie',
+          thumbUrl: null,
+          availableAt: '2026-08-10T08:00:00Z',
+          playable: true,
+          year: 2025,
+        },
+      ],
+    });
+    const result = await pending;
+    expect(result.items.map((item) => item.id)).toEqual(['ep-1', 'mv-1']);
+    expect(result.items[0]).toMatchObject({
+      title: 'Saga of Tanya the Evil',
+      href: null,
+      playable: true,
+    });
+  });
+
+  it('rejects malformed recently-available envelopes and members', async () => {
+    const malformedEnvelope = api.listRecentlyAvailable();
+    http.expectOne('/api/jellyfin/recently-available?limit=10').flush({
+      ok: false,
+      error: 'recently unavailable',
+    });
+    await expect(malformedEnvelope).rejects.toThrow('recently unavailable');
+
+    const malformedMember = api.listRecentlyAvailable();
+    http.expectOne('/api/jellyfin/recently-available?limit=10').flush({
+      ok: true,
+      items: [{ id: 'ep-1', parentId: 'series-1', title: 'Show', kind: 'episode', playable: true }],
+    });
+    await expect(malformedMember).rejects.toThrow(/availableAt/);
+  });
+
+  it('aborts in-flight recently-available requests', async () => {
+    const abort = new AbortController();
+    const pending = api.listRecentlyAvailable(10, abort.signal);
+    http.expectOne('/api/jellyfin/recently-available?limit=10');
     abort.abort();
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
   });

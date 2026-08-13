@@ -29,7 +29,7 @@ It is also a portfolio-grade Angular project designed to demonstrate production-
 
 | | Capability | What Lumen does |
 |---|---|---|
-| 🎬 | **Watch & browse** | Continue watching, trending titles, recently added media, movies and series |
+| 🎬 | **Watch & browse** | Continue watching, trending titles, newly available media, movies and series |
 | 🔎 | **Discover** | Combines Hermes, Jellyseerr and Trakt recommendation sources |
 | ➕ | **Request media** | Sends supported requests through the Live API |
 | ⬇️ | **Downloads** | Shows active qBittorrent transfers with pause/resume controls |
@@ -47,7 +47,7 @@ Lumen is organized around a persistent application shell with focused feature su
 
 | Route | Experience |
 |---|---|
-| `/` | Home dashboard with hero, stats, Continue Watching, Trending Now, Recently Added and downloads |
+| `/` | Home dashboard with hero, stats, Continue Watching, Newly Available, Trending in Trakt and downloads |
 | `/library` | Poster-based movie and series library with filtering |
 | `/discover` | Recommendations from Hermes, Jellyseerr and Trakt |
 | `/reports` | Status-weighted automation and cron-log triage |

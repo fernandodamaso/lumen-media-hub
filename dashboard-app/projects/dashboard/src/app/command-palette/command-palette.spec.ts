@@ -16,16 +16,19 @@ import { ActivityFacade } from '../right-rail/activity.facade';
 import { StorageFacade } from '../storage/storage.facade';
 import { CommandPalette } from './command-palette';
 import { TrendingFacade } from '../dashboard/trending.facade';
+import { RecentlyAvailableFacade } from '../library/recently-available.facade';
 
 describe('CommandPalette', () => {
   let fixture: ComponentFixture<CommandPalette>;
   let router: Router;
   let downloads: { runAction: ReturnType<typeof vi.fn>; refresh: ReturnType<typeof vi.fn> };
   let trending: { refresh: ReturnType<typeof vi.fn> };
+  let recentlyAvailable: { refresh: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     downloads = { runAction: vi.fn(() => Promise.resolve()), refresh: vi.fn(() => Promise.resolve()) };
     trending = { refresh: vi.fn(() => Promise.resolve()) };
+    recentlyAvailable = { refresh: vi.fn(() => Promise.resolve()) };
     const watchNextFacade = { items: signal([]), refresh: vi.fn() };
     TestBed.configureTestingModule({
       imports: [CommandPalette],
@@ -63,6 +66,7 @@ describe('CommandPalette', () => {
         { provide: AutomationFacade, useValue: { refresh: vi.fn() } },
         { provide: ActivityFacade, useValue: { refresh: vi.fn() } },
         { provide: TrendingFacade, useValue: trending },
+        { provide: RecentlyAvailableFacade, useValue: recentlyAvailable },
       ],
     });
     fixture = TestBed.createComponent(CommandPalette);
@@ -183,9 +187,10 @@ describe('CommandPalette', () => {
     expect(openChange).toHaveBeenCalledWith(false);
   });
 
-  it('refreshes trending once through the shared refresh path', async () => {
+  it('refreshes trending and newly available through the shared refresh path', async () => {
     const refresh = fixture.componentInstance.items().find((item) => item.id === 'action-refresh');
     await refresh?.run();
     expect(trending.refresh).toHaveBeenCalledTimes(1);
+    expect(recentlyAvailable.refresh).toHaveBeenCalledTimes(1);
   });
 });

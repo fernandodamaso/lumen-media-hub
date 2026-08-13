@@ -243,7 +243,7 @@ class TraktWatchedService:
                 try:
                     from trakt_history_sync import local_synced_identities
 
-                    identities = set(identities) | set(local_synced_identities())
+                    identities = set(identities) | set(local_synced_identities(clock=self.clock))
                 except ImportError:
                     pass
                 refreshed_at = self._now_iso()

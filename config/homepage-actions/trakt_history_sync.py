@@ -9,26 +9,40 @@ from urllib.parse import quote
 from clients.trakt import TraktAuthError, TraktHttpError
 from recommendations_store import apply_feedback, media_identity, utc_now
 from shared import _find_hermes_item
+from trakt_history import _header, _response_parts
 
 TRAKT_HISTORY_SYNC_STATUSES = frozenset(
     {"pending", "synced", "reconnect_required", "failed"}
 )
 MIN_BACKOFF_SECONDS = 30
 MAX_BACKOFF_SECONDS = 900
+RECONNECT_RETRY_SECONDS = 300
+LOCAL_SYNC_TTL_SECONDS = 15 * 60
+HISTORY_PAGE_LIMIT = 100
 
 _write_lock = threading.Lock()
-_local_synced_identities = set()
+_local_synced_identities = {}
 _local_identities_lock = threading.Lock()
 
 
-def register_local_synced_identity(identity):
+def register_local_synced_identity(identity, *, clock=None):
+    clock_fn = clock or time.time
     with _local_identities_lock:
-        _local_synced_identities.add(identity)
+        _local_synced_identities[identity] = clock_fn() + LOCAL_SYNC_TTL_SECONDS
 
 
-def local_synced_identities():
+def local_synced_identities(*, clock=None):
+    clock_fn = clock or time.time
+    now = clock_fn()
     with _local_identities_lock:
-        return frozenset(_local_synced_identities)
+        expired = [
+            identity
+            for identity, expires_at in _local_synced_identities.items()
+            if expires_at <= now
+        ]
+        for identity in expired:
+            del _local_synced_identities[identity]
+        return frozenset(_local_synced_identities.keys())
 
 
 def clear_local_synced_identities():
@@ -100,6 +114,17 @@ def apply_watched_feedback(item, now=None):
     if isinstance(existing, dict) and existing.get("event_id"):
         return False
     item["trakt_history_event"] = create_trakt_history_event(item, now=watched_at)
+    return True
+
+
+def cancel_pending_trakt_history_event(item):
+    """Drop an undelivered watched event when feedback changes away from watched."""
+    event = item.get("trakt_history_event")
+    if not isinstance(event, dict):
+        return False
+    if event.get("status") in ("synced", "failed"):
+        return False
+    del item["trakt_history_event"]
     return True
 
 
@@ -188,15 +213,45 @@ def _match_existing_history(client, item, watched_at):
     kind = _history_kind(item["type"])
     minute_start = _truncate_to_minute(watched_at)
     minute_end = _minute_range_end(minute_start)
-    path = (
+    base = (
         f"/sync/history/{kind}?start_at={quote(minute_start, safe='')}"
         f"&end_at={quote(minute_end, safe='')}"
     )
-    response = client.get_page(path)
-    payload = response.payload
-    if not isinstance(payload, list):
-        raise ValueError("invalid Trakt history response")
-    return _extract_history_ids(payload, item["type"], item["tmdb_id"], watched_at)
+    matched = []
+    page = 1
+    expected_page_count = None
+    while True:
+        path = f"{base}&page={page}&limit={HISTORY_PAGE_LIMIT}"
+        response = client.get_page(path)
+        payload, headers = _response_parts(response)
+        if not isinstance(headers, dict):
+            headers = {}
+        if not isinstance(payload, list):
+            raise ValueError("invalid Trakt history response")
+        matched.extend(
+            _extract_history_ids(payload, item["type"], item["tmdb_id"], watched_at)
+        )
+        raw_page = _header(headers, "X-Pagination-Page")
+        raw_page_count = _header(headers, "X-Pagination-Page-Count")
+        if page == 1 and raw_page is None and raw_page_count is None:
+            break
+        try:
+            page_header = int(raw_page) if raw_page is not None else None
+            page_count = int(raw_page_count) if raw_page_count is not None else None
+        except (TypeError, ValueError):
+            raise ValueError("invalid Trakt history pagination headers") from None
+        if page_header is not None and page_header != page:
+            raise ValueError("inconsistent Trakt history pagination page")
+        if page_count is None or page_count < 1:
+            raise ValueError("invalid Trakt history pagination page count")
+        if page == 1:
+            expected_page_count = page_count
+        elif page_count != expected_page_count or page_header is None:
+            raise ValueError("inconsistent Trakt history pagination headers")
+        if page >= page_count:
+            break
+        page += 1
+    return sorted(set(matched))
 
 
 def _payload_permanent_failure(payload):
@@ -213,7 +268,8 @@ def _payload_permanent_failure(payload):
 
 
 def _event_due(event, now):
-    if event.get("status") != "pending":
+    status = event.get("status")
+    if status not in ("pending", "reconnect_required"):
         return False
     next_at = event.get("next_attempt_at")
     return next_at is None or (isinstance(next_at, str) and next_at <= now)
@@ -234,6 +290,7 @@ class TraktHistorySyncService:
         self.store = store
         self.clock = clock or time.time
         self.refresh_watched_snapshot = refresh_watched_snapshot
+        self._rate_limit_until = None
 
     def deliver_item(self, item_id):
         with _write_lock:
@@ -247,7 +304,7 @@ class TraktHistorySyncService:
         event = item.get("trakt_history_event")
         if not isinstance(event, dict):
             return None
-        if event.get("status") != "pending":
+        if event.get("status") not in ("pending", "reconnect_required"):
             return public_trakt_history_sync(event)
         if not _event_due(event, utc_now()):
             return public_trakt_history_sync(event)
@@ -256,7 +313,10 @@ class TraktHistorySyncService:
         try:
             return self._attempt_delivery(client, item_id, item, event)
         except TraktAuthError as error:
-            self._persist_event(item_id, lambda ev: _mark_reconnect(ev, _sanitize_error(error)))
+            self._persist_event(
+                item_id,
+                lambda ev: _mark_reconnect(ev, _sanitize_error(error), self.clock),
+            )
             return {"status": "reconnect_required"}
 
     def _attempt_delivery(self, client, item_id, item, event):
@@ -337,6 +397,10 @@ class TraktHistorySyncService:
 
     def _handle_retryable_http(self, item_id, event, error):
         retry_after = _parse_retry_after(error.headers) if error.status == 429 else None
+        if error.status == 429:
+            attempts = int(event.get("attempts") or 0) + 1
+            delay = retry_after if retry_after is not None else _backoff_seconds(attempts)
+            self._rate_limit_until = self.clock() + delay
         self._persist_event(
             item_id,
             lambda ev: _mark_pending_retry(
@@ -371,7 +435,7 @@ class TraktHistorySyncService:
             item_id,
             lambda ev: _mark_synced(ev, history_ids),
         )
-        register_local_synced_identity(identity)
+        register_local_synced_identity(identity, clock=self.clock)
         if self.refresh_watched_snapshot:
             self.refresh_watched_snapshot(identity)
 
@@ -404,7 +468,10 @@ class TraktHistorySyncService:
             and _event_due(item["trakt_history_event"], now)
         ]
         summary = {"attempted": 0, "synced": 0, "pending": 0, "failed": 0, "reconnect_required": 0}
+        self._rate_limit_until = None
         for item_id in due:
+            if self._rate_limit_until is not None and self.clock() < self._rate_limit_until:
+                break
             result = self.deliver_item(item_id)
             if not result:
                 continue
@@ -414,6 +481,8 @@ class TraktHistorySyncService:
                 summary[status] += 1
             elif status == "pending":
                 summary["pending"] += 1
+            if self._rate_limit_until is not None and self.clock() < self._rate_limit_until:
+                break
         return summary
 
 
@@ -436,11 +505,12 @@ def _mark_failed(event, error_name):
     event["next_attempt_at"] = None
 
 
-def _mark_reconnect(event, error_name):
+def _mark_reconnect(event, error_name, clock=None):
     event["status"] = "reconnect_required"
     event["completed_at"] = utc_now()
     event["error"] = error_name
-    event["next_attempt_at"] = None
+    clock_fn = clock or time.time
+    event["next_attempt_at"] = _iso_after_seconds(clock_fn, RECONNECT_RETRY_SECONDS)
 
 
 def _mark_pending_retry(event, clock, error_name, *, retry_after=None):

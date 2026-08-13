@@ -75,7 +75,39 @@
           "trakt_history_event": {
             "type": ["object", "null"],
             "description": "Private Trakt delivery state persisted on watched feedback. Never exposed to the browser except through trakt_history_sync.status on read responses.",
-            "additionalProperties": true
+            "required": [
+              "event_id",
+              "identity",
+              "watched_at",
+              "status",
+              "attempts",
+              "next_attempt_at",
+              "error",
+              "completed_at",
+              "trakt_history_ids",
+              "last_post_status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "event_id": { "type": "string", "minLength": 1 },
+              "identity": {
+                "type": "string",
+                "pattern": "^(?:movie|tv):[1-9][0-9]*$"
+              },
+              "watched_at": { "type": "string" },
+              "status": {
+                "enum": ["pending", "synced", "reconnect_required", "failed"]
+              },
+              "attempts": { "type": "integer", "minimum": 0 },
+              "next_attempt_at": { "type": ["string", "null"] },
+              "error": { "type": ["string", "null"] },
+              "completed_at": { "type": ["string", "null"] },
+              "trakt_history_ids": {
+                "type": "array",
+                "items": { "type": "integer" }
+              },
+              "last_post_status": { "type": ["integer", "null"] }
+            }
           }
         }
       }

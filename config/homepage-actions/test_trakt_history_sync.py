@@ -15,12 +15,15 @@ from recommendations_store import RecommendationStore, apply_feedback
 from trakt_history_sync import (
     TraktHistorySyncService,
     apply_watched_feedback,
+    cancel_pending_trakt_history_event,
     clear_local_synced_identities,
     create_trakt_history_event,
     deliver_trakt_history_for_item,
     get_trakt_history_sync_service,
+    local_synced_identities,
     public_trakt_history_sync,
     reconcile_trakt_history_sync,
+    register_local_synced_identity,
 )
 
 
@@ -74,10 +77,20 @@ class FakeTraktClient:
         if isinstance(response, Exception):
             raise response
         if isinstance(response, tuple):
+            if len(response) == 3:
+                status, payload, headers = response
+                if status >= 400:
+                    raise TraktHttpError(status, payload=payload, headers=headers or {})
+                return mock.Mock(payload=payload, headers=headers or {})
             status, payload = response
             if status >= 400:
                 raise TraktHttpError(status, payload=payload, headers={})
-        return mock.Mock(payload=response)
+        if isinstance(response, dict):
+            return mock.Mock(
+                payload=response.get("payload", []),
+                headers=response.get("headers", {}),
+            )
+        return mock.Mock(payload=response, headers={})
 
     def post(self, path, payload):
         self.post_calls.append((path, payload))
@@ -302,6 +315,94 @@ class TraktHistorySyncModuleTests(unittest.TestCase):
         )
         result = self.service(client).deliver_item(item["id"])
         self.assertEqual(result, {"status": "failed"})
+
+    def test_cancel_pending_event_on_feedback_change(self):
+        item = make_item(20)
+        apply_watched_feedback(item, now="2026-08-13T17:00:00Z")
+        self.assertTrue(cancel_pending_trakt_history_event(item))
+        self.assertNotIn("trakt_history_event", item)
+
+    def test_reconnect_required_is_retried_when_due(self):
+        item = make_item(21)
+        apply_watched_feedback(item, now="2026-08-13T17:00:00Z")
+        item["trakt_history_event"]["status"] = "reconnect_required"
+        item["trakt_history_event"]["next_attempt_at"] = "2026-01-01T00:00:00Z"
+        self.seed(item)
+        client = FakeTraktClient(
+            get_pages=[
+                [{"id": 91, "watched_at": "2026-08-13T17:00:00Z", "movie": {"ids": {"tmdb": 21}}}]
+            ]
+        )
+        result = self.service(client).deliver_item(item["id"])
+        self.assertEqual(result, {"status": "synced"})
+        self.assertEqual(client.post_calls, [])
+
+    def test_history_match_paginates_before_post(self):
+        item = make_item(22)
+        apply_watched_feedback(item, now="2026-08-13T17:00:00Z")
+        self.seed(item)
+        page_one = [
+            {
+                "id": 1000 + index,
+                "watched_at": "2026-08-13T17:00:00.000Z",
+                "movie": {"ids": {"tmdb": 999}},
+            }
+            for index in range(100)
+        ]
+        page_two = [
+            {
+                "id": 922,
+                "watched_at": "2026-08-13T17:00:00.000Z",
+                "movie": {"ids": {"tmdb": 22}},
+            }
+        ]
+        client = FakeTraktClient(
+            get_pages=[
+                {
+                    "payload": page_one,
+                    "headers": {
+                        "X-Pagination-Page": "1",
+                        "X-Pagination-Page-Count": "2",
+                    },
+                },
+                {
+                    "payload": page_two,
+                    "headers": {
+                        "X-Pagination-Page": "2",
+                        "X-Pagination-Page-Count": "2",
+                    },
+                },
+            ]
+        )
+        result = self.service(client).deliver_item(item["id"])
+        self.assertEqual(result, {"status": "synced"})
+        self.assertEqual(client.post_calls, [])
+        self.assertEqual(len(client.get_calls), 2)
+
+    def test_reconcile_stops_batch_after_429(self):
+        first = make_item(23)
+        second = make_item(24)
+        apply_watched_feedback(first, now="2026-08-13T17:00:00Z")
+        apply_watched_feedback(second, now="2026-08-13T17:00:01Z")
+        doc = base_doc(first)
+        doc["items"].append(second)
+        doc["presented_media_ids"] = [first["identity"], second["identity"]]
+        with open(self.path, "w", encoding="utf-8") as handle:
+            json.dump(doc, handle)
+        client = FakeTraktClient(
+            get_pages=[TraktHttpError(429, payload={}, headers={"Retry-After": "120"})]
+        )
+        service = self.service(client)
+        summary = service.reconcile_due_events()
+        self.assertEqual(summary["attempted"], 1)
+        self.assertEqual(len(client.get_calls), 1)
+
+    def test_local_synced_identity_expires(self):
+        clear_local_synced_identities()
+        register_local_synced_identity("movie:55", clock=self.clock)
+        self.assertIn("movie:55", local_synced_identities(clock=self.clock))
+        self.now += 16 * 60
+        self.assertNotIn("movie:55", local_synced_identities(clock=self.clock))
 
     def test_restart_persistence_completes_once(self):
         item = make_item(17)

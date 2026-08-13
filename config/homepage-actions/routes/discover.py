@@ -37,6 +37,7 @@ from recommendations_store import (
 )
 from trakt_history_sync import (
     apply_watched_feedback,
+    cancel_pending_trakt_history_event,
     deliver_trakt_history_for_item,
     public_trakt_history_sync,
 )
@@ -745,6 +746,7 @@ def handle_discover_hermes_patch(handler, item_id):
                 raise ShowWatchConfirmationRequired()
             apply_watched_feedback(item)
         else:
+            cancel_pending_trakt_history_event(item)
             apply_feedback(item, status)
         if "notes" in body:
             item["notes"] = body.get("notes") or ""

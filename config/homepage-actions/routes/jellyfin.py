@@ -1,4 +1,5 @@
 """Jellyfin route handlers."""
+import json
 import sys
 
 import config as settings
@@ -9,8 +10,9 @@ from clients.jellyfin import (
     _get_jellyfin_payload,
     _get_recently_available_payload,
     _get_watch_next_payload,
+    set_jellyfin_item_played,
 )
-from http_support import send_json
+from http_support import _BodyTooLarge, _read_json_body, send_json
 
 
 def _recently_available_limit(query):
@@ -63,3 +65,26 @@ def handle_jellyfin_recently_available(handler, query):
     except Exception as exc:
         print(f"recently-available upstream failure: {exc.__class__.__name__}", file=sys.stderr)
         send_json(handler, 502, {"ok": False, "error": RECENTLY_AVAILABLE_UPSTREAM_ERROR})
+
+
+def handle_jellyfin_item_played(handler, item_id):
+    if not settings.JELLYFIN_API_KEY:
+        send_json(handler, 503, {"ok": False, "error": "Unable to update watched state"})
+        return
+    try:
+        body = _read_json_body(handler)
+    except _BodyTooLarge:
+        send_json(handler, 413, {"ok": False, "error": "Request body too large"})
+        return
+    except json.JSONDecodeError:
+        send_json(handler, 400, {"ok": False, "error": "Invalid JSON"})
+        return
+    if not isinstance(body, dict) or not isinstance(body.get("played"), bool):
+        send_json(handler, 400, {"ok": False, "error": "Invalid played value"})
+        return
+    try:
+        set_jellyfin_item_played(item_id, body["played"])
+    except Exception:
+        send_json(handler, 502, {"ok": False, "error": "Unable to update watched state"})
+        return
+    send_json(handler, 200, {"ok": True, "played": body["played"]})

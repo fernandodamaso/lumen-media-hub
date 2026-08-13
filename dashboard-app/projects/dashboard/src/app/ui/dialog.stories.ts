@@ -33,7 +33,8 @@ const meta: Meta<DialogArgs> = {
           Modal body content for reviewing a connected service.
         </p>
         <div mmDialogFooter>
-          <mm-button label="Done" variant="quiet" (click)="dlg.close()" />
+          <mm-button label="Cancel" variant="quiet" (click)="dlg.close()" />
+          <mm-button label="Delete media" variant="danger" (click)="dlg.close()" />
         </div>
       </mm-dialog>
     `,

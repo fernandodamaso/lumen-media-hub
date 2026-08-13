@@ -13,6 +13,8 @@ const movie = (id: string, title: string): LibraryItem => ({
   href: null,
   artworkState: 'ok',
   playable: true,
+  episodeCount: null,
+  played: false,
 });
 
 const series = (id: string, title: string): LibraryItem => ({
@@ -25,6 +27,8 @@ const series = (id: string, title: string): LibraryItem => ({
   href: null,
   artworkState: 'ok',
   playable: true,
+  episodeCount: null,
+  played: false,
 });
 
 describe('LibraryItemsFacade', () => {
@@ -186,6 +190,29 @@ class MockApi implements MediaStackApi {
     return this.failure
       ? Promise.reject(new Error('offline'))
       : Promise.resolve({ ...this.result, items: [...this.result.items] });
+  }
+  setLibraryItemPlayed(id: string, played: boolean) {
+    return Promise.resolve({ played });
+  }
+  previewLibraryItemDeletion(id: string) {
+    return Promise.resolve({
+      previewId: `preview-${id}`,
+      title: 'Title',
+      kind: 'movie' as const,
+      manager: 'Radarr' as const,
+      episodeCount: null,
+      torrentCount: 0,
+      expiresAt: new Date().toISOString(),
+    });
+  }
+  deleteLibraryItem() {
+    return Promise.resolve({
+      ok: true,
+      removed: true,
+      torrentCount: 0,
+      jellyfinRefresh: 'ok' as const,
+      warning: null,
+    });
   }
   listWatchNext() {
     return Promise.resolve({ items: [] });

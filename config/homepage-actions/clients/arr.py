@@ -339,6 +339,56 @@ def _fetch_activity_items(source):
     return items
 
 
+def delete_sonarr_series(arr_id):
+    _arr_json(
+        settings.SONARR_URL,
+        settings.SONARR_API_KEY,
+        f"/api/v3/series/{int(arr_id)}?deleteFiles=true&addImportListExclusion=false",
+        method="DELETE",
+    )
+
+
+def find_radarr_movies_by_tmdb(tmdb_id):
+    matches = []
+    for movie in _arr_get(settings.RADARR_URL, settings.RADARR_API_KEY, "/api/v3/movie"):
+        if movie.get("tmdbId") == tmdb_id:
+            matches.append(movie)
+    return matches
+
+
+def find_sonarr_series_by_tvdb(tvdb_id):
+    matches = []
+    for series in _arr_get(settings.SONARR_URL, settings.SONARR_API_KEY, "/api/v3/series"):
+        if series.get("tvdbId") == tvdb_id:
+            matches.append(series)
+    return matches
+
+
+def find_sonarr_series_by_tmdb(tmdb_id):
+    matches = []
+    for series in _arr_get(settings.SONARR_URL, settings.SONARR_API_KEY, "/api/v3/series"):
+        if series.get("tmdbId") == tmdb_id:
+            matches.append(series)
+    return matches
+
+
+def fetch_arr_history(base, api_key, entity_param, arr_id):
+    path = (
+        f"/api/v3/history?{entity_param}={int(arr_id)}"
+        f"&page=1&pageSize=1000&sortKey=date&sortDirection=descending"
+    )
+    return _arr_get(base, api_key, path)
+
+
+def delete_radarr_movie(arr_id):
+    _arr_json(
+        settings.RADARR_URL,
+        settings.RADARR_API_KEY,
+        f"/api/v3/movie/{int(arr_id)}?deleteFiles=true&addImportExclusion=false",
+        method="DELETE",
+    )
+
+
 def _build_activity_feed():
     """Merge Sonarr + Radarr history; per-source degradation, never raises per-source."""
     sources = {}

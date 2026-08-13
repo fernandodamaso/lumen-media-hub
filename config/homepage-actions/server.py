@@ -3,8 +3,8 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config
-from http_support import _reject_mutating, _reject_post, send_json, send_options
-from routes import activity, arr, automation, discover, jellyfin, qbittorrent, reports, resources, service_links
+from http_support import _reject_mutating, _reject_post, _valid_library_item_id, send_json, send_options
+from routes import activity, arr, automation, discover, jellyfin, library, qbittorrent, reports, resources, service_links
 
 
 class ActionsHandler(BaseHTTPRequestHandler):
@@ -57,6 +57,14 @@ class ActionsHandler(BaseHTTPRequestHandler):
             discover.handle_discover_jellyseerr(self, query)
         elif path == "/discover/trakt":
             discover.handle_discover_trakt(self, query)
+        elif path.startswith("/library/items/") and path.endswith("/delete-preview"):
+            if _reject_mutating(self):
+                return
+            item_id = urllib.parse.unquote(path[len("/library/items/"):-len("/delete-preview")])
+            if not _valid_library_item_id(item_id):
+                send_json(self, 404, {"ok": False, "error": "Unknown endpoint"})
+                return
+            library.handle_library_delete_preview(self, item_id)
         else:
             send_json(self, 404, {"ok": False, "error": "Unknown endpoint"})
 
@@ -68,8 +76,34 @@ class ActionsHandler(BaseHTTPRequestHandler):
         if path.startswith(prefix):
             item_id = urllib.parse.unquote(path[len(prefix):])
             discover.handle_discover_hermes_patch(self, item_id)
-        else:
-            send_json(self, 404, {"ok": False, "error": "Unknown endpoint"})
+            return
+        prefix = "/jellyfin/items/"
+        suffix = "/played"
+        if path.startswith(prefix) and path.endswith(suffix):
+            item_id = urllib.parse.unquote(path[len(prefix):-len(suffix)])
+            if not _valid_library_item_id(item_id):
+                send_json(self, 404, {"ok": False, "error": "Unknown endpoint"})
+                return
+            jellyfin.handle_jellyfin_item_played(self, item_id)
+            return
+        send_json(self, 404, {"ok": False, "error": "Unknown endpoint"})
+
+    def do_DELETE(self):
+        if _reject_mutating(self):
+            return
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        query = urllib.parse.parse_qs(parsed.query)
+        prefix = "/library/items/"
+        if path.startswith(prefix):
+            item_id = urllib.parse.unquote(path[len(prefix):])
+            if not _valid_library_item_id(item_id):
+                send_json(self, 404, {"ok": False, "error": "Unknown endpoint"})
+                return
+            preview_id = (query.get("previewId") or [None])[0]
+            library.handle_library_delete_execute(self, item_id, preview_id)
+            return
+        send_json(self, 404, {"ok": False, "error": "Unknown endpoint"})
 
     def do_POST(self):
         if _reject_post(self):

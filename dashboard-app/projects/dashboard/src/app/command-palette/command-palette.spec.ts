@@ -53,6 +53,8 @@ describe('CommandPalette', () => {
                 href: null,
                 artworkState: 'ok',
                 playable: true,
+                episodeCount: null,
+                played: false,
               },
             ]),
             refresh: vi.fn(),

@@ -106,7 +106,7 @@ def _fetch_all_jellyfin_raw(item_type):
                 "Limit": str(JELLYFIN_PAGE_SIZE),
                 "SortBy": "SortName",
                 "SortOrder": "Ascending",
-                "Fields": "ProductionYear,CommunityRating,PrimaryImageAspectRatio,Path,IsPlaceHolder,ImageTags",
+                "Fields": "ProductionYear,CommunityRating,PrimaryImageAspectRatio,Path,IsPlaceHolder,ImageTags,UserData,ProviderIds",
             },
         )
         batch = [
@@ -157,6 +157,8 @@ def _map_jellyfin_item(raw, item_type):
     }
     if item_type == "Series":
         item_data["episodeCount"] = _series_episode_count(item_id)
+    user_data = raw.get("UserData") or {}
+    item_data["played"] = True if user_data.get("Played") is True else False
     return item_data
 
 
@@ -870,3 +872,17 @@ def jellyfin_post(path, query=None, method="POST"):
         if not body:
             return {}
         return json.loads(body.decode("utf-8"))
+
+
+def invalidate_jellyfin_caches():
+    with settings._jellyfin_cache_lock:
+        settings._jellyfin_cache.clear()
+
+
+def set_jellyfin_item_played(item_id, played):
+    user_id = _jellyfin_user_id_for_queries()
+    if not user_id:
+        raise RuntimeError("jellyfin user unavailable")
+    method = "POST" if played else "DELETE"
+    jellyfin_post(f"/Users/{user_id}/PlayedItems/{item_id}", method=method)
+    invalidate_jellyfin_caches()

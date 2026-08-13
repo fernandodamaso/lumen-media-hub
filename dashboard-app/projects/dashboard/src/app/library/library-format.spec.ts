@@ -1,4 +1,4 @@
-import { DEFAULT_LIBRARY_ART } from './library.models';
+import { DEFAULT_LIBRARY_ART, formatLibraryDeleteDialogBody, formatLibraryDeleteDialogCopy, formatLibraryDeleteToasts } from './library.models';
 import {
   formatLibraryMeta,
   LIBRARY_KIND_LABEL,
@@ -81,9 +81,130 @@ describe('library format / library mapping', () => {
 
   it('formats meta and collection labels', () => {
     expect(formatLibraryMeta(2021, 'movie')).toBe('2021 · Movie');
+    expect(formatLibraryMeta(2023, 'series', 1)).toBe('2023 · Series · 1 episode');
+    expect(formatLibraryMeta(2023, 'series', 2)).toBe('2023 · Series · 2 episodes');
     expect(formatLibraryMeta(undefined as unknown as number, 'series')).toBe('Series');
     expect(LIBRARY_KIND_LABEL.movie).toBe('Movies');
     expect(LIBRARY_KIND_LABEL.series).toBe('Series');
+  });
+
+  it('accentuates delete-dialog titles separately from the surrounding copy', () => {
+    const movie = formatLibraryDeleteDialogCopy({
+      previewId: 'p1',
+      title: 'Moonrise',
+      kind: 'movie',
+      manager: 'Radarr',
+      episodeCount: null,
+      torrentCount: 0,
+      expiresAt: '2026-01-01T00:00:00.000Z',
+    });
+    expect(movie).toEqual({
+      title: 'Moonrise',
+      rest: ' from Radarr. No matching torrents are currently in qBittorrent.',
+    });
+    expect(
+      formatLibraryDeleteDialogBody({
+        previewId: 'p1',
+        title: 'Moonrise',
+        kind: 'movie',
+        manager: 'Radarr',
+        episodeCount: null,
+        torrentCount: 0,
+        expiresAt: '2026-01-01T00:00:00.000Z',
+      }),
+    ).toBe('This will remove Moonrise from Radarr. No matching torrents are currently in qBittorrent.');
+
+    const series = formatLibraryDeleteDialogCopy({
+      previewId: 'p2',
+      title: 'Silo',
+      kind: 'series',
+      manager: 'Sonarr',
+      episodeCount: 10,
+      torrentCount: 2,
+      expiresAt: '2026-01-01T00:00:00.000Z',
+    });
+    expect(series.title).toBe('Silo (10 episodes)');
+    expect(series.rest).toContain('from Sonarr and delete 2 matching torrents');
+  });
+
+  it('maps delete step outcomes to toasts', () => {
+    const preview = { title: 'Silo', manager: 'Sonarr' as const };
+    expect(
+      formatLibraryDeleteToasts(
+        {
+          ok: true,
+          removed: true,
+          torrentCount: 2,
+          steps: { torrents: 'ok', library: 'ok', jellyfin: 'ok' },
+        },
+        preview,
+      ),
+    ).toEqual([
+      {
+        title: 'Removed Silo',
+        body: 'Deleted from Sonarr and qBittorrent.',
+        tone: 'success',
+      },
+    ]);
+    expect(
+      formatLibraryDeleteToasts(
+        {
+          ok: false,
+          removed: false,
+          partial: true,
+          torrentCount: 1,
+          steps: { torrents: 'ok', library: 'failed', jellyfin: 'skipped' },
+        },
+        preview,
+      ),
+    ).toEqual([
+      {
+        title: 'Removed torrents; library item remains',
+        body: 'Sonarr did not remove this title.',
+        tone: 'error',
+      },
+    ]);
+    expect(
+      formatLibraryDeleteToasts(
+        {
+          ok: false,
+          removed: false,
+          torrentCount: 1,
+          error: 'Unable to delete this title',
+          steps: { torrents: 'failed', library: 'skipped', jellyfin: 'skipped' },
+        },
+        preview,
+      ),
+    ).toEqual([
+      {
+        title: 'Could not delete this title',
+        body: 'Matching torrents were not removed.',
+        tone: 'error',
+      },
+    ]);
+    expect(
+      formatLibraryDeleteToasts(
+        {
+          ok: true,
+          removed: true,
+          torrentCount: 0,
+          jellyfinRefresh: 'pending',
+          warning: 'Removed; Jellyfin refresh pending',
+          steps: { torrents: 'skipped', library: 'ok', jellyfin: 'pending' },
+        },
+        preview,
+      ),
+    ).toEqual([
+      {
+        title: 'Removed Silo',
+        body: 'Deleted from Sonarr.',
+        tone: 'success',
+      },
+      {
+        title: 'Removed; Jellyfin refresh pending',
+        tone: 'gold',
+      },
+    ]);
   });
 
   it('builds empty-state copy per collection', () => {

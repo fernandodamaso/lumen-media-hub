@@ -8,6 +8,7 @@
   [attr.aria-label]="title()"
   (click)="onDialogClick($event)"
   (keydown)="onDialogKeydown($event)"
+  (cancel)="onNativeCancel($event)"
   (close)="onNativeClose()"
 >
   @if (showHeader()) {
@@ -23,9 +24,11 @@
       }
       {{ title() }}
     </h2>
-    <button type="button" class="mm-dialog__close" aria-label="Close" (click)="close()">
-      <svg lucideX [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
-    </button>
+    @if (dismissible()) {
+      <button type="button" class="mm-dialog__close" aria-label="Close" (click)="close()">
+        <svg lucideX [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+      </button>
+    }
   </header>
   }
   <div class="mm-dialog__body">

@@ -69,6 +69,15 @@ def _token_valid(handler):
 
 
 _TORRENT_HASH_RE = re.compile(r"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
+_LIBRARY_ITEM_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def _valid_library_item_id(item_id):
+    if not isinstance(item_id, str):
+        return False
+    if "/" in item_id or "." in item_id or ".." in item_id:
+        return False
+    return _LIBRARY_ITEM_ID_RE.fullmatch(item_id) is not None
 
 
 def _valid_torrent_hash(torrent_id):

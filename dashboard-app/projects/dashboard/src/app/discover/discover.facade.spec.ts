@@ -1,3 +1,4 @@
+import { mediaStackLibraryMutationStub } from '../../testing/media-stack-library-stub';
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { DiscoverAction, DiscoverFeedback, DiscoverItem, DiscoverRequestPayload, ExternalDiscoverAvailability, ExternalDiscoverItem, HermesDiscover, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
@@ -1050,6 +1051,9 @@ async function flush(): Promise<void> {
 }
 
 class MockApi implements MediaStackApi {
+  setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
+  previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
+  deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
   hermes: HermesDiscover = {
     ok: true,
     library_exclusion: { status: 'fresh', last_successful_refresh_at: null },

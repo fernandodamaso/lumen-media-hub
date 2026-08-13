@@ -32,3 +32,42 @@ class JellyfinLibraryTests(unittest.TestCase):
             raw = {} if value is None else {"CommunityRating": value}
             with self.subTest(value=value):
                 self.assertIsNone(jellyfin_client._map_jellyfin_item(raw, "Movie")["rating"])
+
+    def test_requests_userdata_and_provider_ids_fields(self):
+        calls = []
+        original_get = jellyfin_client.jellyfin_get
+        original_path = jellyfin_client._jellyfin_items_path
+        try:
+            jellyfin_client._jellyfin_items_path = lambda: "/Items"
+            jellyfin_client.jellyfin_get = lambda path, query=None: calls.append(
+                (path, query)
+            ) or {"Items": [], "TotalRecordCount": 0}
+            jellyfin_client._fetch_all_jellyfin_raw("Movie")
+        finally:
+            jellyfin_client.jellyfin_get = original_get
+            jellyfin_client._jellyfin_items_path = original_path
+        fields = calls[0][1]["Fields"].split(",")
+        self.assertIn("UserData", fields)
+        self.assertIn("ProviderIds", fields)
+
+    def test_maps_played_from_userdata(self):
+        self.assertTrue(
+            jellyfin_client._map_jellyfin_item(
+                {"Id": "a", "UserData": {"Played": True}}, "Movie"
+            )["played"]
+        )
+        self.assertFalse(
+            jellyfin_client._map_jellyfin_item(
+                {"Id": "a", "UserData": {"Played": False}}, "Movie"
+            )["played"]
+        )
+        self.assertFalse(jellyfin_client._map_jellyfin_item({"Id": "a"}, "Movie")["played"])
+
+    def test_series_keeps_episode_count_movies_omit_it(self):
+        with mock.patch.object(jellyfin_client, "_series_episode_count", return_value=13):
+            series = jellyfin_client._map_jellyfin_item({"Id": "s1", "Name": "Show"}, "Series")
+        movie = jellyfin_client._map_jellyfin_item({"Id": "m1", "Name": "Film"}, "Movie")
+        self.assertEqual(series["episodeCount"], 13)
+        self.assertNotIn("episodeCount", movie)
+        self.assertNotIn("ProviderIds", series)
+        self.assertNotIn("ProviderIds", movie)

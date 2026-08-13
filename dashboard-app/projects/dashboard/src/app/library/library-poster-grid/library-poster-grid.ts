@@ -8,20 +8,20 @@ import {
   signal,
 } from '@angular/core';
 import { LucideChevronLeft, LucideChevronRight } from '@lucide/angular';
-import { MmIconButton, MmMediaCard } from '@app/ui';
+import { MmIconButton } from '@app/ui';
 import {
-  DEFAULT_LIBRARY_ART,
   JELLYFIN_LINK_BASES,
   LibraryItem,
   LibraryItemKind,
   resolveJellyfinItemLink,
 } from '../library.models';
+import { LibraryPosterCard } from '../library-poster-card/library-poster-card';
 
 const COMPACT_PAGE_SIZE = 5;
 
 @Component({
   selector: 'mm-library-poster-grid',
-  imports: [MmIconButton, MmMediaCard, LucideChevronLeft, LucideChevronRight],
+  imports: [MmIconButton, LibraryPosterCard, LucideChevronLeft, LucideChevronRight],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './library-poster-grid.html',
   styleUrl: './library-poster-grid.scss',
@@ -64,20 +64,6 @@ export class LibraryPosterGrid {
 
   nextPage(): void {
     this.page.update((page) => Math.min(this.pageCount() - 1, page + 1));
-  }
-
-  posterImageSrc(item: LibraryItem): string | null {
-    if (item.artworkState !== 'ok') return null;
-    const art = item.art.trim();
-    const urlMatch = /^url\(["']?([^"')]+)["']?\)/.exec(art);
-    if (urlMatch?.[1]) return urlMatch[1];
-    if (art.startsWith('http://') || art.startsWith('https://')) return art;
-    return null;
-  }
-
-  posterFallbackArt(item: LibraryItem): string {
-    if (item.artworkState !== 'ok' || this.posterImageSrc(item)) return DEFAULT_LIBRARY_ART;
-    return item.art || DEFAULT_LIBRARY_ART;
   }
 
   playHref(item: LibraryItem): string | null {

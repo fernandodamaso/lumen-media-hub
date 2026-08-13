@@ -135,45 +135,21 @@ describe('DiscoverCard', () => {
 
       const root = fixtureHost(fixture);
       const footer = root.querySelector('.discover-card__footer');
-      const overlay = root.querySelector('.discover-card__overlay');
+      const overlay = root.querySelector('mm-poster-action-overlay');
       const request = root.querySelector('.discover-card__footer mm-button button');
 
       expect(footer).toBeTruthy();
       expect(request).toBeTruthy();
       expect(request?.textContent).toContain('Request');
+      expect(overlay).toBeTruthy();
+      const liked = overlay?.querySelector('button[aria-label="Liked"]');
       if (showFeedback) {
-        expect(overlay).toBeTruthy();
+        expect(liked).toBeTruthy();
       } else {
-        expect(overlay).toBeNull();
+        expect(liked).toBeNull();
       }
       expect(overlay ? overlay.contains(request) : false).toBe(false);
     }
-  });
-
-  it('keeps feedback controls static for coarse any-pointer devices', () => {
-    const anyPointerCoarseRules = Array.from(document.styleSheets)
-      .flatMap((sheet) => {
-        try {
-          return Array.from(sheet.cssRules);
-        } catch {
-          return [];
-        }
-      })
-      .filter(
-        (rule): rule is CSSMediaRule =>
-          rule instanceof CSSMediaRule && rule.conditionText.includes('(any-pointer: coarse)'),
-      );
-    const overlayRule = anyPointerCoarseRules
-      .flatMap((rule) => Array.from(rule.cssRules))
-      .find(
-        (rule): rule is CSSStyleRule =>
-          rule instanceof CSSStyleRule &&
-          rule.selectorText.includes('.discover-card__overlay') &&
-          rule.style.position === 'static' &&
-          rule.style.pointerEvents === 'auto',
-      );
-
-    expect(overlayRule).toBeTruthy();
   });
 
   it('hides the summary when showSummary is false', () => {

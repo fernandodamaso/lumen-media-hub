@@ -1,6 +1,6 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
-import { LibraryItem } from './library.models';
+import { LibraryItem, LibraryDeletePreview, LibraryDeleteResult } from './library.models';
 import { applyLibraryLoadFailure } from './library-refresh';
 
 export type LibraryItemsStatus = 'loading' | 'ready' | 'empty' | 'error';
@@ -98,5 +98,33 @@ export class LibraryItemsFacade {
         ? Math.max(seriesFromItems, Math.floor(result.seriesCount))
         : seriesFromItems,
     );
+  }
+
+  async setPlayed(id: string, played: boolean): Promise<void> {
+    const result = await this.api.setLibraryItemPlayed(id, played);
+    this._items.update((items) =>
+      items.map((item) => (item.id === id ? { ...item, played: result.played } : item)),
+    );
+  }
+
+  previewDeletion(id: string): Promise<LibraryDeletePreview> {
+    return this.api.previewLibraryItemDeletion(id);
+  }
+
+  async deleteItem(id: string, previewId: string): Promise<LibraryDeleteResult> {
+    const result = await this.api.deleteLibraryItem(id, previewId);
+    if (result.removed) {
+      const removed = this._items().find((item) => item.id === id);
+      this._items.update((items) => items.filter((item) => item.id !== id));
+      if (removed?.kind === 'movie') {
+        this._movieCount.update((count) => Math.max(0, count - 1));
+      } else if (removed?.kind === 'series') {
+        this._seriesCount.update((count) => Math.max(0, count - 1));
+      }
+      if (this._items().length === 0) {
+        this._status.set('empty');
+      }
+    }
+    return result;
   }
 }

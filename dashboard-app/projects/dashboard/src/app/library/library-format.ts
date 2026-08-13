@@ -26,13 +26,15 @@ export const mapLibraryItem = (dto: MediaStackLibraryItemDto): LibraryItem | nul
     id,
     title,
     kind,
-    meta: formatLibraryMeta(dto.year, kind),
+    meta: formatLibraryMeta(dto.year, kind, kind === 'series' ? dto.episodeCount ?? null : null),
     art: resolveLibraryArt(dto.posterUrl, artworkState),
     overview: dto.overview?.trim() || '',
     href: null,
     artworkState,
     playable: dto.playable !== false,
     rating: normalizeRating(dto.rating),
+    episodeCount: kind === 'movie' ? null : dto.episodeCount ?? null,
+    played: dto.played === true,
   };
 };
 

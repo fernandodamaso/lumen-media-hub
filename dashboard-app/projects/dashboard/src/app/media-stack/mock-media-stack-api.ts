@@ -11,7 +11,7 @@ import {
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
-import { LibraryItem, LibraryItemKind, LibraryListResult, LibraryStats } from '../library/library.models';
+import { LibraryItem, LibraryItemKind, LibraryDeletePreview, LibraryDeleteResult, LibraryListResult, LibraryStats } from '../library/library.models';
 import { WatchNextResult } from '../library/watch-next.models';
 import { RecentlyAvailableResult } from '../library/recently-available.models';
 import { ActivityFeed } from '../activity/activity.models';
@@ -232,6 +232,8 @@ const DEMO_LIBRARY_ITEMS: MediaStackLibraryItemDto[] = [
     overview: 'A mythic desert world and the fight for its spice.',
     posterUrl: 'linear-gradient(145deg, #8b5a2b, #1a1410 70%)',
     playable: true,
+    played: true,
+    episodeCount: null,
   },
   {
     id: 'jf-afterlight',
@@ -241,6 +243,7 @@ const DEMO_LIBRARY_ITEMS: MediaStackLibraryItemDto[] = [
     overview: 'A crew races the last light across a dying colony.',
     posterUrl: 'linear-gradient(145deg, #3d5a80, #0d1117 70%)',
     playable: true,
+    played: false,
   },
   {
     id: 'jf-orbit',
@@ -250,6 +253,7 @@ const DEMO_LIBRARY_ITEMS: MediaStackLibraryItemDto[] = [
     overview: 'Docking bay politics at the edge of settled space.',
     posterUrl: 'linear-gradient(145deg, #4a5568, #111827 70%)',
     playable: true,
+    played: false,
   },
   {
     id: 'jf-night-transit',
@@ -259,6 +263,7 @@ const DEMO_LIBRARY_ITEMS: MediaStackLibraryItemDto[] = [
     overview: 'A premiere without artwork in the demo catalog.',
     artworkState: 'missing',
     playable: true,
+    played: false,
   },
   {
     id: 'jf-cowboy-bebop',
@@ -268,6 +273,8 @@ const DEMO_LIBRARY_ITEMS: MediaStackLibraryItemDto[] = [
     overview: 'Bounty hunters chasing the past across the solar system.',
     posterUrl: 'linear-gradient(145deg, #b45309, #1c1917 70%)',
     playable: true,
+    played: false,
+    episodeCount: 26,
   },
   {
     id: 'jf-the-expanse',
@@ -277,6 +284,8 @@ const DEMO_LIBRARY_ITEMS: MediaStackLibraryItemDto[] = [
     overview: 'Politics and survival between Earth, Mars, and the Belt.',
     posterUrl: 'linear-gradient(145deg, #1e3a5f, #0b1220 70%)',
     playable: true,
+    played: false,
+    episodeCount: 10,
   },
   {
     id: 'jf-blue-hour',
@@ -286,6 +295,8 @@ const DEMO_LIBRARY_ITEMS: MediaStackLibraryItemDto[] = [
     overview: 'Late-night cases in a city that never fully wakes.',
     posterUrl: 'linear-gradient(145deg, #312e81, #0f172a 70%)',
     playable: true,
+    played: false,
+    episodeCount: 8,
   },
   {
     id: 'jf-broken-art',
@@ -296,6 +307,8 @@ const DEMO_LIBRARY_ITEMS: MediaStackLibraryItemDto[] = [
     posterUrl: 'http://example.invalid/broken-poster.jpg',
     artworkState: 'failed',
     playable: true,
+    played: false,
+    episodeCount: 1,
   },
 ];
 
@@ -754,6 +767,7 @@ export class MockMediaStackApi implements MediaStackApi {
   private automationScenario: AutomationScenario = 'default';
   private downloadsScenario: DownloadsScenario = 'default';
   private watchNextScenario: WatchNextScenario = 'default';
+  demoDeletePartial = false;
 
   /**
    * Artificial Demo-mode latency in ms so skeleton loading states are visible.
@@ -867,6 +881,65 @@ export class MockMediaStackApi implements MediaStackApi {
     const movieCount = items.filter((item) => item.kind === 'movie').length;
     const seriesCount = items.filter((item) => item.kind === 'series').length;
     return this.withLatency({ items, availability: 'complete', movieCount, seriesCount });
+  }
+
+  setLibraryItemPlayed(id: string, played: boolean): Promise<{ played: boolean }> {
+    const item = this.libraryItems.find((row) => row.id === id);
+    if (!item) {
+      return Promise.reject(new Error('Library item not found'));
+    }
+    item.played = played;
+    return this.withLatency({ played });
+  }
+
+  previewLibraryItemDeletion(id: string): Promise<LibraryDeletePreview> {
+    const item = this.libraryItems.find((row) => row.id === id);
+    if (!item) {
+      return Promise.reject(new Error('Library item not found'));
+    }
+    const mapped = mapLibraryItem({ ...item });
+    if (!mapped) {
+      return Promise.reject(new Error('Library item not found'));
+    }
+    const expiresAt = new Date(Date.now() + 120_000).toISOString();
+    return this.withLatency({
+      previewId: `demo-preview-${id}`,
+      title: mapped.title,
+      kind: mapped.kind,
+      manager: mapped.kind === 'movie' ? 'Radarr' : 'Sonarr',
+      episodeCount: mapped.episodeCount,
+      torrentCount: 1,
+      expiresAt,
+    });
+  }
+
+  deleteLibraryItem(id: string, previewId: string): Promise<LibraryDeleteResult> {
+    if (previewId !== `demo-preview-${id}`) {
+      return Promise.reject(new Error('Invalid preview'));
+    }
+    if (this.demoDeletePartial) {
+      return this.withLatency({
+        ok: false,
+        removed: false,
+        partial: true,
+        torrentCount: 1,
+        error: 'Unable to finish deletion',
+        steps: { torrents: 'ok', library: 'failed', jellyfin: 'skipped' },
+      });
+    }
+    const index = this.libraryItems.findIndex((row) => row.id === id);
+    if (index < 0) {
+      return Promise.reject(new Error('Library item not found'));
+    }
+    this.libraryItems.splice(index, 1);
+    return this.withLatency({
+      ok: true,
+      removed: true,
+      torrentCount: 1,
+      jellyfinRefresh: 'ok',
+      warning: null,
+      steps: { torrents: 'ok', library: 'ok', jellyfin: 'ok' },
+    });
   }
 
   listWatchNext(_signal?: AbortSignal): Promise<WatchNextResult> {

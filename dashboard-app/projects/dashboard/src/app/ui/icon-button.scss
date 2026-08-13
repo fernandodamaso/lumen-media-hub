@@ -20,6 +20,29 @@
 .mm-icon-button--circle { border-radius: 50%; }
 .mm-icon-button--rounded { border-radius: 11px; }
 
+.mm-icon-button--danger {
+  border-color: color-mix(in srgb, var(--mm-component-danger) 55%, transparent);
+  background: color-mix(in srgb, var(--mm-component-danger) 18%, var(--mm-component-card-bg));
+  color: var(--mm-component-on-danger, var(--mm-component-danger));
+}
+
+.mm-icon-button--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mm-component-danger) 28%, var(--mm-component-card-bg));
+}
+
+.mm-icon-button--overlay {
+  border-color: rgb(255 255 255 / 24%);
+  background: rgb(8 8 14 / 78%);
+  color: var(--mm-component-text-primary);
+  text-decoration: none;
+  backdrop-filter: blur(8px);
+}
+
+.mm-icon-button--overlay:hover:not(:disabled, [aria-disabled='true']) {
+  background: rgb(8 8 14 / 92%);
+  border-color: rgb(255 255 255 / 40%);
+}
+
 .mm-icon-button[aria-busy='true'] {
   cursor: wait;
 }

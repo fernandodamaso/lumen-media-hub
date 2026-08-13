@@ -1,0 +1,48 @@
+:host {
+  display: block;
+}
+
+.library-poster-card__poster {
+  position: relative;
+}
+
+.library-poster-card__poster mm-media-card {
+  display: block;
+  width: 100%;
+  max-width: none;
+}
+
+:host ::ng-deep .library-poster-card__poster .mm-media-card:hover {
+  transform: none;
+  box-shadow: var(--mm-shadow-card-hover);
+}
+
+.library-poster-card__caption {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin-top: 9px;
+}
+
+.library-poster-card__caption strong,
+.library-poster-card__caption small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-poster-card__caption strong {
+  color: var(--mm-component-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.library-poster-card__caption small {
+  color: var(--mm-component-text-muted);
+  font-size: 11px;
+}
+
+.library-poster-card__delete-title {
+  color: var(--mm-component-accent);
+  font-weight: 600;
+}

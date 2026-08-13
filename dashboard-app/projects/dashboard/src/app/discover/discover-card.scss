@@ -77,51 +77,6 @@
   overflow: hidden;
 }
 
-.discover-card__overlay {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 2;
-  display: grid;
-  gap: 10px;
-  padding: 56px 12px 12px;
-  border-radius: 0 0 var(--mm-radius-md) var(--mm-radius-md);
-  background: linear-gradient(transparent, rgb(5 5 10 / 78%) 55%, rgb(5 5 10 / 94%));
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(6px);
-  transition:
-    opacity var(--mm-transition-fast),
-    transform var(--mm-transition-fast);
-}
-
-.discover-card__overlay ::ng-deep .mm-icon-button {
-  border-color: rgb(255 255 255 / 24%);
-  background: rgb(8 8 14 / 78%);
-  color: var(--mm-component-text-primary);
-  backdrop-filter: blur(8px);
-}
-
-.discover-card__overlay ::ng-deep .mm-icon-button:hover:not(:disabled) {
-  background: rgb(8 8 14 / 92%);
-  border-color: rgb(255 255 255 / 40%);
-}
-
-.discover-card:hover .discover-card__overlay,
-.discover-card:focus-within .discover-card__overlay {
-  opacity: 1;
-  pointer-events: auto;
-  transform: none;
-}
-
-.discover-card__feedback {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-}
-
 .discover-card__footer {
   display: flex;
   margin-top: auto;
@@ -139,22 +94,4 @@
 
 .discover-card__request-wrap ::ng-deep .mm-button {
   width: 100%;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .discover-card__overlay {
-    transition: none;
-  }
-}
-
-@media (hover: none), (pointer: coarse), (any-pointer: coarse) {
-  .discover-card__overlay {
-    position: static;
-    padding: 8px 0 0;
-    border-radius: 0;
-    background: none;
-    opacity: 1;
-    pointer-events: auto;
-    transform: none;
-  }
 }

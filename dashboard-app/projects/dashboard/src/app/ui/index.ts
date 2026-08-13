@@ -21,6 +21,7 @@ export * from './tabs';
 export * from './accordion';
 export * from './dropdown';
 export * from './popover';
+export * from './poster-action-overlay';
 export * from './toast';
 export * from './toast.service';
 export * from './segmented-control';

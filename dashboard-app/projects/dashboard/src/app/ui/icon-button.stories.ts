@@ -8,6 +8,8 @@ type IconButtonArgs = {
   busy: boolean;
   size: 'sm' | 'md';
   shape: 'rounded' | 'circle';
+  tone: 'default' | 'danger';
+  surface: 'default' | 'overlay';
 };
 
 const meta: Meta<IconButtonArgs> = {
@@ -20,6 +22,8 @@ const meta: Meta<IconButtonArgs> = {
     busy: { control: 'boolean' },
     size: { control: 'inline-radio', options: ['sm', 'md'] },
     shape: { control: 'inline-radio', options: ['rounded', 'circle'] },
+    tone: { control: 'inline-radio', options: ['default', 'danger'] },
+    surface: { control: 'inline-radio', options: ['default', 'overlay'] },
   },
   args: {
     label: 'Refresh',
@@ -27,6 +31,8 @@ const meta: Meta<IconButtonArgs> = {
     busy: false,
     size: 'md',
     shape: 'rounded',
+    tone: 'default',
+    surface: 'default',
   },
   render: (args) => ({
     props: args,
@@ -56,6 +62,22 @@ export const SmallCircle: Story = {
 
 export const MediumRounded: Story = {
   args: { label: 'Refresh', size: 'md', shape: 'rounded' },
+};
+
+export const Danger: Story = {
+  args: { label: 'Delete', tone: 'danger' },
+  play: ({ canvasElement }) => {
+    const button = canvasElement.querySelector('button.mm-icon-button--danger');
+    if (!button) throw new Error('Danger icon button is missing its tone class');
+  },
+};
+
+export const Overlay: Story = {
+  args: { label: 'Mark watched', surface: 'overlay' },
+  play: ({ canvasElement }) => {
+    const button = canvasElement.querySelector('button.mm-icon-button--overlay');
+    if (!button) throw new Error('Overlay icon button is missing its surface class');
+  },
 };
 
 export const PauseResume: Story = {

@@ -29,6 +29,7 @@ export class MmDialog {
   readonly title = input('Dialog');
   readonly tone = input<MmDialogTone>('default');
   readonly showHeader = input(true);
+  readonly dismissible = input(true);
   readonly opened = model(false);
   readonly closed = output();
 
@@ -60,8 +61,15 @@ export class MmDialog {
 
   /** Backdrop click: only when the event target is the dialog element itself. ESC is native. */
   onDialogClick(event: MouseEvent): void {
+    if (!this.dismissible()) return;
     if (event.target === this.dialogRef().nativeElement) {
       this.close();
+    }
+  }
+
+  onNativeCancel(event: Event): void {
+    if (!this.dismissible()) {
+      event.preventDefault();
     }
   }
 

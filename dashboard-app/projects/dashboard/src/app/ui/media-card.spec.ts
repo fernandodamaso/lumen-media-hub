@@ -158,4 +158,15 @@ describe('MmMediaCard', () => {
     expect(root.querySelector('.mm-media-card__rating')?.textContent).toContain('7.8');
     expect(root.querySelector('.mm-media-card__rating')?.getAttribute('aria-label')).toContain('7.8');
   });
+
+  it('keeps the play cue by default when linked and showPlayCue is enabled', () => {
+    const fixture = TestBed.createComponent(MmMediaCard);
+    fixture.componentRef.setInput('title', 'Dune');
+    fixture.componentRef.setInput('href', 'https://jf.example/dune');
+    fixture.componentRef.setInput('showPlayCue', true);
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    expect(root.querySelector('.mm-media-card__play-cue')).toBeTruthy();
+  });
 });

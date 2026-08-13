@@ -57,6 +57,8 @@ function item(id: string, kind: 'movie' | 'series', title: string): LibraryItem 
     href: null,
     artworkState: 'ok',
     playable: true,
+    episodeCount: null,
+    played: false,
   };
 }
 

@@ -98,11 +98,13 @@ describe('DiscoverPage', () => {
       const request = root.querySelector('.discover-card__footer mm-button button');
       expect(request).toBeTruthy();
       expect(request?.textContent).toContain('Request');
-      const overlay = root.querySelector('.discover-card__overlay');
+      const overlay = root.querySelector('mm-poster-action-overlay');
+      expect(overlay).toBeTruthy();
+      const liked = overlay?.querySelector('button[aria-label="Liked"]');
       if (source.hasFeedback) {
-        expect(overlay).toBeTruthy();
+        expect(liked).toBeTruthy();
       } else {
-        expect(overlay).toBeNull();
+        expect(liked).toBeNull();
       }
       expect(overlay ? overlay.contains(request) : false).toBe(false);
     }

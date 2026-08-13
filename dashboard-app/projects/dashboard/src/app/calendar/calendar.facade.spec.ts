@@ -1,3 +1,4 @@
+import { mediaStackLibraryMutationStub } from '../../testing/media-stack-library-stub';
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
@@ -287,6 +288,8 @@ describe('CalendarFacade', () => {
         href: null,
         artworkState: 'ok',
         playable: true,
+        episodeCount: 26,
+        played: false,
       },
     ];
     api.events = api.events.map((event) => ({
@@ -382,6 +385,9 @@ function abortablePromise<T>(pending: Promise<T>, signal?: AbortSignal): Promise
 }
 
 class MockApi implements MediaStackApi {
+  setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
+  previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
+  deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
   events: CalendarEvent[] = [
     {
       id: 'Night Transit-Premiere-2026-07-15T12:00:00Z',

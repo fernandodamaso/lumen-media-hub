@@ -32,7 +32,7 @@ const activityItem: ActivityItem = {
   href: 'http://sonarr.local/series/shogun-court',
 };
 
-function summaryWith(statuses: ('healthy' | 'degraded' | 'down')[]): AutomationSummary {
+function summaryWith(statuses: ('healthy' | 'degraded' | 'down' | 'unknown')[]): AutomationSummary {
   return {
     generatedAt: new Date().toISOString(),
     services: statuses.map((status, index) => ({
@@ -67,8 +67,11 @@ describe('RightRail', () => {
     TestBed.configureTestingModule({
       imports: [RightRail],
       providers: [
-        provideRouter([]),
-        { provide: SERVICE_LINK_BASES, useValue: { sonarr: 'http://sonarr.local' } },
+        provideRouter([{ path: 'reports', children: [] }]),
+        {
+          provide: SERVICE_LINK_BASES,
+          useValue: { sonarr: 'http://sonarr.local', jellyfin: 'http://jellyfin.local' },
+        },
         {
           provide: CalendarFacade,
           useValue: {
@@ -211,5 +214,65 @@ describe('RightRail', () => {
     expect(
       fixtureHost(fixture).querySelectorAll('[data-testid="rr-upcoming"] mm-skeleton').length,
     ).toBeGreaterThan(0);
+  });
+
+  it('links configured service names externally and degraded statuses to Reports', () => {
+    automationSummary.set({
+      ...summaryWith(['degraded']),
+      services: [
+        { id: 'sonarr', name: 'Sonarr', status: 'degraded', detail: 'Indexers slow', latencyMs: 350 },
+      ],
+    });
+    const fixture = TestBed.createComponent(RightRail);
+    fixture.detectChanges();
+
+    const section = fixtureHost(fixture).querySelector('[data-testid="rr-health"]');
+    const nameLink = section?.querySelector('.svc-name--link');
+    const statusLink = section?.querySelector('.svc-status--link');
+    expect(nameLink?.getAttribute('href')).toBe('http://sonarr.local/');
+    expect(nameLink?.getAttribute('target')).toBe('_blank');
+    expect(statusLink?.getAttribute('href')).toBe('/reports?service=sonarr#service-health');
+  });
+
+  it('links healthy service names but keeps healthy statuses plain text', () => {
+    automationSummary.set({
+      ...summaryWith(['healthy']),
+      services: [{ id: 'jellyfin', name: 'Jellyfin', status: 'healthy', detail: 'Streaming ready', latencyMs: 18 }],
+    });
+    const fixture = TestBed.createComponent(RightRail);
+    fixture.detectChanges();
+
+    const section = fixtureHost(fixture).querySelector('[data-testid="rr-health"]');
+    expect(section?.querySelector('.svc-name--link')?.getAttribute('href')).toBe('http://jellyfin.local/');
+    expect(section?.querySelector('.svc-status--link')).toBeNull();
+    expect(section?.querySelector('.svc-status')?.textContent).toContain('Healthy');
+  });
+
+  it('routes down services to Reports even when the external name link is unavailable', () => {
+    automationSummary.set({
+      ...summaryWith(['down']),
+      services: [{ id: 'sabnzbd', name: 'SABnzbd', status: 'down', detail: 'Last seen 18m ago' }],
+    });
+    const fixture = TestBed.createComponent(RightRail);
+    fixture.detectChanges();
+
+    const section = fixtureHost(fixture).querySelector('[data-testid="rr-health"]');
+    expect(section?.querySelector('.svc-name--link')).toBeNull();
+    expect(section?.querySelector('.svc-status--link')?.getAttribute('href')).toBe(
+      '/reports?service=sabnzbd#service-health',
+    );
+  });
+
+  it('keeps unknown statuses as plain text', () => {
+    automationSummary.set({
+      ...summaryWith(['unknown']),
+      services: [{ id: 'unpackerr', name: 'Unpackerr', status: 'unknown', detail: 'No data', latencyMs: null }],
+    });
+    const fixture = TestBed.createComponent(RightRail);
+    fixture.detectChanges();
+
+    const section = fixtureHost(fixture).querySelector('[data-testid="rr-health"]');
+    expect(section?.querySelector('.svc-status--link')).toBeNull();
+    expect(section?.querySelector('.svc-status')?.textContent).toContain('Unknown');
   });
 });

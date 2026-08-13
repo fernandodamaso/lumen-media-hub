@@ -234,15 +234,19 @@ class TraktClientTests(unittest.TestCase):
     def test_concurrent_401_retries_rotate_once(self):
         refresh_started = threading.Event()
         release_refresh = threading.Event()
+        both_initial_401 = threading.Event()
         refresh_count = 0
         refresh_count_lock = threading.Lock()
         api_lock = threading.Lock()
         api_calls = 0
+        initial_401_count = 0
         api_authorizations = []
 
         def transport(method, url, headers, body):
-            nonlocal refresh_count, api_calls
+            nonlocal refresh_count, api_calls, initial_401_count
             if url.endswith("/oauth/token"):
+                if not both_initial_401.wait(2):
+                    raise AssertionError("both workers must reach initial 401 before refresh")
                 with refresh_count_lock:
                     refresh_count += 1
                 refresh_started.set()
@@ -255,6 +259,9 @@ class TraktClientTests(unittest.TestCase):
                 api_calls += 1
                 api_authorizations.append(headers.get("Authorization"))
                 if api_calls <= 2:
+                    initial_401_count += 1
+                    if initial_401_count == 2:
+                        both_initial_401.set()
                     return FakeResponse(401, {})
             return FakeResponse(200, {"ok": True})
 
@@ -380,6 +387,7 @@ class TraktDeviceAuthorizationTests(unittest.TestCase):
         connect_function = script[connect_start:connect_end]
         self.assertIn("Invoke-TraktDiscoverWarmup", connect_function)
         self.assertIn("/discover/trakt?type=", script)
+        self.assertIn("refresh_watched=true", script)
         self.assertIn("@('movies', 'shows')", script)
 
 

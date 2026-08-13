@@ -328,7 +328,7 @@ function Invoke-TraktDiscoverWarmup {
   $base = 'http://127.0.0.1:8085'
   foreach ($type in @('movies', 'shows')) {
     try {
-      $response = Invoke-WebRequest -UseBasicParsing -Uri "$base/discover/trakt?type=$type" -TimeoutSec 120 -SkipHttpErrorCheck
+      $response = Invoke-WebRequest -UseBasicParsing -Uri "$base/discover/trakt?type=$type&refresh_watched=true" -TimeoutSec 120 -SkipHttpErrorCheck
       if ($response.StatusCode -ne 200) {
         Write-Host "Trakt $type warmup returned HTTP $($response.StatusCode). Open Discover to retry."
         return

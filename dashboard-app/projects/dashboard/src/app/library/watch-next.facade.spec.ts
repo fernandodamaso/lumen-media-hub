@@ -161,6 +161,9 @@ class MockApi implements MediaStackApi {
       ? Promise.reject(new Error('offline'))
       : Promise.resolve({ items: [...this.result.items] });
   }
+  listRecentlyAvailable() {
+    return Promise.resolve({ items: [] });
+  }
   getActivity() {
     return Promise.resolve({
       ok: true,

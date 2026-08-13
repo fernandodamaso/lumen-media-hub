@@ -4,6 +4,7 @@ import { CalendarFacade } from '../calendar/calendar.facade';
 import { DownloadsFacade } from '../downloads/downloads.facade';
 import { LibraryItemsFacade } from '../library/library-items.facade';
 import { LibraryStatsFacade } from '../library/library-stats.facade';
+import { RecentlyAvailableFacade } from '../library/recently-available.facade';
 import { WatchNextFacade } from '../library/watch-next.facade';
 import { ActivityFacade } from '../right-rail/activity.facade';
 import { StorageFacade } from '../storage/storage.facade';
@@ -15,6 +16,7 @@ export type DashboardRefreshDeps = {
   libraryItems: LibraryItemsFacade;
   libraryStats: LibraryStatsFacade;
   watchNext: WatchNextFacade;
+  recentlyAvailable: RecentlyAvailableFacade;
   downloads: DownloadsFacade;
   storage: StorageFacade;
   calendar: CalendarFacade;
@@ -30,6 +32,7 @@ export async function refreshDashboardData(deps: DashboardRefreshDeps): Promise<
     deps.libraryItems.refresh(),
     deps.libraryStats.refresh(),
     deps.watchNext.refresh(),
+    deps.recentlyAvailable.refresh(),
     deps.downloads.refresh(),
     deps.storage.refresh(),
     deps.calendar.refresh(),

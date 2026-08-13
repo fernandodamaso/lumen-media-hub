@@ -53,10 +53,63 @@ palette, and shell-scoped polling. `topbar/` and `right-rail/`
 are presentation-owned shell features; they are not route pages.
 
 The home route is composed by `DashboardPage` from the `DashboardHero`,
-`StatStrip`, three `MediaRail` instances (Continue Watching, Trending Now, and
-Recently Added), and the Downloads section. The right rail presents Upcoming
-Releases, Recent Activity, and Service Health. Dashboard-only download polling
-is owned and stopped by `DashboardPage`; shell polling remains with `App`.
+`StatStrip`, three `MediaRail` instances (Continue Watching, Newly Available, and
+Trending in Trakt), and the Downloads section. The right rail presents Upcoming
+Releases, Recent Activity (Sonarr/Radarr operational history), and Service Health.
+Dashboard-owned polling covers Downloads and Newly Available; shell polling
+remains with `App`. The former `Recently Added` rail derived from alphabetically
+sorted library items was removed — chronology now comes from Jellyfin
+`DateCreated` via the dedicated recently-available endpoint.
+
+## Newly Available
+
+The **Newly Available** rail answers which individual movies and episodes became
+playable in Jellyfin recently. It is not torrent completion time, not Sonarr/Radarr
+import history (that stays in the right-rail Recent Activity feed), and not
+alphabetical library sorting.
+
+### Data path
+
+`homepage-actions` `/jellyfin/recently-available` → browser `/api/jellyfin/recently-available`
+→ `HttpMediaStackApi.listRecentlyAvailable` → `RecentlyAvailableFacade` →
+`DashboardPage` → landscape `MmMediaCard`.
+
+### Backend contract
+
+`GET /jellyfin/recently-available?limit=10` (homepage-actions) returns
+`{ "ok": true, "items": [...] }` with strict validation separate from watch-next:
+
+- only `Movie` and `Episode` items with real media paths, valid IDs, and
+  explicit-timezone `availableAt` timestamps
+- excludes items the configured Jellyfin user has already fully watched
+  (`UserData.Played` / `Filters=IsUnplayed`); in-progress but unwatched items may
+  still appear here while Continue Watching owns resume playback
+- rejects placeholders, virtual items, pathless movies/episodes, and series containers
+- newest-first by Jellyfin `DateCreated`; pages Jellyfin until the limit is filled
+- never exposes raw filesystem paths; stable `502` message on upstream failure
+- no response-envelope cache (Refresh All must not be defeated)
+
+On this stack, FDM-638 validated `UseFileCreationTimeForDateAdded=true` and that
+`DateCreated` tracks playable indexing within ±5 minutes for one real episode and
+one real movie. That result is stack-specific — `DateCreated` is not universally
+equivalent to download completion.
+
+### Frontend lifecycle
+
+`RecentlyAvailableFacade` is `providedIn: 'root'` but Dashboard owns the 60-second
+`ScheduledPollController` schedule: `startPolling` on mount, `stopPolling` on destroy,
+immediate revalidation on remount without clearing last-good `ready`/`empty` data when
+a background refresh fails. Refresh All (`refreshDashboardData`) calls
+`recentlyAvailable.refresh()` exactly once alongside other dashboard sources.
+
+Presentation: episode cards show series title, `SxxExx · episode title · Ready …`,
+movies show `year · Movie · Ready …` when year is known. `NEW` (success tone) means
+younger than 24 hours, not read/unread state. Shared `MmMediaCard` landscape styles
+clamp long titles (one line) and subtitles (two lines); Dashboard does not add
+private card selectors.
+
+Demo and Live share one `MediaStackApi.listRecentlyAvailable` contract; Demo fixtures
+use relative ages (30m, 4h, 30h, 3d, 8d) at call time.
 
 ## Data flow
 
@@ -98,6 +151,7 @@ Library, automation, and service-health facades stay as separate stores. Do not 
 | `ServiceHealthFacade` | `providedIn: 'root'` | Right-rail and dashboard service health | App ctor `startPolling` | App (app-wide, 60s) | Runs for app lifetime (no public stop) |
 | `LibraryItemsFacade` | `providedIn: 'root'` | App shell count, `/library`, dashboard refresh, command palette | Facade ctor initial `refresh` | None (manual / dashboard refresh) | Request-id bump on newer refresh |
 | `WatchNextFacade` | `providedIn: 'root'` | Dashboard hero, Library page, dashboard refresh | Facade ctor initial `refresh` | None | Request-id bump |
+| `RecentlyAvailableFacade` | `providedIn: 'root'` | Dashboard Newly Available rail, dashboard refresh | `DashboardPage` `startPolling` | DashboardPage (60s) | `DashboardPage` destroy → `stopPolling` |
 | `LibraryStatsFacade` | `app.config` singleton | Stat strip and dashboard refresh | Facade ctor initial `refresh` | None | Request-id bump |
 | `DownloadsFacade` | `app.config` singleton | Downloads section, stat strip, dashboard refresh, command palette actions | `DashboardPage` `startPolling` | DashboardPage (10s) | `DashboardPage` destroy → `stopPolling` |
 | `StorageFacade` | `app.config` singleton | App shell storage card, stat strip, dashboard refresh | `App` `startPolling` | App (60s) | Runs for app lifetime |
@@ -145,6 +199,7 @@ npm run test:smoke
 | `/api/jellyfin/movies` | GET | Movie library items |
 | `/api/jellyfin/series` | GET | Series library items |
 | `/api/jellyfin/watch-next` | GET | User-specific next episodes and in-progress movies (`progressPercent` 0–100) |
+| `/api/jellyfin/recently-available` | GET | Strictly playable movies and episodes sorted by Jellyfin `DateCreated` (`?limit=1–50`, default 10) |
 | `/api/sonarr/calendar` | GET | Upcoming calendar events |
 | `/api/arr/library` | GET | Series/movie library index |
 | `/api/activity` | GET | Recent activity feed for the right rail |
@@ -217,7 +272,7 @@ Storage uses `/system/resources` (not `/storage/overview`) and labels the volume
 
 | Path | Feature |
 |------|---------|
-| `/` | Lumen home: hero, stat strip, Continue Watching, Trending Now, Recently Added, downloads, and shell right rail |
+| `/` | Lumen home: hero, stat strip, Continue Watching, Newly Available, Trending in Trakt, downloads, and shell right rail |
 | `/library` | Library poster grid and movie/series filter |
 | `/reports` | Cron log triage |
 | `/discover` | Hermes / Jellyseerr / Trakt |

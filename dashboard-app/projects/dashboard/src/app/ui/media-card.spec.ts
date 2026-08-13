@@ -45,6 +45,43 @@ describe('MmMediaCard', () => {
     expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('42');
   });
 
+  it('renders landscape long title and subtitle with NEW tag and link semantics', () => {
+    const fixture = TestBed.createComponent(MmMediaCard);
+    const longTitle =
+      'Saga of Tanya the Evil and the Very Long Continuation of the Imperial Mage Corps';
+    const longSubtitle =
+      'S02E05 · Lamb and the extraordinarily detailed episode title that should clamp to two lines';
+    fixture.componentRef.setInput('layout', 'landscape');
+    fixture.componentRef.setInput('title', longTitle);
+    fixture.componentRef.setInput('subtitle', longSubtitle);
+    fixture.componentRef.setInput('tag', 'NEW');
+    fixture.componentRef.setInput('tagTone', 'success');
+    fixture.componentRef.setInput('href', 'http://jf.local/web/index.html#!/details?id=ep-1');
+    fixture.componentRef.setInput('linkLabel', 'Open Saga of Tanya the Evil, S02E05, Lamb in Jellyfin');
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    const name = root.querySelector('.mm-media-card__name') as HTMLElement;
+    const sub = root.querySelector('.mm-media-card__sub') as HTMLElement;
+    const link = root.querySelector('.mm-media-card__hit') as HTMLAnchorElement;
+    const tag = root.querySelector('.mm-media-card__tag');
+
+    expect(root.classList.contains('mm-media-card--landscape')).toBe(true);
+    expect(name.textContent).toContain(longTitle);
+    expect(sub.textContent).toContain(longSubtitle);
+    expect(getComputedStyle(name).textOverflow).toBe('ellipsis');
+    expect(getComputedStyle(name).whiteSpace).toBe('nowrap');
+    expect(getComputedStyle(sub).webkitLineClamp).toBe('2');
+    expect(tag?.textContent).toContain('NEW');
+    expect(tag?.classList.contains('mm-media-card__tag--success')).toBe(true);
+    expect(link.getAttribute('href')).toContain('details?id=ep-1');
+    expect(link.getAttribute('aria-label')).toBe(
+      'Open Saga of Tanya the Evil, S02E05, Lamb in Jellyfin',
+    );
+    expect(root.querySelector('[role="progressbar"]')).toBeNull();
+    expect(root.querySelector('.mm-media-card__play-cue')).toBeNull();
+  });
+
   it('renders a full-card external link with the default label', () => {
     const fixture = TestBed.createComponent(MmMediaCard);
     fixture.componentRef.setInput('title', 'Dune');

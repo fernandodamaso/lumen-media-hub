@@ -14,15 +14,17 @@ import {
   TORRENT_STATE_VIEW,
 } from '../../downloads/downloads-format';
 import { TorrentState } from '../../downloads/downloads.models';
-import {
-  JELLYFIN_LINK_BASES,
-  LibraryItem,
-  resolveJellyfinItemLink,
-} from '../../library/library.models';
 import { LibraryItemsFacade } from '../../library/library-items.facade';
 import { LibraryStatsFacade } from '../../library/library-stats.facade';
+import { RecentlyAvailableFacade } from '../../library/recently-available.facade';
+import { RecentlyAvailableItem } from '../../library/recently-available.models';
+import {
+  formatRecentlyAvailableCardSubtitle,
+  isNewlyAvailable,
+  recentlyAvailableLinkLabel,
+} from '../../library/recently-available-format';
 import { WatchNextFacade } from '../../library/watch-next.facade';
-import { WatchNextItem } from '../../library/watch-next.models';
+import { JELLYFIN_LINK_BASES, resolveJellyfinItemLink } from '../../library/library.models';
 import { SERVICE_LINK_BASES } from '../../media-stack/media-stack-api.providers';
 import { ActivityFacade } from '../../right-rail/activity.facade';
 import { StorageFacade } from '../../storage/storage.facade';
@@ -32,6 +34,8 @@ import { MmDownloadItem } from '../../downloads/download-item/download-item';
 import { MediaRail } from '../media-rail/media-rail';
 import { StatStrip } from '../stat-strip/stat-strip';
 import { TrendingFacade } from '../trending.facade';
+import { WatchNextItem } from '../../library/watch-next.models';
+
 import { discoverPosterFallback } from '../../discover/discover-format';
 
 const RAIL_LIMIT = 10;
@@ -63,8 +67,9 @@ export class DashboardPage {
   private readonly calendar = inject(CalendarFacade);
   private readonly automation = inject(AutomationFacade);
   private readonly activity = inject(ActivityFacade);
-  readonly libraryItems = inject(LibraryItemsFacade);
+  private readonly libraryItems = inject(LibraryItemsFacade);
   readonly watchNext = inject(WatchNextFacade);
+  readonly recentlyAvailable = inject(RecentlyAvailableFacade);
   readonly trending = inject(TrendingFacade);
   readonly downloads = inject(DownloadsFacade);
   private readonly storage = inject(StorageFacade);
@@ -82,7 +87,6 @@ export class DashboardPage {
     const total = this.watchNext.items().filter((item) => item.progressPercent > 0).length;
     return total === 1 ? '1 in progress' : `${total} in progress`;
   });
-  readonly recentItems = computed(() => this.libraryItems.items().slice(0, RAIL_LIMIT));
   readonly groups = computed(() => groupTorrents(this.downloads.torrents()));
 
   readonly libraryNotice = computed(() => {
@@ -102,15 +106,16 @@ export class DashboardPage {
   }
 
   constructor() {
-    // Dashboard owns downloads polling only; shell facades are polled by App.
     this.downloads.startPolling();
+    this.recentlyAvailable.startPolling();
     this.destroyRef.onDestroy(() => {
       this.downloads.stopPolling();
+      this.recentlyAvailable.stopPolling();
     });
   }
 
   /** Landscape card art: Jellyfin thumb when available, else the item's gradient art. */
-  cardArt(item: WatchNextItem | LibraryItem): string {
+  cardArt(item: WatchNextItem | RecentlyAvailableItem): string {
     if ('thumbUrl' in item && item.thumbUrl) {
       return item.thumbUrl.includes('gradient(') || item.thumbUrl.startsWith('url(')
         ? item.thumbUrl
@@ -160,12 +165,29 @@ export class DashboardPage {
     void this.downloads.refresh();
   }
 
+  recentlyAvailableSubtitle(item: RecentlyAvailableItem): string {
+    return formatRecentlyAvailableCardSubtitle(item, new Date());
+  }
+
+  isRecentlyAvailableNew(item: RecentlyAvailableItem): boolean {
+    return isNewlyAvailable(item.availableAt, new Date());
+  }
+
+  recentlyAvailableHref(item: RecentlyAvailableItem): string | null {
+    return item.href ?? resolveJellyfinItemLink(item, this.jellyfinBases);
+  }
+
+  recentlyAvailableLinkLabel(item: RecentlyAvailableItem): string {
+    return recentlyAvailableLinkLabel(item);
+  }
+
   onRefresh(): void {
     void refreshDashboardData({
       health: this.health,
       libraryItems: this.libraryItems,
       libraryStats: this.libraryStats,
       watchNext: this.watchNext,
+      recentlyAvailable: this.recentlyAvailable,
       downloads: this.downloads,
       storage: this.storage,
       calendar: this.calendar,
@@ -175,7 +197,7 @@ export class DashboardPage {
     });
   }
 
-  mediaHref(item: Pick<WatchNextItem | LibraryItem, 'href' | 'id' | 'playable'>): string | null {
+  mediaHref(item: Pick<WatchNextItem | RecentlyAvailableItem, 'href' | 'id' | 'playable'>): string | null {
     return item.href ?? resolveJellyfinItemLink(item, this.jellyfinBases);
   }
 }

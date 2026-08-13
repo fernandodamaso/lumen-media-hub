@@ -52,6 +52,52 @@
   </mm-media-rail>
 </section>
 
+<section class="rail-section" data-testid="newly-available-rail">
+  <mm-media-rail
+    title="Newly Available"
+    count="Ready to watch"
+    linkTo="/library"
+    linkLabel="Library"
+  >
+    @switch (recentlyAvailable.status()) {
+      @case ('loading') {
+        @for (i of railSkeletons; track i) {
+          <div class="landscape-card-skeleton" aria-hidden="true"><mm-skeleton variant="rect" /></div>
+        }
+      }
+      @case ('error') {
+        <mm-state-card kind="error" tone="danger" title="Newly available media unavailable" [message]="recentlyAvailable.error()">
+          <mm-button label="Try again" (click)="recentlyAvailable.refresh({ initial: true })" />
+        </mm-state-card>
+      }
+      @case ('empty') {
+        <mm-state-card kind="empty" title="Nothing newly available" message="Newly indexed movies and episodes will appear here." />
+      }
+      @default {
+        @for (item of recentlyAvailable.items(); track item.id) {
+          @let href = recentlyAvailableHref(item);
+          <mm-media-card
+            layout="landscape"
+            [title]="item.title"
+            [subtitle]="recentlyAvailableSubtitle(item)"
+            [imageUrl]="item.thumbUrl"
+            [art]="item.art"
+            [href]="href"
+            [linkLabel]="recentlyAvailableLinkLabel(item)"
+            [tag]="isRecentlyAvailableNew(item) ? 'NEW' : null"
+            tagTone="success"
+          />
+        }
+      }
+    }
+  </mm-media-rail>
+  @if (recentlyAvailable.error() && recentlyAvailable.status() !== 'error') {
+    <mm-status tone="warning" [announce]="true">
+      {{ recentlyAvailable.error() }}
+    </mm-status>
+  }
+</section>
+
 <section class="rail-section" data-testid="trending-rail">
   <mm-media-rail title="Trending in Trakt" count="This week" linkTo="/discover" linkLabel="Charts">
     @switch (trending.status()) {
@@ -82,39 +128,6 @@
             [href]="item.href"
             [linkLabel]="'Open ' + item.title + ' on Trakt'"
           />
-        }
-      }
-    }
-  </mm-media-rail>
-</section>
-
-<section class="rail-section" data-testid="recent-rail">
-  <mm-media-rail title="Recently Added" count="Latest arrivals" linkTo="/library" linkLabel="Library">
-    @switch (libraryItems.status()) {
-      @case ('loading') {
-        @for (i of railSkeletons; track i) {
-          <div class="landscape-card-skeleton" aria-hidden="true"><mm-skeleton variant="rect" /></div>
-        }
-      }
-      @case ('error') {
-        <mm-state-card kind="error" tone="danger" title="Library unavailable" [message]="libraryItems.error()">
-          <mm-button label="Try again" (click)="libraryItems.refresh({ initial: true })" />
-        </mm-state-card>
-      }
-      @case ('empty') {
-        <mm-state-card kind="empty" title="Library is empty" message="New arrivals will appear here." />
-      }
-      @default {
-        @for (item of recentItems(); track item.id) {
-          @let href = mediaHref(item);
-            <mm-media-card
-              layout="landscape"
-              [title]="item.title"
-              [subtitle]="item.meta"
-              [art]="cardArt(item)"
-              [href]="href"
-              [linkLabel]="'Open ' + item.title"
-            />
         }
       }
     }

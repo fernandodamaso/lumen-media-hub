@@ -27,6 +27,8 @@ class ActionsHandler(BaseHTTPRequestHandler):
             jellyfin.handle_jellyfin_items(self, "Series")
         elif path == "/jellyfin/watch-next":
             jellyfin.handle_jellyfin_watch_next(self)
+        elif path == "/jellyfin/recently-available":
+            jellyfin.handle_jellyfin_recently_available(self, query)
         elif path == "/arr/library":
             arr.handle_arr_library(self)
         elif path == "/activity":

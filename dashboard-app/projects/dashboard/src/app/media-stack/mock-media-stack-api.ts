@@ -13,6 +13,7 @@ import {
 import { DownloadTorrent } from '../downloads/downloads.models';
 import { LibraryItem, LibraryItemKind, LibraryListResult, LibraryStats } from '../library/library.models';
 import { WatchNextResult } from '../library/watch-next.models';
+import { RecentlyAvailableResult } from '../library/recently-available.models';
 import { ActivityFeed } from '../activity/activity.models';
 import { mapActivityFeed } from '../activity/activity-format';
 import { AutomationSummary } from '../automation/automation.models';
@@ -29,6 +30,7 @@ import {
 } from '../discover/discover-format';
 import { mapLibraryItem, mapLibraryStats } from '../library/library-format';
 import { mapWatchNextResult } from '../library/watch-next-format';
+import { mapRecentlyAvailableResult } from '../library/recently-available-format';
 import { mapTorrent } from '../downloads/downloads-format';
 import { mapStorageOverview } from '../storage/storage-format';
 import { MediaStackArrLibraryDto, MediaStackCalendarEventDto } from './wire/calendar';
@@ -40,6 +42,7 @@ import {
 } from './wire/discover';
 import { MediaStackLibraryItemDto, MediaStackLibraryStatsDto } from './wire/library';
 import { MediaStackWatchNextItemDto } from './wire/watch-next';
+import { MediaStackRecentlyAvailableItemDto } from './wire/recently-available';
 import { MediaStackStorageOverviewDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
 import { MediaStackActivityFeedDto } from './wire/activity';
@@ -471,6 +474,77 @@ export type AutomationScenario = 'default' | 'partial' | 'empty';
 export type DownloadsScenario = 'default' | 'empty' | 'error' | 'paused' | 'mixed';
 export type WatchNextScenario = 'default' | 'empty';
 
+function demoRecentlyAvailable(now = Date.now()): MediaStackRecentlyAvailableItemDto[] {
+  const iso = (offsetMs: number) => new Date(now - offsetMs).toISOString();
+  return [
+    {
+      id: 'demo-ra-ep-30m',
+      parentId: 'demo-series-1',
+      kind: 'episode',
+      title: 'Saga of Tanya the Evil',
+      subtitle: 'S02E05 · Lamb',
+      year: 2026,
+      availableAt: iso(30 * 60_000),
+      posterUrl: 'https://example.com/tanya.jpg',
+      artworkState: 'ok',
+      thumbUrl: 'https://example.com/tanya-thumb.jpg',
+      playable: true,
+    },
+    {
+      id: 'demo-ra-ep-4h',
+      parentId: 'demo-series-2',
+      kind: 'episode',
+      title: 'The Expanse',
+      subtitle: 'S06E06 · Exodus',
+      year: 2022,
+      availableAt: iso(4 * 60 * 60_000),
+      posterUrl: 'https://example.com/expanse.jpg',
+      artworkState: 'ok',
+      thumbUrl: null,
+      playable: true,
+    },
+    {
+      id: 'demo-ra-movie-30h',
+      parentId: null,
+      kind: 'movie',
+      title: 'Mickey 17',
+      subtitle: '',
+      year: 2025,
+      availableAt: iso(30 * 60 * 60_000),
+      posterUrl: undefined,
+      artworkState: 'missing',
+      thumbUrl: null,
+      playable: true,
+    },
+    {
+      id: 'demo-ra-ep-3d',
+      parentId: 'demo-series-3',
+      kind: 'episode',
+      title: 'House of the Dragon',
+      subtitle: 'S02E01 · A Son for a Son',
+      year: 2024,
+      availableAt: iso(3 * 24 * 60 * 60_000),
+      posterUrl: 'https://example.com/hotd.jpg',
+      artworkState: 'ok',
+      thumbUrl: 'https://example.com/hotd-thumb.jpg',
+      playable: true,
+    },
+    {
+      id: 'demo-ra-movie-8d',
+      parentId: null,
+      kind: 'movie',
+      title: 'Dune: Part Two',
+      subtitle: '',
+      year: 2024,
+      availableAt: iso(8 * 24 * 60 * 60_000),
+      posterUrl: 'https://example.com/dune2.jpg',
+      artworkState: 'ok',
+      thumbUrl: null,
+      playable: true,
+    },
+  ];
+}
+
 const DEMO_HERMES: MediaStackDiscoverItemDto[] = [
   {
     id: 'hermes-eligible',
@@ -800,6 +874,14 @@ export class MockMediaStackApi implements MediaStackApi {
       return this.withLatency(mapWatchNextResult([]));
     }
     return this.withLatency(mapWatchNextResult(this.watchNextItems.map((item) => ({ ...item }))));
+  }
+
+  listRecentlyAvailable(limit?: number, _signal?: AbortSignal): Promise<RecentlyAvailableResult> {
+    const base = limit ?? 10;
+    const safe = Number.isFinite(base) ? base : 10;
+    const normalized = Math.max(1, Math.min(50, Math.floor(safe)));
+    const items = demoRecentlyAvailable().slice(0, normalized).map((item) => ({ ...item }));
+    return this.withLatency(mapRecentlyAvailableResult(items));
   }
 
   getActivity(limit = 20, _signal?: AbortSignal): Promise<ActivityFeed> {

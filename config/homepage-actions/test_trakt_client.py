@@ -238,6 +238,7 @@ class TraktClientTests(unittest.TestCase):
         refresh_count_lock = threading.Lock()
         api_lock = threading.Lock()
         api_calls = 0
+        api_authorizations = []
 
         def transport(method, url, headers, body):
             nonlocal refresh_count, api_calls
@@ -252,6 +253,7 @@ class TraktClientTests(unittest.TestCase):
                 )
             with api_lock:
                 api_calls += 1
+                api_authorizations.append(headers.get("Authorization"))
                 if api_calls <= 2:
                     return FakeResponse(401, {})
             return FakeResponse(200, {"ok": True})
@@ -271,6 +273,8 @@ class TraktClientTests(unittest.TestCase):
             thread.join(2)
         self.assertEqual(refresh_count, 1)
         self.assertEqual(results, [{"ok": True}, {"ok": True}])
+        self.assertEqual(api_authorizations[:2], ["Bearer access-old", "Bearer access-old"])
+        self.assertTrue(all(auth == "Bearer access-new" for auth in api_authorizations[2:]))
 
 
 class TraktDeviceAuthorizationTests(unittest.TestCase):

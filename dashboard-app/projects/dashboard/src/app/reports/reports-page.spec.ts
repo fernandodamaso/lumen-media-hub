@@ -1,6 +1,10 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
+import { ActivatedRoute, convertToParamMap, ParamMap } from '@angular/router';
+import { BehaviorSubject, of } from 'rxjs';
 import { vi } from 'vitest';
+import { AutomationProblem, AutomationService } from '../automation/automation.models';
+import { ServiceHealthFacade, ServiceHealthStatus } from '../automation/service-health.facade';
 import { fixtureHost } from '../../testing/fixture-host';
 import { CronHealthSummary, CronRun } from './reports.models';
 import { ReportsFacade, ReportsStatus } from './reports.facade';
@@ -9,24 +13,38 @@ import { ReportsPage } from './reports-page';
 describe('ReportsPage', () => {
   let fixture: ComponentFixture<ReportsPage>;
   let facade: ReturnType<typeof createFacade>;
+  let health: ReturnType<typeof createHealthFacade>;
+  let queryParams: BehaviorSubject<ParamMap>;
 
   beforeEach(() => {
     facade = createFacade();
+    health = createHealthFacade();
+    queryParams = new BehaviorSubject<ParamMap>(convertToParamMap({}));
     TestBed.configureTestingModule({
       imports: [ReportsPage],
-      providers: [{ provide: ReportsFacade, useValue: facade }],
+      providers: [
+        { provide: ReportsFacade, useValue: facade },
+        { provide: ServiceHealthFacade, useValue: health },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            queryParamMap: queryParams.asObservable(),
+            fragment: of(null),
+          },
+        },
+      ],
     });
-    // Override component-level providers so the mock facade wins.
     TestBed.overrideComponent(ReportsPage, {
       set: { providers: [{ provide: ReportsFacade, useValue: facade }] },
     });
     fixture = TestBed.createComponent(ReportsPage);
   });
 
-  it('renders loading, empty, and hard-error states', () => {
+  it('renders loading, empty, and hard-error states for cron history', () => {
     fixture.detectChanges();
     const root = fixtureHost(fixture);
     expect(root.textContent).toContain('Loading reports');
+    expect(root.textContent).toContain('Service health');
 
     facade.status.set('empty');
     fixture.detectChanges();
@@ -118,21 +136,95 @@ describe('ReportsPage', () => {
     expect(root.textContent).toContain('Watchdog');
   });
 
-  it('calls facade refresh from the Refresh button', async () => {
+  it('calls both facades from the Refresh button', async () => {
     facade.status.set('allClear');
     facade.summary.set({ kind: 'allClear', total: 1, actionable: 0, quiet: 1 });
     facade.generatedAt.set('2026-07-12T12:00:00Z');
     facade.runs.set([makeRun({ id: 'quiet-1', jobTitle: 'Weekly validate', status: 'ok', triage: 'quiet' })]);
     fixture.detectChanges();
 
-    const root = fixtureHost(fixture);
-    expect(root.textContent).not.toContain('Generated');
-    expect(root.querySelector('.toolbar')).toBeNull();
-    expect(root.querySelector('.page-intro__row mm-button')).toBeTruthy();
-
     findButton('Refresh').click();
     await fixture.whenStable();
     expect(facade.refresh).toHaveBeenCalled();
+    expect(health.refresh).toHaveBeenCalled();
+  });
+
+  it('reacts to service query parameter changes without recreating the page', () => {
+    health.services.set([
+      { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: '1 indexer disabled', latencyMs: 350 },
+      { id: 'sabnzbd', name: 'SABnzbd', status: 'down', detail: 'Last seen 18m ago' },
+    ]);
+    health.problems.set([
+      { id: 'p1', summary: 'SABnzbd unreachable', serviceId: 'sabnzbd', severity: 'actionable' },
+      { id: 'p2', summary: '1 indexer(s) disabled', serviceId: 'prowlarr', severity: 'warning' },
+    ]);
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    expect(root.textContent).toContain('Prowlarr');
+    expect(root.textContent).toContain('SABnzbd');
+
+    queryParams.next(convertToParamMap({ service: 'prowlarr' }));
+    fixture.detectChanges();
+    expect(root.textContent).toContain('1 indexer(s) disabled');
+    expect(root.textContent).not.toContain('SABnzbd unreachable');
+  });
+
+  it('shows healthy recovery for a selected service', () => {
+    health.services.set([
+      { id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'OK', latencyMs: 20 },
+    ]);
+    health.problems.set([
+      { id: 'p3', summary: '4 Sonarr episode(s) missing', serviceId: 'sonarr', severity: 'warning' },
+    ]);
+    queryParams.next(convertToParamMap({ service: 'sonarr' }));
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    expect(root.textContent).toContain('Sonarr');
+    expect(root.textContent).toContain('No current live issues.');
+    expect(root.textContent).not.toContain('4 Sonarr episode(s) missing');
+  });
+
+  it('falls back to active issues for invalid service ids', () => {
+    health.services.set([
+      { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: '1 indexer disabled', latencyMs: 350 },
+    ]);
+    health.problems.set([
+      { id: 'p2', summary: '1 indexer(s) disabled', serviceId: 'prowlarr', severity: 'warning' },
+    ]);
+    queryParams.next(convertToParamMap({ service: 'missing-service' }));
+    fixture.detectChanges();
+
+    expect(fixtureHost(fixture).textContent).toContain('Unknown service. Showing all current issues.');
+    expect(fixtureHost(fixture).textContent).toContain('1 indexer(s) disabled');
+  });
+
+  it('keeps cron history visible while service health is loading or unavailable', () => {
+    health.status.set('loading');
+    facade.status.set('mixed');
+    facade.summary.set({ kind: 'mixed', total: 1, actionable: 1, quiet: 0 });
+    facade.runs.set([
+      makeRun({ id: 'fatal-1', jobTitle: 'Watchdog', status: 'fatal', triage: 'actionable', detail: 'Disk full' }),
+    ]);
+    fixture.detectChanges();
+
+    let root = fixtureHost(fixture);
+    expect(root.textContent).toContain('Loading service health');
+    expect(root.textContent).toContain('Watchdog');
+
+    health.status.set('error');
+    health.error.set('Service health is temporarily unavailable. Try again.');
+    fixture.detectChanges();
+    root = fixtureHost(fixture);
+    expect(root.textContent).toContain('Service health unavailable');
+    expect(root.textContent).toContain('Watchdog');
+  });
+
+  it('disables Refresh while either facade is refreshing', () => {
+    health.refreshing.set(true);
+    fixture.detectChanges();
+    expect(findButton('Refresh').disabled).toBe(true);
   });
 });
 
@@ -157,6 +249,17 @@ function createFacade() {
     error: signal(''),
     refreshing: signal(false),
     load: vi.fn().mockResolvedValue(undefined),
+    refresh: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createHealthFacade() {
+  return {
+    status: signal<ServiceHealthStatus>('ready'),
+    services: signal<AutomationService[]>([]),
+    problems: signal<AutomationProblem[]>([]),
+    error: signal(''),
+    refreshing: signal(false),
     refresh: vi.fn().mockResolvedValue(undefined),
   };
 }

@@ -1,3 +1,4 @@
+import { AutomationProblem, AutomationService } from '../automation/automation.models';
 import { CronLogs, CronRun, isQuietRun } from './reports.models';
 import {
   MediaStackCronLogEntryDto,
@@ -99,3 +100,89 @@ export const mapCronLogs = (dto: MediaStackCronLogsDto): CronLogs => ({
   error: dto.error,
   runs: flattenCronRuns(dto),
 });
+
+export interface ServiceHealthReportView {
+  unknownServiceNotice: string | null;
+  services: AutomationService[];
+  problems: AutomationProblem[];
+  noIssuesMessage: string | null;
+}
+
+const NO_LIVE_ISSUES = 'No current live issues.';
+const UNKNOWN_SERVICE_NOTICE = 'Unknown service. Showing all current issues.';
+
+const activeServices = (services: AutomationService[]): AutomationService[] =>
+  services.filter((service) => service.status === 'degraded' || service.status === 'down');
+
+const problemsForService = (problems: AutomationProblem[], serviceId: string): AutomationProblem[] =>
+  problems.filter((problem) => problem.serviceId === serviceId);
+
+const activeProblems = (
+  problems: AutomationProblem[],
+  services: AutomationService[],
+): AutomationProblem[] => {
+  const activeIds = new Set(activeServices(services).map((service) => service.id));
+  return problems.filter(
+    (problem) => problem.serviceId == null || (problem.serviceId && activeIds.has(problem.serviceId)),
+  );
+};
+
+const buildUnfilteredView = (
+  services: AutomationService[],
+  problems: AutomationProblem[],
+): ServiceHealthReportView => {
+  const matchedServices = activeServices(services);
+  const matchedProblems = activeProblems(problems, services);
+  const hasIssues = matchedServices.length > 0 || matchedProblems.length > 0;
+  return {
+    unknownServiceNotice: null,
+    services: matchedServices,
+    problems: matchedProblems,
+    noIssuesMessage: hasIssues ? null : NO_LIVE_ISSUES,
+  };
+};
+
+export function buildServiceHealthReportView(
+  services: AutomationService[],
+  problems: AutomationProblem[],
+  selectedServiceId: string | null,
+): ServiceHealthReportView {
+  const trimmed = selectedServiceId?.trim() ?? '';
+  if (!trimmed) {
+    return buildUnfilteredView(services, problems);
+  }
+
+  const selected = services.find((service) => service.id === trimmed);
+  if (!selected) {
+    return {
+      ...buildUnfilteredView(services, problems),
+      unknownServiceNotice: UNKNOWN_SERVICE_NOTICE,
+    };
+  }
+
+  if (selected.status === 'healthy') {
+    return {
+      unknownServiceNotice: null,
+      services: [selected],
+      problems: [],
+      noIssuesMessage: NO_LIVE_ISSUES,
+    };
+  }
+
+  if (selected.status !== 'degraded' && selected.status !== 'down') {
+    return {
+      unknownServiceNotice: null,
+      services: [selected],
+      problems: [],
+      noIssuesMessage: null,
+    };
+  }
+
+  const matchedProblems = problemsForService(problems, trimmed);
+  return {
+    unknownServiceNotice: null,
+    services: [selected],
+    problems: matchedProblems,
+    noIssuesMessage: null,
+  };
+}

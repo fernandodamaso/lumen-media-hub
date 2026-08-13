@@ -16,7 +16,60 @@
   margin-bottom: 18px;
 }
 
-.refresh-error, .health { margin: 0 0 14px; }
+.health-section,
+.cron-section {
+  margin-bottom: 28px;
+}
+
+.health-section h2,
+.cron-section h2 {
+  margin: 0 0 14px;
+  font-family: var(--mm-font-display, 'Fraunces', Georgia, serif);
+  font-weight: 400;
+  font-size: 20px;
+}
+
+.health-section {
+  padding: 18px 20px;
+  border: 1px solid var(--mm-component-border);
+  border-radius: var(--mm-radius-md);
+  background: var(--mm-component-card-bg);
+}
+
+.health-services {
+  margin-top: 4px;
+}
+
+.health-problems {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--mm-component-border);
+}
+
+.health-problem {
+  display: grid;
+  gap: 8px;
+}
+
+.health-problem p {
+  margin: 0;
+  color: var(--mm-component-text-secondary);
+  font-size: 13px;
+}
+
+.health-empty,
+.health-notice,
+.refresh-error,
+.health {
+  margin: 0 0 14px;
+}
+
+.health-empty {
+  color: var(--mm-component-text-muted);
+  font-size: 13px;
+}
 .run-list { display: grid; gap: 10px; }
 .run {
   padding: 14px 16px;

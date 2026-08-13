@@ -71,7 +71,12 @@
           "in_library": { "type": "boolean" },
           "jellyfin_id": { "type": ["string", "null"] },
           "poster_url": { "type": ["string", "null"] },
-          "added_at": { "type": "string" }
+          "added_at": { "type": "string" },
+          "trakt_history_event": {
+            "type": ["object", "null"],
+            "description": "Private Trakt delivery state persisted on watched feedback. Never exposed to the browser except through trakt_history_sync.status on read responses.",
+            "additionalProperties": true
+          }
         }
       }
     }

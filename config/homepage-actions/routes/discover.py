@@ -35,6 +35,11 @@ from recommendations_store import (
     media_identity,
     utc_now,
 )
+from trakt_history_sync import (
+    apply_watched_feedback,
+    deliver_trakt_history_for_item,
+    public_trakt_history_sync,
+)
 from reconciliation import (
     HermesItemNotFound,
     AlreadyReconciled,
@@ -66,6 +71,7 @@ _HERMES_PUBLIC_ITEM_FIELDS = frozenset(
         "feedback", "feedback_at", "request_state", "requested_at",
         "jellyseerr_request_id", "in_library", "excluded_reason", "watched_on_trakt",
         "jellyfin_id", "poster_path", "poster_url", "added_at", "notes", "rating",
+        "trakt_history_sync",
     }
 )
 
@@ -634,6 +640,9 @@ def _hermes_item_for_client(item, snapshot=None, watched_snapshot=None):
     elif watched_on_trakt:
         projected["active"] = False
         projected["excluded_reason"] = "watched_on_trakt"
+    sync = public_trakt_history_sync(item.get("trakt_history_event"))
+    if sync:
+        projected["trakt_history_sync"] = sync
     return projected
 
 
@@ -725,18 +734,30 @@ def handle_discover_hermes_patch(handler, item_id):
         send_json(handler, 400, {"ok": False, "error": "Invalid feedback status"})
         return
 
+    confirm_all_aired = body.get("confirm_all_aired") is True
+
     def _apply(doc):
         item = _find_hermes_item(doc, item_id)
         if not item:
             raise HermesItemNotFound()
-        # Feedback and request state are independent dimensions: a feedback
-        # write never clears request fields, a request write keeps feedback.
-        apply_feedback(item, status)
+        if status == "watched":
+            if item.get("type") == "tv" and not confirm_all_aired:
+                raise ShowWatchConfirmationRequired()
+            apply_watched_feedback(item)
+        else:
+            apply_feedback(item, status)
         if "notes" in body:
             item["notes"] = body.get("notes") or ""
 
     try:
         settings.RECOMMENDATIONS_STORE.update(_apply)
+    except ShowWatchConfirmationRequired:
+        send_json(
+            handler,
+            400,
+            {"ok": False, "code": "confirmation_required", "error": "Confirmation required"},
+        )
+        return
     except HermesItemNotFound:
         send_json(handler, 404, {"ok": False, "error": "Item not found"})
         return
@@ -744,8 +765,29 @@ def handle_discover_hermes_patch(handler, item_id):
         send_json(handler, 500, {"ok": False, "error": "Feedback could not be saved"})
         return
 
+    if status == "watched":
+        try:
+            deliver_trakt_history_for_item(item_id)
+        except Exception:
+            pass
+
+    sync_status = None
+    try:
+        item = _find_hermes_item(settings.RECOMMENDATIONS_STORE.load(), item_id)
+        sync_status = public_trakt_history_sync(
+            item.get("trakt_history_event") if item else None
+        )
+    except Exception:
+        sync_status = {"status": "pending"}
+
     payload = {"ok": True, "id": item_id, "status": status}
+    if sync_status:
+        payload["trakt_history_sync"] = sync_status
     send_json(handler, 200, payload)
+
+
+class ShowWatchConfirmationRequired(Exception):
+    """Raised when a show watched action lacks confirm_all_aired."""
 
 
 def handle_discover_hermes_post(handler):

@@ -111,6 +111,8 @@ If the APIs are fresh but T3 still shows the cached warning, reload or reopen `/
 
 Before recommending `install.ps1 -Mode connect-trakt`, check the configured state without printing secrets: confirm required `.env` and token-state fields are present, compare the access-token expiry timestamp with the current time, and make read-only direct Trakt watched-movies and watched-shows requests. Treat a missing or expired token as invalid, and do not call a token with less than 60 seconds of remaining validity healthy: this is the backend refresh threshold. Report only presence, expiry metadata, HTTP status, and counts. Do not call the Trakt token endpoint only to test a refresh token: a refresh exchange rotates credential state. Use `connect-trakt` only for evidence such as `reconnect_required`, a persistent authenticated `401` after backend refresh, missing token state, or failed direct authenticated reads. It is an interactive credential-changing recovery step. Never print tokens, client secrets, token-state contents, raw watched history, or account identifiers.
 
+**Trakt write ownership:** Jellyfin playback writes go only through the installed Jellyfin Trakt plugin (`Scrobble`, `PostWatchedHistory`, `PostSetWatched` on; historical and playback-progress imports off). Media Manager writes to Trakt only from Discover Hermes `watched` feedback via `homepage-actions` (`POST /sync/history`). Do not add a Jellyfin playback listener. Liked, disliked, and skipped never write to Trakt. The browser sees only `trakt_history_sync.status`.
+
 ## Applying changes the user can see (agents)
 
 **Default Live iteration uses the hot-reload override on `:3000`.** Without that override, `:3000` is the static Nginx image and UI edits need a rebuild.

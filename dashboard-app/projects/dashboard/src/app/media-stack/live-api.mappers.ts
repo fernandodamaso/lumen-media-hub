@@ -1064,6 +1064,7 @@ function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDisco
   const posterUrl = optionalNullableString(raw, 'poster_url', index, 'Hermes');
   const notes = optionalNullableString(raw, 'notes', index, 'Hermes');
   const rating = optionalNullableFiniteNumber(raw, 'rating', index, 'Hermes');
+  const traktHistorySync = requireTraktHistorySync(raw['trakt_history_sync'], index, 'Hermes');
 
   return {
     id,
@@ -1088,6 +1089,7 @@ function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDisco
     added_at: addedAt,
     notes: notes ?? undefined,
     rating,
+    trakt_history_sync: traktHistorySync,
   };
 }
 
@@ -1130,6 +1132,29 @@ function requireLiveExternalDiscoverItem(
     poster_url: posterUrl,
     rating,
   };
+}
+
+function requireTraktHistorySync(
+  value: unknown,
+  index: number,
+  resource: string,
+): { status: 'pending' | 'synced' | 'reconnect_required' | 'failed' } | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`Malformed ${resource} response: member ${index} has invalid trakt_history_sync`);
+  }
+  const status = value['status'];
+  if (
+    status === 'pending' ||
+    status === 'synced' ||
+    status === 'reconnect_required' ||
+    status === 'failed'
+  ) {
+    return { status };
+  }
+  throw new Error(`Malformed ${resource} response: member ${index} has invalid trakt_history_sync`);
 }
 
 function requireDiscoverMediaType(

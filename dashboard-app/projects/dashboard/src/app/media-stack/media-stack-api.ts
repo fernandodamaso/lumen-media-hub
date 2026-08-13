@@ -8,6 +8,7 @@ import {
   ExternalDiscover,
   HermesDiscover,
   JellyseerrDiscoverKind,
+  SubmitHermesFeedbackOptions,
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
@@ -40,7 +41,11 @@ export interface MediaStackApi {
   getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary>;
   listCronLogs(signal?: AbortSignal): Promise<CronLogs>;
   listHermesRecommendations(signal?: AbortSignal): Promise<HermesDiscover>;
-  submitHermesFeedback(id: string, feedback: DiscoverFeedback, notes?: string): Promise<DiscoverAction>;
+  submitHermesFeedback(
+    id: string,
+    feedback: DiscoverFeedback,
+    options?: SubmitHermesFeedbackOptions,
+  ): Promise<DiscoverAction>;
   requestHermesMore(): Promise<DiscoverAction>;
   listJellyseerrDiscover(kind: JellyseerrDiscoverKind, signal?: AbortSignal): Promise<ExternalDiscover>;
   listTraktDiscover(type: TraktDiscoverType, signal?: AbortSignal): Promise<ExternalDiscover>;

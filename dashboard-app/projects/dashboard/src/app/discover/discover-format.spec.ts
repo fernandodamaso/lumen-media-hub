@@ -3,11 +3,13 @@ import {
   discoverPosterFallback,
   isDiscoverFeedbackPressed,
   isHermesActiveItem,
+  isWatchedFeedbackDisabled,
   matchesDiscoverSearch,
   matchesHistoryFilter,
   resolveRequestAction,
   toExternalCardItem,
   toHermesCardItem,
+  traktHistorySyncLabel,
 } from './discover-format';
 import { mapHermesDiscover } from './discover-format';
 
@@ -71,6 +73,7 @@ describe('discover-format', () => {
       jellyseerr_request_id: null,
       in_library: false,
       added_at: '2026-07-10T12:00:00Z',
+      trakt_history_sync: null,
     });
     expect(mapped.items[0]).not.toHaveProperty('token');
     expect(mapped.items[0]).not.toHaveProperty('watched_at');
@@ -133,6 +136,19 @@ describe('discover-format', () => {
     expect(isDiscoverFeedbackPressed('liked', 'disliked')).toBe(false);
     expect(isDiscoverFeedbackPressed('watched', 'watched')).toBe(true);
     expect(isDiscoverFeedbackPressed('watched', 'liked')).toBe(false);
+  });
+
+  it('maps Trakt sync status labels for Hermes history badges', () => {
+    expect(traktHistorySyncLabel('pending')).toBe('Pending Trakt sync');
+    expect(traktHistorySyncLabel('synced')).toBe('Watched on Trakt');
+    expect(traktHistorySyncLabel('reconnect_required')).toBe('Trakt reconnect required');
+    expect(traktHistorySyncLabel('failed')).toBe('Trakt sync failed');
+  });
+
+  it('disables watched feedback while Trakt sync is pending or complete', () => {
+    expect(isWatchedFeedbackDisabled({ feedback: null, traktHistorySync: { status: 'pending' } })).toBe(true);
+    expect(isWatchedFeedbackDisabled({ feedback: 'watched', traktHistorySync: { status: 'synced' } })).toBe(true);
+    expect(isWatchedFeedbackDisabled({ feedback: null, traktHistorySync: { status: 'failed' } })).toBe(false);
   });
 
   it('builds a deterministic title-based poster fallback gradient', () => {

@@ -20,6 +20,7 @@ import {
   HermesDiscover,
   JellyseerrDiscoverKind,
   LibraryExclusionState,
+  SubmitHermesFeedbackOptions,
   TraktDiscoverType,
   WatchedExclusionState,
 } from './discover.models';
@@ -198,20 +199,26 @@ export class DiscoverFacade {
     void this.refreshCurrentTab();
   }
 
-  async submitFeedback(id: string, feedback: DiscoverFeedback): Promise<void> {
+  async submitFeedback(
+    id: string,
+    feedback: DiscoverFeedback,
+    options?: SubmitHermesFeedbackOptions,
+  ): Promise<void> {
     if (this._busyItemId()) return;
     this._busyItemId.set(id);
     this.clearMutationNotice();
     try {
-      const result = await this.api.submitHermesFeedback(id, feedback);
+      const result = await this.api.submitHermesFeedback(id, feedback, options);
       if (!result.ok) {
-        this.setMutationNotice(result.error ?? 'Could not save feedback.', 'danger');
+        if (result.code === 'confirmation_required') {
+          this.setMutationNotice('Confirm marking all aired episodes watched on Trakt.', 'warning');
+        } else {
+          this.setMutationNotice(result.error ?? 'Could not save feedback.', 'danger');
+        }
         return;
       }
       this.setMutationNotice(result.message ?? 'Feedback saved.', 'success');
-      // Drop in-flight Hermes loads started before this feedback so stale polls cannot undo the archive.
       this.hermesRequestId++;
-      // Archive immediately so liked/watched leave Active even before reload settles.
       this._hermesItems.update((items) =>
         items.map((item) =>
           item.id === id
@@ -220,6 +227,8 @@ export class DiscoverFacade {
                 active: false,
                 feedback,
                 feedback_at: new Date().toISOString(),
+                trakt_history_sync:
+                  result.trakt_history_sync ?? (feedback === 'watched' ? { status: 'pending' } : item.trakt_history_sync),
               }
             : item,
         ),

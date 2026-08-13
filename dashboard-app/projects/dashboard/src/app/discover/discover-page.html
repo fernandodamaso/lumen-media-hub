@@ -162,3 +162,18 @@
     }
   }
 </section>
+
+<mm-dialog
+  title="Mark all aired episodes watched on Trakt?"
+  tone="warning"
+  [(opened)]="showWatchConfirm"
+>
+  <p>
+    Confirm marking <strong>{{ pendingWatchTitle() }}</strong> watched on Trakt, including every currently aired
+    episode.
+  </p>
+  <div mmDialogFooter class="discover-watch-confirm__footer">
+    <mm-button label="Cancel" variant="quiet" (click)="cancelWatchConfirm()" />
+    <mm-button label="Mark watched" (click)="confirmWatchAllAired()" />
+  </div>
+</mm-dialog>

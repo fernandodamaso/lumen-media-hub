@@ -11,6 +11,7 @@ import {
   ExternalDiscover,
   HermesDiscover,
   JellyseerrDiscoverKind,
+  SubmitHermesFeedbackOptions,
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
@@ -394,11 +395,12 @@ export class HttpMediaStackApi implements MediaStackApi {
   submitHermesFeedback(
     id: string,
     feedback: DiscoverFeedback,
-    notes?: string,
+    options?: SubmitHermesFeedbackOptions,
   ): Promise<DiscoverAction> {
     return this.mutateSoft(`/discover/hermes/${encodeURIComponent(id)}`, 'PATCH', {
       status: feedback,
-      notes,
+      notes: options?.notes,
+      ...(options?.confirmAllAired ? { confirm_all_aired: true } : {}),
     });
   }
 
@@ -585,6 +587,17 @@ export class HttpMediaStackApi implements MediaStackApi {
         ),
       );
     } catch (error) {
+      if (error instanceof HttpErrorResponse) {
+        const body: unknown = error.error;
+        if (isRecord(body) && typeof body['ok'] === 'boolean') {
+          return mapDiscoverAction(
+            requireSoftEnvelope<MediaStackDiscoverActionDto>(
+              body,
+              `Malformed response for ${method} ${path}`,
+            ),
+          );
+        }
+      }
       throw this.toError(error, `${method} ${path} failed`);
     }
   }

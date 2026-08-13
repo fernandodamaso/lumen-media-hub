@@ -1,6 +1,8 @@
 import json
 import os
 import inspect
+import io
+import urllib.error
 from pathlib import Path
 import tempfile
 import threading
@@ -12,8 +14,10 @@ from clients.trakt import (
     TraktDeviceAuthorizer,
     TraktAuthError,
     TraktClient,
+    TraktHttpError,
     TraktTokenState,
     TraktTokenStore,
+    _urllib_transport,
 )
 
 
@@ -21,9 +25,10 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 class FakeResponse:
-    def __init__(self, status, payload):
+    def __init__(self, status, payload, headers=None):
         self.status = status
         self.payload = payload
+        self.headers = headers or {}
 
 
 class TraktTokenStoreTests(unittest.TestCase):
@@ -282,6 +287,59 @@ class TraktClientTests(unittest.TestCase):
         self.assertEqual(results, [{"ok": True}, {"ok": True}])
         self.assertEqual(api_authorizations[:2], ["Bearer access-old", "Bearer access-old"])
         self.assertTrue(all(auth == "Bearer access-new" for auth in api_authorizations[2:]))
+
+    def test_post_sends_json_body_and_returns_payload(self):
+        captured = {}
+
+        def transport(method, url, headers, body):
+            captured["method"] = method
+            captured["url"] = url
+            captured["body"] = body
+            return FakeResponse(200, {"added": {"movies": 1, "episodes": 0}})
+
+        self.now = 500
+        result = self.client(transport).post(
+            "/sync/history",
+            {"movies": [{"ids": {"tmdb": 155}, "watched_at": "2026-08-13T17:00:00Z"}]},
+        )
+        self.assertEqual(result, {"added": {"movies": 1, "episodes": 0}})
+        self.assertEqual(captured["method"], "POST")
+        self.assertEqual(captured["url"], "https://api.trakt.tv/sync/history")
+        self.assertEqual(json.loads(captured["body"].decode("utf-8"))["movies"][0]["ids"]["tmdb"], 155)
+
+    def test_post_http_error_exposes_status_payload_and_headers(self):
+        def transport(method, url, headers, body):
+            return FakeResponse(
+                429,
+                {"error": "rate limit"},
+                {"Retry-After": "120"},
+            )
+
+        self.now = 500
+        with self.assertRaises(TraktHttpError) as context:
+            self.client(transport).post("/sync/history", {"movies": []})
+        self.assertEqual(context.exception.status, 429)
+        self.assertEqual(context.exception.payload, {"error": "rate limit"})
+        self.assertEqual(context.exception.headers.get("Retry-After"), "120")
+
+    def test_urllib_transport_preserves_http_error_payload_and_headers(self):
+        class FakeHTTPError(urllib.error.HTTPError):
+            def __init__(self):
+                super().__init__(
+                    url="https://api.trakt.tv/sync/history",
+                    code=422,
+                    msg="Unprocessable Entity",
+                    hdrs={"Retry-After": "60", "Content-Type": "application/json"},
+                    fp=io.BytesIO(
+                        b'{"not_found":{"movies":[{"ids":{"tmdb":1}}]}}'
+                    ),
+                )
+
+        with mock.patch("clients.trakt.urllib.request.urlopen", side_effect=FakeHTTPError()):
+            response = _urllib_transport("POST", "https://api.trakt.tv/sync/history", {}, b"{}", 10)
+        self.assertEqual(response.status, 422)
+        self.assertEqual(response.payload, {"not_found": {"movies": [{"ids": {"tmdb": 1}}]}})
+        self.assertEqual(response.headers.get("Retry-After"), "60")
 
 
 class TraktDeviceAuthorizationTests(unittest.TestCase):

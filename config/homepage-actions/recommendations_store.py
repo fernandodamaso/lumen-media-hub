@@ -31,6 +31,7 @@ SCHEMA_VERSION = 3
 FEEDBACK_VALUES = ("liked", "disliked", "watched", "skipped")
 REQUEST_STATE_VALUES = ("requested",)
 ITEM_TYPES = ("movie", "tv")
+TRAKT_HISTORY_SYNC_STATUSES = ("pending", "synced", "reconnect_required", "failed")
 
 
 class RecommendationError(Exception):
@@ -120,6 +121,46 @@ REQUIRED_ITEM_FIELDS = (
 )
 
 
+def _validate_trakt_history_event(value, path):
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        _fail(path, "expected object or null")
+    required = (
+        "event_id",
+        "identity",
+        "watched_at",
+        "status",
+        "attempts",
+        "next_attempt_at",
+        "error",
+        "completed_at",
+        "trakt_history_ids",
+        "last_post_status",
+    )
+    for field in required:
+        if field not in value:
+            _fail(f"{path}.{field}", "required field missing")
+    if not isinstance(value.get("event_id"), str) or not value["event_id"]:
+        _fail(f"{path}.event_id", "expected non-empty string")
+    _validate_v3_identity(value.get("identity"), f"{path}.identity")
+    if not isinstance(value.get("watched_at"), str):
+        _fail(f"{path}.watched_at", "expected string")
+    if value.get("status") not in TRAKT_HISTORY_SYNC_STATUSES:
+        _fail(f"{path}.status", f"expected one of {TRAKT_HISTORY_SYNC_STATUSES}")
+    if not _is_int(value.get("attempts")) or value["attempts"] < 0:
+        _fail(f"{path}.attempts", "expected non-negative integer")
+    _validate_nullable_str(value.get("next_attempt_at"), f"{path}.next_attempt_at")
+    _validate_nullable_str(value.get("error"), f"{path}.error")
+    _validate_nullable_str(value.get("completed_at"), f"{path}.completed_at")
+    history_ids = value.get("trakt_history_ids")
+    if not isinstance(history_ids, list) or any(not _is_int(item_id) for item_id in history_ids):
+        _fail(f"{path}.trakt_history_ids", "expected array of integers")
+    last_post_status = value.get("last_post_status")
+    if last_post_status is not None and not _is_int(last_post_status):
+        _fail(f"{path}.last_post_status", "expected integer or null")
+
+
 def _validate_item(item, path):
     if not isinstance(item, dict):
         _fail(path, "expected object")
@@ -154,6 +195,7 @@ def _validate_item(item, path):
         _fail(f"{path}.jellyfin_id", "expected string or null")
     if "poster_url" in item and not isinstance(item["poster_url"], (str, type(None))):
         _fail(f"{path}.poster_url", "expected string or null")
+    _validate_trakt_history_event(item.get("trakt_history_event"), f"{path}.trakt_history_event")
     request_id = item.get("jellyseerr_request_id")
     if request_id is not None and not _is_int(request_id):
         _fail(f"{path}.jellyseerr_request_id", "expected integer or null")
@@ -294,6 +336,13 @@ def apply_feedback(item, feedback, now=None):
     item["feedback"] = feedback
     item["feedback_at"] = now or utc_now()
     item["active"] = False
+    if feedback != "watched":
+        event = item.get("trakt_history_event")
+        if isinstance(event, dict) and event.get("status") not in (
+            "synced",
+            "failed",
+        ):
+            del item["trakt_history_event"]
 
 
 def apply_request(item, now=None, request_id=None):

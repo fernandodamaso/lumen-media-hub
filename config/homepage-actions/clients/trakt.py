@@ -18,8 +18,10 @@ class TraktAuthError(RuntimeError):
 
 
 class TraktHttpError(RuntimeError):
-    def __init__(self, status):
+    def __init__(self, status, *, payload=None, headers=None):
         self.status = status
+        self.payload = payload if payload is not None else {}
+        self.headers = dict(headers or {})
         super().__init__(
             "Trakt request unauthorized" if status == 401 else "Trakt request failed"
         )
@@ -116,7 +118,12 @@ def _urllib_transport(method, url, headers, body, timeout):
             raw = response.read().decode("utf-8")
             return _Response(response.status, json.loads(raw) if raw else {}, dict(response.headers))
     except urllib.error.HTTPError as error:
-        return _Response(error.code, {})
+        raw = error.read().decode("utf-8") if error.fp else ""
+        try:
+            payload = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            payload = {}
+        return _Response(error.code, payload, dict(error.headers))
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         raise RuntimeError("Trakt temporarily unavailable") from error
 
@@ -215,27 +222,35 @@ class TraktClient:
                 return latest
             return self._refresh_locked(latest)
 
-    def _request(self, path, state):
+    def _api_headers(self, state):
+        return {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "media-stack-dashboard/1.0",
+            "trakt-api-version": "2",
+            "trakt-api-key": self.client_id,
+            "Authorization": "Bearer " + state.access_token,
+        }
+
+    def _request(self, method, path, state, body=None):
         response = self._call(
-            "GET",
+            method,
             "https://api.trakt.tv" + path,
-            {
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "User-Agent": "media-stack-dashboard/1.0",
-                "trakt-api-version": "2",
-                "trakt-api-key": self.client_id,
-                "Authorization": "Bearer " + state.access_token,
-            },
+            self._api_headers(state),
+            body,
         )
         if response.status >= 400:
-            raise TraktHttpError(response.status)
+            raise TraktHttpError(
+                response.status,
+                payload=response.payload,
+                headers=response.headers,
+            )
         return response
 
-    def get_page(self, path):
+    def _authorized_request(self, method, path, body=None):
         state = self._current_state(self._state())
         try:
-            return self._request(path, state)
+            return self._request(method, path, state, body)
         except TraktHttpError as error:
             if error.status != 401:
                 raise
@@ -246,14 +261,21 @@ class TraktClient:
             else:
                 state = self._refresh_locked(latest)
         try:
-            return self._request(path, state)
+            return self._request(method, path, state, body)
         except TraktHttpError as error:
             if error.status == 401:
                 raise TraktAuthError() from error
             raise
 
+    def get_page(self, path):
+        return self._authorized_request("GET", path)
+
     def get(self, path):
         return self.get_page(path).payload
+
+    def post(self, path, payload):
+        body = json.dumps(payload).encode("utf-8")
+        return self._authorized_request("POST", path, body).payload
 
 
 class TraktDeviceAuthorizer:

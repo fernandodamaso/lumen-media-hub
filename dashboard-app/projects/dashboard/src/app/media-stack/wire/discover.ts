@@ -1,4 +1,5 @@
 export type MediaStackDiscoverFeedbackDto = 'liked' | 'disliked' | 'watched' | 'skipped';
+type MediaStackTraktHistorySyncStatusDto = 'pending' | 'synced' | 'reconnect_required' | 'failed';
 export type MediaStackDiscoverMediaTypeDto = 'movie' | 'tv';
 type MediaStackLibraryExclusionStatusDto = 'fresh' | 'stale' | 'unavailable';
 type MediaStackWatchedExclusionStatusDto = 'fresh' | 'stale' | 'unavailable';
@@ -11,6 +12,10 @@ interface MediaStackLibraryExclusionDto {
 interface MediaStackWatchedExclusionDto {
   status: MediaStackWatchedExclusionStatusDto;
   last_successful_refresh_at: string | null;
+}
+
+interface MediaStackTraktHistorySyncDto {
+  status: MediaStackTraktHistorySyncStatusDto;
 }
 
 export interface MediaStackDiscoverItemDto {
@@ -36,6 +41,7 @@ export interface MediaStackDiscoverItemDto {
   added_at: string;
   notes?: string;
   rating?: number | null;
+  trakt_history_sync?: MediaStackTraktHistorySyncDto | null;
 }
 
 export interface MediaStackExternalDiscoverItemDto {
@@ -84,6 +90,7 @@ export interface MediaStackDiscoverActionDto {
   queued?: boolean;
   already_pending?: boolean;
   requested_at?: string;
+  trakt_history_sync?: MediaStackTraktHistorySyncDto | null;
 }
 
 export interface MediaStackDiscoverRequestPayloadDto {

@@ -498,6 +498,38 @@ class ValidatorTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["version"]["const"], 3)
         self.assertTrue(schema["properties"]["presented_media_ids"]["uniqueItems"])
         self.assertIn("identity", schema["properties"]["items"]["items"]["required"])
+        event_schema = schema["properties"]["items"]["items"]["properties"]["trakt_history_event"]
+        self.assertIn("event_id", event_schema["required"])
+
+    def test_invalid_trakt_history_event_rejected(self):
+        doc = {
+            "version": 3,
+            "revision": 1,
+            "updated_at": "2026-01-01T00:00:00Z",
+            "presented_media_ids": ["movie:42"],
+            "items": [
+                {
+                    "id": "hermes-movie-42",
+                    "identity": "movie:42",
+                    "source": "hermes",
+                    "type": "movie",
+                    "title": "Fixture",
+                    "year": 2024,
+                    "tmdb_id": 42,
+                    "reason": "test",
+                    "active": True,
+                    "feedback": "watched",
+                    "feedback_at": "2026-01-01T00:00:00Z",
+                    "request_state": None,
+                    "requested_at": None,
+                    "jellyseerr_request_id": None,
+                    "added_at": "2026-01-01T00:00:00Z",
+                    "trakt_history_event": {},
+                }
+            ],
+        }
+        with self.assertRaises(rs.RecommendationValidationError):
+            rs.validate_v3(doc)
 
     def test_invalid_documents_raise(self):
         base = {

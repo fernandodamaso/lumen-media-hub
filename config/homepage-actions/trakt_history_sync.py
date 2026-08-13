@@ -21,8 +21,39 @@ LOCAL_SYNC_TTL_SECONDS = 15 * 60
 HISTORY_PAGE_LIMIT = 100
 
 _write_lock = threading.Lock()
+_rate_limit_until = None
+_rate_limit_lock = threading.Lock()
 _local_synced_identities = {}
 _local_identities_lock = threading.Lock()
+
+
+def _rate_limit_active(clock=None):
+    clock_fn = clock or time.time
+    with _rate_limit_lock:
+        return _rate_limit_until is not None and clock_fn() < _rate_limit_until
+
+
+def _remember_rate_limit(clock, delay_seconds):
+    global _rate_limit_until
+    with _rate_limit_lock:
+        _rate_limit_until = clock() + delay_seconds
+
+
+def _rate_limit_delay_remaining(clock=None):
+    clock_fn = clock or time.time
+    with _rate_limit_lock:
+        if _rate_limit_until is None:
+            return None
+        remaining = _rate_limit_until - clock_fn()
+        if remaining <= 0:
+            return None
+        return max(1, int(remaining))
+
+
+def clear_rate_limit_state():
+    global _rate_limit_until
+    with _rate_limit_lock:
+        _rate_limit_until = None
 
 
 def register_local_synced_identity(identity, *, clock=None):
@@ -290,16 +321,25 @@ class TraktHistorySyncService:
         self.store = store
         self.clock = clock or time.time
         self.refresh_watched_snapshot = refresh_watched_snapshot
-        self._rate_limit_until = None
 
     def deliver_item(self, item_id):
         with _write_lock:
             return self._deliver_item_locked(item_id)
 
     def _deliver_item_locked(self, item_id):
+        if _rate_limit_active(self.clock):
+            return {"status": "pending"}
         doc = self.store.load()
         item = _find_hermes_item(doc, item_id)
         if not item:
+            return None
+        if item.get("feedback") != "watched":
+            def _clear_non_watched(store_doc):
+                stale = _find_hermes_item(store_doc, item_id)
+                if stale:
+                    cancel_pending_trakt_history_event(stale)
+
+            self.store.update(_clear_non_watched)
             return None
         event = item.get("trakt_history_event")
         if not isinstance(event, dict):
@@ -400,7 +440,7 @@ class TraktHistorySyncService:
         if error.status == 429:
             attempts = int(event.get("attempts") or 0) + 1
             delay = retry_after if retry_after is not None else _backoff_seconds(attempts)
-            self._rate_limit_until = self.clock() + delay
+            _remember_rate_limit(self.clock, delay)
         self._persist_event(
             item_id,
             lambda ev: _mark_pending_retry(
@@ -411,6 +451,27 @@ class TraktHistorySyncService:
             ),
         )
         return public_trakt_history_sync(self._load_event(item_id))
+
+    def _defer_events(self, item_ids, delay_seconds):
+        if not item_ids or delay_seconds is None:
+            return
+
+        def _apply(doc):
+            proposed = _iso_after_seconds(self.clock, delay_seconds)
+            for item_id in item_ids:
+                item = _find_hermes_item(doc, item_id)
+                if not item:
+                    continue
+                event = item.get("trakt_history_event")
+                if not isinstance(event, dict):
+                    continue
+                if event.get("status") not in ("pending", "reconnect_required"):
+                    continue
+                current = event.get("next_attempt_at")
+                if current is None or (isinstance(current, str) and proposed > current):
+                    event["next_attempt_at"] = proposed
+
+        self.store.update(_apply)
 
     def _handle_retryable_runtime(self, item_id, event, error):
         self._persist_event(
@@ -468,9 +529,9 @@ class TraktHistorySyncService:
             and _event_due(item["trakt_history_event"], now)
         ]
         summary = {"attempted": 0, "synced": 0, "pending": 0, "failed": 0, "reconnect_required": 0}
-        self._rate_limit_until = None
-        for item_id in due:
-            if self._rate_limit_until is not None and self.clock() < self._rate_limit_until:
+        for index, item_id in enumerate(due):
+            if _rate_limit_active(self.clock):
+                self._defer_events(due[index:], _rate_limit_delay_remaining(self.clock))
                 break
             result = self.deliver_item(item_id)
             if not result:
@@ -481,7 +542,11 @@ class TraktHistorySyncService:
                 summary[status] += 1
             elif status == "pending":
                 summary["pending"] += 1
-            if self._rate_limit_until is not None and self.clock() < self._rate_limit_until:
+            if _rate_limit_active(self.clock):
+                self._defer_events(
+                    due[index + 1 :],
+                    _rate_limit_delay_remaining(self.clock),
+                )
                 break
         return summary
 

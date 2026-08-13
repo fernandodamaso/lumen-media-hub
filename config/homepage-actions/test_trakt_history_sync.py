@@ -17,6 +17,7 @@ from trakt_history_sync import (
     apply_watched_feedback,
     cancel_pending_trakt_history_event,
     clear_local_synced_identities,
+    clear_rate_limit_state,
     create_trakt_history_event,
     deliver_trakt_history_for_item,
     get_trakt_history_sync_service,
@@ -111,6 +112,7 @@ class TraktHistorySyncModuleTests(unittest.TestCase):
         self.path = os.path.join(self.tmpdir, "recommendations.json")
         self.store = RecommendationStore(self.path)
         clear_local_synced_identities()
+        clear_rate_limit_state()
         self.now = 1_700_000_000.0
         self.clock = lambda: self.now
 
@@ -322,6 +324,26 @@ class TraktHistorySyncModuleTests(unittest.TestCase):
         self.assertTrue(cancel_pending_trakt_history_event(item))
         self.assertNotIn("trakt_history_event", item)
 
+    def test_apply_feedback_clears_undelivered_event(self):
+        item = make_item(20)
+        apply_watched_feedback(item, now="2026-08-13T17:00:00Z")
+        apply_feedback(item, "liked")
+        self.assertNotIn("trakt_history_event", item)
+
+    def test_delivery_skips_when_feedback_is_not_watched(self):
+        item = make_item(25)
+        apply_watched_feedback(item, now="2026-08-13T17:00:00Z")
+        item["feedback"] = "liked"
+        self.seed(item)
+        client = FakeTraktClient(get_pages=[[]])
+        result = self.service(client).deliver_item(item["id"])
+        self.assertIsNone(result)
+        self.assertEqual(client.get_calls, [])
+        self.assertNotIn(
+            "trakt_history_event",
+            self.store.load()["items"][0],
+        )
+
     def test_reconnect_required_is_retried_when_due(self):
         item = make_item(21)
         apply_watched_feedback(item, now="2026-08-13T17:00:00Z")
@@ -396,6 +418,11 @@ class TraktHistorySyncModuleTests(unittest.TestCase):
         summary = service.reconcile_due_events()
         self.assertEqual(summary["attempted"], 1)
         self.assertEqual(len(client.get_calls), 1)
+        second_event = self.store.load()["items"][1]["trakt_history_event"]
+        self.assertEqual(
+            second_event["next_attempt_at"],
+            datetime_from_offset(self.now + 120),
+        )
 
     def test_local_synced_identity_expires(self):
         clear_local_synced_identities()

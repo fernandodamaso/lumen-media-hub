@@ -336,6 +336,13 @@ def apply_feedback(item, feedback, now=None):
     item["feedback"] = feedback
     item["feedback_at"] = now or utc_now()
     item["active"] = False
+    if feedback != "watched":
+        event = item.get("trakt_history_event")
+        if isinstance(event, dict) and event.get("status") not in (
+            "synced",
+            "failed",
+        ):
+            del item["trakt_history_event"]
 
 
 def apply_request(item, now=None, request_id=None):

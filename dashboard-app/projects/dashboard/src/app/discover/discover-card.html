@@ -14,7 +14,7 @@
             [label]="option.label"
             [toggle]="true"
             [pressed]="isFeedbackPressed(option.value)"
-            [disabled]="busy()"
+            [disabled]="isFeedbackDisabled(option.value)"
             [busy]="busy()"
             surface="overlay"
             (click)="feedback.emit(option.value)"
@@ -37,12 +37,14 @@
         }
       }
     </mm-poster-action-overlay>
-    @if (item().inLibrary || item().watchedOnTrakt || item().requestState === 'requested' || syncFailed() || item().feedback) {
+    @if (item().inLibrary || item().watchedOnTrakt || item().requestState === 'requested' || syncFailed() || item().feedback || traktSyncLabel()) {
       <div class="discover-card__badges">
         @if (item().inLibrary) {
           <mm-status tone="success">In library</mm-status>
         }
-        @if (item().watchedOnTrakt && !item().inLibrary) {
+        @if (traktSyncLabel()) {
+          <mm-status [tone]="traktSyncTone()">{{ traktSyncLabel() }}</mm-status>
+        } @else if (item().watchedOnTrakt && !item().inLibrary) {
           <mm-status tone="info">Watched on Trakt</mm-status>
         }
         @if (item().requestState === 'requested') {
@@ -51,7 +53,7 @@
         @if (syncFailed()) {
           <mm-status tone="warning">Sync failed</mm-status>
         }
-        @if (item().feedback) {
+        @if (item().feedback && !traktSyncLabel()) {
           <mm-status tone="info">{{ item().feedback }}</mm-status>
         }
       </div>

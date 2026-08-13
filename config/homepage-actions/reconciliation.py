@@ -288,7 +288,15 @@ def run_reconciliation_cycle():
     if not settings._reconcile_cycle_lock.acquire(blocking=False):
         return {"ok": True, "skipped": True, "reason": "already_running"}
     try:
-        return _reconcile_pending_requests()
+        request_result = _reconcile_pending_requests()
+        try:
+            from trakt_history_sync import reconcile_trakt_history_sync
+
+            trakt_result = reconcile_trakt_history_sync()
+        except Exception as error:
+            trakt_result = {"error": type(error).__name__}
+        request_result["trakt_history_sync"] = trakt_result
+        return request_result
     except Exception as e:
         print(
             "[discover-request-reconcile] cycle failed "

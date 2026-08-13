@@ -181,7 +181,7 @@ describe('App shell', () => {
     ['/', 'Dashboard', null],
     ['/dashboard', 'Dashboard', null],
     ['/library', 'Library', null],
-    ['/reports', 'Reports', 'Failed and actionable automation runs first'],
+    ['/reports', 'Reports', 'Live service health and automation run history in one place'],
     ['/discover', 'Discover', 'Browse Hermes, Jellyseerr, and Trakt recommendations'],
   ])('recognizes %s as %s and renders its destination', async (url, heading, lede) => {
     const harness = await RouterTestingHarness.create();

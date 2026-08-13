@@ -6,6 +6,8 @@ import {
   ExternalDiscover,
   ExternalDiscoverItem,
   HermesDiscover,
+  TraktHistorySyncState,
+  TraktHistorySyncStatus,
 } from './discover.models';
 import {
   MediaStackDiscoverActionDto,
@@ -39,6 +41,7 @@ export type DiscoverCardItem = {
   inLibrary: boolean;
   excludedReason?: 'in_library' | 'watched_on_trakt' | null;
   watchedOnTrakt?: boolean;
+  traktHistorySync?: TraktHistorySyncState | null;
   posterUrl?: string | null;
   rating?: number | null;
 };
@@ -57,6 +60,7 @@ export function toHermesCardItem(item: DiscoverItem): DiscoverCardItem {
     inLibrary: item.in_library || item.excluded_reason === 'in_library',
     excludedReason: item.excluded_reason,
     watchedOnTrakt: item.watched_on_trakt === true,
+    traktHistorySync: item.trakt_history_sync ?? null,
     posterUrl: item.poster_url,
     rating: item.rating,
   };
@@ -146,9 +150,50 @@ export function isHermesActiveItem(
 export function isDiscoverFeedbackPressed(
   current: DiscoverFeedback | null,
   option: DiscoverFeedback,
+  traktHistorySync?: TraktHistorySyncState | null,
 ): boolean {
+  if (isWatchedFeedbackDisabled({ feedback: current, traktHistorySync }) && option === 'watched') {
+    return true;
+  }
   if (current === option) return true;
   return option === 'watched' && current === 'liked';
+}
+
+export function isWatchedFeedbackDisabled(
+  item: Pick<DiscoverCardItem, 'feedback' | 'traktHistorySync'>,
+): boolean {
+  if (item.feedback === 'watched') return true;
+  const status = item.traktHistorySync?.status;
+  return status === 'pending' || status === 'synced';
+}
+
+export function traktHistorySyncLabel(status: TraktHistorySyncStatus | undefined): string | null {
+  switch (status) {
+    case 'pending':
+      return 'Pending Trakt sync';
+    case 'synced':
+      return 'Watched on Trakt';
+    case 'reconnect_required':
+      return 'Trakt reconnect required';
+    case 'failed':
+      return 'Trakt sync failed';
+    default:
+      return null;
+  }
+}
+
+export function traktHistorySyncTone(
+  status: TraktHistorySyncStatus | undefined,
+): 'info' | 'warning' | 'danger' {
+  switch (status) {
+    case 'reconnect_required':
+    case 'failed':
+      return 'danger';
+    case 'pending':
+      return 'warning';
+    default:
+      return 'info';
+  }
 }
 
 export function discoverPosterFallback(title: string): string {
@@ -194,6 +239,7 @@ const mapDiscoverItem = (dto: MediaStackDiscoverItemDto): DiscoverItem => ({
   added_at: dto.added_at,
   notes: dto.notes,
   rating: dto.rating,
+  trakt_history_sync: dto.trakt_history_sync ?? null,
 });
 
 const mapExternalDiscoverItem = (dto: MediaStackExternalDiscoverItemDto): ExternalDiscoverItem => ({
@@ -221,10 +267,11 @@ export const mapExternalDiscover = (dto: MediaStackExternalDiscoverDto): Externa
 });
 
 export const mapDiscoverAction = (dto: MediaStackDiscoverActionDto): DiscoverAction => {
-  const { code, ...rest } = dto;
+  const { code, trakt_history_sync, ...rest } = dto;
   return {
     ...rest,
-    ...(code === 'reconnect_required' ? { code } : {}),
+    ...(code === 'reconnect_required' || code === 'confirmation_required' ? { code } : {}),
+    ...(trakt_history_sync ? { trakt_history_sync } : {}),
   };
 };
 

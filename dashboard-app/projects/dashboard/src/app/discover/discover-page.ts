@@ -1,15 +1,15 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { MmButton, MmInput, MmSegmentedControl, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
+import { MmButton, MmDialog, MmInput, MmSegmentedControl, MmSkeleton, MmStateCard, MmStatus } from '@app/ui';
 import { DiscoverFeedback, DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { DiscoverCard } from './discover-card';
-import { DiscoverHistoryFilter, matchesDiscoverSearch } from './discover-format';
+import { DiscoverHistoryFilter, isWatchedFeedbackDisabled, matchesDiscoverSearch } from './discover-format';
 import { DiscoverFacade, HermesView } from './discover.facade';
 
 export const DISCOVER_BATCH_SIZE = 24;
 
 @Component({
   selector: 'mm-discover-page',
-  imports: [MmButton, MmInput, MmSegmentedControl, MmSkeleton, MmStateCard, MmStatus, DiscoverCard],
+  imports: [MmButton, MmDialog, MmInput, MmSegmentedControl, MmSkeleton, MmStateCard, MmStatus, DiscoverCard],
   providers: [DiscoverFacade],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './discover-page.html',
@@ -22,6 +22,9 @@ export class DiscoverPage {
 
   readonly searchQuery = signal('');
   readonly visibleLimit = signal(DISCOVER_BATCH_SIZE);
+  readonly showWatchConfirm = signal(false);
+  readonly pendingWatchId = signal<string | null>(null);
+  readonly pendingWatchTitle = signal('');
 
   readonly filteredItems = computed(() =>
     this.facade.visibleItems().filter((item) => matchesDiscoverSearch(item, this.searchQuery())),
@@ -155,7 +158,35 @@ export class DiscoverPage {
   }
 
   onFeedback(id: string, feedback: DiscoverFeedback): void {
+    if (feedback !== 'watched') {
+      void this.facade.submitFeedback(id, feedback);
+      return;
+    }
+    const item = this.facade.visibleItems().find((candidate) => candidate.id === id);
+    if (!item) return;
+    if (isWatchedFeedbackDisabled(item)) return;
+    if (item.type === 'tv') {
+      this.pendingWatchId.set(id);
+      this.pendingWatchTitle.set(item.title);
+      this.showWatchConfirm.set(true);
+      return;
+    }
     void this.facade.submitFeedback(id, feedback);
+  }
+
+  confirmWatchAllAired(): void {
+    const id = this.pendingWatchId();
+    this.showWatchConfirm.set(false);
+    this.pendingWatchId.set(null);
+    this.pendingWatchTitle.set('');
+    if (!id) return;
+    void this.facade.submitFeedback(id, 'watched', { confirmAllAired: true });
+  }
+
+  cancelWatchConfirm(): void {
+    this.showWatchConfirm.set(false);
+    this.pendingWatchId.set(null);
+    this.pendingWatchTitle.set('');
   }
 
   onRequest(item: ReturnType<DiscoverFacade['visibleItems']>[number]): void {

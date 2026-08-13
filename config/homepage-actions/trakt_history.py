@@ -240,6 +240,12 @@ class TraktWatchedService:
                     else (self.store.load() if self.store else None)
                 )
                 identities = self.fetch_identities()
+                try:
+                    from trakt_history_sync import local_synced_identities
+
+                    identities = set(identities) | set(local_synced_identities(clock=self.clock))
+                except ImportError:
+                    pass
                 refreshed_at = self._now_iso()
                 if self.store:
                     self.store.replace(identities, refreshed_at=refreshed_at)

@@ -263,6 +263,21 @@ failed direct authenticated reads. This is an interactive,
 credential-changing recovery step. Never print tokens, client secrets,
 token-state contents, raw watched history, or account identifiers.
 
+### Trakt write ownership
+
+Playback completion in Jellyfin is written to Trakt only by the installed
+Jellyfin Trakt plugin (`Scrobble`, `PostWatchedHistory`, and `PostSetWatched`
+enabled; historical and playback-progress imports disabled). The Live API does
+not listen to Jellyfin playback events.
+
+Discover Hermes `watched` feedback is the only Media Manager write path to
+Trakt. It persists a private `trakt_history_event` on the Hermes item,
+delivers `POST /sync/history` outside the recommendations store lock, and
+exposes only `trakt_history_sync.status` (`pending`, `synced`,
+`reconnect_required`, or `failed`) to the browser. Show watches require
+`confirm_all_aired: true`. Liked, disliked, and skipped feedback never call
+Trakt.
+
 The acceptance rule is therefore: both API rounds are fresh, and the browser
 state is freshly loaded before any cached-warning decision is made.
 

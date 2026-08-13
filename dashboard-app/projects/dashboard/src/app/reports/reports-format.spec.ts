@@ -1,5 +1,7 @@
 import type { MediaStackCronLogsDto } from '../media-stack/wire/cron';
+import type { AutomationProblem, AutomationService } from '../automation/automation.models';
 import {
+  buildServiceHealthReportView,
   cronStatusView,
   flattenCronRuns,
   formatGeneratedAt,
@@ -115,5 +117,67 @@ describe('reports format / cron mapping', () => {
     expect(formatGeneratedAt('not-a-date')).toBe('not-a-date');
     expect(formatGeneratedAt('2026-07-12T12:00:00Z')).toBeTruthy();
     expect(formatRunTimestamp('2026-07-12T12:00:00Z')).toBeTruthy();
+  });
+});
+
+describe('buildServiceHealthReportView', () => {
+  const services: AutomationService[] = [
+    { id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'OK', latencyMs: 20 },
+    { id: 'prowlarr', name: 'Prowlarr', status: 'degraded', detail: '1 indexer disabled', latencyMs: 350 },
+    { id: 'sabnzbd', name: 'SABnzbd', status: 'down', detail: 'Last seen 18m ago' },
+  ];
+  const problems: AutomationProblem[] = [
+    { id: 'p1', summary: 'SABnzbd unreachable', serviceId: 'sabnzbd', severity: 'actionable' },
+    { id: 'p2', summary: '1 indexer(s) disabled', serviceId: 'prowlarr', severity: 'warning' },
+    { id: 'p3', summary: '4 Sonarr episode(s) missing', serviceId: 'sonarr', severity: 'warning' },
+    { id: 'p4', summary: 'Disk space low', serviceId: null, severity: 'actionable' },
+  ];
+
+  it('shows active services and relevant problems without a selection', () => {
+    const view = buildServiceHealthReportView(services, problems, null);
+    expect(view.services.map((service) => service.id)).toEqual(['prowlarr', 'sabnzbd']);
+    expect(view.problems.map((problem) => problem.id)).toEqual(['p1', 'p2', 'p4']);
+    expect(view.noIssuesMessage).toBeNull();
+  });
+
+  it('filters to a selected degraded service and its problems', () => {
+    const view = buildServiceHealthReportView(services, problems, 'prowlarr');
+    expect(view.services).toEqual([services[1]]);
+    expect(view.problems).toEqual([problems[1]]);
+    expect(view.noIssuesMessage).toBeNull();
+  });
+
+  it('shows healthy recovery without leftover warning problems', () => {
+    const view = buildServiceHealthReportView(services, problems, 'sonarr');
+    expect(view.services).toEqual([services[0]]);
+    expect(view.problems).toEqual([]);
+    expect(view.noIssuesMessage).toBe('No current live issues.');
+  });
+
+  it('preserves service detail when no structured problem exists', () => {
+    const view = buildServiceHealthReportView(
+      [{ id: 'radarr', name: 'Radarr', status: 'down', detail: 'Connection refused' }],
+      [],
+      'radarr',
+    );
+    expect(view.services[0]?.detail).toBe('Connection refused');
+    expect(view.problems).toEqual([]);
+  });
+
+  it('falls back to active issues for unknown service ids', () => {
+    const view = buildServiceHealthReportView(services, problems, 'missing-service');
+    expect(view.unknownServiceNotice).toBe('Unknown service. Showing all current issues.');
+    expect(view.services.map((service) => service.id)).toEqual(['prowlarr', 'sabnzbd']);
+  });
+
+  it('shows an all-clear message when nothing is degraded or down', () => {
+    const view = buildServiceHealthReportView(
+      [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'OK', latencyMs: 20 }],
+      [],
+      null,
+    );
+    expect(view.services).toEqual([]);
+    expect(view.problems).toEqual([]);
+    expect(view.noIssuesMessage).toBe('No current live issues.');
   });
 });

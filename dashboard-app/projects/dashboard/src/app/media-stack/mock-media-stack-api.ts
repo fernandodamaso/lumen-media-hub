@@ -8,6 +8,7 @@ import {
   ExternalDiscover,
   HermesDiscover,
   JellyseerrDiscoverKind,
+  SubmitHermesFeedbackOptions,
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
@@ -1004,18 +1005,42 @@ export class MockMediaStackApi implements MediaStackApi {
     );
   }
 
-  submitHermesFeedback(id: string, feedback: DiscoverFeedback, notes?: string): Promise<DiscoverAction> {
+  submitHermesFeedback(
+    id: string,
+    feedback: DiscoverFeedback,
+    options?: SubmitHermesFeedbackOptions,
+  ): Promise<DiscoverAction> {
     const item = this.hermesItems.find((candidate) => candidate.id === id);
     if (!item) {
       return Promise.resolve(mapDiscoverAction({ ok: false, error: 'Recommendation not found' }));
     }
+    if (feedback === 'watched' && item.type === 'tv' && !options?.confirmAllAired) {
+      return Promise.resolve(
+        mapDiscoverAction({
+          ok: false,
+          code: 'confirmation_required',
+          error: 'Confirmation required',
+        }),
+      );
+    }
     item.feedback = feedback;
     item.feedback_at = new Date().toISOString();
     item.active = false;
-    if (notes !== undefined) {
-      item.notes = notes;
+    if (options?.notes !== undefined) {
+      item.notes = options.notes;
     }
-    return Promise.resolve(mapDiscoverAction({ ok: true, message: 'Feedback saved' }));
+    if (feedback === 'watched') {
+      item.trakt_history_sync = { status: 'synced' };
+    }
+    return Promise.resolve(
+      mapDiscoverAction({
+        ok: true,
+        message: 'Feedback saved',
+        ...(feedback === 'watched'
+          ? { trakt_history_sync: item.trakt_history_sync ?? { status: 'synced' } }
+          : {}),
+      }),
+    );
   }
 
   requestHermesMore(): Promise<DiscoverAction> {

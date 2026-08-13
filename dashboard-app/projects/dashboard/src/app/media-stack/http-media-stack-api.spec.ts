@@ -1208,7 +1208,7 @@ describe('HttpMediaStackApi', () => {
   });
 
   it('keeps discover feedback PATCH separate from requestMedia POST', async () => {
-    const feedback = api.submitHermesFeedback('rec-1', 'liked', 'great');
+    const feedback = api.submitHermesFeedback('rec-1', 'liked', { notes: 'great' });
     const feedbackReq = http.expectOne('/api/discover/hermes/rec-1');
     expect(feedbackReq.request.method).toBe('PATCH');
     expect(feedbackReq.request.body).toEqual({ status: 'liked', notes: 'great' });
@@ -1221,6 +1221,19 @@ describe('HttpMediaStackApi', () => {
     expect(requestReq.request.body).toEqual({ mediaType: 'movie', mediaId: 42, hermesId: 'rec-1' });
     requestReq.flush({ ok: true, jellyseerr_request_id: 9 });
     await expect(request).resolves.toMatchObject({ ok: true, jellyseerr_request_id: 9 });
+  });
+
+  it('maps HTTP 400 confirmation_required to a soft discover action', async () => {
+    const feedback = api.submitHermesFeedback('rec-tv', 'watched');
+    const feedbackReq = http.expectOne('/api/discover/hermes/rec-tv');
+    feedbackReq.flush(
+      { ok: false, code: 'confirmation_required', error: 'Confirmation required' },
+      { status: 400, statusText: 'Bad Request' },
+    );
+    await expect(feedback).resolves.toMatchObject({
+      ok: false,
+      code: 'confirmation_required',
+    });
   });
 
   it('loads discover sources and request-more', async () => {

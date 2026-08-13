@@ -1,4 +1,5 @@
 export type DiscoverFeedback = 'liked' | 'disliked' | 'watched' | 'skipped';
+export type TraktHistorySyncStatus = 'pending' | 'synced' | 'reconnect_required' | 'failed';
 type DiscoverMediaType = 'movie' | 'tv';
 export type DiscoverSourceTab = 'hermes' | 'jellyseerr' | 'trakt';
 export type JellyseerrDiscoverKind = 'trending' | 'movies' | 'tv';
@@ -8,6 +9,10 @@ type LibraryExclusionStatus = 'fresh' | 'stale' | 'unavailable';
 export interface LibraryExclusionState {
   status: LibraryExclusionStatus;
   last_successful_refresh_at: string | null;
+}
+
+export interface TraktHistorySyncState {
+  status: TraktHistorySyncStatus;
 }
 
 export interface DiscoverItem {
@@ -33,6 +38,7 @@ export interface DiscoverItem {
   added_at: string;
   notes?: string;
   rating?: number | null;
+  trakt_history_sync?: TraktHistorySyncState | null;
 }
 
 export interface ExternalDiscoverItem {
@@ -78,7 +84,7 @@ export interface ExternalDiscover {
 
 export interface DiscoverAction {
   ok: boolean;
-  code?: 'reconnect_required';
+  code?: 'reconnect_required' | 'confirmation_required';
   error?: string;
   message?: string;
   partial_success?: boolean;
@@ -88,6 +94,12 @@ export interface DiscoverAction {
   queued?: boolean;
   already_pending?: boolean;
   requested_at?: string;
+  trakt_history_sync?: TraktHistorySyncState | null;
+}
+
+export interface SubmitHermesFeedbackOptions {
+  notes?: string;
+  confirmAllAired?: boolean;
 }
 
 export interface DiscoverRequestPayload {

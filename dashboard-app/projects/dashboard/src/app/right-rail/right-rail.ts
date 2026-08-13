@@ -1,12 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink, UrlTree } from '@angular/router';
 import { LucideCircleAlert, LucideCircleCheck, LucideDownload, LucideTrash2 } from '@lucide/angular';
 import { MmSkeleton } from '@app/ui';
 import { ServiceHealthFacade } from '../automation/service-health.facade';
 import { MmServiceRow } from '../automation/service-row';
 import { AUTOMATION_SERVICE_STATUS_VIEW, formatRelativeTime } from '../automation/automation-format';
-import { AutomationServiceStatus, compareAutomationServices } from '../automation/automation.models';
-import { serviceIconPath } from '../automation/service-catalog';
+import { AutomationService, AutomationServiceStatus, compareAutomationServices } from '../automation/automation.models';
+import { resolveServiceHref, serviceIconPath } from '../automation/service-catalog';
 import { CalendarFacade, CalendarRailEvent } from '../calendar/calendar.facade';
 import { MmUpcomingItem } from '../calendar/upcoming-item';
 import { DEFAULT_LIBRARY_ART } from '../library/library.models';
@@ -36,6 +36,7 @@ export class RightRail {
   readonly calendar = inject(CalendarFacade);
   readonly activity = inject(ActivityFacade);
   readonly health = inject(ServiceHealthFacade);
+  private readonly router = inject(Router);
   private readonly linkBases = inject(SERVICE_LINK_BASES);
 
   readonly skeletonRows = [0, 1, 2];
@@ -92,5 +93,17 @@ export class RightRail {
 
   serviceIcon(id: string): string | null {
     return serviceIconPath(id);
+  }
+
+  serviceHref(id: string): string | null {
+    return resolveServiceHref(id, this.linkBases);
+  }
+
+  statusLink(service: AutomationService): UrlTree | null {
+    if (service.status !== 'degraded' && service.status !== 'down') return null;
+    return this.router.createUrlTree(['/reports'], {
+      queryParams: { service: service.id },
+      fragment: 'service-health',
+    });
   }
 }

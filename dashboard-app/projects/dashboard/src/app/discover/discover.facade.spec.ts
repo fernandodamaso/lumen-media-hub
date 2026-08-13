@@ -1,7 +1,7 @@
 import { mediaStackLibraryMutationStub } from '../../testing/media-stack-library-stub';
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
-import { DiscoverAction, DiscoverFeedback, DiscoverItem, DiscoverRequestPayload, ExternalDiscoverAvailability, ExternalDiscoverItem, HermesDiscover, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
+import { DiscoverAction, DiscoverFeedback, DiscoverItem, DiscoverRequestPayload, ExternalDiscoverAvailability, ExternalDiscoverItem, HermesDiscover, JellyseerrDiscoverKind, SubmitHermesFeedbackOptions, TraktDiscoverType } from './discover.models';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { DiscoverFacade, SCHEDULED_REFRESH_TIMEOUT_MS } from './discover.facade';
 
@@ -311,9 +311,28 @@ describe('DiscoverFacade', () => {
   it('submitFeedback calls only submitHermesFeedback and refreshes Hermes', async () => {
     await facade.setTab('hermes');
     await facade.submitFeedback('hermes-eligible', 'liked');
-    expect(api.feedbackCalls).toEqual([{ id: 'hermes-eligible', feedback: 'liked' }]);
+    expect(api.feedbackCalls).toEqual([{ id: 'hermes-eligible', feedback: 'liked', options: undefined }]);
     expect(api.requestCalls).toEqual([]);
     expect(facade.notice()).toContain('Feedback');
+  });
+
+  it('stores pending Trakt sync after watched feedback and updates on refresh', async () => {
+    await facade.setTab('hermes');
+    await facade.submitFeedback('hermes-eligible', 'watched', { confirmAllAired: true });
+    expect(api.feedbackCalls[0]).toEqual({
+      id: 'hermes-eligible',
+      feedback: 'watched',
+      options: { confirmAllAired: true },
+    });
+    api.hermes.items = api.hermes.items.map((item) =>
+      item.id === 'hermes-eligible'
+        ? { ...item, active: false, feedback: 'watched', trakt_history_sync: { status: 'synced' } }
+        : item,
+    );
+    facade.setHermesView('history');
+    await facade.setTab('hermes');
+    const card = facade.visibleItems().find((item) => item.id === 'hermes-eligible');
+    expect(card?.traktHistorySync?.status).toBe('synced');
   });
 
   it('ignores stale Hermes poll responses that predate feedback', async () => {
@@ -1104,7 +1123,7 @@ class MockApi implements MediaStackApi {
   hermesCalls = 0;
   jellyseerrCalls: JellyseerrDiscoverKind[] = [];
   traktCalls: TraktDiscoverType[] = [];
-  feedbackCalls: { id: string; feedback: DiscoverFeedback }[] = [];
+  feedbackCalls: { id: string; feedback: DiscoverFeedback; options?: SubmitHermesFeedbackOptions }[] = [];
   requestCalls: DiscoverRequestPayload[] = [];
   moreCalls = 0;
   feedbackGate: Promise<DiscoverAction> | null = null;
@@ -1194,8 +1213,15 @@ class MockApi implements MediaStackApi {
       pending_request_sync: this.hermes.pending_request_sync?.map((entry) => ({ ...entry })),
     });
   }
-  submitHermesFeedback(id: string, feedback: DiscoverFeedback) {
-    this.feedbackCalls.push({ id, feedback });
+  submitHermesFeedback(id: string, feedback: DiscoverFeedback, options?: SubmitHermesFeedbackOptions) {
+    this.feedbackCalls.push({ id, feedback, options });
+    if (feedback === 'watched') {
+      return this.feedbackGate ?? Promise.resolve({
+        ok: true,
+        message: 'Feedback saved.',
+        trakt_history_sync: { status: 'pending' as const },
+      });
+    }
     return this.feedbackGate ?? Promise.resolve({ ok: true, message: 'Feedback saved.' });
   }
   requestHermesMore() {

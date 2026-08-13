@@ -7,7 +7,10 @@ import {
   discoverPosterFallback,
   formatDiscoverMeta,
   isDiscoverFeedbackPressed,
+  isWatchedFeedbackDisabled,
   resolveRequestAction,
+  traktHistorySyncLabel,
+  traktHistorySyncTone,
 } from './discover-format';
 
 const FEEDBACK_OPTIONS: {
@@ -47,8 +50,17 @@ export class DiscoverCard {
 
   readonly summaryText = computed(() => this.item().reason ?? this.item().overview ?? '');
 
+  readonly traktSyncLabel = computed(() => traktHistorySyncLabel(this.item().traktHistorySync?.status));
+
+  readonly traktSyncTone = computed(() => traktHistorySyncTone(this.item().traktHistorySync?.status));
+
+  isFeedbackDisabled(option: DiscoverFeedback): boolean {
+    if (this.busy()) return true;
+    return option === 'watched' && isWatchedFeedbackDisabled(this.item());
+  }
+
   isFeedbackPressed(option: DiscoverFeedback): boolean {
-    return isDiscoverFeedbackPressed(this.item().feedback, option);
+    return isDiscoverFeedbackPressed(this.item().feedback, option, this.item().traktHistorySync);
   }
 
   onRequest(): void {

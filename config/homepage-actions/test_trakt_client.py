@@ -371,6 +371,17 @@ class TraktDeviceAuthorizationTests(unittest.TestCase):
         self.assertIn("Get-TraktTokenStatePath", connect_function)
         self.assertNotIn("Join-Path $stateRoot 'trakt-token.json'", connect_function)
 
+    def test_connect_mode_warms_trakt_discover_after_authorization(self):
+        with open(os.path.join(REPO_ROOT, "install.ps1"), encoding="utf-8") as handle:
+            script = handle.read()
+        self.assertIn("function Invoke-TraktDiscoverWarmup", script)
+        connect_start = script.index("function Invoke-TraktDeviceAuthorization")
+        connect_end = script.index("function Invoke-FrontendDev", connect_start)
+        connect_function = script[connect_start:connect_end]
+        self.assertIn("Invoke-TraktDiscoverWarmup", connect_function)
+        self.assertIn("/discover/trakt?type=", script)
+        self.assertIn("@('movies', 'shows')", script)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -324,6 +324,29 @@ function Get-TraktTokenStatePath([hashtable]$Map) {
   return Join-Path $stateRoot $tokenPath
 }
 
+function Invoke-TraktDiscoverWarmup {
+  $base = 'http://127.0.0.1:8085'
+  foreach ($type in @('movies', 'shows')) {
+    try {
+      $response = Invoke-WebRequest -UseBasicParsing -Uri "$base/discover/trakt?type=$type&refresh_watched=true" -TimeoutSec 120 -SkipHttpErrorCheck
+      if ($response.StatusCode -ne 200) {
+        Write-Host "Trakt $type warmup returned HTTP $($response.StatusCode). Open Discover to retry."
+        return
+      }
+      if ($response.Content) {
+        $body = $response.Content | ConvertFrom-Json
+        if ($body.watched_exclusion.status -ne 'fresh') {
+          Write-Host "Trakt $type warmup completed with watched_exclusion=$($body.watched_exclusion.status)."
+        }
+      }
+    } catch {
+      Write-Host 'Trakt warmup skipped: homepage-actions is not reachable on 127.0.0.1:8085.'
+      return
+    }
+  }
+  Write-Host 'Trakt watched cache warmed for movies and shows.'
+}
+
 function Invoke-TraktDeviceAuthorization {
   Assert-Command 'Invoke-WebRequest' 'PowerShell 7 is required.'
   if (-not (Test-Path -LiteralPath $EnvFile)) {
@@ -394,6 +417,7 @@ function Invoke-TraktDeviceAuthorization {
     if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
   }
   Write-Host 'Trakt authorization completed and local renewable state was saved.'
+  Invoke-TraktDiscoverWarmup
 }
 
 function Invoke-FrontendDev {

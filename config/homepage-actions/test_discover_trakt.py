@@ -123,6 +123,25 @@ class TraktWatchedExclusionRouteTests(unittest.TestCase):
         )
         self.assertNotIn(leaked, str(responses))
 
+    def test_route_forces_watched_refresh_when_requested(self):
+        with mock.patch.object(routes.settings, "TRAKT_CLIENT_ID", "id"), \
+                mock.patch.object(routes, "_trakt_get", return_value=[]), \
+                mock.patch.object(
+                    routes,
+                    "_trakt_watched_snapshot",
+                ) as watched_snapshot, \
+                mock.patch.object(
+                    routes,
+                    "_library_exclusion_snapshot",
+                    return_value=routes.LibraryExclusionSnapshot.from_maps({}, {}, status="fresh", last_successful_refresh_at=None),
+                ), \
+                mock.patch.object(routes, "send_json"):
+            routes.handle_discover_trakt(
+                SimpleNamespace(),
+                {"type": ["movies"], "refresh_watched": ["true"]},
+            )
+        watched_snapshot.assert_called_once_with(force=True)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -217,6 +217,72 @@ class TraktClientTests(unittest.TestCase):
         self.assertEqual(refresh_count, 1)
         self.assertEqual(results, [{"ok": True}, {"ok": True}])
 
+    def test_temporary_refresh_failure_preserves_state_without_leaking_details(self):
+        original = TraktTokenStore(self.path).load()
+
+        def transport(method, url, headers, body):
+            if url.endswith("/oauth/token"):
+                return FakeResponse(503, {"access_token": "do-not-leak"})
+            self.fail("the expired request must refresh first")
+
+        with self.assertRaisesRegex(RuntimeError, "^Trakt temporarily unavailable$") as context:
+            self.client(transport).get("/recommendations/movies")
+        self.assertEqual(TraktTokenStore(self.path).load(), original)
+        self.assertNotIn("refresh-old", str(context.exception))
+        self.assertNotIn("do-not-leak", str(context.exception))
+
+    def test_concurrent_401_retries_rotate_once(self):
+        refresh_started = threading.Event()
+        release_refresh = threading.Event()
+        both_initial_401 = threading.Event()
+        refresh_count = 0
+        refresh_count_lock = threading.Lock()
+        api_lock = threading.Lock()
+        api_calls = 0
+        initial_401_count = 0
+        api_authorizations = []
+
+        def transport(method, url, headers, body):
+            nonlocal refresh_count, api_calls, initial_401_count
+            if url.endswith("/oauth/token"):
+                if not both_initial_401.wait(2):
+                    raise AssertionError("both workers must reach initial 401 before refresh")
+                with refresh_count_lock:
+                    refresh_count += 1
+                refresh_started.set()
+                release_refresh.wait(2)
+                return FakeResponse(
+                    200,
+                    {"access_token": "access-new", "refresh_token": "refresh-new", "expires_in": 3600},
+                )
+            with api_lock:
+                api_calls += 1
+                api_authorizations.append(headers.get("Authorization"))
+                if api_calls <= 2:
+                    initial_401_count += 1
+                    if initial_401_count == 2:
+                        both_initial_401.set()
+                    return FakeResponse(401, {})
+            return FakeResponse(200, {"ok": True})
+
+        self.now = 100
+        client = self.client(transport)
+        results = []
+        threads = [
+            threading.Thread(target=lambda: results.append(client.get("/recommendations/movies")))
+            for _ in range(2)
+        ]
+        for thread in threads:
+            thread.start()
+        self.assertTrue(refresh_started.wait(1))
+        release_refresh.set()
+        for thread in threads:
+            thread.join(2)
+        self.assertEqual(refresh_count, 1)
+        self.assertEqual(results, [{"ok": True}, {"ok": True}])
+        self.assertEqual(api_authorizations[:2], ["Bearer access-old", "Bearer access-old"])
+        self.assertTrue(all(auth == "Bearer access-new" for auth in api_authorizations[2:]))
+
 
 class TraktDeviceAuthorizationTests(unittest.TestCase):
     def setUp(self):
@@ -311,6 +377,18 @@ class TraktDeviceAuthorizationTests(unittest.TestCase):
         connect_function = script[connect_start:connect_end]
         self.assertIn("Get-TraktTokenStatePath", connect_function)
         self.assertNotIn("Join-Path $stateRoot 'trakt-token.json'", connect_function)
+
+    def test_connect_mode_warms_trakt_discover_after_authorization(self):
+        with open(os.path.join(REPO_ROOT, "install.ps1"), encoding="utf-8") as handle:
+            script = handle.read()
+        self.assertIn("function Invoke-TraktDiscoverWarmup", script)
+        connect_start = script.index("function Invoke-TraktDeviceAuthorization")
+        connect_end = script.index("function Invoke-FrontendDev", connect_start)
+        connect_function = script[connect_start:connect_end]
+        self.assertIn("Invoke-TraktDiscoverWarmup", connect_function)
+        self.assertIn("/discover/trakt?type=", script)
+        self.assertIn("refresh_watched=true", script)
+        self.assertIn("@('movies', 'shows')", script)
 
 
 if __name__ == "__main__":

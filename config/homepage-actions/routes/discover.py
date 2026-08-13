@@ -130,7 +130,7 @@ _TRAKT_WATCHED_SERVICE = None
 _TRAKT_WATCHED_SERVICE_LOCK = threading.Lock()
 
 
-def _trakt_watched_snapshot():
+def _trakt_watched_snapshot(*, force=False):
     global _TRAKT_WATCHED_SERVICE
     with _TRAKT_WATCHED_SERVICE_LOCK:
         if _TRAKT_WATCHED_SERVICE is None:
@@ -138,7 +138,12 @@ def _trakt_watched_snapshot():
                 _trakt_get_page,
                 store=WatchedSnapshotStore(settings.TRAKT_WATCHED_PATH),
             )
-        return _TRAKT_WATCHED_SERVICE.snapshot()
+        return _TRAKT_WATCHED_SERVICE.snapshot(force=force)
+
+
+def _parse_refresh_watched_flag(query):
+    value = (query.get("refresh_watched") or ["false"])[0]
+    return str(value).lower() in ("1", "true", "yes")
 
 
 def _filter_watched_items(items, snapshot):
@@ -1499,7 +1504,7 @@ def handle_discover_trakt(handler, query):
         results = _trakt_get(
             f"/recommendations/{media_type}?limit=25&ignore_collected=true&ignore_watched=true&extended=full,images"
         )
-        watched_snapshot = _trakt_watched_snapshot()
+        watched_snapshot = _trakt_watched_snapshot(force=_parse_refresh_watched_flag(query))
         snapshot = _library_exclusion_snapshot()
         items = _filter_library_items(
             [_map_trakt_result(item, media_type) for item in results if item], snapshot

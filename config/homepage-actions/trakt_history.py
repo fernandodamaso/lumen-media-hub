@@ -222,10 +222,15 @@ class TraktWatchedService:
     def _now_iso(self):
         return datetime.fromtimestamp(self.clock(), timezone.utc).isoformat(timespec="seconds")
 
-    def snapshot(self):
+    def snapshot(self, *, force=False):
         with self._lock:
             now = self.clock()
-            if self._snapshot is not None and self._loaded_at is not None and now - self._loaded_at < self.freshness_seconds:
+            if (
+                not force
+                and self._snapshot is not None
+                and self._loaded_at is not None
+                and now - self._loaded_at < self.freshness_seconds
+            ):
                 return self._snapshot
             previous = None
             try:

@@ -121,6 +121,20 @@ class WatchedCacheTests(unittest.TestCase):
         service.snapshot()
         self.assertEqual(len(calls), 4)
 
+    def test_force_refresh_bypasses_in_memory_window(self):
+        now = [1000]
+        calls = []
+
+        def get_page(path):
+            calls.append(path)
+            return ([], {})
+
+        service = TraktWatchedService(get_page=get_page, clock=lambda: now[0])
+        service.snapshot()
+        self.assertEqual(len(calls), 2)
+        service.snapshot(force=True)
+        self.assertEqual(len(calls), 4)
+
     def test_repeated_failure_after_unavailable_stays_unavailable(self):
         now = [1000]
         service = TraktWatchedService(

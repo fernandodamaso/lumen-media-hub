@@ -71,3 +71,27 @@ class JellyfinLibraryTests(unittest.TestCase):
         self.assertNotIn("episodeCount", movie)
         self.assertNotIn("ProviderIds", series)
         self.assertNotIn("ProviderIds", movie)
+
+    def test_tombstoned_items_filtered_from_cached_payload(self):
+        jellyfin_client._DELETED_ITEM_TOMBSTONES.clear()
+        self.addCleanup(jellyfin_client._DELETED_ITEM_TOMBSTONES.clear)
+        payload = {
+            "ok": True,
+            "total": 2,
+            "items": [
+                {"id": "keep", "name": "Keep"},
+                {"id": "gone", "name": "Gone"},
+            ],
+        }
+        with mock.patch.object(jellyfin_client.settings, "_jellyfin_cache", {"Movie": {"ts": 0, "payload": payload}}), mock.patch.object(
+            jellyfin_client.settings, "JELLYFIN_CACHE_TTL", 45.0
+        ), mock.patch.object(jellyfin_client.time, "monotonic", return_value=1.0):
+            jellyfin_client.tombstone_jellyfin_item("gone")
+            filtered = jellyfin_client._get_jellyfin_payload("Movie")
+        self.assertEqual([item["id"] for item in filtered["items"]], ["keep"])
+        self.assertEqual(filtered["total"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
+

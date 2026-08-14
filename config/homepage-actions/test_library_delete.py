@@ -156,6 +156,64 @@ class LibraryDeleteUnitTests(unittest.TestCase):
         )
         self.assertEqual(ids, [HASH40.lower(), HASH64.lower()])
 
+    def test_history_filters_foreign_entity_records(self):
+        ids = _history_download_ids(
+            {
+                "totalRecords": 2,
+                "records": [
+                    {"seriesId": 9, "downloadId": HASH_A},
+                    {"seriesId": 99, "downloadId": HASH_B},
+                    {"downloadId": HASH_C},
+                ],
+            },
+            entity_key="seriesId",
+            arr_id=9,
+        )
+        self.assertEqual(ids, [HASH_A, HASH_C])
+
+    def test_fetch_arr_history_uses_plural_scope_params(self):
+        from clients import arr as arr_client
+
+        captured = []
+
+        def fake_get(base, api_key, path):
+            captured.append(path)
+            return {"totalRecords": 0, "records": []}
+
+        with mock.patch.object(arr_client, "_arr_get", side_effect=fake_get):
+            arr_client.fetch_arr_history("http://sonarr", "key", "seriesIds", 9)
+            arr_client.fetch_arr_history("http://radarr", "key", "movieIds", 7)
+        self.assertIn("seriesIds=9", captured[0])
+        self.assertIn("movieIds=7", captured[1])
+        self.assertNotIn("seriesId=", captured[0].replace("seriesIds=", ""))
+        self.assertNotIn("movieId=", captured[1].replace("movieIds=", ""))
+
+    def test_fetch_target_hashes_passes_plural_params(self):
+        with mock.patch(
+            "library_delete.fetch_arr_history",
+            return_value={
+                "totalRecords": 1,
+                "records": [{"seriesId": 9, "downloadId": HASH_A}],
+            },
+        ) as mock_history, mock.patch(
+            "library_delete._current_qbit_hashes", return_value={HASH_A}
+        ):
+            hashes = ld._fetch_target_hashes("Sonarr", 9)
+        self.assertEqual(hashes, (HASH_A,))
+        self.assertEqual(mock_history.call_args.args[2], "seriesIds")
+        with mock.patch(
+            "library_delete.fetch_arr_history",
+            return_value={
+                "totalRecords": 1,
+                "records": [{"movieId": 7, "downloadId": HASH_B}],
+            },
+        ) as mock_history, mock.patch(
+            "library_delete._current_qbit_hashes", return_value={HASH_B}
+        ):
+            hashes = ld._fetch_target_hashes("Radarr", 7)
+        self.assertEqual(hashes, (HASH_B,))
+        self.assertEqual(mock_history.call_args.args[2], "movieIds")
+
     def test_qbit_exception_is_upstream_error(self):
         with mock.patch("library_delete.qbt_login", side_effect=RuntimeError("down")):
             with self.assertRaises(UpstreamError):

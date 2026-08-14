@@ -457,5 +457,57 @@ class DiscoverExclusionTests(unittest.TestCase):
         self.assertTrue(store_data["items"][0]["active"])
 
 
+class DiscoverLibraryCacheInvalidationTests(unittest.TestCase):
+    def setUp(self):
+        self.original = {
+            "expires": routes._TMDB_LIBRARY_CACHE["expires"],
+            "movie": dict(routes._TMDB_LIBRARY_CACHE["movie"]),
+            "tv": dict(routes._TMDB_LIBRARY_CACHE["tv"]),
+            "status": routes._TMDB_LIBRARY_CACHE["status"],
+            "last_successful_refresh_at": routes._TMDB_LIBRARY_CACHE[
+                "last_successful_refresh_at"
+            ],
+        }
+        self.original_tracked = dict(routes._tracked_media_cache)
+        routes._TMDB_LIBRARY_CACHE.update(
+            {
+                "expires": 9999.0,
+                "movie": {1: "jf-1"},
+                "tv": {2: "jf-2"},
+                "status": "fresh",
+                "last_successful_refresh_at": "2026-08-13T12:00:00+00:00",
+            }
+        )
+        routes._tracked_media_cache.update({"expires": 9999.0})
+
+        def restore():
+            routes._TMDB_LIBRARY_CACHE.update(self.original)
+            routes._tracked_media_cache.clear()
+            routes._tracked_media_cache.update(self.original_tracked)
+
+        self.addCleanup(restore)
+
+    def test_invalidate_preserves_last_good_maps(self):
+        routes.invalidate_discover_library_caches()
+        self.assertEqual(routes._TMDB_LIBRARY_CACHE["expires"], 0.0)
+        self.assertEqual(routes._TMDB_LIBRARY_CACHE["status"], "stale")
+        self.assertEqual(routes._TMDB_LIBRARY_CACHE["movie"], {1: "jf-1"})
+        self.assertEqual(routes._TMDB_LIBRARY_CACHE["tv"], {2: "jf-2"})
+        self.assertEqual(
+            routes._TMDB_LIBRARY_CACHE["last_successful_refresh_at"],
+            "2026-08-13T12:00:00+00:00",
+        )
+        self.assertEqual(routes._tracked_media_cache["expires"], 0.0)
+
+    def test_invalidate_without_last_good_stays_unavailable(self):
+        routes._TMDB_LIBRARY_CACHE["last_successful_refresh_at"] = None
+        routes._TMDB_LIBRARY_CACHE["status"] = "unavailable"
+        routes._TMDB_LIBRARY_CACHE["movie"] = {}
+        routes._TMDB_LIBRARY_CACHE["tv"] = {}
+        routes.invalidate_discover_library_caches()
+        self.assertEqual(routes._TMDB_LIBRARY_CACHE["status"], "unavailable")
+        self.assertIsNone(routes._TMDB_LIBRARY_CACHE["last_successful_refresh_at"])
+
+
 if __name__ == "__main__":
     unittest.main()

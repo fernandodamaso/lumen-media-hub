@@ -17,14 +17,18 @@ export const LibraryActions: Story = {
     moduleMetadata: {
       imports: [MmPosterActionOverlay, MmMediaCard, MmIconButton, LucidePlay, LucideEye, LucideTrash2],
     },
+    props: {
+      imageUrl: MOCK_POSTER.movie2,
+      art: mockArtUrl(MOCK_POSTER.movie2),
+    },
     template: `<div style="max-width:220px">
       <mm-poster-action-overlay ariaLabel="Actions for Moonrise">
         <mm-media-card
           title="Moonrise"
           subtitle="2024 · Movie"
           captionPlacement="none"
-          [imageUrl]="'${MOCK_POSTER.movie2}'"
-          [art]="'${mockArtUrl(MOCK_POSTER.movie2)}'"
+          [imageUrl]="imageUrl"
+          [art]="art"
         />
         <mm-icon-button label="Play Moonrise" href="https://jellyfin.example/item" surface="overlay">
           <svg lucidePlay [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>

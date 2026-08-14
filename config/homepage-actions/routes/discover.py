@@ -138,12 +138,11 @@ _TRAKT_WATCHED_SERVICE_LOCK = threading.Lock()
 
 
 def invalidate_discover_library_caches():
+    """Expire library exclusion caches without discarding the last-good snapshot."""
     with _TMDB_LIBRARY_CACHE_LOCK:
         _TMDB_LIBRARY_CACHE["expires"] = 0.0
-        _TMDB_LIBRARY_CACHE["movie"] = {}
-        _TMDB_LIBRARY_CACHE["tv"] = {}
-        _TMDB_LIBRARY_CACHE["status"] = "unavailable"
-        _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] = None
+        if _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None:
+            _TMDB_LIBRARY_CACHE["status"] = "stale"
     with _tracked_media_cache_lock:
         _tracked_media_cache["expires"] = 0.0
 

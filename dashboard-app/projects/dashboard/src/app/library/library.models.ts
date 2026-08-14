@@ -167,9 +167,13 @@ export const formatLibraryDeleteToasts = (
 ): LibraryDeleteToast[] => {
   const steps = result.steps;
   if (result.partial || steps?.library === 'failed') {
+    const torrentsRemoved =
+      steps?.torrents === 'ok' || (steps == null && result.torrentCount > 0);
     return [
       {
-        title: 'Removed torrents; library item remains',
+        title: torrentsRemoved
+          ? 'Removed torrents; library item remains'
+          : 'Could not remove library item',
         body: `${preview.manager} did not remove this title.`,
         tone: 'error',
       },

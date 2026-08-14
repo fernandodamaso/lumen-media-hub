@@ -20,6 +20,7 @@ from clients.jellyfin import (
     invalidate_jellyfin_caches,
     jellyfin_get,
     jellyfin_post,
+    tombstone_jellyfin_item,
 )
 from clients.qbittorrent import qbt_get_json, qbt_login, qbt_post
 from http_support import _valid_torrent_hash
@@ -92,12 +93,16 @@ def _match_series(provider_ids):
     return "Sonarr", tmdb_matches[0]["id"]
 
 
-def _history_download_ids(history):
+def _history_download_ids(history, entity_key=None, arr_id=None):
     total = history.get("totalRecords", 0)
     if total > HISTORY_PAGE_SIZE:
         raise MatchError()
     ids = []
     for record in history.get("records") or []:
+        if entity_key is not None and arr_id is not None:
+            record_entity = record.get(entity_key)
+            if record_entity is not None and record_entity != arr_id:
+                continue
         download_id = record.get("downloadId")
         if _valid_torrent_hash(download_id):
             ids.append(download_id.lower())
@@ -127,13 +132,15 @@ def _intersect_hashes(download_ids, qbit_hashes):
 def _fetch_target_hashes(manager, arr_id):
     if manager == "Radarr":
         history = fetch_arr_history(
-            settings.RADARR_URL, settings.RADARR_API_KEY, "movieId", arr_id
+            settings.RADARR_URL, settings.RADARR_API_KEY, "movieIds", arr_id
         )
+        entity_key = "movieId"
     else:
         history = fetch_arr_history(
-            settings.SONARR_URL, settings.SONARR_API_KEY, "seriesId", arr_id
+            settings.SONARR_URL, settings.SONARR_API_KEY, "seriesIds", arr_id
         )
-    download_ids = _history_download_ids(history)
+        entity_key = "seriesId"
+    download_ids = _history_download_ids(history, entity_key=entity_key, arr_id=arr_id)
     qbit_hashes = _current_qbit_hashes()
     return _intersect_hashes(download_ids, qbit_hashes)
 
@@ -296,6 +303,7 @@ def execute_library_delete(item_id, preview_id, store=None):
             },
         }
     invalidate_jellyfin_caches()
+    tombstone_jellyfin_item(item_id)
     with settings._arr_cache_lock:
         settings._arr_cache.clear()
     from routes.discover import invalidate_discover_library_caches
@@ -308,6 +316,8 @@ def execute_library_delete(item_id, preview_id, store=None):
     except Exception:
         jellyfin_refresh = "pending"
         warning = "Removed; Jellyfin refresh pending"
+    finally:
+        invalidate_jellyfin_caches()
     return {
         "ok": True,
         "removed": True,

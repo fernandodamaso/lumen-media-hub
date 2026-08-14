@@ -373,6 +373,10 @@ def find_sonarr_series_by_tmdb(tmdb_id):
 
 
 def fetch_arr_history(base, api_key, entity_param, arr_id):
+    """Fetch paged Arr history scoped to one entity.
+
+    Sonarr filters on seriesIds (plural); Radarr on movieIds. Singular params are ignored.
+    """
     path = (
         f"/api/v3/history?{entity_param}={int(arr_id)}"
         f"&page=1&pageSize=1000&sortKey=date&sortDirection=descending"

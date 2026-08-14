@@ -169,6 +169,24 @@ describe('library format / library mapping', () => {
         {
           ok: false,
           removed: false,
+          partial: true,
+          torrentCount: 0,
+          steps: { torrents: 'skipped', library: 'failed', jellyfin: 'skipped' },
+        },
+        preview,
+      ),
+    ).toEqual([
+      {
+        title: 'Could not remove library item',
+        body: 'Sonarr did not remove this title.',
+        tone: 'error',
+      },
+    ]);
+    expect(
+      formatLibraryDeleteToasts(
+        {
+          ok: false,
+          removed: false,
           torrentCount: 1,
           error: 'Unable to delete this title',
           steps: { torrents: 'failed', library: 'skipped', jellyfin: 'skipped' },

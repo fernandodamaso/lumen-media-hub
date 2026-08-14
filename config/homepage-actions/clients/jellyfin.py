@@ -183,6 +183,7 @@ def _fetch_jellyfin_items(item_type):
     if item_type == "Series":
         ret_items = [item for item in ret_items if item.get("episodeCount", 0) > 0]
 
+    ret_items = _filter_tombstoned_library_items(ret_items)
     ret_items.sort(key=lambda item: item.get("name", "").lower())
 
     return {
@@ -196,17 +197,17 @@ def _get_jellyfin_payload(item_type):
     now = time.monotonic()
     cached = settings._jellyfin_cache.get(item_type)
     if cached and now - cached["ts"] < settings.JELLYFIN_CACHE_TTL:
-        return cached["payload"]
+        return _apply_library_tombstones(cached["payload"])
 
     lock = _jellyfin_lock_for(item_type)
     with lock:
         cached = settings._jellyfin_cache.get(item_type)
         if cached and now - cached["ts"] < settings.JELLYFIN_CACHE_TTL:
-            return cached["payload"]
+            return _apply_library_tombstones(cached["payload"])
 
         payload = _fetch_jellyfin_items(item_type)
         settings._jellyfin_cache[item_type] = {"ts": time.monotonic(), "payload": payload}
-        return payload
+        return _apply_library_tombstones(payload)
 
 
 WATCH_NEXT_ITEM_LIMIT = 40
@@ -877,6 +878,46 @@ def jellyfin_post(path, query=None, method="POST"):
 def invalidate_jellyfin_caches():
     with settings._jellyfin_cache_lock:
         settings._jellyfin_cache.clear()
+
+
+_DELETED_ITEM_TOMBSTONES = {}
+_DELETED_ITEM_TOMBSTONES_LOCK = threading.Lock()
+
+
+def _tombstone_ttl_seconds():
+    return max(120.0, float(settings.JELLYFIN_CACHE_TTL) + 30.0)
+
+
+def _purge_expired_tombstones(now=None):
+    now = time.monotonic() if now is None else now
+    expired = [item_id for item_id, expires in _DELETED_ITEM_TOMBSTONES.items() if expires <= now]
+    for item_id in expired:
+        _DELETED_ITEM_TOMBSTONES.pop(item_id, None)
+
+
+def tombstone_jellyfin_item(item_id):
+    if not item_id:
+        return
+    with _DELETED_ITEM_TOMBSTONES_LOCK:
+        _DELETED_ITEM_TOMBSTONES[str(item_id)] = time.monotonic() + _tombstone_ttl_seconds()
+
+
+def _filter_tombstoned_library_items(items):
+    with _DELETED_ITEM_TOMBSTONES_LOCK:
+        _purge_expired_tombstones()
+        blocked = set(_DELETED_ITEM_TOMBSTONES)
+    if not blocked:
+        return list(items)
+    return [item for item in items if str(item.get("id") or "") not in blocked]
+
+
+def _apply_library_tombstones(payload):
+    items = _filter_tombstoned_library_items(payload.get("items") or [])
+    return {
+        "ok": payload.get("ok", True),
+        "total": len(items),
+        "items": items,
+    }
 
 
 def set_jellyfin_item_played(item_id, played):

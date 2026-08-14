@@ -17,6 +17,20 @@ describe('app/ui primitives', () => {
     expect(button?.getAttribute('aria-busy')).toBe('true');
   });
 
+  it('keeps quiet and danger buttons on the shared pill radius', () => {
+    const quiet = TestBed.createComponent(MmButton);
+    quiet.componentRef.setInput('variant', 'quiet');
+    quiet.componentRef.setInput('label', 'Cancel');
+    quiet.detectChanges();
+    const danger = TestBed.createComponent(MmButton);
+    danger.componentRef.setInput('variant', 'danger');
+    danger.componentRef.setInput('label', 'Delete media');
+    danger.detectChanges();
+    expect(getComputedStyle(fixtureHost(quiet).querySelector('button') as Element).borderRadius).toBe(
+      getComputedStyle(fixtureHost(danger).querySelector('button') as Element).borderRadius,
+    );
+  });
+
   it('does not transition button text color (avoids load-time ink flash)', () => {
     const fixture = TestBed.createComponent(MmButton);
     fixture.detectChanges();
@@ -250,6 +264,47 @@ describe('app/ui primitives', () => {
 
     expect(button?.getAttribute('aria-expanded')).toBe('true');
     expect(button?.getAttribute('aria-controls')).toBe('activity-rail');
+  });
+
+  it('applies the danger tone modifier', () => {
+    const fixture = TestBed.createComponent(MmIconButton);
+    fixture.componentRef.setInput('label', 'Delete');
+    fixture.componentRef.setInput('tone', 'danger');
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelector('button')?.classList.contains('mm-icon-button--danger')).toBe(
+      true,
+    );
+
+    const plain = TestBed.createComponent(MmIconButton);
+    plain.componentRef.setInput('label', 'Refresh');
+    plain.detectChanges();
+    expect(fixtureHost(plain).querySelector('button')?.classList.contains('mm-icon-button--danger')).toBe(
+      false,
+    );
+  });
+
+  it('applies the overlay surface modifier', () => {
+    const fixture = TestBed.createComponent(MmIconButton);
+    fixture.componentRef.setInput('label', 'Mark watched');
+    fixture.componentRef.setInput('surface', 'overlay');
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).querySelector('button')?.classList.contains('mm-icon-button--overlay')).toBe(
+      true,
+    );
+  });
+
+  it('renders as an external link when href is set', () => {
+    const fixture = TestBed.createComponent(MmIconButton);
+    fixture.componentRef.setInput('label', 'Play Dune');
+    fixture.componentRef.setInput('href', 'https://jf.example/dune');
+    fixture.componentRef.setInput('surface', 'overlay');
+    fixture.detectChanges();
+    const link = fixtureHost(fixture).querySelector('a.mm-icon-button--overlay') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('https://jf.example/dune');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noreferrer');
+    expect(link.getAttribute('aria-label')).toBe('Play Dune');
+    expect(fixtureHost(fixture).querySelector('button')).toBeNull();
   });
 
   it('lets the primary button receive keyboard focus', () => {

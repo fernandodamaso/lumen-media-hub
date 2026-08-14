@@ -143,13 +143,21 @@
 
 .mm-dialog__foot {
   display: none;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
-  gap: var(--mm-space-md);
+  gap: var(--mm-space-sm);
   padding: var(--mm-space-sm) var(--mm-space-md);
   border-top: 1px solid var(--mm-component-border);
 }
 
 .mm-dialog__foot:has(> *) {
   display: flex;
+}
+
+.mm-dialog__foot > *:not(button, mm-button) {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--mm-space-sm);
 }

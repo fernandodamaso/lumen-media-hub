@@ -1,3 +1,4 @@
+import { mediaStackLibraryMutationStub } from '../../testing/media-stack-library-stub';
 import { TestBed } from '@angular/core/testing';
 import { computed, signal } from '@angular/core';
 import { vi } from 'vitest';
@@ -350,6 +351,9 @@ class MockServiceHealthFacade {
 }
 
 class MockApi implements MediaStackApi {
+  setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
+  previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
+  deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
   cronFailure = false;
   cronLogs: CronLogs = { ok: true, generatedAt: '2026-07-14T12:00:00Z', runs: [] };
   nextResponse?: Promise<CronLogs>;

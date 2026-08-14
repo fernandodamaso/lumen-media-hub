@@ -233,8 +233,20 @@ describe('live-api.mappers', () => {
       posterUrl: '/img',
       artworkState: 'ok',
       playable: true,
+      episodeCount: null,
+      played: false,
     });
-    expect(mapLiveJellyfinItem({ id: '2', name: 'Show' }, 'series').artworkState).toBe('missing');
+    expect(mapLiveJellyfinItem({ id: '2', name: 'Show', episodeCount: 12, played: true }, 'series')).toEqual({
+      id: '2',
+      title: 'Show',
+      kind: 'series',
+      year: undefined,
+      posterUrl: undefined,
+      artworkState: 'missing',
+      playable: true,
+      episodeCount: 12,
+      played: true,
+    });
   });
 
   it('maps nested automation summary into flat services/preview/problems', () => {

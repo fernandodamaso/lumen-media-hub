@@ -82,6 +82,7 @@
 .mm-button--quiet {
   @include control.quiet-surface;
 
+  border-radius: var(--mm-radius-pill);
   color: var(--mm-component-text-primary);
 }
 

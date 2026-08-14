@@ -43,6 +43,7 @@ for (const path of publicBrowserPaths) {
   assert(bypass({ url: path }) === undefined, `Vite must proxy ${path}`);
 }
 
+assert(proxy.includes("path.startsWith('/api/library/items/')"), 'Vite must inject token for library delete preview GETs');
 assert(
   proxyConfig['/api']?.pathRewrite && proxyConfig['/api'].pathRewrite['^/api'] === '',
   'Vite must preserve public /api proxying',

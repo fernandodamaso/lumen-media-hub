@@ -9,6 +9,8 @@ export interface MediaStackLibraryItemDto {
   artworkState?: 'ok' | 'missing' | 'failed';
   playable?: boolean;
   rating?: number | null;
+  episodeCount?: number | null;
+  played?: boolean;
 }
 
 /** Aggregate library counts derived from Jellyfin movie/series list responses. */

@@ -1,3 +1,4 @@
+import { mediaStackLibraryMutationStub } from '../../testing/media-stack-library-stub';
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
@@ -99,6 +100,9 @@ describe('ActivityFacade', () => {
 });
 
 class MockApi implements MediaStackApi {
+  setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
+  previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
+  deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
   feed: ActivityFeed = { ...feed, items: feed.items.map((item) => ({ ...item })) };
   failure = false;
   calls = 0;

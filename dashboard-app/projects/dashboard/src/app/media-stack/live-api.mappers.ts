@@ -42,6 +42,8 @@ interface LiveJellyfinItem {
   id?: string;
   image?: string | null;
   rating?: number | null;
+  episodeCount?: number | null;
+  played?: boolean;
 }
 
 /** Validated Jellyfin list member — required identity fields are present. */
@@ -51,6 +53,8 @@ interface ValidatedLiveJellyfinItem {
   year?: number | null;
   image?: string | null;
   rating?: number | null;
+  episodeCount?: number | null;
+  played: boolean;
 }
 
 export interface LiveJellyfinListResponse {
@@ -281,6 +285,8 @@ function requireLiveJellyfinItem(raw: unknown, index = 0): ValidatedLiveJellyfin
     year: optionalNullableFiniteNumber(raw, 'year', index, 'jellyfin items'),
     image: optionalNullableString(raw, 'image', index, 'jellyfin items'),
     rating: optionalNullableFiniteNumber(raw, 'rating', index, 'jellyfin items'),
+    episodeCount: optionalNullableFiniteNumber(raw, 'episodeCount', index, 'jellyfin items'),
+    played: optionalBoolean(raw, 'played', index, 'jellyfin items') ?? false,
   };
 }
 
@@ -391,6 +397,7 @@ export function mapLiveJellyfinItem(
 ): MediaStackLibraryItemDto {
   const validated = requireLiveJellyfinItem(item, index);
   const posterUrl = validated.image ?? undefined;
+  const episodeCount = kind === 'movie' ? null : (validated.episodeCount ?? null);
   return {
     id: validated.id,
     title: validated.name,
@@ -400,6 +407,8 @@ export function mapLiveJellyfinItem(
     artworkState: posterUrl ? 'ok' : 'missing',
     playable: true,
     rating: validated.rating,
+    episodeCount,
+    played: validated.played,
   };
 }
 

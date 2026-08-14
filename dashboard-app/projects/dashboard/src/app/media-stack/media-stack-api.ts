@@ -16,6 +16,8 @@ import {
   LibraryItemKind,
   LibraryListResult,
   LibraryStats,
+  LibraryDeletePreview,
+  LibraryDeleteResult,
 } from '../library/library.models';
 import { WatchNextResult } from '../library/watch-next.models';
 import { RecentlyAvailableResult } from '../library/recently-available.models';
@@ -33,6 +35,9 @@ export interface MediaStackApi {
   listCalendarEvents(signal?: AbortSignal): Promise<CalendarEvent[]>;
   getArrLibrary(signal?: AbortSignal): Promise<ArrLibrary>;
   listLibraryItems(filter?: { kind?: LibraryItemKind }, signal?: AbortSignal): Promise<LibraryListResult>;
+  setLibraryItemPlayed(id: string, played: boolean): Promise<{ played: boolean }>;
+  previewLibraryItemDeletion(id: string): Promise<LibraryDeletePreview>;
+  deleteLibraryItem(id: string, previewId: string): Promise<LibraryDeleteResult>;
   listWatchNext(signal?: AbortSignal): Promise<WatchNextResult>;
   listRecentlyAvailable(limit?: number, signal?: AbortSignal): Promise<RecentlyAvailableResult>;
   getActivity(limit?: number, signal?: AbortSignal): Promise<ActivityFeed>;

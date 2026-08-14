@@ -22,6 +22,15 @@ function isPrivateBrowserPath(url) {
   );
 }
 
+function needsActionsToken(req) {
+  const method = (req.method || 'GET').toUpperCase();
+  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
+    return true;
+  }
+  const path = req.url?.split('?', 1)[0] ?? '';
+  return method === 'GET' && (path.startsWith('/api/library/items/') || path.startsWith('/library/items/'));
+}
+
 module.exports = {
   '/api': {
     target: apiTarget,
@@ -33,8 +42,7 @@ module.exports = {
     },
     configure(proxy) {
       proxy.on('proxyReq', (proxyReq, req) => {
-        const method = (req.method || 'GET').toUpperCase();
-        if (token && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
+        if (token && needsActionsToken(req)) {
           proxyReq.setHeader('X-Actions-Token', token);
         }
       });

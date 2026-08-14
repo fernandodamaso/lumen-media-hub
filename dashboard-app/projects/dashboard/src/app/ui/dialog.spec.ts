@@ -44,6 +44,35 @@ class DialogHost {
 })
 class HeaderlessDialogHost {}
 
+@Component({
+  standalone: true,
+  imports: [MmDialog],
+  template: `
+    <mm-dialog
+      #dlg
+      title="Locked dialog"
+      [opened]="dialogOpened"
+      [dismissible]="false"
+      (openedChange)="dialogOpened = $event"
+      (closed)="onClosed()"
+    >
+      <p data-testid="locked-body">Locked body</p>
+      <button type="button" mmDialogFooter data-testid="footer-close" (click)="dlg.close()">
+        Close
+      </button>
+    </mm-dialog>
+    <button type="button" data-testid="locked-open" (click)="dlg.open()">Open</button>
+  `,
+})
+class NonDismissibleDialogHost {
+  closedCount = 0;
+  dialogOpened = false;
+
+  onClosed(): void {
+    this.closedCount += 1;
+  }
+}
+
 describe('MmDialog', () => {
   let fixture: ComponentFixture<DialogHost>;
   let showModal: ReturnType<typeof vi.fn>;
@@ -61,7 +90,7 @@ describe('MmDialog', () => {
     HTMLDialogElement.prototype.close = closeFn as typeof HTMLDialogElement.prototype.close;
 
     TestBed.configureTestingModule({
-      imports: [DialogHost, HeaderlessDialogHost],
+      imports: [DialogHost, HeaderlessDialogHost, NonDismissibleDialogHost],
     });
     fixture = TestBed.createComponent(DialogHost);
     fixture.detectChanges();
@@ -169,5 +198,38 @@ describe('MmDialog', () => {
     dialog.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(last);
+  });
+
+  it('ignores backdrop clicks when dismissible is false', () => {
+    const lockedFixture = TestBed.createComponent(NonDismissibleDialogHost);
+    lockedFixture.detectChanges();
+    const root = fixtureHost(lockedFixture);
+    root.querySelector<HTMLButtonElement>('[data-testid="locked-open"]')?.click();
+    const dialog = root.querySelector<HTMLDialogElement>('dialog');
+    if (!dialog) throw new Error('dialog missing');
+    dialog.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(closeFn).not.toHaveBeenCalled();
+    expect(dialog.open).toBe(true);
+    expect(lockedFixture.componentInstance.closedCount).toBe(0);
+  });
+
+  it('hides the header close button when dismissible is false', () => {
+    const lockedFixture = TestBed.createComponent(NonDismissibleDialogHost);
+    lockedFixture.detectChanges();
+    fixtureHost(lockedFixture).querySelector<HTMLButtonElement>('[data-testid="locked-open"]')?.click();
+    expect(fixtureHost(lockedFixture).querySelector('.mm-dialog__close')).toBeNull();
+  });
+
+  it('prevents native cancel when dismissible is false', () => {
+    const lockedFixture = TestBed.createComponent(NonDismissibleDialogHost);
+    lockedFixture.detectChanges();
+    const root = fixtureHost(lockedFixture);
+    root.querySelector<HTMLButtonElement>('[data-testid="locked-open"]')?.click();
+    const dialog = root.querySelector<HTMLDialogElement>('dialog');
+    if (!dialog) throw new Error('dialog missing');
+    const event = new Event('cancel', { bubbles: true, cancelable: true });
+    dialog.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(closeFn).not.toHaveBeenCalled();
   });
 });

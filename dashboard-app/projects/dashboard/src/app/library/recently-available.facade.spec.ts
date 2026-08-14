@@ -1,3 +1,4 @@
+import { mediaStackLibraryMutationStub } from '../../testing/media-stack-library-stub';
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
@@ -125,6 +126,9 @@ describe('RecentlyAvailableFacade', () => {
 });
 
 class MockApi implements MediaStackApi {
+  setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
+  previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
+  deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
   result: { items: RecentlyAvailableItem[] } = {
     items: [item('ep-1', '2026-08-11T12:00:00Z')],
   };

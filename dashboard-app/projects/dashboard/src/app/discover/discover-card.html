@@ -1,12 +1,42 @@
 <article class="discover-card">
   <div class="discover-card__poster">
-    <mm-media-card
-      [title]="item().title"
-      [subtitle]="meta()"
-      [imageUrl]="item().posterUrl"
-      [art]="fallbackArt()"
-      [captionPlacement]="'none'"
-    />
+    <mm-poster-action-overlay [ariaLabel]="'Feedback for ' + item().title">
+      <mm-media-card
+        [title]="item().title"
+        [subtitle]="meta()"
+        [imageUrl]="item().posterUrl"
+        [art]="fallbackArt()"
+        [captionPlacement]="'none'"
+      />
+      @if (showFeedback()) {
+        @for (option of feedbackOptions; track option.value) {
+          <mm-icon-button
+            [label]="option.label"
+            [toggle]="true"
+            [pressed]="isFeedbackPressed(option.value)"
+            [disabled]="isFeedbackDisabled(option.value)"
+            [busy]="busy()"
+            surface="overlay"
+            (click)="feedback.emit(option.value)"
+          >
+            @switch (option.icon) {
+              @case ('thumbsUp') {
+                <svg lucideThumbsUp [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+              }
+              @case ('thumbsDown') {
+                <svg lucideThumbsDown [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+              }
+              @case ('eye') {
+                <svg lucideEye [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+              }
+              @case ('skipForward') {
+                <svg lucideSkipForward [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+              }
+            }
+          </mm-icon-button>
+        }
+      }
+    </mm-poster-action-overlay>
     @if (item().inLibrary || item().watchedOnTrakt || item().requestState === 'requested' || syncFailed() || item().feedback || traktSyncLabel()) {
       <div class="discover-card__badges">
         @if (item().inLibrary) {
@@ -26,37 +56,6 @@
         @if (item().feedback && !traktSyncLabel()) {
           <mm-status tone="info">{{ item().feedback }}</mm-status>
         }
-      </div>
-    }
-    @if (showFeedback()) {
-      <div class="discover-card__overlay">
-        <div class="discover-card__feedback" role="group" [attr.aria-label]="'Feedback for ' + item().title">
-          @for (option of feedbackOptions; track option.value) {
-            <mm-icon-button
-              [label]="option.label"
-              [toggle]="true"
-              [pressed]="isFeedbackPressed(option.value)"
-              [disabled]="isFeedbackDisabled(option.value)"
-              [busy]="busy()"
-              (click)="feedback.emit(option.value)"
-            >
-              @switch (option.icon) {
-                @case ('thumbsUp') {
-                  <svg lucideThumbsUp [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
-                }
-                @case ('thumbsDown') {
-                  <svg lucideThumbsDown [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
-                }
-                @case ('eye') {
-                  <svg lucideEye [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
-                }
-                @case ('skipForward') {
-                  <svg lucideSkipForward [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
-                }
-              }
-            </mm-icon-button>
-          }
-        </div>
       </div>
     }
   </div>

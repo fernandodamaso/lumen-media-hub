@@ -1,3 +1,4 @@
+import { mediaStackLibraryMutationStub } from '../../testing/media-stack-library-stub';
 import { TestBed } from '@angular/core/testing';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { CronLogs, CronRun } from './reports.models';
@@ -171,6 +172,9 @@ describe('ReportsFacade', () => {
 });
 
 class MockApi implements MediaStackApi {
+  setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
+  previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
+  deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
   response: CronLogs = structuredClone(mixedLogs);
   nextResponse?: Promise<CronLogs>;
   failure = false;

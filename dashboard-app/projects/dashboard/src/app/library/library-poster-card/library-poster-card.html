@@ -1,0 +1,76 @@
+<div class="library-poster-card__poster">
+  <mm-poster-action-overlay [ariaLabel]="'Actions for ' + item().title">
+    <mm-media-card
+      [title]="item().title"
+      [subtitle]="item().meta"
+      [imageUrl]="imageUrl()"
+      [art]="fallbackArt()"
+      captionPlacement="none"
+      [retryToken]="retryToken()"
+    />
+    @if (href(); as destination) {
+      <mm-icon-button
+        [label]="'Play ' + item().title"
+        [href]="destination"
+        surface="overlay"
+      >
+        <svg lucidePlay [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+      </mm-icon-button>
+    }
+    <mm-icon-button
+      [label]="item().played ? 'Mark unwatched' : 'Mark watched'"
+      [toggle]="true"
+      [pressed]="item().played"
+      [busy]="watchedBusy()"
+      surface="overlay"
+      (click)="onToggleWatched($event)"
+    >
+      @if (item().played) {
+        <svg lucideEyeOff [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+      } @else {
+        <svg lucideEye [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+      }
+    </mm-icon-button>
+    <mm-icon-button
+      label="Delete"
+      [busy]="previewBusy() || deleteBusy()"
+      surface="overlay"
+      (click)="onDelete($event)"
+    >
+      <svg lucideTrash2 [size]="16" [strokeWidth]="2.2" aria-hidden="true"></svg>
+    </mm-icon-button>
+  </mm-poster-action-overlay>
+</div>
+
+<div class="library-poster-card__caption">
+  <strong>{{ item().title }}</strong>
+  <small>{{ item().meta }}</small>
+</div>
+
+<mm-dialog
+  title="Delete media"
+  tone="danger"
+  [dismissible]="!deleteBusy()"
+  [(opened)]="dialogOpen"
+>
+  <p>
+    @if (dialogCopy(); as copy) {
+      This will remove
+      <strong class="library-poster-card__delete-title">{{ copy.title }}</strong>{{ copy.rest }}
+    }
+  </p>
+  <mm-button
+    mmDialogFooter
+    label="Cancel"
+    variant="quiet"
+    [disabled]="deleteBusy()"
+    (click)="cancelDelete()"
+  />
+  <mm-button
+    mmDialogFooter
+    label="Delete media"
+    variant="danger"
+    [busy]="deleteBusy()"
+    (click)="confirmDelete()"
+  />
+</mm-dialog>

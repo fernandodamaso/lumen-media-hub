@@ -1,3 +1,4 @@
+import { mediaStackLibraryMutationStub } from '../../testing/media-stack-library-stub';
 import { TestBed } from '@angular/core/testing';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { WatchNextItem, WatchNextResult } from './watch-next.models';
@@ -127,6 +128,9 @@ describe('WatchNextFacade', () => {
 });
 
 class MockApi implements MediaStackApi {
+  setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
+  previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
+  deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
   result: WatchNextResult = { items: [movie('m1', 'Moonrise'), episode('e1', 'Night Watch')] };
   failure = false;
   nextResponse?: Promise<WatchNextResult>;

@@ -89,28 +89,39 @@
   } @else {
     @if (facade.status() === 'allClear') {
       <p class="health" role="status">
-        <mm-status tone="success">All clear — {{ facade.summary().quiet }} quiet run{{ facade.summary().quiet === 1 ? '' : 's' }}.</mm-status>
+        <mm-status tone="success">All clear — {{ facade.summary().healthyJobs }} job{{ facade.summary().healthyJobs === 1 ? '' : 's' }} healthy.</mm-status>
       </p>
     } @else {
       <p class="health" role="status">
-        <mm-status tone="warning">{{ facade.summary().actionable }} actionable run{{ facade.summary().actionable === 1 ? '' : 's' }} need attention.</mm-status>
+        <mm-status tone="warning">{{ facade.summary().affectedJobs }} job{{ facade.summary().affectedJobs === 1 ? '' : 's' }} need attention.</mm-status>
       </p>
     }
 
     @if (actionableRuns().length) {
       <div class="run-list" aria-label="Actionable runs">
         @for (run of actionableRuns(); track run.id) {
-          <ng-container *ngTemplateOutlet="runCard; context: { $implicit: run, showExtras: true }" />
+          <ng-container *ngTemplateOutlet="runCard; context: { $implicit: run, showExtras: true, historical: false }" />
         }
       </div>
     }
 
-    @if (quietRuns().length) {
+    @if (healthyRuns().length) {
       <details class="quiet-section">
-        <summary>{{ quietRuns().length }} quiet run{{ quietRuns().length === 1 ? '' : 's' }}</summary>
-        <div class="run-list quiet-list" aria-label="Quiet runs">
-          @for (run of quietRuns(); track run.id) {
-            <ng-container *ngTemplateOutlet="runCard; context: { $implicit: run, showExtras: false }" />
+        <summary>{{ healthyRuns().length }} healthy job{{ healthyRuns().length === 1 ? '' : 's' }}</summary>
+        <div class="run-list quiet-list" aria-label="Healthy jobs">
+          @for (run of healthyRuns(); track run.id) {
+            <ng-container *ngTemplateOutlet="runCard; context: { $implicit: run, showExtras: false, historical: false }" />
+          }
+        </div>
+      </details>
+    }
+
+    @if (historyRuns().length) {
+      <details class="quiet-section history-section">
+        <summary>History ({{ historyRuns().length }} run{{ historyRuns().length === 1 ? '' : 's' }})</summary>
+        <div class="run-list quiet-list" aria-label="Run history">
+          @for (run of historyRuns(); track run.id) {
+            <ng-container *ngTemplateOutlet="runCard; context: { $implicit: run, showExtras: true, historical: true }" />
           }
         </div>
       </details>
@@ -118,18 +129,24 @@
   }
 </section>
 
-<ng-template #runCard let-run let-showExtras="showExtras">
+<ng-template #runCard let-run let-showExtras="showExtras" let-historical="historical">
   <details class="run" [open]="expanded().has(run.id)" (toggle)="onToggle(run.id, $event)">
     <summary>
       <div class="run-head">
         <strong>{{ run.jobTitle }}</strong>
         <mm-status [tone]="statusView(run.status).tone">{{ statusView(run.status).label }}</mm-status>
+        @if (historical) {
+          <mm-status [tone]="historyBadge(run).tone">{{ historyBadge(run).label }}</mm-status>
+        }
         <span class="run-time">{{ formatRunTimestamp(run.timestamp) }}</span>
       </div>
     </summary>
     <div class="run-detail">
       @if (run.detail) {
         <p>{{ run.detail }}</p>
+      }
+      @if (run.schedule) {
+        <p>Schedule: {{ run.schedule }}</p>
       }
       @if (showExtras) {
         @if (run.fatal) {

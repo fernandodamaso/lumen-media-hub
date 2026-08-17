@@ -3,9 +3,9 @@ import type { AutomationProblem, AutomationService } from '../automation/automat
 import {
   buildServiceHealthReportView,
   cronStatusView,
-  flattenCronRuns,
   formatGeneratedAt,
   formatRunTimestamp,
+  mapCronLogs,
   mapCronRun,
 } from './reports-format';
 
@@ -28,7 +28,7 @@ describe('reports format / cron mapping', () => {
     });
   });
 
-  it('flattens nested cron logs into triage rows', () => {
+  it('maps current vs history and resolves older actionables after a quiet success', () => {
     const dto: MediaStackCronLogsDto = {
       ok: true,
       generatedAt: '2026-07-12T12:00:00Z',
@@ -40,19 +40,47 @@ describe('reports format / cron mapping', () => {
           format: 'ndjson',
           schedule: '*/15 * * * *',
           exists: true,
-          runs: [
-            { timestamp: '2026-07-12T11:00:00Z', status: 'ok', detail: 'Checked 1, no repairs needed' },
-            { timestamp: '2026-07-12T11:15:00Z', status: 'fatal', detail: 'Timeout', fatal: 'Timeout' },
+          current: { timestamp: '2026-07-12T12:00:00Z', status: 'ok', detail: 'Checked 1, no repairs needed' },
+          history: [
+            { timestamp: '2026-07-12T11:00:00Z', status: 'ok', detail: 'Summary: 1 file(s) can be freed (~0.88 GiB), 1 file(s) kept' },
+            { timestamp: '2026-07-12T11:30:00Z', status: 'fatal', detail: 'Timeout', fatal: 'Timeout' },
           ],
         },
       ],
     };
-    const runs = flattenCronRuns(dto);
-    expect(runs).toHaveLength(2);
-    expect(runs.map((run) => run.triage)).toEqual(['quiet', 'actionable']);
+    const logs = mapCronLogs(dto);
+    expect(logs.currentRuns).toHaveLength(1);
+    expect(logs.currentRuns[0].triage).toBe('quiet');
+    // Both older actionable rows (positive dry-run + fatal) resolved by the newer success.
+    expect(logs.historyRuns).toHaveLength(2);
+    expect(logs.historyRuns.map((run) => run.triage)).toEqual(['actionable', 'actionable']);
+    expect(logs.historyRuns.every((run) => run.resolved)).toBe(true);
   });
 
-  it('preserves job entries that have no nested runs', () => {
+  it('does not resolve history when the current run is still fatal', () => {
+    const dto: MediaStackCronLogsDto = {
+      ok: true,
+      generatedAt: '2026-07-12T12:00:00Z',
+      logs: [
+        {
+          id: 'watchdog',
+          title: 'Watchdog',
+          file: 'watchdog.log',
+          format: 'ndjson',
+          schedule: '*/15 * * * *',
+          exists: true,
+          current: { timestamp: '2026-07-12T12:00:00Z', status: 'fatal', detail: 'Disk full', fatal: 'Disk full' },
+          history: [{ timestamp: '2026-07-12T11:00:00Z', status: 'ok', detail: 'Checked 1, no repairs needed' }],
+        },
+      ],
+    };
+    const logs = mapCronLogs(dto);
+    expect(logs.currentRuns[0].triage).toBe('actionable');
+    expect(logs.historyRuns[0].triage).toBe('quiet');
+    expect(logs.historyRuns[0].resolved).toBe(false);
+  });
+
+  it('carries missing and unparsed current sentinels as actionable current rows', () => {
     const dto: MediaStackCronLogsDto = {
       ok: true,
       generatedAt: '2026-07-12T12:00:00Z',
@@ -64,9 +92,9 @@ describe('reports format / cron mapping', () => {
           format: 'ndjson',
           schedule: '*/15 * * * *',
           exists: false,
-          summary: 'Log file missing',
-          lastStatus: 'missing',
           mtime: null,
+          current: { status: 'missing', detail: 'No log file yet' },
+          history: [],
         },
         {
           id: 'weekly-validate',
@@ -75,24 +103,26 @@ describe('reports format / cron mapping', () => {
           format: 'text',
           schedule: '0 4 * * 0',
           exists: true,
-          runs: [],
+          current: { status: 'unparsed', detail: 'No recent runs' },
+          history: [],
         },
       ],
     };
-    const runs = flattenCronRuns(dto);
-    expect(runs).toHaveLength(2);
-    expect(runs[0]).toMatchObject({
+    const logs = mapCronLogs(dto);
+    expect(logs.currentRuns).toHaveLength(2);
+    expect(logs.currentRuns[0]).toMatchObject({
       jobId: 'watchdog',
       status: 'missing',
       triage: 'actionable',
-      detail: 'Log file missing',
+      detail: 'No log file yet',
     });
-    expect(runs[1]).toMatchObject({
+    expect(logs.currentRuns[1]).toMatchObject({
       jobId: 'weekly-validate',
       status: 'unparsed',
       triage: 'actionable',
       detail: 'No recent runs',
     });
+    expect(logs.historyRuns).toHaveLength(0);
   });
 
   it.each([

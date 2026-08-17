@@ -9,6 +9,12 @@ describe('reports.models cron triage helpers', () => {
     expect(isQuietRun({ status: 'warn', detail: 'Stale metadata found' })).toBe(false);
     expect(isQuietRun({ status: 'ok', applied: 2, detail: 'Applied 2 repairs' })).toBe(false);
     expect(isQuietRun({ status: 'ok', detail: '2.1 GB can be freed' })).toBe(false);
+    expect(isQuietRun({ status: 'ok', detail: '0 file(s) can be freed (~0 GiB), 2 file(s) kept' })).toBe(true);
+    expect(isQuietRun({ status: 'ok', detail: '0 bytes can be freed' })).toBe(true);
+    // Unparseable freeable-space phrase stays actionable.
+    expect(isQuietRun({ status: 'ok', detail: 'several files can be freed' })).toBe(false);
+    // Successful Weekly Validate blocks end with "Phase completed: …" and are quiet.
+    expect(isQuietRun({ status: 'ok', detail: 'Phase completed: 6 (Tasks 19-20)' })).toBe(true);
     expect(isQuietRun({ status: 'ok', detail: 'No stale entries; blocker: Radarr offline' })).toBe(false);
     expect(isQuietRun({ status: 'ok', detail: 'No stale cleanup: 2 GB can be freed' })).toBe(false);
     expect(isQuietRun({ status: 'ok', detail: 'No stale metadata found' })).toBe(true);
@@ -77,7 +83,7 @@ describe('reports.models cron triage helpers', () => {
   });
 
   it('summarizes empty, all-clear, and mixed health without manufacturing alerts', () => {
-    expect(summarizeCronHealth([])).toEqual({ kind: 'empty', total: 0, actionable: 0, quiet: 0 });
+    expect(summarizeCronHealth([])).toEqual({ kind: 'empty', totalJobs: 0, affectedJobs: 0, healthyJobs: 0 });
 
     const quiet: CronRun = {
       id: 'q',
@@ -91,9 +97,9 @@ describe('reports.models cron triage helpers', () => {
       applied: null,
       exitCode: 0,
     };
-    expect(summarizeCronHealth([quiet])).toEqual({ kind: 'allClear', total: 1, actionable: 0, quiet: 1 });
+    expect(summarizeCronHealth([quiet])).toEqual({ kind: 'allClear', totalJobs: 1, affectedJobs: 0, healthyJobs: 1 });
 
     const fatal: CronRun = { ...quiet, id: 'f', status: 'fatal', triage: 'actionable', detail: 'Boom', fatal: 'Boom' };
-    expect(summarizeCronHealth([quiet, fatal])).toEqual({ kind: 'mixed', total: 2, actionable: 1, quiet: 1 });
+    expect(summarizeCronHealth([quiet, fatal])).toEqual({ kind: 'mixed', totalJobs: 2, affectedJobs: 1, healthyJobs: 1 });
   });
 });

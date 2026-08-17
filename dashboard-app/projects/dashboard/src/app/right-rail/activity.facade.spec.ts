@@ -191,7 +191,7 @@ class MockApi implements MediaStackApi {
     });
   }
   listCronLogs() {
-    return Promise.resolve({ ok: true, runs: [] });
+    return Promise.resolve({ ok: true, currentRuns: [], historyRuns: [] });
   }
   listHermesRecommendations() {
     return Promise.resolve({ ok: true, items: [] });

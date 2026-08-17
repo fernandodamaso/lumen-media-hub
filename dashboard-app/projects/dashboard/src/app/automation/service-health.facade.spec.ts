@@ -255,7 +255,7 @@ class MockApi implements MediaStackApi {
   }
 
   listCronLogs() {
-    return Promise.resolve({ ok: true, generatedAt: '2026-07-12T18:00:00Z', runs: [] });
+    return Promise.resolve({ ok: true, generatedAt: '2026-07-12T18:00:00Z', currentRuns: [], historyRuns: [] });
   }
   listTorrents() {
     return Promise.resolve([]);

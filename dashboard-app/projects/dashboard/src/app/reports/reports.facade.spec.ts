@@ -36,13 +36,14 @@ const mixedRuns: CronRun[] = [
 const mixedLogs: CronLogs = {
   ok: true,
   generatedAt: '2026-07-12T12:00:00Z',
-  runs: mixedRuns,
+  currentRuns: mixedRuns,
+  historyRuns: [],
 };
 
 const allClearLogs: CronLogs = {
   ok: true,
   generatedAt: '2026-07-12T13:00:00Z',
-  runs: [
+  currentRuns: [
     {
       id: 'weekly-validate-2026-07-06T04:00:00Z-0',
       jobId: 'weekly-validate',
@@ -57,6 +58,7 @@ const allClearLogs: CronLogs = {
       schedule: '0 4 * * 0',
     },
   ],
+  historyRuns: [],
 };
 
 describe('ReportsFacade', () => {
@@ -74,42 +76,42 @@ describe('ReportsFacade', () => {
   it('loads mixed, all-clear, and empty states', async () => {
     await facade.load();
     expect(facade.status()).toBe('mixed');
-    expect(facade.runs()[0]?.status).toBe('fatal');
-    expect(facade.summary()).toMatchObject({ kind: 'mixed', actionable: 1, quiet: 1 });
+    expect(facade.currentRuns()[0]?.status).toBe('fatal');
+    expect(facade.summary()).toMatchObject({ kind: 'mixed', affectedJobs: 1, healthyJobs: 1 });
     expect(facade.generatedAt()).toBe('2026-07-12T12:00:00Z');
     expect(facade.error()).toBe('');
 
     api.response = allClearLogs;
     await facade.refresh();
     expect(facade.status()).toBe('allClear');
-    expect(facade.summary().actionable).toBe(0);
+    expect(facade.summary().affectedJobs).toBe(0);
     expect(facade.generatedAt()).toBe('2026-07-12T13:00:00Z');
 
-    api.response = { ok: true, generatedAt: '2026-07-12T14:00:00Z', runs: [] };
+    api.response = { ok: true, generatedAt: '2026-07-12T14:00:00Z', currentRuns: [], historyRuns: [] };
     await facade.refresh();
     expect(facade.status()).toBe('empty');
-    expect(facade.runs()).toEqual([]);
+    expect(facade.currentRuns()).toEqual([]);
   });
 
   it('surfaces error on initial load failure with empty runs', async () => {
     api.failure = true;
     await facade.load();
     expect(facade.status()).toBe('error');
-    expect(facade.runs()).toEqual([]);
+    expect(facade.currentRuns()).toEqual([]);
     expect(facade.error()).toContain('temporarily unavailable');
   });
 
   it('treats soft ok:false envelopes as load/refresh failures', async () => {
-    api.response = { ok: false, error: 'backend offline', runs: [] };
+    api.response = { ok: false, error: 'backend offline', currentRuns: [], historyRuns: [] };
     await facade.load();
     expect(facade.status()).toBe('error');
-    expect(facade.runs()).toEqual([]);
+    expect(facade.currentRuns()).toEqual([]);
 
     api.response = structuredClone(mixedLogs);
     await facade.load();
     expect(facade.status()).toBe('mixed');
 
-    api.response = { ok: false, error: 'backend offline', runs: [], generatedAt: '2026-07-12T99:00:00Z' };
+    api.response = { ok: false, error: 'backend offline', currentRuns: [], historyRuns: [], generatedAt: '2026-07-12T99:00:00Z' };
     await facade.refresh();
     expect(facade.status()).toBe('mixed');
     expect(facade.generatedAt()).toBe('2026-07-12T12:00:00Z');
@@ -118,14 +120,14 @@ describe('ReportsFacade', () => {
 
   it('retains prior data when refresh fails after a successful load', async () => {
     await facade.load();
-    const priorRuns = facade.runs();
+    const priorRuns = facade.currentRuns();
     const priorGeneratedAt = facade.generatedAt();
     const priorStatus = facade.status();
 
     api.failure = true;
     await facade.refresh();
 
-    expect(facade.runs()).toEqual(priorRuns);
+    expect(facade.currentRuns()).toEqual(priorRuns);
     expect(facade.generatedAt()).toBe(priorGeneratedAt);
     expect(facade.status()).toBe(priorStatus);
     expect(facade.status()).not.toBe('error');

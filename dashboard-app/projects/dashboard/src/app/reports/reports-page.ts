@@ -18,6 +18,7 @@ import { ServiceHealthFacade } from '../automation/service-health.facade';
 import { MmServiceRow } from '../automation/service-row';
 import { buildServiceHealthReportView, cronStatusView, formatRunTimestamp } from './reports-format';
 import { ReportsFacade } from './reports.facade';
+import type { CronHistoricalRun } from './reports.models';
 
 @Component({
   selector: 'mm-reports-page',
@@ -54,8 +55,9 @@ export class ReportsPage {
 
   readonly refreshing = computed(() => this.facade.refreshing() || this.health.refreshing());
 
-  readonly actionableRuns = computed(() => this.facade.runs().filter((run) => run.triage === 'actionable'));
-  readonly quietRuns = computed(() => this.facade.runs().filter((run) => run.triage === 'quiet'));
+  readonly actionableRuns = computed(() => this.facade.currentRuns().filter((run) => run.triage === 'actionable'));
+  readonly healthyRuns = computed(() => this.facade.currentRuns().filter((run) => run.triage === 'quiet'));
+  readonly historyRuns = this.facade.historyRuns;
 
   constructor() {
     void this.facade.load();
@@ -82,6 +84,12 @@ export class ReportsPage {
     if (open) next.add(id);
     else next.delete(id);
     this.expandedIds.set(next);
+  }
+
+  historyBadge(run: CronHistoricalRun): { label: string; tone: 'success' | 'info' } {
+    return run.resolved
+      ? { label: 'Resolved', tone: 'success' }
+      : { label: 'Historical', tone: 'info' };
   }
 
   serviceInitial(name: string): string {

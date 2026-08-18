@@ -48,7 +48,8 @@ describe('AutomationFacade', () => {
     api.cronLogs = {
       ok: true,
       generatedAt: '2026-07-14T12:00:00Z',
-      runs: [cronRun('Cleanup', '2026-07-14T12:00:00Z')],
+      currentRuns: [cronRun('Cleanup', '2026-07-14T12:00:00Z')],
+      historyRuns: [],
     };
     expect(facade.status()).toBe('loading');
     await facade.refresh({ initial: true });
@@ -58,23 +59,22 @@ describe('AutomationFacade', () => {
   });
 
   it('reports empty when cron logs return no runs', async () => {
-    api.cronLogs = { ok: true, generatedAt: '2026-07-14T12:00:00Z', runs: [] };
+    api.cronLogs = { ok: true, generatedAt: '2026-07-14T12:00:00Z', currentRuns: [], historyRuns: [] };
     await facade.refresh({ initial: true });
     expect(facade.status()).toBe('empty');
     expect(facade.tasks()).toEqual([]);
   });
 
-  it('computes latestRuns as the three most recent unique jobs', async () => {
+  it('computes latestRuns as the three most recent current jobs', async () => {
     api.cronLogs = {
       ok: true,
       generatedAt: '2026-07-14T13:00:00Z',
-      runs: [
+      currentRuns: [
         cronRun('Watchdog', '2026-07-14T11:00:00Z'),
-        cronRun('Watchdog', '2026-07-14T12:00:00Z'),
         cronRun('Cleanup', '2026-07-14T10:00:00Z'),
-        cronRun('Metadata', '2026-07-14T09:00:00Z'),
         cronRun('Metadata', '2026-07-14T13:00:00Z'),
       ],
+      historyRuns: [],
     };
     await facade.refresh({ initial: true });
     expect(facade.latestRuns()).toHaveLength(3);
@@ -91,14 +91,15 @@ describe('AutomationFacade', () => {
     api.cronLogs = {
       ok: true,
       generatedAt: '2026-07-14T12:00:00Z',
-      runs: [cronRun('watchdog', '2026-07-14T12:00:00Z')],
+      currentRuns: [cronRun('watchdog', '2026-07-14T12:00:00Z')],
+      historyRuns: [],
     };
     await facade.refresh();
     expect(facade.status()).toBe('ready');
   });
 
   it('treats soft ok:false as load/refresh failure and retains last-good on background failure', async () => {
-    api.cronLogs = { ok: false, error: 'backend offline', runs: [] };
+    api.cronLogs = { ok: false, error: 'backend offline', currentRuns: [], historyRuns: [] };
     await facade.refresh({ initial: true });
     expect(facade.status()).toBe('error');
     expect(facade.tasks()).toEqual([]);
@@ -107,12 +108,13 @@ describe('AutomationFacade', () => {
     api.cronLogs = {
       ok: true,
       generatedAt: '2026-07-14T12:00:00Z',
-      runs: [cronRun('Cleanup', '2026-07-14T12:00:00Z')],
+      currentRuns: [cronRun('Cleanup', '2026-07-14T12:00:00Z')],
+      historyRuns: [],
     };
     await facade.refresh({ initial: true });
     expect(facade.status()).toBe('ready');
 
-    api.cronLogs = { ok: false, error: 'backend offline', runs: [] };
+    api.cronLogs = { ok: false, error: 'backend offline', currentRuns: [], historyRuns: [] };
     await facade.refresh();
     expect(facade.status()).toBe('ready');
     expect(facade.tasks()).toHaveLength(1);
@@ -123,7 +125,8 @@ describe('AutomationFacade', () => {
     api.cronLogs = {
       ok: true,
       generatedAt: '2026-07-14T12:00:00Z',
-      runs: [cronRun('Cleanup', '2026-07-14T12:00:00Z')],
+      currentRuns: [cronRun('Cleanup', '2026-07-14T12:00:00Z')],
+      historyRuns: [],
     };
     await facade.refresh({ initial: true });
     const prior = facade.tasks();
@@ -146,7 +149,8 @@ describe('AutomationFacade', () => {
     api.cronLogs = {
       ok: true,
       generatedAt: '2026-07-14T13:00:00Z',
-      runs: [cronRun('Newer', '2026-07-14T13:00:00Z')],
+      currentRuns: [cronRun('Newer', '2026-07-14T13:00:00Z')],
+      historyRuns: [],
     };
     await facade.refresh();
     expect(facade.tasks()[0]?.jobTitle).toBe('Newer');
@@ -154,7 +158,8 @@ describe('AutomationFacade', () => {
     resolveInitial({
       ok: true,
       generatedAt: '2026-07-14T12:00:00Z',
-      runs: [cronRun('Stale', '2026-07-14T12:00:00Z')],
+      currentRuns: [cronRun('Stale', '2026-07-14T12:00:00Z')],
+      historyRuns: [],
     });
     await first;
 
@@ -179,7 +184,8 @@ describe('AutomationFacade', () => {
     resolve({
       ok: true,
       generatedAt: '2026-07-14T12:00:00Z',
-      runs: [cronRun('Cleanup', '2026-07-14T12:00:00Z')],
+      currentRuns: [cronRun('Cleanup', '2026-07-14T12:00:00Z')],
+      historyRuns: [],
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -254,7 +260,8 @@ describe('AutomationFacade', () => {
     api.cronLogs = {
       ok: true,
       generatedAt: '2026-07-14T13:00:00Z',
-      runs: [cronRun('Manual', '2026-07-14T13:00:00Z')],
+      currentRuns: [cronRun('Manual', '2026-07-14T13:00:00Z')],
+      historyRuns: [],
     };
     await facade.refresh();
     expect(facade.status()).toBe('ready');
@@ -288,7 +295,8 @@ describe('AutomationFacade', () => {
     resolve({
       ok: true,
       generatedAt: '2026-07-14T12:00:00Z',
-      runs: [cronRun('Late', '2026-07-14T12:00:00Z')],
+      currentRuns: [cronRun('Late', '2026-07-14T12:00:00Z')],
+      historyRuns: [],
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -355,7 +363,7 @@ class MockApi implements MediaStackApi {
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
   cronFailure = false;
-  cronLogs: CronLogs = { ok: true, generatedAt: '2026-07-14T12:00:00Z', runs: [] };
+  cronLogs: CronLogs = { ok: true, generatedAt: '2026-07-14T12:00:00Z', currentRuns: [], historyRuns: [] };
   nextResponse?: Promise<CronLogs>;
   cronCalls = 0;
   lastSignal?: AbortSignal;

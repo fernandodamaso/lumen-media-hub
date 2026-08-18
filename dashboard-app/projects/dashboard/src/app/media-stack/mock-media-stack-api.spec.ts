@@ -337,26 +337,26 @@ describe('MockMediaStackApi', () => {
     const response = await api.listCronLogs();
     expect(response.ok).toBe(true);
     expect(response.generatedAt).toBeTruthy();
-    expect([...new Set(response.runs.map((run) => run.jobId))]).toEqual([
+    expect([...new Set(response.currentRuns.map((run) => run.jobId))]).toEqual([
       'hardlink-cleanup',
       'stale-metadata',
       'watchdog',
     ]);
 
-    const statuses = response.runs.map((run) => run.status);
+    const statuses = response.currentRuns.map((run) => run.status);
     expect(statuses).toContain('fatal');
     expect(statuses).toContain('applied');
     expect(statuses).toContain('ok');
 
-    const failed = response.runs.find((run) => run.jobId === 'stale-metadata');
+    const failed = response.currentRuns.find((run) => run.jobId === 'stale-metadata');
     expect(failed).toMatchObject({ triage: 'actionable', detail: '3 items failed to refresh' });
-    const healthy = response.runs.find((run) => run.jobId === 'watchdog');
+    const healthy = response.currentRuns.find((run) => run.jobId === 'watchdog');
     expect(healthy).toMatchObject({ triage: 'quiet', detail: 'All services are healthy' });
 
     const again = await api.listCronLogs();
-    again.runs[0].detail = 'mutated';
+    again.currentRuns[0].detail = 'mutated';
     const fresh = await api.listCronLogs();
-    expect(fresh.runs[0].detail).not.toBe('mutated');
+    expect(fresh.currentRuns[0].detail).not.toBe('mutated');
   });
 
   describe('downloads scenarios', () => {

@@ -1115,7 +1115,7 @@ describe('HttpMediaStackApi', () => {
 
     const logs = api.listCronLogs();
     http.expectOne('/api/cron/logs').flush({ ok: true, generatedAt: '2026-07-13T12:00:00Z', logs: [] });
-    await expect(logs).resolves.toMatchObject({ ok: true, runs: [], generatedAt: '2026-07-13T12:00:00Z' });
+    await expect(logs).resolves.toMatchObject({ ok: true, currentRuns: [], generatedAt: '2026-07-13T12:00:00Z' });
   });
 
   it('merges jellyfin movies and series for listLibraryItems', async () => {
@@ -1476,7 +1476,7 @@ describe('HttpMediaStackApi', () => {
   it('accepts valid empty arrays in ok:true soft envelopes', async () => {
     const logs = api.listCronLogs();
     http.expectOne('/api/cron/logs').flush({ ok: true, generatedAt: '2026-07-13T12:00:00Z', logs: [] });
-    await expect(logs).resolves.toMatchObject({ ok: true, runs: [] });
+    await expect(logs).resolves.toMatchObject({ ok: true, currentRuns: [] });
 
     const hermes = api.listHermesRecommendations();
     http.expectOne('/api/discover/hermes').flush({
@@ -1601,7 +1601,7 @@ describe('HttpMediaStackApi', () => {
     await expect(pending).rejects.toThrow(/watched_on_trakt/);
   });
 
-  it('rejects cron log members missing required identity or timestamps', async () => {
+  it('rejects cron log members missing required identity or current/history', async () => {
     const missingGeneratedAt = api.listCronLogs();
     http.expectOne('/api/cron/logs').flush({ ok: true, logs: [] });
     await expect(missingGeneratedAt).rejects.toThrow(/missing generatedAt/);
@@ -1610,11 +1610,41 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/cron/logs').flush({
       ok: true,
       generatedAt: '2026-07-13T12:00:00Z',
-      logs: [{ title: 'Watchdog', file: 'w.log', format: 'ndjson', schedule: '* * * * *', exists: true, runs: [] }],
+      logs: [
+        {
+          title: 'Watchdog',
+          file: 'w.log',
+          format: 'ndjson',
+          schedule: '* * * * *',
+          exists: true,
+          current: { status: 'ok', detail: 'ok' },
+          history: [],
+        },
+      ],
     });
     await expect(missingJobId).rejects.toThrow(/missing id/);
 
-    const missingRunTimestamp = api.listCronLogs();
+    const missingCurrent = api.listCronLogs();
+    http.expectOne('/api/cron/logs').flush({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      logs: [{ id: 'watchdog', title: 'Watchdog', file: 'w.log', format: 'ndjson', schedule: '* * * * *', exists: true, history: [] }],
+    });
+    await expect(missingCurrent).rejects.toThrow(/invalid current/);
+
+    const missingHistory = api.listCronLogs();
+    http.expectOne('/api/cron/logs').flush({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      logs: [
+        { id: 'watchdog', title: 'Watchdog', file: 'w.log', format: 'ndjson', schedule: '* * * * *', exists: true, current: { status: 'ok' } },
+      ],
+    });
+    await expect(missingHistory).rejects.toThrow(/invalid history/);
+  });
+
+  it('accepts cron run rows without timestamps and maps them as unknown-time', async () => {
+    const logs = api.listCronLogs();
     http.expectOne('/api/cron/logs').flush({
       ok: true,
       generatedAt: '2026-07-13T12:00:00Z',
@@ -1626,11 +1656,15 @@ describe('HttpMediaStackApi', () => {
           format: 'ndjson',
           schedule: '* * * * *',
           exists: true,
-          runs: [{ status: 'ok', detail: 'ok' }],
+          current: { status: 'ok', detail: 'All services are healthy' },
+          history: [{ status: 'fatal', detail: 'old failure', fatal: 'old failure' }],
         },
       ],
     });
-    await expect(missingRunTimestamp).rejects.toThrow(/missing timestamp/);
+    await expect(logs).resolves.toMatchObject({
+      currentRuns: [{ jobId: 'watchdog', status: 'ok', timestamp: '' }],
+      historyRuns: [{ jobId: 'watchdog', status: 'fatal', resolved: true }],
+    });
   });
 
   it('rejects malformed automation summaries at the HTTP boundary', async () => {

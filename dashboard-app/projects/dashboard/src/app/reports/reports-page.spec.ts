@@ -6,7 +6,7 @@ import { vi } from 'vitest';
 import { AutomationProblem, AutomationService } from '../automation/automation.models';
 import { ServiceHealthFacade, ServiceHealthStatus } from '../automation/service-health.facade';
 import { fixtureHost } from '../../testing/fixture-host';
-import { CronHealthSummary, CronRun } from './reports.models';
+import { CronHealthSummary, CronHistoricalRun, CronRun } from './reports.models';
 import { ReportsFacade, ReportsStatus } from './reports.facade';
 import { ReportsPage } from './reports-page';
 
@@ -60,9 +60,9 @@ describe('ReportsPage', () => {
 
   it('prioritizes actionable runs and keeps quiet runs collapsed', () => {
     facade.status.set('mixed');
-    facade.summary.set({ kind: 'mixed', total: 3, actionable: 1, quiet: 2 });
+    facade.summary.set({ kind: 'mixed', totalJobs: 3, affectedJobs: 1, healthyJobs: 2 });
     facade.generatedAt.set('2026-07-12T12:00:00Z');
-    facade.runs.set([
+    facade.currentRuns.set([
       makeRun({ id: 'fatal-1', jobTitle: 'Watchdog', status: 'fatal', triage: 'actionable', detail: 'Disk full', fatal: 'Disk full' }),
       makeRun({ id: 'quiet-1', jobTitle: 'Weekly validate', status: 'ok', triage: 'quiet', detail: 'Completed' }),
       makeRun({ id: 'quiet-2', jobTitle: 'Hardlink cleanup', status: 'ok', triage: 'quiet', detail: 'Nothing to check' }),
@@ -71,9 +71,9 @@ describe('ReportsPage', () => {
 
     const root = fixtureHost(fixture);
     const text = root.textContent;
-    expect(text).toContain('actionable run');
+    expect(text).toContain('need attention');
     expect(text).toContain('Watchdog');
-    expect(text).toContain('2 quiet runs');
+    expect(text).toContain('2 healthy jobs');
 
     const actionableList = root.querySelector('[aria-label="Actionable runs"]');
     const quietSection = root.querySelector('.quiet-section') as HTMLDetailsElement;
@@ -84,10 +84,33 @@ describe('ReportsPage', () => {
     expect(firstActionable?.textContent).toContain('Watchdog');
   });
 
+  it('shows older failures in a collapsed History section with Resolved labels', () => {
+    facade.status.set('allClear');
+    facade.summary.set({ kind: 'allClear', totalJobs: 1, affectedJobs: 0, healthyJobs: 1 });
+    facade.currentRuns.set([
+      makeRun({ id: 'ok-1', jobTitle: 'Watchdog', status: 'ok', triage: 'quiet', detail: 'All services are healthy' }),
+    ]);
+    facade.historyRuns.set([
+      { ...makeRun({ id: 'h-fatal', jobTitle: 'Watchdog', status: 'fatal', triage: 'actionable', detail: 'Disk full', fatal: 'Disk full' }), resolved: true },
+      { ...makeRun({ id: 'h-unresolved', jobTitle: 'Stale metadata', status: 'fatal', triage: 'actionable', detail: 'Stuck', fatal: 'Stuck' }), resolved: false },
+    ]);
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    const historySection = root.querySelector('.history-section') as HTMLDetailsElement;
+    expect(historySection).toBeTruthy();
+    expect(historySection.open).toBe(false);
+    const historyText = historySection.textContent;
+    expect(historyText).toContain('History (2 runs)');
+    expect(historyText).toContain('Disk full');
+    expect(historyText).toContain('Resolved');
+    expect(historyText).toContain('Historical');
+  });
+
   it('expands run detail via native details element', () => {
     facade.status.set('mixed');
-    facade.summary.set({ kind: 'mixed', total: 1, actionable: 1, quiet: 0 });
-    facade.runs.set([
+    facade.summary.set({ kind: 'mixed', totalJobs: 1, affectedJobs: 1, healthyJobs: 0 });
+    facade.currentRuns.set([
       makeRun({ id: 'fatal-1', jobTitle: 'Watchdog', status: 'fatal', triage: 'actionable', detail: 'Disk full', fatal: 'Disk full' }),
     ]);
     fixture.detectChanges();
@@ -108,8 +131,8 @@ describe('ReportsPage', () => {
 
   it('shows calm all-clear messaging without a danger state card', () => {
     facade.status.set('allClear');
-    facade.summary.set({ kind: 'allClear', total: 2, actionable: 0, quiet: 2 });
-    facade.runs.set([
+    facade.summary.set({ kind: 'allClear', totalJobs: 2, affectedJobs: 0, healthyJobs: 2 });
+    facade.currentRuns.set([
       makeRun({ id: 'quiet-1', jobTitle: 'Weekly validate', status: 'ok', triage: 'quiet', detail: 'Completed' }),
       makeRun({ id: 'quiet-2', jobTitle: 'Hardlink cleanup', status: 'ok', triage: 'quiet', detail: 'Nothing to check' }),
     ]);
@@ -124,9 +147,9 @@ describe('ReportsPage', () => {
 
   it('shows retained-data refresh error alongside the list', () => {
     facade.status.set('mixed');
-    facade.summary.set({ kind: 'mixed', total: 1, actionable: 1, quiet: 0 });
+    facade.summary.set({ kind: 'mixed', totalJobs: 1, affectedJobs: 1, healthyJobs: 0 });
     facade.error.set('Could not refresh reports. Showing last loaded history.');
-    facade.runs.set([
+    facade.currentRuns.set([
       makeRun({ id: 'fatal-1', jobTitle: 'Watchdog', status: 'fatal', triage: 'actionable', detail: 'Disk full' }),
     ]);
     fixture.detectChanges();
@@ -138,9 +161,9 @@ describe('ReportsPage', () => {
 
   it('calls both facades from the Refresh button', async () => {
     facade.status.set('allClear');
-    facade.summary.set({ kind: 'allClear', total: 1, actionable: 0, quiet: 1 });
+    facade.summary.set({ kind: 'allClear', totalJobs: 1, affectedJobs: 0, healthyJobs: 1 });
     facade.generatedAt.set('2026-07-12T12:00:00Z');
-    facade.runs.set([makeRun({ id: 'quiet-1', jobTitle: 'Weekly validate', status: 'ok', triage: 'quiet' })]);
+    facade.currentRuns.set([makeRun({ id: 'quiet-1', jobTitle: 'Weekly validate', status: 'ok', triage: 'quiet' })]);
     fixture.detectChanges();
 
     findButton('Refresh').click();
@@ -203,8 +226,8 @@ describe('ReportsPage', () => {
   it('keeps cron history visible while service health is loading or unavailable', () => {
     health.status.set('loading');
     facade.status.set('mixed');
-    facade.summary.set({ kind: 'mixed', total: 1, actionable: 1, quiet: 0 });
-    facade.runs.set([
+    facade.summary.set({ kind: 'mixed', totalJobs: 1, affectedJobs: 1, healthyJobs: 0 });
+    facade.currentRuns.set([
       makeRun({ id: 'fatal-1', jobTitle: 'Watchdog', status: 'fatal', triage: 'actionable', detail: 'Disk full' }),
     ]);
     fixture.detectChanges();
@@ -243,8 +266,9 @@ function makeRun(partial: Partial<CronRun> & Pick<CronRun, 'id' | 'jobTitle' | '
 function createFacade() {
   return {
     status: signal<ReportsStatus>('loading'),
-    runs: signal<CronRun[]>([]),
-    summary: signal<CronHealthSummary>({ kind: 'empty', total: 0, actionable: 0, quiet: 0 }),
+    currentRuns: signal<CronRun[]>([]),
+    historyRuns: signal<CronHistoricalRun[]>([]),
+    summary: signal<CronHealthSummary>({ kind: 'empty', totalJobs: 0, affectedJobs: 0, healthyJobs: 0 }),
     generatedAt: signal(''),
     error: signal(''),
     refreshing: signal(false),

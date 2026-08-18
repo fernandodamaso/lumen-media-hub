@@ -212,6 +212,21 @@ def _summarize_text_job_lines(lines):
     return runs[-50:]
 
 
+def _group_current_history(runs):
+    """Split parsed runs (append order) into current (last) and history (older, oldest-first).
+
+    Append-only logs make source order authoritative; timestamps are never used to
+    reorder or infer recency, so equal/missing/malformed timestamps stay deterministic.
+    """
+    if not runs:
+        return None, []
+    return runs[-1], runs[:-1]
+
+
+def _missing_run(detail):
+    return {"status": "missing", "detail": detail}
+
+
 def handle_cron_logs(handler):
     """Return tails of Hermes repair-job logs under DATA_PATH/tmp."""
     query = urllib.parse.parse_qs(urllib.parse.urlparse(handler.path).query)
@@ -235,24 +250,23 @@ def handle_cron_logs(handler):
             "exists": tail["exists"],
             "size": tail["size"],
             "mtime": tail["mtime"],
-            "runs": [],
+            "current": None,
+            "history": [],
         }
-        if not tail["exists"]:
-            entry["summary"] = "No log file yet"
-        elif not tail["lines"]:
-            entry["summary"] = "Log is empty"
-        elif spec["format"] == "ndjson":
-            entry["runs"] = _summarize_watchdog_lines(tail["lines"])
-        else:
-            entry["runs"] = _summarize_text_job_lines(tail["lines"])
 
-        if entry["runs"]:
-            last = entry["runs"][-1]
-            entry["summary"] = last.get("detail") or status_label_for_run(last)
-            entry["lastStatus"] = last.get("status") or "ok"
-        elif entry.get("summary") is None:
-            entry["summary"] = "No recent runs"
-            entry["lastStatus"] = "missing"
+        if not tail["exists"]:
+            entry["current"] = _missing_run("No log file yet")
+        elif not tail["lines"]:
+            entry["current"] = _missing_run("Log is empty")
+        else:
+            if spec["format"] == "ndjson":
+                runs = _summarize_watchdog_lines(tail["lines"])
+            else:
+                runs = _summarize_text_job_lines(tail["lines"])
+            current, history = _group_current_history(runs)
+            entry["current"] = current if current is not None else _missing_run("No recent runs")
+            entry["history"] = history
+
         logs.append(entry)
 
     send_json(
@@ -265,16 +279,3 @@ def handle_cron_logs(handler):
             "note": "Healthy ticks stay silent in Hermes chat. This page shows readable run history.",
         },
     )
-
-
-def status_label_for_run(run):
-    status = (run or {}).get("status") or "ok"
-    if status == "fatal":
-        return "Failed"
-    if status == "applied":
-        return "Repaired something"
-    if status == "warn":
-        return "Completed with warnings"
-    if status == "missing":
-        return "No log yet"
-    return "All clear"

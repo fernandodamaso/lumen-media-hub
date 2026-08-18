@@ -1,5 +1,5 @@
 import { AutomationProblem, AutomationService } from '../automation/automation.models';
-import { CronLogs, CronRun, isQuietRun } from './reports.models';
+import { CronHistoricalRun, CronLogs, CronRun, isQuietRun } from './reports.models';
 import {
   MediaStackCronLogEntryDto,
   MediaStackCronLogRunDto,
@@ -54,9 +54,10 @@ export const mapCronRun = (
   index: number,
 ): CronRun => {
   const status = run.status?.trim() || 'ok';
-  const timestamp = run.timestamp?.trim() ?? '';
-  // Identity is composed only from backend job id + backend timestamp (or entry sentinel).
-  const id = timestamp ? `${job.id}-${timestamp}-${index}` : `${job.id}-entry`;
+  const timestamp = typeof run.timestamp === 'string' ? run.timestamp.trim() : '';
+  // Identity composed from backend job id + timestamp-or-unknown + source index so
+  // malformed/missing timestamps cannot collide.
+  const id = `${job.id}-${timestamp || 'unknown'}-${index}`;
   return {
     id,
     jobId: job.id,
@@ -72,34 +73,42 @@ export const mapCronRun = (
   };
 };
 
-/** Build a triage row for jobs that have entry metadata but no nested runs. */
-const synthesizeCronRunFromEntry = (job: MediaStackCronLogEntryDto): CronRun => {
-  const status = job.lastStatus?.trim() || (job.exists ? 'unparsed' : 'missing');
-  const detail = job.summary?.trim() || (job.exists ? 'No recent runs' : 'No log file yet');
-  return mapCronRun(
-    job,
-    {
-      status,
-      detail,
-      timestamp: job.mtime ?? undefined,
-    },
-    0,
-  );
+export const mapCronLogs = (dto: MediaStackCronLogsDto): CronLogs => {
+  const currentRuns: CronRun[] = [];
+  const historyRuns: CronHistoricalRun[] = [];
+  for (const job of dto.logs ?? []) {
+    const history: CronHistoricalRun[] = job.history.map((run, index) => ({
+      ...mapCronRun(job, run, index),
+      resolved: false,
+    }));
+    const current: CronRun = mapCronRun(job, job.current, history.length + 1);
+
+    // Mark historical actionable rows resolved when a later run for the job is quiet.
+    // Scan newest-to-oldest (history… then current). A later fatal does not re-open.
+    const chronological = [...history, current];
+    let seenQuiet = false;
+    for (let i = chronological.length - 1; i >= 0; i--) {
+      const row = chronological[i];
+      if (row.triage === 'quiet') {
+        seenQuiet = true;
+        continue;
+      }
+      if (seenQuiet && i < history.length) {
+        history[i] = { ...history[i], resolved: true };
+      }
+    }
+
+    currentRuns.push(current);
+    historyRuns.push(...history);
+  }
+  return {
+    ok: dto.ok,
+    generatedAt: dto.generatedAt,
+    error: dto.error,
+    currentRuns,
+    historyRuns,
+  };
 };
-
-export const flattenCronRuns = (dto: MediaStackCronLogsDto): CronRun[] =>
-  (dto.logs ?? []).flatMap((job) => {
-    const runs = job.runs ?? [];
-    if (runs.length === 0) return [synthesizeCronRunFromEntry(job)];
-    return runs.map((run, index) => mapCronRun(job, run, index));
-  });
-
-export const mapCronLogs = (dto: MediaStackCronLogsDto): CronLogs => ({
-  ok: dto.ok,
-  generatedAt: dto.generatedAt,
-  error: dto.error,
-  runs: flattenCronRuns(dto),
-});
 
 export interface ServiceHealthReportView {
   unknownServiceNotice: string | null;

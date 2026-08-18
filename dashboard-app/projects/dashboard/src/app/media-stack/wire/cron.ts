@@ -23,9 +23,10 @@ export interface MediaStackCronLogEntryDto {
   exists: boolean;
   size?: number;
   mtime?: string | null;
-  summary?: string;
-  lastStatus?: string;
-  runs?: MediaStackCronLogRunDto[];
+  /** Most recent run (append-order); always present, even as a `missing` sentinel. */
+  current: MediaStackCronLogRunDto;
+  /** Older runs, oldest first; always present, possibly empty. */
+  history: MediaStackCronLogRunDto[];
 }
 
 /** Envelope returned by GET /cron/logs. */

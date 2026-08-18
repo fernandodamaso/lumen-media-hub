@@ -78,12 +78,11 @@ export class AutomationFacade {
           this.applyRefreshFailure(initial, logs.error?.trim());
           return;
         }
-        const latest = new Map<string, CronRun>();
-        for (const run of logs.runs) {
-          const current = latest.get(run.jobId);
-          if (!current || (run.timestamp || '') > (current.timestamp || '')) latest.set(run.jobId, run);
-        }
-        this._tasks.set([...latest.values()].sort((left, right) => left.jobTitle.localeCompare(right.jobTitle)));
+        // Backend exposes one current run per job; no per-job dedup needed here.
+        const tasks = [...logs.currentRuns].sort((left, right) =>
+          left.jobTitle.localeCompare(right.jobTitle),
+        );
+        this._tasks.set(tasks);
         this._lastFetchedAt.set(new Date().toISOString());
         this._error.set('');
         this._status.set(this._tasks().length ? 'ready' : 'empty');

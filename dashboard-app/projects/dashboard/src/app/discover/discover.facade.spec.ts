@@ -1274,7 +1274,7 @@ class MockApi implements MediaStackApi {
     return Promise.resolve(this.requestResult);
   }
   listCronLogs() {
-    return Promise.resolve({ ok: true, runs: [] });
+    return Promise.resolve({ ok: true, currentRuns: [], historyRuns: [] });
   }
 
   private withAbort<T>(signal: AbortSignal | undefined, pending: Promise<T>): Promise<T> {

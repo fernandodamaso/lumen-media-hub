@@ -94,6 +94,8 @@ function requireIsoTimestamp(value: unknown, context: string): string {
 /**
  * Validate GET /cron/logs success payloads before domain mapping.
  * Soft `{ ok: false }` envelopes skip this (handled by requireSoftEnvelope).
+ * `generatedAt`, job id/title remain required; run timestamps are display data and
+ * may be absent or malformed so Reports can surface `unparsed`/unknown-time states.
  */
 export function requireCronLogsPayload(data: Record<string, unknown>): void {
   requireIsoTimestamp(
@@ -113,21 +115,20 @@ export function requireCronLogsPayload(data: Record<string, unknown>): void {
       entry['title'],
       `Malformed cron logs response: member ${index} is missing title`,
     );
-    const runs = entry['runs'];
-    if (runs === undefined || runs === null) return;
-    if (!Array.isArray(runs)) {
-      throw new Error(`Malformed cron logs response: member ${index} has invalid runs`);
+    const history = entry['history'];
+    if (!Array.isArray(history)) {
+      throw new Error(`Malformed cron logs response: member ${index} has invalid history`);
     }
-    runs.forEach((run, runIndex) => {
+    history.forEach((run, runIndex) => {
       if (!isRecord(run)) {
         throw new Error(
-          `Malformed cron logs response: member ${index} run ${runIndex} is not an object`,
+          `Malformed cron logs response: member ${index} history ${runIndex} is not an object`,
         );
       }
-      requireIsoTimestamp(
-        run['timestamp'],
-        `Malformed cron logs response: member ${index} run ${runIndex} is missing timestamp`,
-      );
     });
+    const current = entry['current'];
+    if (!isRecord(current)) {
+      throw new Error(`Malformed cron logs response: member ${index} has invalid current`);
+    }
   });
 }

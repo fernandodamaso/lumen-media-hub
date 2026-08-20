@@ -288,12 +288,19 @@ function Invoke-StackUp {
   Initialize-EnvFile
   Write-Step 'Clearing stale compose containers (worktree-rot guard)'
   Clear-StaleComposeContainers
-  Write-Step 'Starting stack'
+  if ($Dev) { Write-Step 'Starting stack' }
+  else { Write-Step 'Starting stack (rebuilds dashboard if source changed)' }
   $composeArgs = @('--env-file', $EnvFile, '-f', $ComposeFile)
   if ($Gpu) { $composeArgs += '-f', $ComposeGpuFile }
   if ($Dev) { $composeArgs += '-f', (Join-Path $RepoRoot 'docker-compose.dev.yml') }
   foreach ($p in $Profile) { $composeArgs += '--profile', $p }
   $composeArgs += 'up', '-d', '--remove-orphans'
+  if (-not $Dev) {
+    # Rebuild the dashboard image when dashboard-app/ changed since the last build.
+    # Layer cache makes an unchanged source tree a no-op; -Dev already serves live
+    # source via the bind-mounted ng serve override, so building there is waste.
+    $composeArgs += '--build'
+  }
   docker compose @composeArgs
   Assert-ExitCode 'docker compose up'
 }

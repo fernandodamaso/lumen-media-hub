@@ -17,7 +17,7 @@ From the **repo root** (installer sets CWD to `$PSScriptRoot` automatically):
 | `frontend-dev` | `npm ci` in `dashboard-app/`, prints Demo and Docker Live-dev commands |
 | `stack` | Creates `.env` from `.env.example`, pulls service images, Compose-builds the dashboard, starts the stack, and health-checks `homepage-actions` |
 | `both` | `frontend-dev` then `stack` (`npm ci` runs once) |
-| `up` | Self-heals stale compose containers (worktree-rot guard), then `docker compose up -d` with optional `-Dev` / `-Gpu` / `-Profile` flags |
+|`up`|Self-heals stale compose containers (worktree-rot guard), then `docker compose up -d` with optional `-Dev` / `-Gpu` / `-Profile` flags. Without `-Dev` it passes `--build`, so the dashboard image rebuilds automatically whenever `dashboard-app/` changed since the last build (layer cache makes unchanged source a no-op)|
 
 Flags: `-Force` recreates `.env`; `-Gpu` adds `-f docker-compose.gpu.yml`.
 

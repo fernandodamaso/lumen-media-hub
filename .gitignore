@@ -44,3 +44,5 @@
 Thumbs.db
 desktop.ini
 .hermes/
+/config/homepage-actions/clients
+/config/homepage-actions/routes/__pycache__

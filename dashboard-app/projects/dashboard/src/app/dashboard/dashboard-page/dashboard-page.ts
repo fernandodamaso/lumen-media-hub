@@ -145,7 +145,7 @@ export class DashboardPage {
   statePillClass(state: TorrentState): string {
     const tone = TORRENT_STATE_VIEW[state].tone;
     const map: Record<StatusTone, string> = {
-      info: 'pill--accent',
+      info: 'pill--info',
       success: 'pill--green',
       warning: 'pill--amber',
       danger: 'pill--danger',

@@ -372,6 +372,7 @@ describe('DashboardPage composition', () => {
     fixture.detectChanges();
     const root = fixtureHost(fixture);
     expect(root.querySelector('#downloads .dl-item')?.textContent).toContain('Signal Drift');
+    expect(root.querySelector('#downloads .pill')?.classList.contains('pill--info')).toBe(true);
 
     const pauseItem = root.querySelector('#downloads .dl-item mm-icon-button button') as HTMLButtonElement;
     pauseItem.click();

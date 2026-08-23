@@ -19,6 +19,9 @@ _HASH_PATTERN = re.compile(r"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
 _COMPLETED_STATES = {"completed", "importpending", "importblocked"}
 MAX_STATE_ITEMS = 100
 _cycle_lock = threading.Lock()
+_scheduler_stop = threading.Event()
+_scheduler_thread = None
+_scheduler_thread_lock = threading.Lock()
 
 
 def _fetch_sonarr_queue_snapshot():
@@ -73,6 +76,43 @@ def _bounded(values):
 
 def _public_result(result):
     return result
+
+
+def _queue_hygiene_scheduler_loop(interval_seconds, stop_event, run_cycle, wait):
+    run_cycle()
+    while not wait(stop_event, interval_seconds):
+        run_cycle()
+
+
+def start_queue_hygiene_scheduler(interval_seconds=None):
+    interval = settings.QUEUE_HYGIENE_INTERVAL_SECONDS if interval_seconds is None else float(interval_seconds)
+    global _scheduler_thread
+    with _scheduler_thread_lock:
+        if _scheduler_thread is not None and _scheduler_thread.is_alive():
+            return False
+        _scheduler_stop.clear()
+
+        def wait(event, timeout):
+            return event.wait(timeout)
+
+        def target():
+            _queue_hygiene_scheduler_loop(interval, _scheduler_stop, run_queue_hygiene_cycle, wait)
+
+        _scheduler_thread = threading.Thread(target=target, name="sonarr-queue-hygiene", daemon=True)
+        _scheduler_thread.start()
+        return True
+
+
+def stop_queue_hygiene_scheduler(timeout=2.0):
+    global _scheduler_thread
+    with _scheduler_thread_lock:
+        thread = _scheduler_thread
+        _scheduler_stop.set()
+        _scheduler_thread = None
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=timeout)
+        return not thread.is_alive()
+    return True
 
 
 def _flatten(value):

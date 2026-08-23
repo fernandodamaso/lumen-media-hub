@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config
 from http_support import _reject_mutating, _reject_post, _valid_library_item_id, send_json, send_options
-from routes import activity, arr, automation, discover, jellyfin, library, qbittorrent, reports, resources, service_links
+from routes import activity, arr, automation, discover, jellyfin, library, qbittorrent, queue_hygiene, reports, resources, service_links
 
 
 class ActionsHandler(BaseHTTPRequestHandler):
@@ -41,6 +41,8 @@ class ActionsHandler(BaseHTTPRequestHandler):
             arr.handle_sonarr_calendar(self)
         elif path == "/automation/summary":
             automation.handle_automation_summary(self)
+        elif path == "/automation/queue-hygiene":
+            queue_hygiene.handle_queue_hygiene_get(self)
         elif path == "/system/resources":
             resources.handle_system_resources(self)
         elif path == "/health":
@@ -129,14 +131,18 @@ class ActionsHandler(BaseHTTPRequestHandler):
             discover.handle_discover_request_reconcile(self)
         elif path == "/discover/request":
             discover.handle_discover_request(self)
+        elif path == "/automation/queue-hygiene/run":
+            queue_hygiene.handle_queue_hygiene_run(self)
         else:
             send_json(self, 404, {"ok": False, "error": "Unknown endpoint"})
 
 
 def run_server():
     from reconciliation import start_reconciliation_scheduler, stop_reconciliation_scheduler
+    from queue_hygiene import start_queue_hygiene_scheduler, stop_queue_hygiene_scheduler
 
     start_reconciliation_scheduler()
+    start_queue_hygiene_scheduler()
     server = ThreadingHTTPServer(("0.0.0.0", config.PORT), ActionsHandler)
     print(
         f"Dashboard actions API listening on :{config.PORT} "
@@ -147,5 +153,6 @@ def run_server():
     try:
         server.serve_forever()
     finally:
+        stop_queue_hygiene_scheduler()
         stop_reconciliation_scheduler()
         server.server_close()

@@ -35,7 +35,9 @@ def _fetch_qbt_torrents():
     from clients.qbittorrent import qbt_get_json, qbt_login
 
     opener = __import__("urllib.request", fromlist=["build_opener"]).build_opener(
-        http.cookiejar.CookieJar()
+        __import__("urllib.request", fromlist=["HTTPCookieProcessor"]).HTTPCookieProcessor(
+            http.cookiejar.CookieJar()
+        )
     )
     qbt_login(opener)
     return qbt_get_json("/api/v2/torrents/info", opener)

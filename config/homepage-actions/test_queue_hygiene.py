@@ -199,6 +199,16 @@ class QueueHygieneCycleTests(unittest.TestCase):
     def _snapshot(records):
         return {"totalRecords": len(records), "records": records}
 
+    def test_qbt_fetch_builds_cookie_processor_for_real_client(self):
+        with patch("urllib.request.build_opener", return_value="opener") as build_opener, patch(
+            "clients.qbittorrent.qbt_login"
+        ) as login, patch("clients.qbittorrent.qbt_get_json", return_value=[]):
+            result = queue_hygiene._fetch_qbt_torrents()
+        self.assertEqual(result, [])
+        login.assert_called_once_with("opener")
+        self.assertEqual(len(build_opener.call_args.args), 1)
+        self.assertEqual(type(build_opener.call_args.args[0]).__name__, "HTTPCookieProcessor")
+
     def test_off_does_not_make_upstream_requests(self):
         with patch.object(queue_hygiene, "_fetch_sonarr_queue_snapshot") as sonarr_fetch, patch.object(
             queue_hygiene, "_fetch_qbt_torrents"

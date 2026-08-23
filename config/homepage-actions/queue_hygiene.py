@@ -122,13 +122,18 @@ def _row_reason_and_blocker(row):
 
 def _build_qbt_index(qbt_torrents):
     index = {}
+    duplicates = set()
     for torrent in qbt_torrents or []:
         if not isinstance(torrent, dict):
             continue
         raw_hash = torrent.get("hash")
         if _valid_hash(raw_hash):
-            index.setdefault(raw_hash.strip().lower(), torrent)
-    return index
+            key = raw_hash.strip().lower()
+            if key in index:
+                duplicates.add(key)
+            else:
+                index[key] = torrent
+    return index, duplicates
 
 
 def _qbt_completion(torrent, now, grace_seconds):
@@ -154,21 +159,22 @@ def _qbt_completion(torrent, now, grace_seconds):
 
 def classify_queue(queue_records, qbt_torrents, now, grace_seconds):
     """Classify queue rows without performing any external side effect."""
-    if not isinstance(now, datetime):
+    clock_valid = isinstance(now, datetime) and now.tzinfo is not None and now.utcoffset() is not None
+    if not clock_valid:
         now = datetime.now(timezone.utc)
-    elif now.tzinfo is None or now.utcoffset() is None:
-        now = now.replace(tzinfo=timezone.utc)
     else:
         now = now.astimezone(timezone.utc)
     try:
+        if isinstance(grace_seconds, bool):
+            raise ValueError("boolean grace period")
         grace_seconds = float(grace_seconds)
     except (TypeError, ValueError):
         grace_seconds = float("inf")
-    if not math.isfinite(grace_seconds) or grace_seconds < 0:
+    if not math.isfinite(grace_seconds) or grace_seconds < 0 or not clock_valid:
         grace_seconds = float("inf")
 
     records = list(queue_records or [])
-    qbt_index = _build_qbt_index(qbt_torrents)
+    qbt_index, duplicate_hashes = _build_qbt_index(qbt_torrents)
     groups = group_queue_by_download_id(records)
     grouped_ids = {id(row) for rows in groups.values() for row in rows}
     blocked = []
@@ -197,6 +203,13 @@ def classify_queue(queue_records, qbt_torrents, now, grace_seconds):
                 blocker = reason_blocker
             row_checks.append({"row": row, "queue_id": queue_id, "reason": reason, "blocker": blocker})
 
+        row_checks.sort(
+            key=lambda item: (
+                item["queue_id"] is None,
+                item["queue_id"] if isinstance(item["queue_id"], int) else 0,
+                _title(item["row"]),
+            )
+        )
         first_reason = next((item["reason"] for item in row_checks if item["reason"]), "")
         group_blocker = next((item["blocker"] for item in row_checks if item["blocker"]), None)
         if group_blocker is not None:
@@ -207,6 +220,10 @@ def classify_queue(queue_records, qbt_torrents, now, grace_seconds):
             continue
 
         torrent = qbt_index.get(group_key)
+        if group_key in duplicate_hashes:
+            for item in row_checks:
+                blocked.append(_blocked(item["queue_id"], _title(item["row"]), item["reason"], "ambiguous_qbt"))
+            continue
         if torrent is None:
             for item in row_checks:
                 blocked.append(_blocked(item["queue_id"], _title(item["row"]), item["reason"], "missing_qbt"))
@@ -218,9 +235,13 @@ def classify_queue(queue_records, qbt_torrents, now, grace_seconds):
             continue
 
         completed_at, age_seconds = completion
+        canonical_download_id = min(
+            (item["row"].get("downloadId").strip() for item in row_checks),
+            key=lambda value: (value.lower(), value),
+        )
         eligible.append(
             {
-                "downloadId": rows[0].get("downloadId").strip(),
+                "downloadId": canonical_download_id,
                 "queueIds": sorted(item["queue_id"] for item in row_checks),
                 "titles": [_title(item["row"]) for item in row_checks],
                 "reason": first_reason,

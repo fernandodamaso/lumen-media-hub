@@ -126,6 +126,17 @@ class QueueHygieneTests(unittest.TestCase):
         self.assertEqual(len(result["eligibleGroups"]), 1)
         self.assertEqual(result["eligibleGroups"][0]["downloadId"], HASH.upper())
 
+    def test_invalid_clock_and_grace_inputs_never_allow_cleanup(self):
+        for now, grace in ((None, 0), (NOW, False), (NOW, "bad")):
+            result = classify_queue([row()], [torrent()], now, grace)
+            self.assertEqual(result["eligibleGroups"], [])
+            self.assertEqual(result["blockedItems"][0]["blocker"], "grace_period")
+
+    def test_duplicate_qbt_hashes_are_ambiguous_and_report_only(self):
+        result = classify_queue([row()], [torrent(), torrent(progress=0.5)], NOW, 0)
+        self.assertEqual(result["eligibleGroups"], [])
+        self.assertEqual(result["blockedItems"][0]["blocker"], "ambiguous_qbt")
+
     def test_result_order_is_deterministic(self):
         hash_a = "a" * 40
         hash_z = "f" * 40
@@ -138,6 +149,7 @@ class QueueHygieneTests(unittest.TestCase):
         self.assertEqual(
             [group["downloadId"] for group in result["eligibleGroups"]], [hash_a, hash_z]
         )
+        self.assertEqual(result["eligibleGroups"][0]["titles"], ["Show S01E11"])
 
 
 if __name__ == "__main__":

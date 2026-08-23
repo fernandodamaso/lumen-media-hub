@@ -303,6 +303,13 @@ class QueueHygieneCycleTests(unittest.TestCase):
         self.assertNotIn("automation", config._arr_cache)
         self.assertNotIn("automation_ts", config._arr_cache)
 
+    def test_successful_observe_clears_stale_error_state(self):
+        queue_hygiene._write_state({"error": "previous upstream failure", "circuitOpen": False})
+        self._run("observe", [self._snapshot([])], [[]])
+        with open(self.state_path, encoding="utf-8") as handle:
+            state = json.load(handle)
+        self.assertNotIn("error", state)
+
     def test_state_write_is_atomic_bounded_and_public(self):
         with patch.object(queue_hygiene.os, "replace", wraps=os.replace) as replace:
             self._run("observe", [self._snapshot([row()])], [[torrent()]])

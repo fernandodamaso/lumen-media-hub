@@ -472,6 +472,7 @@ def run_queue_hygiene_cycle(mode=None, now=None):
             "eligibleItems": _bounded(eligible_groups),
             "blockedItems": _bounded(diagnostics["blockedItems"]),
         }
+        state_update.pop("error", None)
 
         if selected_mode != "auto" or not queue_ids:
             _write_state(state_update)

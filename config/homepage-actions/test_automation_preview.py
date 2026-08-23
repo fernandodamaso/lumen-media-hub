@@ -25,6 +25,39 @@ class _CaptureHandler:
         pass
 
 
+class TestQueueSnapshot(unittest.TestCase):
+    def test_sonarr_snapshot_fetches_full_queue_with_nested_entities(self):
+        with patch("config.SONARR_URL", "http://sonarr"), patch(
+            "routes.automation._arr_get", return_value={"totalRecords": 4, "records": []}
+        ) as arr_get:
+            snapshot = automation_routes._fetch_queue_snapshot("http://sonarr", "key")
+
+        self.assertEqual(snapshot["totalRecords"], 4)
+        path = arr_get.call_args.args[2]
+        self.assertIn("pageSize=1000", path)
+        self.assertIn("includeUnknownSeriesItems=true", path)
+        self.assertIn("includeSeries=true", path)
+        self.assertIn("includeEpisode=true", path)
+
+    def test_queue_preview_caps_items_but_keeps_total_and_derives_error(self):
+        snapshot = {
+            "totalRecords": 5,
+            "records": [
+                {"title": "One", "statusMessages": [{"messages": ["Not an upgrade"]}]},
+                {"title": "Two", "errorMessage": "explicit"},
+                {"title": "Three"},
+            ],
+        }
+        with patch("config.AUTOMATION_PREVIEW_LIMIT", 2):
+            count, items = automation_routes._queue_preview(snapshot)
+
+        self.assertEqual(count, 5)
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0]["error"], "Not an upgrade")
+        self.assertTrue(items[0]["warning"])
+        self.assertEqual(items[1]["error"], "explicit")
+
+
 class TestMissingPreviewPosterUrls(unittest.TestCase):
     """posterUrl emission for Sonarr/Radarr missing-item previews."""
 

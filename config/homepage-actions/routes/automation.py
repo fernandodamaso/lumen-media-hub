@@ -108,19 +108,36 @@ def _radarr_missing_preview():
         return len(missing), items
 
 
-def _queue_preview(base, api_key):
-    data = _arr_get(
-        base,
-        api_key,
-        f"/api/v3/queue?page=1&pageSize={settings.AUTOMATION_PREVIEW_LIMIT}&includeUnknownSeriesItems=true"
-        "&includeUnknownMovieItems=true",
-    )
+def _fetch_queue_snapshot(base, api_key):
+    """Fetch the complete queue once so diagnostics and preview share records."""
+    if base == settings.SONARR_URL:
+        query = "includeUnknownSeriesItems=true&includeSeries=true&includeEpisode=true"
+    else:
+        query = "includeUnknownMovieItems=true&includeMovie=true"
+    return _arr_get(base, api_key, f"/api/v3/queue?page=1&pageSize=1000&{query}")
+
+
+def _queue_preview(snapshot):
+    records = snapshot.get("records", []) if isinstance(snapshot, dict) else []
     items = []
-    for row in data.get("records", [])[:settings.AUTOMATION_PREVIEW_LIMIT]:
+    for row in records[: settings.AUTOMATION_PREVIEW_LIMIT]:
+        if not isinstance(row, dict):
+            continue
         title = row.get("title") or "Unknown"
         status = row.get("trackedDownloadStatus") or row.get("status") or ""
         timeleft = row.get("timeleft") or ""
         error = row.get("errorMessage") or ""
+        if not error:
+            messages = []
+            for entry in row.get("statusMessages") or []:
+                if not isinstance(entry, dict):
+                    continue
+                values = entry.get("messages")
+                if isinstance(values, str):
+                    messages.append(values)
+                elif isinstance(values, list):
+                    messages.extend(value for value in values if isinstance(value, str))
+            error = "; ".join(message for message in messages if message.strip())
         label = title
         if timeleft and timeleft not in ("00:00:00", "0"):
             label = f"{title} · {timeleft} left"
@@ -136,7 +153,7 @@ def _queue_preview(base, api_key):
                 or str(status).lower() in ("warning", "error"),
             }
         )
-    return int(data.get("totalRecords", 0)), items
+    return int(snapshot.get("totalRecords", 0)), items
 
 
 def _prowlarr_indexer_details():
@@ -197,7 +214,8 @@ def _build_automation_summary():
             series = _arr_get(settings.SONARR_URL, settings.SONARR_API_KEY, "/api/v3/series")
             monitored = sum(1 for s in series if s.get("monitored"))
             missing_count, missing_items = _sonarr_missing_preview()
-            queued_count, queue_items = _queue_preview(settings.SONARR_URL, settings.SONARR_API_KEY)
+            queue_snapshot = _fetch_queue_snapshot(settings.SONARR_URL, settings.SONARR_API_KEY)
+            queued_count, queue_items = _queue_preview(queue_snapshot)
             sonarr = {
                 "ok": True,
                 "series": len(series),
@@ -215,7 +233,8 @@ def _build_automation_summary():
             movies = _arr_get(settings.RADARR_URL, settings.RADARR_API_KEY, "/api/v3/movie")
             monitored = sum(1 for m in movies if m.get("monitored"))
             missing_count, missing_items = _radarr_missing_preview()
-            queued_count, queue_items = _queue_preview(settings.RADARR_URL, settings.RADARR_API_KEY)
+            queue_snapshot = _fetch_queue_snapshot(settings.RADARR_URL, settings.RADARR_API_KEY)
+            queued_count, queue_items = _queue_preview(queue_snapshot)
             radarr = {
                 "ok": True,
                 "movies": len(movies),

@@ -1,7 +1,18 @@
+import json
+import os
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import Mock, patch
 
-from queue_hygiene import classify_queue, flatten_status_messages, group_queue_by_download_id
+import config
+import queue_hygiene
+from queue_hygiene import (
+    classify_queue,
+    flatten_status_messages,
+    group_queue_by_download_id,
+    run_queue_hygiene_cycle,
+)
 
 
 REASON = "Not an upgrade for existing episode file(s). Existing file is equal or better."
@@ -150,6 +161,167 @@ class QueueHygieneTests(unittest.TestCase):
             [group["downloadId"] for group in result["eligibleGroups"]], [hash_a, hash_z]
         )
         self.assertEqual(result["eligibleGroups"][0]["titles"], ["Show S01E11"])
+
+
+class QueueHygieneCycleTests(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.state_path = os.path.join(self.tmpdir.name, "queue-hygiene-state.json")
+        self._old = {
+            "QUEUE_HYGIENE_MODE": config.QUEUE_HYGIENE_MODE,
+            "QUEUE_HYGIENE_GRACE_SECONDS": config.QUEUE_HYGIENE_GRACE_SECONDS,
+            "QUEUE_HYGIENE_STATE_PATH": config.QUEUE_HYGIENE_STATE_PATH,
+        }
+        config.QUEUE_HYGIENE_MODE = "observe"
+        config.QUEUE_HYGIENE_GRACE_SECONDS = 6 * 3600
+        config.QUEUE_HYGIENE_STATE_PATH = self.state_path
+        config._arr_cache.clear()
+        self.addCleanup(self._restore_config)
+        self.addCleanup(self.tmpdir.cleanup)
+
+    def _restore_config(self):
+        for name, value in self._old.items():
+            setattr(config, name, value)
+        config._arr_cache.clear()
+
+    def _run(self, mode, queue_snapshots, qbt_snapshots, now=NOW):
+        with patch.object(
+            queue_hygiene, "_fetch_sonarr_queue_snapshot", side_effect=queue_snapshots
+        ) as sonarr_fetch, patch.object(
+            queue_hygiene, "_fetch_qbt_torrents", side_effect=qbt_snapshots
+        ) as qbt_fetch, patch.object(
+            queue_hygiene, "_ignore_sonarr_queue_items"
+        ) as ignore:
+            result = run_queue_hygiene_cycle(mode=mode, now=now)
+        return result, sonarr_fetch, qbt_fetch, ignore
+
+    @staticmethod
+    def _snapshot(records):
+        return {"totalRecords": len(records), "records": records}
+
+    def test_off_does_not_make_upstream_requests(self):
+        with patch.object(queue_hygiene, "_fetch_sonarr_queue_snapshot") as sonarr_fetch, patch.object(
+            queue_hygiene, "_fetch_qbt_torrents"
+        ) as qbt_fetch:
+            result = run_queue_hygiene_cycle(mode="off", now=NOW)
+        self.assertEqual(result["status"], "off")
+        sonarr_fetch.assert_not_called()
+        qbt_fetch.assert_not_called()
+
+    def test_observe_classifies_without_delete(self):
+        result, sonarr_fetch, qbt_fetch, ignore = self._run(
+            "observe", [self._snapshot([row()])], [[torrent()]]
+        )
+        self.assertEqual(result["status"], "observed")
+        self.assertEqual(result["counts"]["eligible"], 1)
+        self.assertEqual(result["queueIds"], [11])
+        sonarr_fetch.assert_called_once()
+        qbt_fetch.assert_called_once()
+        ignore.assert_not_called()
+
+    def test_auto_deletes_all_eligible_ids_once(self):
+        result, _sonarr_fetch, _qbt_fetch, ignore = self._run(
+            "auto",
+            [self._snapshot([row(), row(12)]) , self._snapshot([])],
+            [[torrent()], [torrent()]],
+        )
+        self.assertEqual(result["status"], "cleaned")
+        ignore.assert_called_once_with([11, 12])
+        self.assertEqual(result["verification"]["queueIdsGone"], True)
+
+    def test_shared_download_id_is_atomic_for_cycle_mutation(self):
+        result, _sonarr_fetch, _qbt_fetch, ignore = self._run(
+            "auto",
+            [self._snapshot([row(), row(12, episodeHasFile=False)])],
+            [[torrent()]],
+        )
+        self.assertEqual(result["counts"]["eligible"], 0)
+        ignore.assert_not_called()
+
+    def test_post_mutation_sonarr_ids_are_gone_and_qbt_hashes_preserved(self):
+        result, _sonarr_fetch, qbt_fetch, ignore = self._run(
+            "auto",
+            [self._snapshot([row()]), self._snapshot([])],
+            [[torrent()], [torrent()]],
+        )
+        self.assertEqual(result["verification"]["queueIdsGone"], True)
+        self.assertEqual(result["verification"]["hashesPreserved"], True)
+        self.assertEqual(result["verification"]["missingHashes"], [])
+        self.assertEqual(qbt_fetch.call_count, 2)
+        ignore.assert_called_once_with([11])
+
+    def test_hash_disappearance_opens_persisted_circuit_and_blocks_later_auto(self):
+        result, _sonarr_fetch, _qbt_fetch, ignore = self._run(
+            "auto",
+            [self._snapshot([row()]), self._snapshot([])],
+            [[torrent()], []],
+        )
+        self.assertEqual(result["status"], "circuit_open")
+        self.assertTrue(result["circuitOpen"])
+        ignore.assert_called_once_with([11])
+        with open(self.state_path, encoding="utf-8") as handle:
+            state = json.load(handle)
+        self.assertTrue(state["circuitOpen"])
+
+        result, _sonarr_fetch, _qbt_fetch, ignore = self._run(
+            "auto", [self._snapshot([row()])], [[torrent()]]
+        )
+        self.assertEqual(result["status"], "circuit_open")
+        ignore.assert_not_called()
+
+    def test_network_failure_is_report_only_and_does_not_open_circuit(self):
+        with patch.object(
+            queue_hygiene,
+            "_fetch_sonarr_queue_snapshot",
+            side_effect=ConnectionError("sonarr unavailable"),
+        ), patch.object(queue_hygiene, "_fetch_qbt_torrents") as qbt_fetch, patch.object(
+            queue_hygiene, "_ignore_sonarr_queue_items"
+        ) as ignore:
+            result = run_queue_hygiene_cycle(mode="auto", now=NOW)
+        self.assertEqual(result["status"], "error")
+        self.assertFalse(result["circuitOpen"])
+        self.assertIn("sonarr unavailable", result["error"])
+        qbt_fetch.assert_not_called()
+        ignore.assert_not_called()
+
+    def test_success_invalidates_automation_cache(self):
+        config._arr_cache.update({"automation": {"stale": True}, "automation_ts": 1})
+        result, _sonarr_fetch, _qbt_fetch, _ignore = self._run(
+            "auto", [self._snapshot([row()]), self._snapshot([])], [[torrent()], [torrent()]]
+        )
+        self.assertEqual(result["status"], "cleaned")
+        self.assertNotIn("automation", config._arr_cache)
+        self.assertNotIn("automation_ts", config._arr_cache)
+
+    def test_state_write_is_atomic_bounded_and_public(self):
+        with patch.object(queue_hygiene.os, "replace", wraps=os.replace) as replace:
+            self._run("observe", [self._snapshot([row()])], [[torrent()]])
+        replace.assert_called_once()
+        self.assertTrue(os.path.exists(self.state_path))
+        with open(self.state_path, encoding="utf-8") as handle:
+            raw = handle.read()
+            state = json.loads(raw)
+        self.assertLessEqual(len(state["queueIds"]), queue_hygiene.MAX_STATE_ITEMS)
+        self.assertLessEqual(len(state["hashes"]), queue_hygiene.MAX_STATE_ITEMS)
+        self.assertNotIn("super-secret", raw)
+        self.assertNotIn("magnet:", raw.lower())
+        self.assertNotIn("api_key", raw.lower())
+        self.assertNotIn("password", raw.lower())
+        self.assertNotIn(".tmp-", " ".join(os.listdir(self.tmpdir.name)))
+
+    def test_overlap_returns_skipped_without_upstream_work(self):
+        self.assertTrue(queue_hygiene._cycle_lock.acquire(blocking=False))
+        try:
+            with patch.object(queue_hygiene, "_fetch_sonarr_queue_snapshot") as sonarr_fetch, patch.object(
+                queue_hygiene, "_fetch_qbt_torrents"
+            ) as qbt_fetch:
+                result = run_queue_hygiene_cycle(mode="auto", now=NOW)
+        finally:
+            queue_hygiene._cycle_lock.release()
+        self.assertEqual(result["status"], "skipped")
+        self.assertTrue(result["skipped"])
+        sonarr_fetch.assert_not_called()
+        qbt_fetch.assert_not_called()
 
 
 if __name__ == "__main__":

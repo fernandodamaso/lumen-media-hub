@@ -275,6 +275,10 @@ services:
       - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
       - PORT=8085
       - DATA_PATH=/data
+      - QUEUE_HYGIENE_MODE=${QUEUE_HYGIENE_MODE:-observe}
+      - QUEUE_HYGIENE_INTERVAL_SECONDS=${QUEUE_HYGIENE_INTERVAL_SECONDS:-300}
+      - QUEUE_HYGIENE_GRACE_SECONDS=${QUEUE_HYGIENE_GRACE_SECONDS:-21600}
+      - QUEUE_HYGIENE_STATE_PATH=${QUEUE_HYGIENE_STATE_PATH:-/recommendations/queue-hygiene-state.json}
     volumes:
       - ./config/homepage-actions:/app:ro
       - ./config/recommendations:/recommendations

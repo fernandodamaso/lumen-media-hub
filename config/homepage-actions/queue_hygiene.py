@@ -6,12 +6,73 @@ choose whether an independently verified cleanup is appropriate.
 """
 from datetime import datetime, timezone
 import math
+import json
+import os
 import re
+import threading
+
+import config as settings
 
 
 NOT_AN_UPGRADE_PREFIX = "Not an upgrade for existing episode file(s)."
 _HASH_PATTERN = re.compile(r"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
 _COMPLETED_STATES = {"completed", "importpending", "importblocked"}
+MAX_STATE_ITEMS = 100
+_cycle_lock = threading.Lock()
+
+
+def _fetch_sonarr_queue_snapshot():
+    from routes.automation import _fetch_queue_snapshot
+
+    return _fetch_queue_snapshot(settings.SONARR_URL, settings.SONARR_API_KEY)
+
+
+def _fetch_qbt_torrents():
+    import http.cookiejar
+    from clients.qbittorrent import qbt_get_json, qbt_login
+
+    opener = __import__("urllib.request", fromlist=["build_opener"]).build_opener(
+        http.cookiejar.CookieJar()
+    )
+    qbt_login(opener)
+    return qbt_get_json("/api/v2/torrents/info", opener)
+
+
+def _ignore_sonarr_queue_items(queue_ids):
+    from clients.arr import ignore_sonarr_queue_items
+
+    return ignore_sonarr_queue_items(queue_ids)
+
+
+def _read_state():
+    try:
+        with open(settings.QUEUE_HYGIENE_STATE_PATH, encoding="utf-8") as handle:
+            value = json.load(handle)
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _write_state(state):
+    path = settings.QUEUE_HYGIENE_STATE_PATH
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    temporary = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(state, handle, indent=2, ensure_ascii=False)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+
+
+def _bounded(values):
+    return list(values or [])[:MAX_STATE_ITEMS]
+
+
+def _public_result(result):
+    return result
 
 
 def _flatten(value):
@@ -258,3 +319,121 @@ def classify_queue(queue_records, qbt_torrents, now, grace_seconds):
         "eligibleGroups": eligible,
         "blockedItems": blocked,
     }
+
+
+def run_queue_hygiene_cycle(mode=None, now=None):
+    """Run one guarded queue-hygiene cycle."""
+    selected_mode = str(mode if mode is not None else settings.QUEUE_HYGIENE_MODE).strip().lower()
+    if selected_mode not in {"off", "observe", "auto"}:
+        selected_mode = "observe"
+    if not _cycle_lock.acquire(blocking=False):
+        return {"status": "skipped", "skipped": True, "circuitOpen": bool(_read_state().get("circuitOpen"))}
+    try:
+        state = _read_state()
+        circuit_open = bool(state.get("circuitOpen"))
+        if selected_mode == "off":
+            return {"status": "off", "mode": selected_mode, "circuitOpen": circuit_open}
+        if selected_mode == "auto" and circuit_open:
+            return {
+                "status": "circuit_open",
+                "mode": selected_mode,
+                "circuitOpen": True,
+                "error": state.get("error", "Automatic cleanup paused; manual reset required."),
+            }
+
+        observed_at = now if isinstance(now, datetime) else datetime.now(timezone.utc)
+        try:
+            queue_snapshot = _fetch_sonarr_queue_snapshot()
+            qbt_torrents = _fetch_qbt_torrents()
+            records = queue_snapshot.get("records", []) if isinstance(queue_snapshot, dict) else []
+            diagnostics = classify_queue(
+                records,
+                qbt_torrents,
+                observed_at,
+                settings.QUEUE_HYGIENE_GRACE_SECONDS,
+            )
+        except Exception as error:
+            result = {
+                "status": "error",
+                "mode": selected_mode,
+                "circuitOpen": circuit_open,
+                "error": str(error),
+            }
+            _write_state({**state, "mode": selected_mode, "circuitOpen": circuit_open, "lastCycleAt": _format_timestamp(observed_at), "error": str(error)})
+            return result
+
+        eligible_groups = diagnostics["eligibleGroups"]
+        queue_ids = sorted({queue_id for group in eligible_groups for queue_id in group["queueIds"]})
+        hashes = sorted({group["downloadId"].lower() for group in eligible_groups})
+        counts = {
+            "eligible": len(eligible_groups),
+            "blocked": len(diagnostics["blockedItems"]),
+            "queued": diagnostics["totalQueued"],
+        }
+        result = {
+            "status": "observed",
+            "mode": selected_mode,
+            "circuitOpen": circuit_open,
+            "observedAt": diagnostics["observedAt"],
+            "counts": counts,
+            "queueIds": _bounded(queue_ids),
+            "hashes": _bounded(hashes),
+            "eligibleGroups": eligible_groups,
+            "blockedItems": diagnostics["blockedItems"],
+        }
+        state_update = {
+            **state,
+            "mode": selected_mode,
+            "circuitOpen": circuit_open,
+            "lastCycleAt": diagnostics["observedAt"],
+            "counts": counts,
+            "queueIds": _bounded(queue_ids),
+            "hashes": _bounded(hashes),
+        }
+
+        if selected_mode != "auto" or not queue_ids:
+            _write_state(state_update)
+            return result
+
+        _ignore_sonarr_queue_items(queue_ids)
+        post_queue_snapshot = _fetch_sonarr_queue_snapshot()
+        post_qbt_torrents = _fetch_qbt_torrents()
+        post_records = post_queue_snapshot.get("records", []) if isinstance(post_queue_snapshot, dict) else []
+        remaining_ids = {
+            row.get("id") for row in post_records if isinstance(row, dict) and isinstance(row.get("id"), int)
+        }
+        post_hashes = {
+            item.get("hash", "").strip().lower()
+            for item in post_qbt_torrents or []
+            if isinstance(item, dict) and isinstance(item.get("hash"), str)
+        }
+        missing_hashes = sorted(set(hashes) - post_hashes)
+        verification = {
+            "queueIdsGone": not (set(queue_ids) & remaining_ids),
+            "hashesPreserved": not missing_hashes,
+            "missingHashes": _bounded(missing_hashes),
+        }
+        result["verification"] = verification
+        if missing_hashes:
+            error = "Expected qBittorrent hash disappeared after Sonarr cleanup."
+            result.update({"status": "circuit_open", "circuitOpen": True, "error": error})
+            _write_state({
+                **state_update,
+                "circuitOpen": True,
+                "error": error,
+                "verification": verification,
+            })
+            return result
+        if not verification["queueIdsGone"]:
+            result.update({"status": "verification_failed", "error": "Sonarr queue IDs remained after cleanup."})
+            _write_state({**state_update, "verification": verification, "error": result["error"]})
+            return result
+
+        result.update({"status": "cleaned", "lastCleanup": {"at": diagnostics["observedAt"], "queueIds": _bounded(queue_ids), "hashes": _bounded(hashes)}})
+        state_update.update({"lastCleanup": result["lastCleanup"], "verification": verification})
+        _write_state(state_update)
+        settings._arr_cache.pop("automation", None)
+        settings._arr_cache.pop("automation_ts", None)
+        return result
+    finally:
+        _cycle_lock.release()

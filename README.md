@@ -199,6 +199,42 @@ Optional capabilities are enabled explicitly. An intentionally disabled service 
 
 ---
 
+## Sonarr queue hygiene and overlapping searches
+
+Queue hygiene is deliberately conservative: it can tell Sonarr to ignore a
+completed stale queue row, but it never asks qBittorrent to remove a torrent or
+deletes media. It starts in `QUEUE_HYGIENE_MODE=observe`; automatic mode should
+only be enabled after the read-only checks pass.
+
+The original incident was an overlapping broad season search, not ordinary RSS:
+
+- `12:27:06`: the S02 BluRay pack was sent to qBittorrent.
+- `13:16:04`: another S02 season search began while the pack was completing and
+  importing.
+- `14:09:57–14:10:37`: that long-running search sent 20 WEB releases.
+- Those releases later appeared as Sonarr `Not an upgrade` queue warnings.
+
+Operational rules:
+
+1. Do not start a second Series Search or Season Search while the same
+   series/season has an active pack in Sonarr/qBittorrent or imports are in
+   progress.
+2. Any future dashboard or automation feature that invokes `SeriesSearch` or
+   `SeasonSearch` must preflight the Sonarr queue and episode files and reject
+   overlaps.
+3. Keep the current `Any` profile when broad acquisition is intentional. For a
+   completed anime season that must remain BluRay multi-audio, assign a
+   dedicated restrictive profile to that series instead of disabling WEB
+   globally for airing shows.
+4. Completed Download Handling is already enabled and does not resolve
+   `Not an upgrade` warnings; it is not the fix for this race.
+
+Queue hygiene only ignores eligible Sonarr rows after a grace period and
+verifies that the corresponding qBittorrent hashes remain present. Unknown,
+mixed, active, malformed, or too-young items stay report-only. An unexpected
+qBittorrent disappearance opens a persisted circuit breaker and pauses further
+automatic cleanup until manually reset.
+
 ## First-time setup
 
 ### Requirements

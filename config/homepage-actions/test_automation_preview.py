@@ -58,6 +58,35 @@ class TestQueueSnapshot(unittest.TestCase):
         self.assertEqual(items[1]["error"], "explicit")
 
 
+class TestQueueHygieneSummary(unittest.TestCase):
+    def test_maps_bounded_state_and_preserves_cleanup(self):
+        state = {
+            "mode": "observe",
+            "circuitOpen": True,
+            "counts": {"eligible": 4, "blocked": 3},
+            "eligibleItems": [{"queueIds": [1]}] * 5,
+            "blockedItems": [{"queueId": 2}] * 5,
+            "lastCycleAt": "2026-08-23T12:00:00Z",
+            "lastCleanup": {"queueIds": [9]},
+        }
+        with patch("routes.automation._read_state", return_value=state), patch(
+            "config.AUTOMATION_PREVIEW_LIMIT", 2
+        ):
+            result = automation_routes._queue_hygiene_summary()
+        self.assertEqual(result["eligibleCount"], 4)
+        self.assertEqual(result["blockedCount"], 3)
+        self.assertTrue(result["circuitOpen"])
+        self.assertEqual(len(result["eligibleItems"]), 2)
+        self.assertEqual(result["lastCleanup"], {"queueIds": [9]})
+
+    def test_state_read_failure_returns_safe_empty_block(self):
+        with patch("routes.automation._read_state", side_effect=OSError("unavailable")):
+            result = automation_routes._queue_hygiene_summary()
+        self.assertEqual(result["eligibleCount"], 0)
+        self.assertEqual(result["blockedCount"], 0)
+        self.assertFalse(result["circuitOpen"])
+
+
 class TestMissingPreviewPosterUrls(unittest.TestCase):
     """posterUrl emission for Sonarr/Radarr missing-item previews."""
 

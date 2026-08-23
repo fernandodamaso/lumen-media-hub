@@ -5,6 +5,7 @@ import time
 import config as settings
 from clients.arr import _arr_get, _bazarr_wanted_details
 from http_support import send_json
+from queue_hygiene import _read_state
 
 
 def _safe_arr_count(fn, default=0):
@@ -156,6 +157,26 @@ def _queue_preview(snapshot):
     return int(snapshot.get("totalRecords", 0)), items
 
 
+def _queue_hygiene_summary():
+    try:
+        state = _read_state()
+    except Exception:
+        state = {}
+    counts = state.get("counts") if isinstance(state.get("counts"), dict) else {}
+    eligible = int(counts.get("eligible", 0) or 0)
+    blocked = int(counts.get("blocked", 0) or 0)
+    return {
+        "mode": state.get("mode", settings.QUEUE_HYGIENE_MODE),
+        "circuitOpen": bool(state.get("circuitOpen", False)),
+        "eligibleCount": eligible,
+        "blockedCount": blocked,
+        "eligibleItems": (state.get("eligibleItems") or [])[: settings.AUTOMATION_PREVIEW_LIMIT],
+        "blockedItems": (state.get("blockedItems") or [])[: settings.AUTOMATION_PREVIEW_LIMIT],
+        "lastCycleAt": state.get("lastCycleAt"),
+        "lastCleanup": state.get("lastCleanup"),
+    }
+
+
 def _prowlarr_indexer_details():
     indexers = _arr_get(settings.PROWLARR_URL, settings.PROWLARR_API_KEY, "/api/v1/indexer")
     enabled = [i for i in indexers if i.get("enable", True)]
@@ -225,6 +246,11 @@ def _build_automation_summary():
                 "missingItems": missing_items,
                 "queueItems": queue_items,
             }
+            hygiene = _queue_hygiene_summary()
+            sonarr["queueHygiene"] = hygiene
+            if hygiene["eligibleCount"] or hygiene["blockedCount"] or hygiene["circuitOpen"]:
+                sonarr["ok"] = False
+                sonarr["error"] = "Sonarr queue hygiene requires attention"
         except Exception as e:
             sonarr = {"ok": False, "error": str(e)}
 

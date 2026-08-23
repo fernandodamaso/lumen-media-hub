@@ -29,7 +29,7 @@ import { WatchNextResult } from '../library/watch-next.models';
 import { RecentlyAvailableResult } from '../library/recently-available.models';
 import { ActivityFeed } from '../activity/activity.models';
 import { mapActivityFeed } from '../activity/activity-format';
-import { AutomationService, AutomationSummary } from '../automation/automation.models';
+import { AutomationService, AutomationSummary, QueueHygieneRunResult } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
 import { MediaStackApi } from './media-stack-api';
@@ -58,6 +58,7 @@ import {
   LiveRecentlyAvailableListResponse,
   mapLiveActivityFeed,
   mapLiveAutomationSummary,
+  mapLiveQueueHygieneRun,
   mapLiveJellyfinItem,
   mapLiveWatchNextItem,
   mapLiveRecentlyAvailableItem,
@@ -370,6 +371,14 @@ export class HttpMediaStackApi implements MediaStackApi {
       await probesPromise.catch(() => undefined);
       throw error;
     }
+  }
+
+  runQueueHygiene(mode: 'observe' | 'auto'): Promise<QueueHygieneRunResult> {
+    return this.mutateHard<OkEnvelope & Record<string, unknown>>(
+      '/automation/queue-hygiene/run',
+      'POST',
+      { mode },
+    ).then((envelope) => mapLiveQueueHygieneRun(envelope));
   }
 
   /** Soft-probe Jellyfin / qBittorrent so sidebar dots are API-driven (not stuck unknown). */

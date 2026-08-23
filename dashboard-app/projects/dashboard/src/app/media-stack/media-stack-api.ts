@@ -22,7 +22,7 @@ import {
 import { WatchNextResult } from '../library/watch-next.models';
 import { RecentlyAvailableResult } from '../library/recently-available.models';
 import { ActivityFeed } from '../activity/activity.models';
-import { AutomationSummary } from '../automation/automation.models';
+import { AutomationSummary, QueueHygieneRunResult } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
 
@@ -44,6 +44,7 @@ export interface MediaStackApi {
   getLibraryStats(signal?: AbortSignal): Promise<LibraryStats>;
   getStorageOverview(signal?: AbortSignal): Promise<StorageOverview>;
   getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary>;
+  runQueueHygiene(mode: 'observe' | 'auto'): Promise<QueueHygieneRunResult>;
   listCronLogs(signal?: AbortSignal): Promise<CronLogs>;
   listHermesRecommendations(signal?: AbortSignal): Promise<HermesDiscover>;
   submitHermesFeedback(

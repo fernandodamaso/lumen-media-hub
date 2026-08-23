@@ -5,7 +5,7 @@ import time
 import config as settings
 from clients.arr import _arr_get, _bazarr_wanted_details
 from http_support import send_json
-from queue_hygiene import _read_state
+from queue_hygiene import _read_state, normalized_state
 
 
 def _safe_arr_count(fn, default=0):
@@ -159,21 +159,13 @@ def _queue_preview(snapshot):
 
 def _queue_hygiene_summary():
     try:
-        state = _read_state()
+        state = normalized_state(_read_state())
     except Exception:
-        state = {}
-    counts = state.get("counts") if isinstance(state.get("counts"), dict) else {}
-    eligible = int(counts.get("eligible", 0) or 0)
-    blocked = int(counts.get("blocked", 0) or 0)
+        state = normalized_state({})
     return {
-        "mode": state.get("mode", settings.QUEUE_HYGIENE_MODE),
-        "circuitOpen": bool(state.get("circuitOpen", False)),
-        "eligibleCount": eligible,
-        "blockedCount": blocked,
-        "eligibleItems": (state.get("eligibleItems") or [])[: settings.AUTOMATION_PREVIEW_LIMIT],
-        "blockedItems": (state.get("blockedItems") or [])[: settings.AUTOMATION_PREVIEW_LIMIT],
-        "lastCycleAt": state.get("lastCycleAt"),
-        "lastCleanup": state.get("lastCleanup"),
+        **state,
+        "eligibleItems": state["eligibleItems"][: settings.AUTOMATION_PREVIEW_LIMIT],
+        "blockedItems": state["blockedItems"][: settings.AUTOMATION_PREVIEW_LIMIT],
     }
 
 
@@ -248,9 +240,9 @@ def _build_automation_summary():
             }
             hygiene = _queue_hygiene_summary()
             sonarr["queueHygiene"] = hygiene
-            if hygiene["eligibleCount"] or hygiene["blockedCount"] or hygiene["circuitOpen"]:
-                sonarr["ok"] = False
-                sonarr["error"] = "Sonarr queue hygiene requires attention"
+            sonarr["degraded"] = bool(
+                hygiene["eligibleCount"] or hygiene["blockedCount"] or hygiene["circuitOpen"]
+            )
         except Exception as e:
             sonarr = {"ok": False, "error": str(e)}
 

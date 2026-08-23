@@ -16,6 +16,7 @@ describe('automation.models', () => {
         { id: 'p3', summary: '', serviceId: null, severity: 'warning' },
       ],
       availability: { services: 'present', preview: 'empty', problems: 'present' },
+      queueHygiene: null,
     };
     expect(summarizeAutomationHealth(summary)).toEqual({ overall: 'down', actionableCount: 2 });
   });
@@ -27,6 +28,7 @@ describe('automation.models', () => {
       preview: [],
       problems: [],
       availability: { services: 'empty', preview: 'empty', problems: 'empty' },
+      queueHygiene: null,
     };
     expect(summarizeAutomationHealth(summary)).toEqual({ overall: 'unknown', actionableCount: 0 });
   });

@@ -74,7 +74,45 @@ def _bounded(values):
     return list(values or [])[:MAX_STATE_ITEMS]
 
 
-def _public_result(result):
+def _invalidate_automation_cache():
+    settings._arr_cache.pop("automation", None)
+    settings._arr_cache.pop("automation_ts", None)
+
+
+def _nonnegative_int(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+def normalized_state(state=None):
+    """Return the bounded, secret-free state contract used by HTTP/UI readers."""
+    raw = _read_state() if state is None else state
+    if not isinstance(raw, dict):
+        raw = {}
+    counts = raw.get("counts") if isinstance(raw.get("counts"), dict) else {}
+    verification = raw.get("verification") if isinstance(raw.get("verification"), dict) else None
+    normalized_verification = None
+    if verification is not None:
+        normalized_verification = {
+            "queueIdsGone": verification.get("queueIdsGone") is True,
+            "hashesPreserved": verification.get("hashesPreserved") is True,
+            "missingHashes": _bounded(
+                value for value in verification.get("missingHashes", []) if isinstance(value, str)
+            ),
+        }
+    last_cleanup = raw.get("lastCleanup") if isinstance(raw.get("lastCleanup"), dict) else None
+    result = {
+        "mode": raw.get("mode") if raw.get("mode") in {"off", "observe", "auto"} else settings.QUEUE_HYGIENE_MODE,
+        "circuitOpen": raw.get("circuitOpen") is True,
+        "eligibleCount": _nonnegative_int(counts.get("eligible")),
+        "blockedCount": _nonnegative_int(counts.get("blocked")),
+        "eligibleItems": _bounded(raw.get("eligibleItems")),
+        "blockedItems": _bounded(raw.get("blockedItems")),
+        "lastCycleAt": raw.get("lastCycleAt") if isinstance(raw.get("lastCycleAt"), str) else None,
+        "lastCleanup": last_cleanup,
+        "verification": normalized_verification,
+    }
+    if isinstance(raw.get("error"), str) and raw["error"].strip():
+        result["error"] = raw["error"].strip()
     return result
 
 
@@ -435,6 +473,7 @@ def run_queue_hygiene_cycle(mode=None, now=None):
 
         if selected_mode != "auto" or not queue_ids:
             _write_state(state_update)
+            _invalidate_automation_cache()
             return result
 
         _ignore_sonarr_queue_items(queue_ids)
@@ -474,8 +513,7 @@ def run_queue_hygiene_cycle(mode=None, now=None):
         result.update({"status": "cleaned", "lastCleanup": {"at": diagnostics["observedAt"], "queueIds": _bounded(queue_ids), "hashes": _bounded(hashes)}})
         state_update.update({"lastCleanup": result["lastCleanup"], "verification": verification})
         _write_state(state_update)
-        settings._arr_cache.pop("automation", None)
-        settings._arr_cache.pop("automation_ts", None)
+        _invalidate_automation_cache()
         return result
     finally:
         _cycle_lock.release()

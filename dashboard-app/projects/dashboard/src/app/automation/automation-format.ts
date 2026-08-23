@@ -4,8 +4,12 @@ import {
   AutomationProblemSeverity,
   AutomationServiceStatus,
   AutomationSummary,
+  QueueHygieneSummary,
 } from './automation.models';
-import { MediaStackAutomationSummaryDto } from '../media-stack/wire/automation';
+import {
+  MediaStackAutomationSummaryDto,
+  MediaStackQueueHygieneSummaryDto,
+} from '../media-stack/wire/automation';
 
 type AutomationStatusTone = 'success' | 'warning' | 'danger' | 'info';
 
@@ -61,12 +65,36 @@ export const mapAutomationSummary = (dto: MediaStackAutomationSummaryDto): Autom
       itemCount: normalizeItemCount(problem.itemCount),
     }),
   ),
+  queueHygiene: dto.queueHygiene ? mapQueueHygiene(dto.queueHygiene) : null,
   availability: {
     services: deriveSectionAvailability(dto.services, dto.unavailable?.services),
     preview: deriveSectionAvailability(dto.preview, dto.unavailable?.preview),
     problems: deriveSectionAvailability(dto.problems, dto.unavailable?.problems),
   },
 });
+
+function mapQueueHygiene(dto: MediaStackQueueHygieneSummaryDto): QueueHygieneSummary {
+  return {
+    mode: dto.mode,
+    circuitOpen: dto.circuitOpen,
+    eligibleCount: dto.eligibleCount,
+    blockedCount: dto.blockedCount,
+    eligibleItems: dto.eligibleItems.map((item) => ({
+      ...item,
+      queueIds: [...item.queueIds],
+      titles: [...item.titles],
+    })),
+    blockedItems: dto.blockedItems.map((item) => ({ ...item })),
+    lastCycleAt: dto.lastCycleAt,
+    lastCleanup: dto.lastCleanup
+      ? { ...dto.lastCleanup, queueIds: [...dto.lastCleanup.queueIds], hashes: [...dto.lastCleanup.hashes] }
+      : null,
+    verification: dto.verification
+      ? { ...dto.verification, missingHashes: [...dto.verification.missingHashes] }
+      : null,
+    error: dto.error,
+  };
+}
 
 /** Soft wire strings may be missing even when the DTO marks them required. */
 function wireText(value: string | null | undefined): string {

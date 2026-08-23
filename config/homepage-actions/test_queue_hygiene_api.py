@@ -53,6 +53,23 @@ class QueueHygieneApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["mode"], "observe")
 
+    def test_get_normalizes_missing_state(self):
+        with patch("routes.queue_hygiene._read_state", return_value={}):
+            status, body = self.request("GET", "/automation/queue-hygiene")
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {
+            "ok": True,
+            "mode": "observe",
+            "circuitOpen": False,
+            "eligibleCount": 0,
+            "blockedCount": 0,
+            "eligibleItems": [],
+            "blockedItems": [],
+            "lastCycleAt": None,
+            "lastCleanup": None,
+            "verification": None,
+        })
+
     def test_post_requires_token_and_origin(self):
         status, body = self.request("POST", "/automation/queue-hygiene/run", {"mode": "observe"})
         self.assertEqual(status, 401)
@@ -74,6 +91,29 @@ class QueueHygieneApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body["ok"])
         run_cycle.assert_called_once_with(mode="observe")
+
+    def test_reset_requires_exact_confirmation_and_preserves_audit(self):
+        for payload in ({}, {"confirm": "wrong"}, {"confirm": "reset-circuit", "extra": True}):
+            status, _body = self.request("POST", "/automation/queue-hygiene/reset", payload, TOKEN, ORIGIN)
+            self.assertEqual(status, 400)
+        state = {
+            "mode": "auto",
+            "circuitOpen": True,
+            "error": "paused",
+            "lastCleanup": {"at": "2026-08-23T12:00:00Z"},
+        }
+        with patch("routes.queue_hygiene._read_state", return_value=state), patch(
+            "routes.queue_hygiene._write_state"
+        ) as write_state:
+            status, body = self.request(
+                "POST", "/automation/queue-hygiene/reset", {"confirm": "reset-circuit"}, TOKEN, ORIGIN
+            )
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        write_state.assert_called_once()
+        self.assertFalse(write_state.call_args.args[0]["circuitOpen"])
+        self.assertNotIn("error", write_state.call_args.args[0])
+        self.assertEqual(write_state.call_args.args[0]["lastCleanup"], state["lastCleanup"])
 
 
 class QueueHygieneSchedulerTests(unittest.TestCase):

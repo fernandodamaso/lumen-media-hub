@@ -17,7 +17,7 @@ import { WatchNextResult } from '../library/watch-next.models';
 import { RecentlyAvailableResult } from '../library/recently-available.models';
 import { ActivityFeed } from '../activity/activity.models';
 import { mapActivityFeed } from '../activity/activity-format';
-import { AutomationSummary } from '../automation/automation.models';
+import { AutomationSummary, QueueHygieneRunResult } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
 import { MediaStackApi } from './media-stack-api';
@@ -363,7 +363,35 @@ function demoAutomationSummary(): MediaStackAutomationSummaryDto {
         itemCount: 4,
       },
     ],
+    queueHygiene: null,
   };
+}
+
+function demoQueueHygiene(scenario: AutomationScenario): NonNullable<MediaStackAutomationSummaryDto['queueHygiene']> | null {
+  const eligible = {
+    downloadId: 'a'.repeat(40),
+    queueIds: [101],
+    titles: ['Demo Show S01E02'],
+    reason: 'Not an upgrade for existing episode file(s).',
+    completedAt: '2026-08-23T08:00:00Z',
+    ageHours: 4.5,
+  };
+  if (scenario === 'queue-hygiene-eligible') {
+    return {
+      mode: 'observe', circuitOpen: false, eligibleCount: 1, blockedCount: 0,
+      eligibleItems: [eligible], blockedItems: [], lastCycleAt: '2026-08-23T12:30:00Z',
+      lastCleanup: null, verification: null,
+    };
+  }
+  if (scenario === 'queue-hygiene-circuit') {
+    return {
+      mode: 'auto', circuitOpen: true, eligibleCount: 0, blockedCount: 0,
+      eligibleItems: [], blockedItems: [], lastCycleAt: '2026-08-23T12:30:00Z',
+      lastCleanup: null, verification: { queueIdsGone: true, hashesPreserved: false, missingHashes: ['b'.repeat(40)] },
+      error: 'Automatic cleanup paused; manual reset required.',
+    };
+  }
+  return null;
 }
 
 const PARTIAL_AUTOMATION_SUMMARY: MediaStackAutomationSummaryDto = {
@@ -372,6 +400,7 @@ const PARTIAL_AUTOMATION_SUMMARY: MediaStackAutomationSummaryDto = {
     { id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'OK' },
   ],
   preview: [],
+  queueHygiene: null,
   unavailable: { preview: true, problems: true },
 };
 
@@ -512,7 +541,7 @@ function copyCronLogs(source: MediaStackCronLogsDto): MediaStackCronLogsDto {
   };
 }
 
-export type AutomationScenario = 'default' | 'partial' | 'empty';
+export type AutomationScenario = 'default' | 'partial' | 'empty' | 'queue-hygiene-eligible' | 'queue-hygiene-circuit';
 export type DownloadsScenario = 'default' | 'empty' | 'error' | 'paused' | 'mixed';
 export type WatchNextScenario = 'default' | 'empty';
 
@@ -1005,11 +1034,39 @@ export class MockMediaStackApi implements MediaStackApi {
     if (this.automationScenario === 'partial') {
       summary = PARTIAL_AUTOMATION_SUMMARY;
     } else if (this.automationScenario === 'empty') {
-      summary = { generatedAt: new Date().toISOString(), services: [], preview: [], problems: [] };
+      summary = { generatedAt: new Date().toISOString(), services: [], preview: [], problems: [], queueHygiene: null };
     } else {
       summary = demoAutomationSummary();
     }
+    if (this.automationScenario === 'queue-hygiene-eligible' || this.automationScenario === 'queue-hygiene-circuit') {
+      summary = { ...summary, queueHygiene: demoQueueHygiene(this.automationScenario) };
+    }
     return this.withLatency(mapAutomationSummary(structuredClone(summary)));
+  }
+
+  runQueueHygiene(mode: 'observe' | 'auto'): Promise<QueueHygieneRunResult> {
+    const summary = demoQueueHygiene(this.automationScenario);
+    const clean = summary === null;
+    const circuitOpen = summary?.circuitOpen === true;
+    const shouldClean = mode === 'auto' && !clean && !circuitOpen;
+    const queueIds = shouldClean ? summary.eligibleItems.flatMap((item) => item.queueIds) : [];
+    const hashes = shouldClean ? summary.eligibleItems.map((item) => item.downloadId) : [];
+    let status: 'circuit_open' | 'cleaned' | 'observed' = 'observed';
+    if (circuitOpen) status = 'circuit_open';
+    else if (shouldClean) status = 'cleaned';
+    return Promise.resolve({
+      mode,
+      status,
+      circuitOpen,
+      eligibleCount: shouldClean ? 0 : summary?.eligibleCount ?? 0,
+      blockedCount: summary?.blockedCount ?? 0,
+      eligibleItems: shouldClean ? [] : summary?.eligibleItems ?? [],
+      blockedItems: summary?.blockedItems ?? [],
+      lastCycleAt: new Date().toISOString(),
+      lastCleanup: shouldClean ? { at: new Date().toISOString(), queueIds, hashes } : summary?.lastCleanup ?? null,
+      verification: shouldClean ? { queueIdsGone: true, hashesPreserved: true, missingHashes: [] } : summary?.verification ?? null,
+      ...(summary?.error ? { error: summary.error } : {}),
+    });
   }
 
   listCronLogs(_signal?: AbortSignal): Promise<CronLogs> {

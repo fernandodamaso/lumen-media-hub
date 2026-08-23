@@ -133,6 +133,8 @@ class ActionsHandler(BaseHTTPRequestHandler):
             discover.handle_discover_request(self)
         elif path == "/automation/queue-hygiene/run":
             queue_hygiene.handle_queue_hygiene_run(self)
+        elif path == "/automation/queue-hygiene/reset":
+            queue_hygiene.handle_queue_hygiene_reset(self)
         else:
             send_json(self, 404, {"ok": False, "error": "Unknown endpoint"})
 

@@ -68,6 +68,7 @@ class TestQueueHygieneSummary(unittest.TestCase):
             "blockedItems": [{"queueId": 2}] * 5,
             "lastCycleAt": "2026-08-23T12:00:00Z",
             "lastCleanup": {"queueIds": [9]},
+            "verification": {"queueIdsGone": True, "hashesPreserved": True, "missingHashes": []},
         }
         with patch("routes.automation._read_state", return_value=state), patch(
             "config.AUTOMATION_PREVIEW_LIMIT", 2
@@ -78,6 +79,7 @@ class TestQueueHygieneSummary(unittest.TestCase):
         self.assertTrue(result["circuitOpen"])
         self.assertEqual(len(result["eligibleItems"]), 2)
         self.assertEqual(result["lastCleanup"], {"queueIds": [9]})
+        self.assertEqual(result["verification"]["hashesPreserved"], True)
 
     def test_state_read_failure_returns_safe_empty_block(self):
         with patch("routes.automation._read_state", side_effect=OSError("unavailable")):

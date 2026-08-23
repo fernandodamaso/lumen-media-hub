@@ -6,6 +6,10 @@ import {
   MediaStackAutomationProblemItemDto,
   MediaStackAutomationServiceDto,
   MediaStackAutomationSummaryDto,
+  MediaStackQueueHygieneBlockedItemDto,
+  MediaStackQueueHygieneEligibleItemDto,
+  MediaStackQueueHygieneRunResultDto,
+  MediaStackQueueHygieneSummaryDto,
 } from './wire/automation';
 import { MediaStackCalendarEventDto } from './wire/calendar';
 import {
@@ -175,6 +179,8 @@ interface LiveAutomationServiceBlock {
   wantedItems?: LiveAutomationPreviewItem[];
   latencyMs?: number | null;
   error?: string;
+  degraded?: boolean;
+  queueHygiene?: unknown;
 }
 
 /** Nested automation summary from GET /automation/summary (React contract). */
@@ -588,6 +594,158 @@ export function mapLiveRecentlyAvailableItem(
   };
 }
 
+const QUEUE_HYGIENE_MODES = ['off', 'observe', 'auto'] as const;
+const QUEUE_HYGIENE_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+
+function queueHygieneTimestamp(value: unknown, field: string): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string' || !value.trim() || Number.isNaN(Date.parse(value))) {
+    throw new Error(`Malformed automation summary response: invalid queueHygiene.${field}`);
+  }
+  return value;
+}
+
+function queueHygieneIds(value: unknown, field: string): number[] {
+  if (!Array.isArray(value) || value.some((id) => typeof id !== 'number' || !Number.isInteger(id) || id <= 0)) {
+    throw new Error(`Malformed automation summary response: invalid queueHygiene.${field}`);
+  }
+  const ids: number[] = [];
+  for (const id of value as unknown[]) ids.push(id as number);
+  return ids;
+}
+
+function queueHygieneHashes(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.some((hash) => typeof hash !== 'string' || !QUEUE_HYGIENE_HASH.test(hash))) {
+    throw new Error(`Malformed automation summary response: invalid queueHygiene.${field}`);
+  }
+  const hashes: string[] = [];
+  for (const hash of value as unknown[]) hashes.push((hash as string).toLowerCase());
+  return hashes;
+}
+
+function queueHygieneEligible(value: unknown, index: number): MediaStackQueueHygieneEligibleItemDto {
+  if (!isRecord(value)) throw new Error(`Malformed automation summary response: invalid queueHygiene.eligibleItems[${index}]`);
+  const downloadId = value['downloadId'];
+  const titles = value['titles'];
+  const reason = value['reason'];
+  const completedAt = queueHygieneTimestamp(value['completedAt'], `eligibleItems[${index}].completedAt`);
+  const ageHours = value['ageHours'];
+  if (typeof downloadId !== 'string' || !downloadId.trim() || !Array.isArray(titles) || titles.some((title) => typeof title !== 'string')) {
+    throw new Error(`Malformed automation summary response: invalid queueHygiene.eligibleItems[${index}]`);
+  }
+  if (typeof reason !== 'string' || !reason.trim() || completedAt === null || typeof ageHours !== 'number' || !Number.isFinite(ageHours) || ageHours < 0) {
+    throw new Error(`Malformed automation summary response: invalid queueHygiene.eligibleItems[${index}]`);
+  }
+  return {
+    downloadId: downloadId.trim(),
+    queueIds: queueHygieneIds(value['queueIds'], `eligibleItems[${index}].queueIds`),
+    titles: (titles as unknown[]).map((title) => (title as string).trim()),
+    reason: reason.trim(),
+    completedAt,
+    ageHours,
+  };
+}
+
+function queueHygieneBlocked(value: unknown, index: number): MediaStackQueueHygieneBlockedItemDto {
+  if (!isRecord(value)) throw new Error(`Malformed automation summary response: invalid queueHygiene.blockedItems[${index}]`);
+  const queueId = value['queueId'];
+  const title = value['title'];
+  const reason = value['reason'];
+  const blocker = value['blocker'];
+  if (queueId !== null && (typeof queueId !== 'number' || !Number.isInteger(queueId) || queueId <= 0)) {
+    throw new Error(`Malformed automation summary response: invalid queueHygiene.blockedItems[${index}].queueId`);
+  }
+  if (typeof title !== 'string' || typeof reason !== 'string' || typeof blocker !== 'string') {
+    throw new Error(`Malformed automation summary response: invalid queueHygiene.blockedItems[${index}]`);
+  }
+  return { queueId, title: title.trim(), reason: reason.trim(), blocker: blocker.trim() };
+}
+
+function validateQueueHygiene(value: unknown): MediaStackQueueHygieneSummaryDto {
+  if (!isRecord(value)) throw new Error('Malformed automation summary response: invalid queueHygiene');
+  const mode = value['mode'];
+  const circuitOpen = value['circuitOpen'];
+  const eligibleCount = value['eligibleCount'];
+  const blockedCount = value['blockedCount'];
+  if (!QUEUE_HYGIENE_MODES.includes(mode as (typeof QUEUE_HYGIENE_MODES)[number]) || typeof circuitOpen !== 'boolean') {
+    throw new Error('Malformed automation summary response: invalid queueHygiene mode/circuit');
+  }
+  if (![eligibleCount, blockedCount].every((count) => typeof count === 'number' && Number.isInteger(count) && count >= 0)) {
+    throw new Error('Malformed automation summary response: invalid queueHygiene counts');
+  }
+  if (!Array.isArray(value['eligibleItems']) || !Array.isArray(value['blockedItems'])) {
+    throw new Error('Malformed automation summary response: invalid queueHygiene items');
+  }
+  const cleanup = value['lastCleanup'];
+  let lastCleanup: MediaStackQueueHygieneSummaryDto['lastCleanup'] = null;
+  if (cleanup !== null) {
+    if (!isRecord(cleanup)) throw new Error('Malformed automation summary response: invalid queueHygiene.lastCleanup');
+    const at = queueHygieneTimestamp(cleanup['at'], 'lastCleanup.at');
+    if (!at) throw new Error('Malformed automation summary response: invalid queueHygiene.lastCleanup.at');
+    lastCleanup = {
+      at,
+      queueIds: queueHygieneIds(cleanup['queueIds'], 'lastCleanup.queueIds'),
+      hashes: queueHygieneHashes(cleanup['hashes'], 'lastCleanup.hashes'),
+    };
+  }
+  const rawVerification = value['verification'];
+  let verification: MediaStackQueueHygieneSummaryDto['verification'] = null;
+  if (rawVerification !== null) {
+    if (!isRecord(rawVerification) || typeof rawVerification['queueIdsGone'] !== 'boolean' || typeof rawVerification['hashesPreserved'] !== 'boolean') {
+      throw new Error('Malformed automation summary response: invalid queueHygiene.verification');
+    }
+    verification = {
+      queueIdsGone: rawVerification['queueIdsGone'],
+      hashesPreserved: rawVerification['hashesPreserved'],
+      missingHashes: queueHygieneHashes(rawVerification['missingHashes'], 'verification.missingHashes'),
+    };
+  }
+  return {
+    mode: mode as MediaStackQueueHygieneSummaryDto['mode'],
+    circuitOpen,
+    eligibleCount: eligibleCount as number,
+    blockedCount: blockedCount as number,
+    eligibleItems: (value['eligibleItems'] as unknown[]).map(queueHygieneEligible),
+    blockedItems: (value['blockedItems'] as unknown[]).map(queueHygieneBlocked),
+    lastCycleAt: queueHygieneTimestamp(value['lastCycleAt'], 'lastCycleAt'),
+    lastCleanup,
+    verification,
+    error: typeof value['error'] === 'string' ? value['error'] : undefined,
+  };
+}
+
+export function mapLiveQueueHygieneRun(value: unknown): MediaStackQueueHygieneRunResultDto {
+  if (!isRecord(value)) throw new Error('Malformed queue-hygiene run response');
+  const status = value['status'];
+  const allowed = ['observed', 'cleaned', 'circuit_open', 'verification_failed', 'error', 'skipped', 'off'];
+  if (typeof status !== 'string' || !allowed.includes(status)) {
+    throw new Error('Malformed queue-hygiene run response: invalid status');
+  }
+  let summary: MediaStackQueueHygieneSummaryDto;
+  try {
+    summary = validateQueueHygiene(value);
+  } catch (error) {
+    throw new Error(`Malformed queue-hygiene run response: ${error instanceof Error ? error.message : 'invalid payload'}`);
+  }
+  const observedAt = value['observedAt'];
+  if (observedAt !== undefined && (typeof observedAt !== 'string' || Number.isNaN(Date.parse(observedAt)))) {
+    throw new Error('Malformed queue-hygiene run response: invalid observedAt');
+  }
+  const rawCounts = value['counts'];
+  let counts: MediaStackQueueHygieneRunResultDto['counts'];
+  if (rawCounts !== undefined) {
+    if (!isRecord(rawCounts) || ![rawCounts['eligible'], rawCounts['blocked'], rawCounts['queued']].every((count) => typeof count === 'number' && Number.isInteger(count) && count >= 0)) {
+      throw new Error('Malformed queue-hygiene run response: invalid counts');
+    }
+    counts = {
+      eligible: rawCounts['eligible'] as number,
+      blocked: rawCounts['blocked'] as number,
+      queued: rawCounts['queued'] as number,
+    };
+  }
+  return { ...summary, status: status as MediaStackQueueHygieneRunResultDto['status'], observedAt, counts };
+}
+
 function serviceStatus(
   block: LiveAutomationServiceBlock | undefined,
   degraded: boolean,
@@ -688,8 +846,14 @@ export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStac
   const radarr = live.radarr;
   const prowlarr = live.prowlarr;
   const bazarr = live.bazarr;
+  const queueHygiene = sonarr?.queueHygiene == null ? null : validateQueueHygiene(sonarr.queueHygiene);
 
-  const sonarrDegraded = (sonarr?.missing ?? 0) > 0 || (sonarr?.queueItems ?? []).some((q) => q.warning);
+  const sonarrDegraded = sonarr?.degraded === true
+    || (queueHygiene?.eligibleCount ?? 0) > 0
+    || (queueHygiene?.blockedCount ?? 0) > 0
+    || queueHygiene?.circuitOpen === true
+    || (sonarr?.missing ?? 0) > 0
+    || (sonarr?.queueItems ?? []).some((q) => q.warning);
   const radarrDegraded = (radarr?.missing ?? 0) > 0 || (radarr?.queueItems ?? []).some((q) => q.warning);
   const prowlarrDegraded = (prowlarr?.disabled?.length ?? 0) > 0 || (prowlarr?.cooldown?.length ?? 0) > 0;
   const bazarrDegraded = (bazarr?.wantedEpisodes ?? 0) > 0 || (bazarr?.wantedMovies ?? 0) > 0;
@@ -749,6 +913,7 @@ export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStac
     services,
     preview,
     problems: collectAutomationProblems(live),
+    queueHygiene,
   };
 }
 
@@ -820,17 +985,31 @@ function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutom
       items,
       itemCount: sonarr?.missing ?? items.length,
     });
-  } else {
-    const sonarrQueueWarnings = (sonarr?.queueItems ?? []).filter((q) => q.warning);
-    if (sonarrQueueWarnings.length > 0) {
-      const items = mapProblemDetailItems(sonarrQueueWarnings);
+  }
+  const sonarrQueueWarnings = (sonarr?.queueItems ?? []).filter((q) => q.warning);
+  if (sonarrQueueWarnings.length > 0) {
+    const items = mapProblemDetailItems(sonarrQueueWarnings);
+    problems.push({
+      id: 'sonarr-queue',
+      summary: `${sonarrQueueWarnings.length} Sonarr queue item(s) need attention`,
+      serviceId: 'sonarr',
+      severity: 'warning',
+      items,
+      itemCount: sonarrQueueWarnings.length,
+    });
+  }
+  if (sonarr?.queueHygiene != null) {
+    const hygiene = validateQueueHygiene(sonarr.queueHygiene);
+    if (hygiene.circuitOpen || hygiene.blockedCount > 0 || hygiene.eligibleCount > 0) {
+      const severity = hygiene.circuitOpen || hygiene.blockedCount > 0 ? 'actionable' : 'warning';
       problems.push({
-        id: 'sonarr-queue',
-        summary: `${sonarrQueueWarnings.length} Sonarr queue item(s) need attention`,
+        id: 'sonarr-queue-hygiene',
+        summary: hygiene.circuitOpen
+          ? 'Automatic Sonarr queue cleanup paused'
+          : `${hygiene.eligibleCount + hygiene.blockedCount} Sonarr queue-hygiene item(s) need attention`,
         serviceId: 'sonarr',
-        severity: 'warning',
-        items,
-        itemCount: sonarrQueueWarnings.length,
+        severity,
+        itemCount: hygiene.eligibleCount + hygiene.blockedCount,
       });
     }
   }

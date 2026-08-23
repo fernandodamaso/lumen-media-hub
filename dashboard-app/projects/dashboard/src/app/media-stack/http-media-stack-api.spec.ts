@@ -1223,6 +1223,70 @@ describe('HttpMediaStackApi', () => {
     await expect(request).resolves.toMatchObject({ ok: true, jellyseerr_request_id: 9 });
   });
 
+  it('posts queue hygiene mode and strictly maps the run result', async () => {
+    const pending = api.runQueueHygiene('observe');
+    const request = http.expectOne('/api/automation/queue-hygiene/run');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual({ mode: 'observe' });
+    request.flush({
+      ok: true,
+      status: 'observed',
+      mode: 'observe',
+      circuitOpen: false,
+      eligibleCount: 0,
+      blockedCount: 0,
+      eligibleItems: [],
+      blockedItems: [],
+      lastCycleAt: '2026-08-23T12:00:00Z',
+      lastCleanup: null,
+      verification: null,
+      counts: { eligible: 0, blocked: 0, queued: 0 },
+    });
+    await expect(pending).resolves.toMatchObject({ status: 'observed', mode: 'observe' });
+  });
+
+  it('rejects malformed queue hygiene run results', async () => {
+    const pending = api.runQueueHygiene('auto');
+    const request = http.expectOne('/api/automation/queue-hygiene/run');
+    request.flush({ ok: true, status: 'cleaned', mode: 'auto', circuitOpen: false });
+    await expect(pending).rejects.toThrow('Malformed queue-hygiene run response');
+  });
+
+  it('maps queue hygiene diagnostics and degrades reachable Sonarr', () => {
+    const dto = mapLiveAutomationSummary({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      sonarr: {
+        ok: true,
+        degraded: true,
+        missing: 0,
+        monitored: 1,
+        queued: 0,
+        queueHygiene: {
+          mode: 'observe',
+          circuitOpen: false,
+          eligibleCount: 1,
+          blockedCount: 0,
+          eligibleItems: [{
+            downloadId: 'a'.repeat(40),
+            queueIds: [101],
+            titles: ['Demo Show S01E02'],
+            reason: 'Not an upgrade for existing episode file(s).',
+            completedAt: '2026-07-13T08:00:00Z',
+            ageHours: 4,
+          }],
+          blockedItems: [],
+          lastCycleAt: '2026-07-13T12:00:00Z',
+          lastCleanup: null,
+          verification: null,
+        },
+      },
+    });
+    expect(dto.queueHygiene?.eligibleCount).toBe(1);
+    expect(dto.services?.find((service) => service.id === 'sonarr')).toMatchObject({ status: 'degraded' });
+    expect(dto.problems?.find((problem) => problem.id === 'sonarr-queue-hygiene')).toMatchObject({ itemCount: 1 });
+  });
+
   it('maps HTTP 400 confirmation_required to a soft discover action', async () => {
     const feedback = api.submitHermesFeedback('rec-tv', 'watched');
     const feedbackReq = http.expectOne('/api/discover/hermes/rec-tv');

@@ -11,6 +11,8 @@ export interface DownloadTorrent {
   uploadRate: number;
   eta: number;
   category: string;
+  completed: boolean;
+  completedAt: string | null;
 }
 
 export interface DownloadSummary {

@@ -7,6 +7,7 @@ import {
 } from '../media-stack/polled-refresh';
 import { ScheduledPollController } from '../media-stack/scheduled-poll';
 import { DownloadTorrent, summarizeDownloads } from './downloads.models';
+import { DownloadsVisibilityStore, isTorrentVisible } from './downloads-visibility';
 
 export type DownloadsStatus = 'loading' | 'ready' | 'empty' | 'error';
 export type DownloadsAction = 'pause' | 'resume';
@@ -29,6 +30,9 @@ export class DownloadsFacade {
   private readonly _pendingTorrentId = signal<string | null>(null);
   private readonly _refreshing = signal(false);
   private readonly _lastFetchedAt = signal('');
+  private readonly visibilityStore = new DownloadsVisibilityStore();
+  private readonly _dismissedCompletedIds = signal<Set<string>>(this.visibilityStore.load());
+  private readonly _nowMs = signal(Date.now());
 
   readonly status = this._status.asReadonly();
   readonly torrents = this._torrents.asReadonly();
@@ -39,6 +43,11 @@ export class DownloadsFacade {
   readonly refreshing = this._refreshing.asReadonly();
   readonly lastFetchedAt = this._lastFetchedAt.asReadonly();
   readonly summary = computed(() => summarizeDownloads(this._torrents()));
+  readonly visibleTorrents = computed(() =>
+    this._torrents().filter((torrent) => isTorrentVisible(torrent, this._nowMs(), this._dismissedCompletedIds())),
+  );
+  readonly hasVisibleTorrents = computed(() => this.visibleTorrents().length > 0);
+  readonly visibleCompletedCount = computed(() => this.visibleTorrents().filter((torrent) => torrent.completed).length);
   readonly canPauseAll = computed(() => this._torrents().some((torrent) => torrent.state === 'downloading'));
   readonly canResumeAll = computed(() => this._torrents().some((torrent) => torrent.state === 'paused'));
   readonly nextAction = computed<DownloadsAction | null>(() => {
@@ -80,6 +89,8 @@ export class DownloadsFacade {
         const torrents = await this.api.listTorrents(options.signal);
         if (!this.poll.isCurrent(requestId)) return;
         this._torrents.set(torrents);
+        this._nowMs.set(Date.now());
+        this.pruneDismissedIds(torrents);
         this._lastFetchedAt.set(new Date().toISOString());
         this._status.set(torrents.length ? 'ready' : 'empty');
         this._error.set('');
@@ -119,6 +130,25 @@ export class DownloadsFacade {
     } finally {
       this._pendingTorrentId.set(null);
     }
+  }
+
+  clearCompletedFromView(): void {
+    const next = new Set(this._dismissedCompletedIds());
+    for (const torrent of this.visibleTorrents()) {
+      if (torrent.completed) next.add(torrent.id);
+    }
+    this._dismissedCompletedIds.set(next);
+    this.visibilityStore.save(next);
+    this._notice.set('Completed items hidden from this dashboard. Torrents and files were not removed.');
+  }
+
+  private pruneDismissedIds(torrents: DownloadTorrent[]): void {
+    const currentIds = new Set(torrents.map((torrent) => torrent.id));
+    const current = this._dismissedCompletedIds();
+    const next = new Set([...current].filter((id) => currentIds.has(id)));
+    if (next.size === current.size) return;
+    this._dismissedCompletedIds.set(next);
+    this.visibilityStore.save(next);
   }
 
   private applyRefreshFailure(initial: boolean): void {

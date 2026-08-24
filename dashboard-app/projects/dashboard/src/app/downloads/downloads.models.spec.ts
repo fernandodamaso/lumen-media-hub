@@ -13,6 +13,8 @@ describe('downloads.models', () => {
       uploadRate: 2,
       eta: 30,
       category: 'Uncategorized',
+      completed: false,
+      completedAt: null,
     };
     const seeding: DownloadTorrent = {
       id: 'b',
@@ -25,6 +27,8 @@ describe('downloads.models', () => {
       uploadRate: 3,
       eta: 0,
       category: 'Uncategorized',
+      completed: true,
+      completedAt: null,
     };
     expect(summarizeDownloads([downloading, seeding])).toEqual({
       active: 1,

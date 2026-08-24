@@ -91,6 +91,8 @@ function torrent(): DownloadTorrent {
     uploadRate: 2,
     eta: 30,
     category: 'Movies',
+    completed: false,
+    completedAt: null,
   };
 }
 
@@ -178,6 +180,9 @@ describe('DashboardPage composition', () => {
       pendingAction: signal<DownloadsAction | null>(null),
       pendingTorrentId: signal<string | null>(null),
       summary: signal({ active: 1, total: 1, downloaded: 50, size: 100, downloadRate: 10, uploadRate: 2 }),
+      visibleTorrents: signal<DownloadTorrent[]>([torrent()]),
+      hasVisibleTorrents: signal(true),
+      visibleCompletedCount: signal(0),
       canPauseAll: signal(true),
       canResumeAll: signal(false),
       startPolling: vi.fn(),
@@ -185,6 +190,7 @@ describe('DashboardPage composition', () => {
       refresh: vi.fn(),
       runAction: vi.fn(),
       runTorrentAction: vi.fn(),
+      clearCompletedFromView: vi.fn(),
     };
     storage = {
       status: signal('ready'),
@@ -380,6 +386,28 @@ describe('DashboardPage composition', () => {
     const pauseAll = root.querySelector('[data-testid="downloads-pause-all"] button') as HTMLButtonElement;
     pauseAll.click();
     expect(downloads['runAction']).toHaveBeenCalledWith('pause');
+  });
+
+  it('renders completed torrents as green Complete and clears them display-only', () => {
+    (downloads['visibleTorrents'] as ReturnType<typeof signal<DownloadTorrent[]>>).set([{ ...torrent(), completed: true, completedAt: new Date().toISOString(), progress: 100 }]);
+    (downloads['visibleCompletedCount'] as ReturnType<typeof signal<number>>).set(1);
+    fixture.detectChanges();
+    const root = fixtureHost(fixture);
+    expect(root.querySelector('#downloads')?.textContent).toContain('Complete');
+    expect(root.querySelector('#downloads .pill--green')).toBeTruthy();
+    const clear = root.querySelector('[data-testid="downloads-clear-completed"] button') as HTMLButtonElement;
+    expect(clear.disabled).toBe(false);
+    clear.click();
+    expect(downloads['clearCompletedFromView']).toHaveBeenCalledTimes(1);
+    expect(downloads['runAction']).not.toHaveBeenCalledWith('pause');
+  });
+
+  it('shows a visibility-empty state when all completed rows are hidden', () => {
+    (downloads['visibleTorrents'] as ReturnType<typeof signal<DownloadTorrent[]>>).set([]);
+    (downloads['visibleCompletedCount'] as ReturnType<typeof signal<number>>).set(0);
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).textContent).toContain('No active or recent downloads');
+    expect((fixtureHost(fixture).querySelector('[data-testid="downloads-clear-completed"] button') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('starts downloads and newly-available polling on create and stops on destroy', () => {

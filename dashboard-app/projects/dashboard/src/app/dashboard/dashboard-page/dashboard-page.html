@@ -169,6 +169,13 @@
             [busy]="downloads.pendingAction() === 'resume'"
             (click)="runAction('resume')"
           />
+          <mm-button
+            data-testid="downloads-clear-completed"
+            label="Clear completed"
+            variant="quiet"
+            [disabled]="downloads.visibleCompletedCount() === 0"
+            (click)="clearCompleted()"
+          />
         </div>
       </div>
     }
@@ -202,6 +209,9 @@
       <mm-state-card kind="empty" [centered]="true" title="No active downloads" message="Your queue is clear. New downloads will appear here." />
     }
     @default {
+      @if (!groups().length) {
+        <mm-state-card kind="empty" [centered]="true" title="No active or recent downloads" message="Completed items older than 24 hours, or items you cleared, are hidden from this dashboard." />
+      } @else {
       <div class="torrent-list" aria-live="polite">
         @for (group of groups(); track group.state) {
           <p class="section-label">{{ group.label }} · <span>{{ group.torrents.length }}</span></p>
@@ -211,9 +221,9 @@
               [category]="torrent.category"
               [state]="torrent.state"
               [progress]="torrent.progress"
-              [stateLabel]="stateLabel(torrent.state)"
-              [pillClass]="statePillClass(torrent.state)"
-              [progressTone]="torrent.state === 'seeding' ? 'success' : (torrent.state === 'downloading' ? 'info' : 'muted')"
+              [stateLabel]="stateLabel(torrent)"
+              [pillClass]="statePillClass(torrent)"
+              [progressTone]="progressTone(torrent)"
               [downloadedLabel]="formatBytes(torrent.downloaded)"
               [sizeLabel]="formatBytes(torrent.size)"
               [downloadRateLabel]="downRateText(torrent.downloadRate)"
@@ -226,6 +236,7 @@
           }
         }
       </div>
+      }
       <footer class="section-foot">
         @if (qbittorrentHref(); as href) {
           <a class="link-arrow" [href]="href" target="_blank" rel="noreferrer">Open qBittorrent →</a>

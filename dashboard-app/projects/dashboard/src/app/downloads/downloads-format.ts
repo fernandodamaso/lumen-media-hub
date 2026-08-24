@@ -25,9 +25,9 @@ function normalizeState(state: string): TorrentState {
   if (normalized.includes('paused') || normalized.startsWith('stopped')) return 'paused';
   if (normalized.includes('error')) return 'error';
   if (normalized.includes('check')) return 'checking';
-  if (normalized.includes('queued')) return 'queued';
   if (normalized === 'downloading' || normalized === 'forceddl') return 'downloading';
   if (normalized.includes('up') || normalized === 'seeding') return 'seeding';
+  if (normalized.includes('queued')) return 'queued';
   return 'queued';
 }
 

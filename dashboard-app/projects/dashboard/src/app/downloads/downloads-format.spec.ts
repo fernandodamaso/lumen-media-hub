@@ -45,7 +45,7 @@ describe('downloads format / torrent mapping', () => {
   });
 
   it.each([
-    ['queuedUP', 'queued'],
+    ['queuedUP', 'seeding'],
     ['checkingUP', 'checking'],
     ['errorUP', 'error'],
   ])('maps qBittorrent state %s before upload fallback', (state, expected) => {

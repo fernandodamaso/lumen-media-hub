@@ -20,6 +20,7 @@ from clients.jellyfin import (
     invalidate_jellyfin_caches,
     jellyfin_get,
     jellyfin_post,
+    delete_jellyfin_item,
     tombstone_jellyfin_item,
 )
 from clients.qbittorrent import qbt_get_json, qbt_login, qbt_post
@@ -175,6 +176,51 @@ def resolve_library_target(jellyfin_item_id):
         "manager": manager,
         "arr_id": arr_id,
         "hashes": hashes,
+    }
+
+
+def resolve_library_kind_title(jellyfin_item_id):
+    """Best-effort kind/title lookup used to explain unmanaged-title conflicts."""
+    user_id = _jellyfin_user_id_for_queries()
+    path = (
+        f"/Users/{user_id}/Items/{jellyfin_item_id}"
+        if user_id
+        else f"/Items/{jellyfin_item_id}"
+    )
+    raw = jellyfin_get(path, {"Fields": "ProviderIds,Type,Name"})
+    item_type = raw.get("Type")
+    kind = "movie" if item_type == "Movie" else "series" if item_type == "Series" else None
+    return {"kind": kind, "title": raw.get("Name") or None}
+
+
+def delete_jellyfin_item_directly(jellyfin_item_id):
+    """Delete a title from Jellyfin only. Never touches arr or qBittorrent."""
+    info = resolve_library_kind_title(jellyfin_item_id)
+    if info["kind"] is None:
+        raise MatchError()
+    try:
+        delete_jellyfin_item(jellyfin_item_id)
+    except Exception as exc:
+        raise UpstreamError("jellyfin") from exc
+    tombstone_jellyfin_item(jellyfin_item_id)
+    invalidate_jellyfin_caches()
+    with settings._arr_cache_lock:
+        settings._arr_cache.clear()
+    from routes.discover import invalidate_discover_library_caches
+
+    invalidate_discover_library_caches()
+    jellyfin_refresh = "ok"
+    try:
+        jellyfin_post("/Library/Refresh")
+    except Exception:
+        jellyfin_refresh = "pending"
+    return {
+        "ok": True,
+        "removed": True,
+        "mode": "jellyfin-direct",
+        "title": info["title"],
+        "kind": info["kind"],
+        "jellyfinRefresh": jellyfin_refresh,
     }
 
 

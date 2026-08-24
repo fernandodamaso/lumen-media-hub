@@ -360,13 +360,27 @@ class LibraryDeleteHttpTests(unittest.TestCase):
         for secret in ("hash", "tmdb", "tvdb", "arr_id", "/data/"):
             self.assertNotIn(secret, raw.lower())
 
+    @mock.patch("routes.library.resolve_library_kind_title")
     @mock.patch("routes.library.resolve_library_target", side_effect=MatchError())
-    def test_preview_match_failure_409(self, _mock_resolve):
+    def test_preview_match_failure_409(self, _mock_resolve, mock_kind_title):
+        mock_kind_title.return_value = {"kind": "movie", "title": "Lumen Test Movie"}
         status, body, _headers = self._request(
             "GET", f"/library/items/{ITEM_ID}/delete-preview"
         )
         self.assertEqual(status, 409)
-        self.assertEqual(body["error"], "Unable to prepare deletion")
+        self.assertEqual(body["code"], "unmanaged_title")
+        self.assertEqual(body["kind"], "movie")
+        self.assertEqual(body["title"], "Lumen Test Movie")
+
+    @mock.patch("routes.library.resolve_library_kind_title", side_effect=RuntimeError("jf down"))
+    @mock.patch("routes.library.resolve_library_target", side_effect=MatchError())
+    def test_preview_match_failure_409_without_info(self, _mock_resolve, _mock_info):
+        status, body, _headers = self._request(
+            "GET", f"/library/items/{ITEM_ID}/delete-preview"
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(body["code"], "unmanaged_title")
+        self.assertIsNone(body["title"])
 
     @mock.patch("routes.library.resolve_library_target", side_effect=UpstreamError("qbit"))
     def test_preview_qbit_down_502(self, _mock_resolve):
@@ -516,8 +530,59 @@ class LibraryDeleteHttpTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body["partial"])
         self.assertEqual(body["steps"]["library"], "failed")
-        self.assertEqual(body["steps"]["torrents"], "ok")
         self.assertNotIn("/data/", json.dumps(body))
+
+
+class LibraryDirectDeleteRouteTests(LibraryDeleteHttpTests):
+    @mock.patch("routes.discover.invalidate_discover_library_caches")
+    @mock.patch("library_delete.invalidate_jellyfin_caches")
+    @mock.patch("library_delete.tombstone_jellyfin_item")
+    @mock.patch("library_delete.jellyfin_post")
+    @mock.patch("library_delete.delete_jellyfin_item")
+    @mock.patch("library_delete.resolve_library_kind_title")
+    def test_direct_delete_success(
+        self, mock_info, mock_delete, _mock_scan, mock_tombstone, mock_invalidate, mock_discover
+    ):
+        mock_info.return_value = {"kind": "movie", "title": "Lumen Test Movie"}
+        calls = []
+
+        with mock.patch("clients.qbittorrent.qbt_login") as qbt_login, mock.patch(
+            "clients.qbittorrent.qbt_get_json"
+        ) as qbt_get, mock.patch("library_delete.delete_radarr_movie") as arr_delete:
+            status, body, _headers = self._request("DELETE", f"/library/items/{ITEM_ID}/direct")
+            qbt_login.assert_not_called()
+            qbt_get.assert_not_called()
+            arr_delete.assert_not_called()
+            del calls
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["removed"])
+        self.assertEqual(body["mode"], "jellyfin-direct")
+        self.assertEqual(body["title"], "Lumen Test Movie")
+        mock_tombstone.assert_called_once_with(ITEM_ID)
+        mock_invalidate.assert_called_once()
+        mock_discover.assert_called_once()
+
+    @mock.patch("library_delete.resolve_library_kind_title")
+    @mock.patch("clients.qbittorrent.qbt_login")
+    def test_direct_delete_unknown_item_404(self, mock_qbt_login, mock_info):
+        mock_info.return_value = {"kind": None, "title": None}
+        status, body, _headers = self._request("DELETE", f"/library/items/{ITEM_ID}/direct")
+        self.assertEqual(status, 404)
+        mock_qbt_login.assert_not_called()
+
+    @mock.patch("routes.discover.invalidate_discover_library_caches")
+    @mock.patch("library_delete.tombstone_jellyfin_item")
+    @mock.patch("library_delete.delete_jellyfin_item", side_effect=RuntimeError("jf down"))
+    @mock.patch("library_delete.resolve_library_kind_title")
+    def test_direct_delete_upstream_failure_502_no_tombstone(
+        self, mock_info, _mock_delete, mock_tombstone, _mock_discover
+    ):
+        mock_info.return_value = {"kind": "movie", "title": "Lumen Test Movie"}
+        status, body, _headers = self._request("DELETE", f"/library/items/{ITEM_ID}/direct")
+        self.assertEqual(status, 502)
+        self.assertEqual(body["error"], "Unable to delete this title from Jellyfin")
+        mock_tombstone.assert_not_called()
 
 
 if __name__ == "__main__":

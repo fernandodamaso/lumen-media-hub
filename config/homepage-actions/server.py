@@ -98,6 +98,13 @@ class ActionsHandler(BaseHTTPRequestHandler):
         query = urllib.parse.parse_qs(parsed.query)
         prefix = "/library/items/"
         if path.startswith(prefix):
+            if path.endswith("/direct"):
+                item_id = urllib.parse.unquote(path[len(prefix):-len("/direct")])
+                if not _valid_library_item_id(item_id):
+                    send_json(self, 404, {"ok": False, "error": "Unknown endpoint"})
+                    return
+                library.handle_library_delete_direct(self, item_id)
+                return
             item_id = urllib.parse.unquote(path[len(prefix):])
             if not _valid_library_item_id(item_id):
                 send_json(self, 404, {"ok": False, "error": "Unknown endpoint"})

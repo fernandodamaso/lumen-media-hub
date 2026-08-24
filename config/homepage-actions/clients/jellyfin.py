@@ -875,6 +875,24 @@ def jellyfin_post(path, query=None, method="POST"):
         return json.loads(body.decode("utf-8"))
 
 
+def delete_jellyfin_item(item_id):
+    """Hard-delete a Jellyfin item (removes the item and its metadata)."""
+    if not item_id or not isinstance(item_id, str):
+        raise ValueError("invalid item id")
+    url = f"{settings.JELLYFIN_URL}/Items/{urllib.parse.quote(item_id, safe='')}"
+    req = urllib.request.Request(url, method="DELETE")
+    req.add_header("X-Emby-Token", settings.JELLYFIN_API_KEY)
+    try:
+        with urllib.request.urlopen(req, timeout=settings.TIMEOUT) as resp:
+            if 200 <= resp.status < 300:
+                return
+            raise RuntimeError(f"jellyfin delete failed: HTTP {resp.status}")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise LookupError("library item not found") from exc
+        raise
+
+
 def invalidate_jellyfin_caches():
     with settings._jellyfin_cache_lock:
         settings._jellyfin_cache.clear()

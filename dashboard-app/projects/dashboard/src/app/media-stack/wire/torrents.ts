@@ -10,4 +10,5 @@ export interface MediaStackTorrentDto {
   upspeed: number;
   eta: number;
   category?: string;
+  completionOn: number | null;
 }

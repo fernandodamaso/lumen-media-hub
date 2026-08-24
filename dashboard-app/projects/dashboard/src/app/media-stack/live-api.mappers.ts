@@ -37,6 +37,7 @@ interface ValidatedLiveQbtTorrent {
   upspeed: number;
   eta: number;
   category?: string;
+  completion_on: number | null;
 }
 
 /** Jellyfin list item from GET /jellyfin/movies|series. */
@@ -227,6 +228,7 @@ function requireLiveTorrent(raw: unknown, index = 0): ValidatedLiveQbtTorrent {
     upspeed: requireFiniteNumberField(raw, 'upspeed', index, 'torrents'),
     eta: requireFiniteNumberField(raw, 'eta', index, 'torrents'),
     category: optionalString(raw, 'category', index, 'torrents'),
+    completion_on: optionalCompletionTimestamp(raw, index),
   };
 }
 
@@ -361,6 +363,19 @@ function optionalCalendarKind(
   return kindRaw;
 }
 
+function optionalCompletionTimestamp(raw: Record<string, unknown>, index: number): number | null {
+  const value = raw['completion_on'];
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Malformed torrents response: member ${index} has invalid completion_on`);
+  }
+  if (value <= 0) return null;
+  if (!Number.isInteger(value)) {
+    throw new Error(`Malformed torrents response: member ${index} has invalid completion_on`);
+  }
+  return value;
+}
+
 function optionalFiniteNumber(
   raw: Record<string, unknown>,
   field: string,
@@ -393,6 +408,7 @@ export function mapLiveTorrent(raw: unknown, index = 0): MediaStackTorrentDto {
     upspeed: torrent.upspeed,
     eta: torrent.eta,
     category: torrent.category,
+    completionOn: torrent.completion_on,
   };
 }
 

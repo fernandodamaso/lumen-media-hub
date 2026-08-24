@@ -176,7 +176,76 @@ describe('live-api.mappers', () => {
       upspeed: 2,
       eta: 30,
       category: 'Movies',
+      completionOn: null,
     });
+  });
+
+  it('preserves a positive finite integer qbt completion timestamp without raw metadata', () => {
+    expect(
+      mapLiveTorrent({
+        hash: 'abc',
+        name: 'Film',
+        state: 'seeding',
+        progress: 1,
+        size: 100,
+        amount_left: 0,
+        dlspeed: 0,
+        upspeed: 2,
+        eta: 0,
+        completion_on: 1_756_000_123,
+        content_path: '/data/private',
+        magnets: ['magnet:?xt=urn:btih:secret'],
+      }),
+    ).toEqual({
+      hash: 'abc',
+      name: 'Film',
+      state: 'seeding',
+      progress: 1,
+      size: 100,
+      downloaded: 100,
+      dlspeed: 0,
+      upspeed: 2,
+      eta: 0,
+      category: undefined,
+      completionOn: 1_756_000_123,
+    });
+  });
+
+  it('normalizes missing, null, zero, and negative qbt completion timestamps to null', () => {
+    const base = {
+      hash: 'abc',
+      name: 'Film',
+      state: 'seeding',
+      progress: 1,
+      size: 100,
+      dlspeed: 0,
+      upspeed: 0,
+      eta: 0,
+    };
+    for (const raw of [
+      base,
+      { ...base, completion_on: null },
+      { ...base, completion_on: 0 },
+      { ...base, completion_on: -1 },
+    ]) {
+      expect(mapLiveTorrent(raw).completionOn).toBeNull();
+    }
+  });
+
+  it('rejects qbt torrents with invalid completion timestamp values', () => {
+    const base = {
+      hash: 'abc',
+      name: 'Film',
+      state: 'seeding',
+      progress: 1,
+      size: 100,
+      dlspeed: 0,
+      upspeed: 0,
+      eta: 0,
+    };
+    for (const completion_on of ['1756000123', {}, [], Number.NaN, Number.POSITIVE_INFINITY, 1.5]) {
+      expect(() => mapLiveTorrent({ ...base, completion_on })).toThrow(/invalid completion_on/);
+    }
   });
 
   it('rejects qbt torrents that lack required identity fields', () => {

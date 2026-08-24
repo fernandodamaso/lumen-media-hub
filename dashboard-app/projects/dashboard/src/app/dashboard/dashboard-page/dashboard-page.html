@@ -169,13 +169,14 @@
             [busy]="downloads.pendingAction() === 'resume'"
             (click)="runAction('resume')"
           />
-          <mm-button
-            data-testid="downloads-clear-completed"
-            label="Clear completed"
-            variant="quiet"
-            [disabled]="downloads.visibleCompletedCount() === 0"
-            (click)="clearCompleted()"
-          />
+          @if (downloads.visibleCompletedCount() > 0) {
+            <mm-button
+              data-testid="downloads-clear-completed"
+              label="Clear completed"
+              variant="quiet"
+              (click)="clearCompleted()"
+            />
+          }
         </div>
       </div>
     }

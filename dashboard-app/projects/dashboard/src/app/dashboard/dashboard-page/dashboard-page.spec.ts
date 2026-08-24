@@ -378,6 +378,7 @@ describe('DashboardPage composition', () => {
     fixture.detectChanges();
     const root = fixtureHost(fixture);
     expect(root.querySelector('#downloads .dl-item')?.textContent).toContain('Signal Drift');
+    expect(root.querySelector('#downloads .pill--blue')).toBeTruthy();
 
     const pauseItem = root.querySelector('#downloads .dl-item mm-icon-button button') as HTMLButtonElement;
     pauseItem.click();
@@ -407,7 +408,7 @@ describe('DashboardPage composition', () => {
     (downloads['visibleCompletedCount'] as ReturnType<typeof signal<number>>).set(0);
     fixture.detectChanges();
     expect(fixtureHost(fixture).textContent).toContain('No active or recent downloads');
-    expect((fixtureHost(fixture).querySelector('[data-testid="downloads-clear-completed"] button') as HTMLButtonElement).disabled).toBe(true);
+    expect(fixtureHost(fixture).querySelector('[data-testid="downloads-clear-completed"]')).toBeNull();
   });
 
   it('starts downloads and newly-available polling on create and stops on destroy', () => {

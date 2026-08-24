@@ -146,7 +146,7 @@ export class DashboardPage {
   statePillClass(torrent: DownloadTorrent): string {
     const tone = torrentDisplayTone(torrent);
     const map: Record<StatusTone, string> = {
-      info: 'pill--accent',
+      info: 'pill--blue',
       success: 'pill--green',
       warning: 'pill--amber',
       danger: 'pill--danger',

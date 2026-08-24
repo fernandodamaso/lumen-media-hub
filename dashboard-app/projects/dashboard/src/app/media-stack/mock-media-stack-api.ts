@@ -12,7 +12,7 @@ import {
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
-import { LibraryItem, LibraryItemKind, LibraryDeletePreview, LibraryDeleteResult, LibraryListResult, LibraryStats } from '../library/library.models';
+import { LibraryItem, LibraryItemKind, LibraryDeletePreview, LibraryDeleteResult, DirectDeleteResult, LibraryListResult, LibraryStats } from '../library/library.models';
 import { WatchNextResult } from '../library/watch-next.models';
 import { RecentlyAvailableResult } from '../library/recently-available.models';
 import { ActivityFeed } from '../activity/activity.models';
@@ -997,6 +997,20 @@ export class MockMediaStackApi implements MediaStackApi {
       jellyfinRefresh: 'ok',
       warning: null,
       steps: { torrents: 'ok', library: 'ok', jellyfin: 'ok' },
+    });
+  }
+
+  deleteLibraryItemDirectly(id: string): Promise<DirectDeleteResult> {
+    const index = this.libraryItems.findIndex((row) => row.id === id);
+    if (index < 0) {
+      return Promise.reject(new Error('Library item not found'));
+    }
+    this.libraryItems.splice(index, 1);
+    return this.withLatency({
+      ok: true,
+      removed: true,
+      mode: 'jellyfin-direct' as const,
+      title: null,
     });
   }
 

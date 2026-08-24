@@ -214,6 +214,9 @@ class MockApi implements MediaStackApi {
       warning: null,
     });
   }
+  deleteLibraryItemDirectly() {
+    return Promise.resolve({ ok: true, removed: true, mode: 'jellyfin-direct' as const, title: null });
+  }
   listWatchNext() {
     return Promise.resolve({ items: [] });
   }

@@ -174,6 +174,7 @@ class MockApi implements MediaStackApi {
   setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
+  deleteLibraryItemDirectly = mediaStackLibraryMutationStub.deleteLibraryItemDirectly;
   overview: StorageOverview = { ...overview, volumes: overview.volumes.map((v) => ({ ...v })) };
   listCalls = 0;
   failure = false;

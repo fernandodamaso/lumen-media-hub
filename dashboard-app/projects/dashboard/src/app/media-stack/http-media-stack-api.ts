@@ -22,6 +22,7 @@ import {
   LibraryStats,
   LibraryDeletePreview,
   LibraryDeleteResult,
+  DirectDeleteResult,
   LibraryDeleteStepStatus,
   LibraryDeleteSteps,
 } from '../library/library.models';
@@ -181,7 +182,20 @@ export class HttpMediaStackApi implements MediaStackApi {
       (envelope) => {
         this.validateDeletePreview(envelope);
       },
-    ).then((envelope) => {
+    ).catch((error: unknown) => {
+      if (error instanceof HttpErrorResponse && isRecord(error.error)) {
+        const body: Record<string, unknown> = error.error;
+        if (body['code'] === 'unmanaged_title') {
+          const mapped = new Error(typeof body['error'] === 'string' ? body['error'] : 'Unmanaged title');
+          Object.assign(mapped, {
+            code: 'unmanaged_title',
+            title: typeof body['title'] === 'string' ? body['title'] : null,
+          });
+          throw mapped;
+        }
+      }
+      throw error;
+    }).then((envelope) => {
       const episodeCount =
         typeof envelope.episodeCount === 'number' && Number.isFinite(envelope.episodeCount)
           ? Math.floor(envelope.episodeCount)
@@ -216,6 +230,29 @@ export class HttpMediaStackApi implements MediaStackApi {
           requireSoftEnvelope(error.error, 'DELETE library item failed'),
         );
       }
+      throw this.toError(error, 'DELETE library item failed');
+    }
+  }
+
+  async deleteLibraryItemDirectly(id: string): Promise<DirectDeleteResult> {
+    try {
+      const data = await firstValueFrom(
+        this.http.delete<unknown>(`${this.base}/library/items/${encodeURIComponent(id)}/direct`),
+      );
+      const envelope = requireHardEnvelope(
+        data,
+        'DELETE library item failed',
+      ) as unknown as Record<string, unknown>;
+      if (envelope['removed'] !== true || envelope['mode'] !== 'jellyfin-direct') {
+        throw new Error('Malformed direct delete response');
+      }
+      return {
+        ok: envelope['ok'] === true,
+        removed: true,
+        mode: 'jellyfin-direct',
+        title: typeof envelope['title'] === 'string' ? envelope['title'] : null,
+      };
+    } catch (error) {
       throw this.toError(error, 'DELETE library item failed');
     }
   }

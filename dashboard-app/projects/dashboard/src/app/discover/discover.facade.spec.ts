@@ -1073,6 +1073,7 @@ class MockApi implements MediaStackApi {
   setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
+  deleteLibraryItemDirectly = mediaStackLibraryMutationStub.deleteLibraryItemDirectly;
   hermes: HermesDiscover = {
     ok: true,
     library_exclusion: { status: 'fresh', last_successful_refresh_at: null },

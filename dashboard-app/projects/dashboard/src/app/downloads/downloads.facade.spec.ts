@@ -368,6 +368,7 @@ class MockApi implements MediaStackApi {
   setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
+  deleteLibraryItemDirectly = mediaStackLibraryMutationStub.deleteLibraryItemDirectly;
   items: DownloadTorrent[] = [{ ...torrent }];
   actions: string[] = [];
   torrentActions: string[] = [];

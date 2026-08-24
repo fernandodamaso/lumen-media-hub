@@ -127,4 +127,19 @@ export class LibraryItemsFacade {
     }
     return result;
   }
+
+  async deleteItemDirectly(id: string): Promise<{ removed: boolean; kind: LibraryItem['kind'] | null }> {
+    const removedItem = this._items().find((item) => item.id === id);
+    await this.api.deleteLibraryItemDirectly(id);
+    this._items.update((items) => items.filter((item) => item.id !== id));
+    if (removedItem?.kind === 'movie') {
+      this._movieCount.update((count) => Math.max(0, count - 1));
+    } else if (removedItem?.kind === 'series') {
+      this._seriesCount.update((count) => Math.max(0, count - 1));
+    }
+    if (this._items().length === 0) {
+      this._status.set('empty');
+    }
+    return { removed: true, kind: removedItem?.kind ?? null };
+  }
 }

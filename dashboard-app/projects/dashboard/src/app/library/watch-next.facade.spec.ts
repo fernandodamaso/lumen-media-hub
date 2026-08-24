@@ -131,6 +131,7 @@ class MockApi implements MediaStackApi {
   setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
+  deleteLibraryItemDirectly = mediaStackLibraryMutationStub.deleteLibraryItemDirectly;
   result: WatchNextResult = { items: [movie('m1', 'Moonrise'), episode('e1', 'Night Watch')] };
   failure = false;
   nextResponse?: Promise<WatchNextResult>;

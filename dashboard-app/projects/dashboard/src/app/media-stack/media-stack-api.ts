@@ -18,6 +18,7 @@ import {
   LibraryStats,
   LibraryDeletePreview,
   LibraryDeleteResult,
+  DirectDeleteResult,
 } from '../library/library.models';
 import { WatchNextResult } from '../library/watch-next.models';
 import { RecentlyAvailableResult } from '../library/recently-available.models';
@@ -38,6 +39,7 @@ export interface MediaStackApi {
   setLibraryItemPlayed(id: string, played: boolean): Promise<{ played: boolean }>;
   previewLibraryItemDeletion(id: string): Promise<LibraryDeletePreview>;
   deleteLibraryItem(id: string, previewId: string): Promise<LibraryDeleteResult>;
+  deleteLibraryItemDirectly(id: string): Promise<DirectDeleteResult>;
   listWatchNext(signal?: AbortSignal): Promise<WatchNextResult>;
   listRecentlyAvailable(limit?: number, signal?: AbortSignal): Promise<RecentlyAvailableResult>;
   getActivity(limit?: number, signal?: AbortSignal): Promise<ActivityFeed>;

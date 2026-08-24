@@ -74,3 +74,33 @@
     (click)="confirmDelete()"
   />
 </mm-dialog>
+
+<mm-dialog
+  title="Not managed by Radarr or Sonarr"
+  tone="warning"
+  [dismissible]="!deleteBusy()"
+  [(opened)]="directDialogOpen"
+>
+  <p>
+    @if (directDeleteTitle(); as title) {
+      <strong class="library-poster-card__delete-title">{{ title }}</strong> is not managed by Radarr or Sonarr.
+    } @else {
+      This title is not managed by Radarr or Sonarr.
+    }
+    Deleting it here removes it from Jellyfin only. Torrents and downloaded files are not touched.
+  </p>
+  <mm-button
+    mmDialogFooter
+    label="Cancel"
+    variant="quiet"
+    [disabled]="deleteBusy()"
+    (click)="cancelDirectDelete()"
+  />
+  <mm-button
+    mmDialogFooter
+    label="Delete from Jellyfin"
+    variant="danger"
+    [busy]="deleteBusy()"
+    (click)="confirmDirectDelete()"
+  />
+</mm-dialog>

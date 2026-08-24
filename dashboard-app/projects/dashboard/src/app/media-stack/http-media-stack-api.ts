@@ -177,12 +177,8 @@ export class HttpMediaStackApi implements MediaStackApi {
   }
 
   previewLibraryItemDeletion(id: string): Promise<LibraryDeletePreview> {
-    return this.getHardEnvelope<OkEnvelope & Partial<LibraryDeletePreview>>(
-      `/library/items/${encodeURIComponent(id)}/delete-preview`,
-      (envelope) => {
-        this.validateDeletePreview(envelope);
-      },
-    ).catch((error: unknown) => {
+    const path = `/library/items/${encodeURIComponent(id)}/delete-preview`;
+    return firstValueFrom(this.http.get<unknown>(`${this.base}${path}`)).catch((error: unknown) => {
       if (error instanceof HttpErrorResponse && isRecord(error.error)) {
         const body: Record<string, unknown> = error.error;
         if (body['code'] === 'unmanaged_title') {
@@ -195,7 +191,10 @@ export class HttpMediaStackApi implements MediaStackApi {
         }
       }
       throw error;
-    }).then((envelope) => {
+    }).then((raw: unknown) => {
+      const envelope = requireHardEnvelope(raw, 'GET delete preview failed') as OkEnvelope &
+        Partial<LibraryDeletePreview>;
+      this.validateDeletePreview(envelope);
       const episodeCount =
         typeof envelope.episodeCount === 'number' && Number.isFinite(envelope.episodeCount)
           ? Math.floor(envelope.episodeCount)

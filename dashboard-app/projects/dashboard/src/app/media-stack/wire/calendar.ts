@@ -9,6 +9,7 @@ export interface MediaStackCalendarEventDto {
   kind?: 'episode' | 'movie';
   episodeId?: number;
   movieId?: number;
+  titleSlug?: string;
   seriesId?: number;
   monitored?: boolean;
   premiere?: boolean;

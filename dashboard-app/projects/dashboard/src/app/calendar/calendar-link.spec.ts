@@ -36,6 +36,21 @@ describe('calendar API boundary', () => {
     expect(movie.status).toBe('available');
   });
 
+  it('preserves provider ids from the combined live calendar', () => {
+    const event = mapCalendarEvent({
+      id: 'radarr:movie:22',
+      movieId: 22,
+      title: 'Dune',
+      additional: 'Digital release',
+      date: 'Aug 26',
+      airDate: '2026-08-26T10:00:00Z',
+      kind: 'movie',
+      monitored: true,
+    } as never);
+    expect(event.id).toBe('radarr:movie:22');
+    expect((event as { movieId?: number }).movieId).toBe(22);
+  });
+
   it('builds Sonarr MediaCover art from seriesId', () => {
     expect(
       resolveArrPosterArt(
@@ -85,6 +100,27 @@ describe('calendar API boundary', () => {
     ]);
   });
 
+  it('uses kind before title for deterministic same-time ordering', () => {
+    const movie = mapCalendarEvent({
+      title: 'Alpha Movie',
+      additional: 'Digital release',
+      date: 'Aug 27',
+      airDate: '2026-08-27T20:00:00Z',
+      kind: 'movie',
+    });
+    const episode = mapCalendarEvent({
+      title: 'Zulu Show',
+      additional: 'S1 E1',
+      date: 'Aug 27',
+      airDate: '2026-08-27T20:00:00Z',
+      kind: 'episode',
+    });
+    expect([movie, episode].sort(compareCalendarEvents).map((event) => event.kind)).toEqual([
+      'episode',
+      'movie',
+    ]);
+  });
+
   it('resolves sonarr and radarr destinations and leaves unmatched titles inert', () => {
     const library = {
       series: { 'cowboy bebop': 'cowboy-bebop' },
@@ -119,6 +155,29 @@ describe('calendar API boundary', () => {
     expect(resolveCalendarLink('Fargo', library, localBases, 'episode')).toBe(
       'http://localhost:8989/series/fargo',
     );
+  });
+
+  it('never falls back across providers for an explicit event kind', () => {
+    const localBases = {
+      sonarrBase: 'http://localhost:8989',
+      radarrBase: 'http://localhost:7878',
+    };
+    expect(
+      resolveCalendarLink(
+        'Collision',
+        { series: { collision: 'collision-series' }, movies: {} },
+        localBases,
+        'movie',
+      ),
+    ).toBeNull();
+    expect(
+      resolveCalendarLink(
+        'Collision',
+        { series: {}, movies: { collision: 'collision-movie' } },
+        localBases,
+        'episode',
+      ),
+    ).toBeNull();
   });
 
   it('keeps external base urls configurable at the boundary', () => {

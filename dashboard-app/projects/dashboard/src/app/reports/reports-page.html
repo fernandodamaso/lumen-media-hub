@@ -89,7 +89,12 @@
     @if (hygiene.circuitOpen) {
       <div class="queue-hygiene-state queue-hygiene-state--danger" role="alert">
         <mm-status tone="danger">Automatic cleanup paused</mm-status>
-        <p>Automatic cleanup is paused because qBittorrent verification failed. Review the audit state before resetting the circuit.</p>
+        <p>Automatic cleanup is paused because verification failed. Review the audit state before resetting the circuit.</p>
+      </div>
+    } @else if (hygiene.error) {
+      <div class="queue-hygiene-state queue-hygiene-state--danger" role="alert">
+        <mm-status tone="danger">Queue hygiene check failed</mm-status>
+        <p>{{ hygiene.error }}</p>
       </div>
     } @else if (hygiene.eligibleCount > 0) {
       <div class="queue-hygiene-state queue-hygiene-state--warning" role="status">

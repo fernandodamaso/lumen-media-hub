@@ -19,7 +19,7 @@ export const mapTorrent = (torrent: TorrentDtoWithCompletion): DownloadTorrent =
     uploadRate: Math.max(0, torrent.upspeed),
     eta: Math.max(0, torrent.eta),
     category: torrent.category ?? 'Uncategorized',
-    completed: progress >= 100,
+    completed: torrent.progress >= 1,
     completedAt: completionIso(torrent.completionOn),
   };
 };

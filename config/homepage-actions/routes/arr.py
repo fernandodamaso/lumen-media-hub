@@ -198,20 +198,22 @@ def _fetch_radarr_calendar_events():
             continue
         air, label = release
         title = movie.get("title") or "Unknown"
-        events.append(
-            {
-                "id": f"radarr:movie:{movie_id}",
-                "kind": "movie",
-                "title": str(title),
-                "additional": label,
-                "date": _format_calendar_date(air),
-                "airDate": air,
-                "movieId": movie_id,
-                "hasFile": bool(movie.get("hasFile")),
-                "monitored": bool(movie.get("monitored", True)),
-                "premiere": label == "In cinemas",
-            }
-        )
+        event = {
+            "id": f"radarr:movie:{movie_id}",
+            "kind": "movie",
+            "title": str(title),
+            "additional": label,
+            "date": _format_calendar_date(air),
+            "airDate": air,
+            "movieId": movie_id,
+            "hasFile": bool(movie.get("hasFile")),
+            "monitored": bool(movie.get("monitored", True)),
+            "premiere": label == "In cinemas",
+        }
+        title_slug = movie.get("titleSlug")
+        if isinstance(title_slug, str) and title_slug.strip():
+            event["titleSlug"] = title_slug.strip()
+        events.append(event)
     return events
 
 

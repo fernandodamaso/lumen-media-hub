@@ -29,6 +29,14 @@
 .rail-sec h3 .link:hover {
   opacity: 0.75;
 }
+.calendar-links {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.rail-sec h3 .calendar-links .link {
+  margin-left: 0;
+}
 
 .rail-note {
   margin: 0;

@@ -1,10 +1,23 @@
 <section class="rail-sec" data-testid="rr-upcoming" aria-labelledby="rr-upcoming-heading">
   <h3 id="rr-upcoming-heading">
     Upcoming Releases
-    @if (calendarHref(); as href) {
-      <a class="link" [href]="href" target="_blank" rel="noreferrer">View Calendar ›</a>
-    }
+    <span class="calendar-links">
+      @if (calendarHref(); as href) {
+        <a class="link" [href]="href" target="_blank" rel="noreferrer">Sonarr ›</a>
+      }
+      @if (radarrCalendarHref(); as href) {
+        <a class="link" [href]="href" target="_blank" rel="noreferrer">Radarr ›</a>
+      }
+    </span>
   </h3>
+  @if (
+    (calendar.status() === 'ready' || calendar.status() === 'empty') &&
+    calendarDegradedSources().length
+  ) {
+    <p class="rail-note rail-note--warning">
+      {{ calendarDegradedSources().join(', ') }} unavailable — showing partial calendar.
+    </p>
+  }
   @switch (calendar.status()) {
     @case ('loading') {
       <div class="rail-skeletons" aria-hidden="true">

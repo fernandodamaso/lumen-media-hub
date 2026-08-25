@@ -2,6 +2,9 @@ import { InjectionToken } from '@angular/core';
 
 export type CalendarMediaKind = 'episode' | 'movie';
 export type CalendarEventStatus = 'available' | 'monitored' | 'premiere' | 'pending';
+export type CalendarSource = 'sonarr' | 'radarr';
+export type CalendarSourceStatus = 'ok' | 'error' | 'unconfigured';
+export type CalendarSources = Record<CalendarSource, CalendarSourceStatus>;
 
 export interface CalendarEvent {
   id: string;
@@ -13,8 +16,20 @@ export interface CalendarEvent {
   airDate: string;
   /** Optional gradient thumbnail, same style as library item art. */
   art?: string;
+  /** Sonarr episode id when known. */
+  episodeId?: number;
+  /** Radarr movie id when known. */
+  movieId?: number;
+  /** Radarr title slug when known — used for identity-specific deep links. */
+  titleSlug?: string;
   /** Sonarr series id when known — used for MediaCover poster fallback. */
   seriesId?: number;
+}
+
+/** Array-shaped calendar result keeps existing Demo/API callers compatible while carrying Live source health. */
+export interface CalendarEventCollection extends Array<CalendarEvent> {
+  sources?: CalendarSources;
+  generatedAt?: string;
 }
 
 export interface ArrLibrary {
@@ -48,7 +63,11 @@ export const compareCalendarEvents = (left: CalendarEvent, right: CalendarEvent)
   if (byAirDate !== 0) return byAirDate;
   const byTime = left.time.localeCompare(right.time);
   if (byTime !== 0) return byTime;
-  return left.title.localeCompare(right.title);
+  const byKind = left.kind.localeCompare(right.kind);
+  if (byKind !== 0) return byKind;
+  const byTitle = left.title.localeCompare(right.title);
+  if (byTitle !== 0) return byTitle;
+  return left.id.localeCompare(right.id);
 };
 
 export const resolveCalendarLink = (
@@ -56,18 +75,20 @@ export const resolveCalendarLink = (
   library: Pick<ArrLibrary, 'series' | 'movies'>,
   bases: CalendarLinkBases = {},
   kind?: CalendarMediaKind,
+  titleSlug?: string,
 ): string | null => {
-  if (!title) return null;
-  const key = title.trim().toLowerCase();
+  const key = title?.trim().toLowerCase() ?? '';
+  const directMovieSlug = titleSlug?.trim() || undefined;
+  if (!key && !directMovieSlug) return null;
   const sonarrBase = (bases.sonarrBase ?? DEFAULT_CALENDAR_LINK_BASES.sonarrBase).replace(/\/$/, '');
   const radarrBase = (bases.radarrBase ?? DEFAULT_CALENDAR_LINK_BASES.radarrBase).replace(/\/$/, '');
+  const movieSlug = directMovieSlug ?? (key ? library.movies[key] : undefined);
   // Empty bases must not emit relative /series/... or /movie/... URLs.
   const seriesHref =
-    sonarrBase && library.series[key] ? `${sonarrBase}/series/${library.series[key]}` : null;
-  const movieHref =
-    radarrBase && library.movies[key] ? `${radarrBase}/movie/${library.movies[key]}` : null;
-  if (kind === 'movie') return movieHref ?? seriesHref;
-  if (kind === 'episode') return seriesHref ?? movieHref;
+    sonarrBase && key && library.series[key] ? `${sonarrBase}/series/${library.series[key]}` : null;
+  const movieHref = radarrBase && movieSlug ? `${radarrBase}/movie/${movieSlug}` : null;
+  if (kind === 'movie') return movieHref;
+  if (kind === 'episode') return seriesHref;
   return seriesHref ?? movieHref;
 };
 

@@ -70,7 +70,7 @@ export const mapCalendarEvent = (event: MediaStackCalendarEventDto): CalendarEve
   const kind = event.kind ?? (looksLikeEpisode(event.additional) ? 'episode' : 'movie');
   const title = event.title;
   return {
-    id: `${title}-${event.additional}-${airDate || event.date}`,
+    id: event.id?.trim() || `${title}-${event.additional}-${airDate || event.date}`,
     time: event.date,
     kind,
     title,
@@ -78,11 +78,14 @@ export const mapCalendarEvent = (event: MediaStackCalendarEventDto): CalendarEve
     status: normalizeCalendarStatus(event),
     airDate,
     art: event.art || defaultEventArt(title),
-    seriesId: normalizeSeriesId(event.seriesId),
+    episodeId: normalizeProviderId(event.episodeId),
+    movieId: normalizeProviderId(event.movieId),
+    titleSlug: event.titleSlug?.trim() || undefined,
+    seriesId: normalizeProviderId(event.seriesId),
   };
 };
 
-function normalizeSeriesId(value: number | undefined): number | undefined {
+function normalizeProviderId(value: number | undefined): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 

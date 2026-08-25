@@ -37,7 +37,10 @@ class ActionsHandler(BaseHTTPRequestHandler):
             arr.handle_sonarr_missing_count(self)
         elif path == "/sonarr/series-count":
             arr.handle_sonarr_series_count(self)
+        elif path == "/calendar":
+            arr.handle_sonarr_calendar(self)
         elif path == "/sonarr/calendar":
+            # Compatibility alias retained while Live clients migrate to /calendar.
             arr.handle_sonarr_calendar(self)
         elif path == "/automation/summary":
             automation.handle_automation_summary(self)

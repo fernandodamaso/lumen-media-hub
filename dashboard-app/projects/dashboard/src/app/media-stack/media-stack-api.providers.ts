@@ -12,7 +12,7 @@ import { environment } from '../../environments/environment';
 import { CALENDAR_LINK_BASES, CalendarLinkBases } from '../calendar/calendar.models';
 import { JELLYFIN_LINK_BASES, JellyfinLinkBases } from '../library/library.models';
 import { MEDIA_STACK_API } from './media-stack-api';
-import { HttpMediaStackApi } from './http-media-stack-api';
+import { LiveCalendarHttpMediaStackApi } from './live-calendar-http-media-stack-api';
 import { MockMediaStackApi, DownloadsScenario } from './mock-media-stack-api';
 
 
@@ -20,7 +20,7 @@ import { MockMediaStackApi, DownloadsScenario } from './mock-media-stack-api';
 export function provideMediaStackApi(): Provider[] {
   if (environment.useLiveApi) {
     return [
-      { provide: MEDIA_STACK_API, useClass: HttpMediaStackApi },
+      { provide: MEDIA_STACK_API, useClass: LiveCalendarHttpMediaStackApi },
     ];
   }
   return [

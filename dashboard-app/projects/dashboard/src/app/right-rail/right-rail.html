@@ -10,7 +10,10 @@
       }
     </span>
   </h3>
-  @if (calendarDegradedSources().length) {
+  @if (
+    (calendar.status() === 'ready' || calendar.status() === 'empty') &&
+    calendarDegradedSources().length
+  ) {
     <p class="rail-note rail-note--warning">
       {{ calendarDegradedSources().join(', ') }} unavailable — showing partial calendar.
     </p>

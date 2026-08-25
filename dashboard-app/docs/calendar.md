@@ -31,7 +31,7 @@ Source status is one of `ok`, `error`, or `unconfigured`. Error responses expose
 
 Episode events use `kind: "episode"`, a stable `id` in the form `sonarr:episode:<episodeId>`, and include `episodeId` plus `seriesId` when known.
 
-Movie events use `kind: "movie"`, a stable `id` in the form `radarr:movie:<movieId>`, and include `movieId`.
+Movie events use `kind: "movie"`, a stable `id` in the form `radarr:movie:<movieId>`, include `movieId`, and include Radarr's `titleSlug` when available. Movie actions prefer that event-specific slug for deep links so duplicate movie titles cannot resolve through a different title-keyed library entry.
 
 When timestamps tie, ordering is deterministic by date, time, kind, title, then stable ID. Event actions are kind-aware: episodes resolve only to Sonarr and movies resolve only to Radarr.
 

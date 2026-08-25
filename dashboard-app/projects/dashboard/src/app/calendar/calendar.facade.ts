@@ -3,6 +3,8 @@ import { groupCalendarEvents } from './calendar-format';
 import {
   CALENDAR_LINK_BASES,
   CalendarEvent,
+  CalendarSource,
+  CalendarSources,
   compareCalendarEvents,
   resolveArrPosterArt,
   resolveCalendarLink,
@@ -24,6 +26,8 @@ export interface CalendarRailEvent extends CalendarEvent {
 
 const REFRESH_ERROR = 'Could not refresh calendar. Showing last loaded schedule.';
 const LOAD_ERROR = 'Calendar is temporarily unavailable. Try again.';
+const HEALTHY_SOURCES: CalendarSources = { sonarr: 'ok', radarr: 'ok' };
+const CALENDAR_SOURCES: CalendarSource[] = ['sonarr', 'radarr'];
 /** Re-export for existing specs; canonical home is `media-stack/scheduled-poll`. */
 export { SCHEDULED_REFRESH_TIMEOUT_MS } from '../media-stack/scheduled-poll';
 
@@ -35,6 +39,7 @@ export class CalendarFacade {
   private readonly poll = new ScheduledPollController();
   private readonly _status = signal<CalendarStatus>('loading');
   private readonly _events = signal<CalendarRailEvent[]>([]);
+  private readonly _sources = signal<CalendarSources>({ ...HEALTHY_SOURCES });
   private readonly _error = signal('');
   private readonly _refreshing = signal(false);
   private readonly _lastFetchedAt = signal('');
@@ -42,6 +47,10 @@ export class CalendarFacade {
   readonly status = this._status.asReadonly();
   readonly events = this._events.asReadonly();
   readonly groups = computed(() => groupCalendarEvents(this._events()));
+  readonly sources = this._sources.asReadonly();
+  readonly degradedSources = computed(() =>
+    CALENDAR_SOURCES.filter((source) => this._sources()[source] !== 'ok'),
+  );
   readonly error = this._error.asReadonly();
   readonly refreshing = this._refreshing.asReadonly();
   readonly lastFetchedAt = this._lastFetchedAt.asReadonly();
@@ -78,6 +87,7 @@ export class CalendarFacade {
       load: async (requestId) => {
         const rawEvents = await this.api.listCalendarEvents(options.signal);
         if (!this.poll.isCurrent(requestId)) return;
+        const sources = rawEvents.sources ?? HEALTHY_SOURCES;
         const [library, posters] = await Promise.all([
           this.loadLibrary(options.signal),
           this.loadPosterArtByTitle(options.signal),
@@ -96,7 +106,8 @@ export class CalendarFacade {
         // Abort after enrichment must not commit, or the scheduled timeout path would wipe a false success.
         if (!this.poll.isCurrent(requestId) || options.signal?.aborted) return;
         this._events.set(events);
-        this._lastFetchedAt.set(new Date().toISOString());
+        this._sources.set({ ...sources });
+        this._lastFetchedAt.set(rawEvents.generatedAt ?? new Date().toISOString());
         this._status.set(events.length ? 'ready' : 'empty');
         this._error.set('');
       },
@@ -145,6 +156,7 @@ export class CalendarFacade {
       loadError: LOAD_ERROR,
       clearPayload: () => {
         this._events.set([]);
+        this._sources.set({ sonarr: 'error', radarr: 'error' });
       },
     });
   }

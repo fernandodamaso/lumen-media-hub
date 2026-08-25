@@ -56,4 +56,59 @@ describe('CalendarFacade combined source parity', () => {
     expect(facade.events().map((event) => event.kind)).toEqual(['episode', 'movie']);
     expect(facade.degradedSources()).toEqual(['sonarr']);
   });
+
+  it('does not classify an intentionally unconfigured provider as degraded', async () => {
+    const feed = eventFeed();
+    feed.sources = { sonarr: 'ok', radarr: 'unconfigured' };
+    const api = {
+      listCalendarEvents: () => Promise.resolve(feed),
+      getArrLibrary: () => Promise.resolve({ ok: true, series: {}, movies: {} }),
+      listLibraryItems: () => Promise.resolve({ items: [], availability: 'complete' }),
+    } as unknown as MediaStackApi;
+
+    TestBed.configureTestingModule({
+      providers: [
+        CalendarFacade,
+        { provide: MEDIA_STACK_API, useValue: api },
+        { provide: CALENDAR_LINK_BASES, useValue: { sonarrBase: '', radarrBase: '' } },
+      ],
+    });
+
+    const facade = TestBed.inject(CalendarFacade);
+    await facade.refresh({ initial: true });
+
+    expect(facade.status()).toBe('ready');
+    expect(facade.degradedSources()).toEqual([]);
+  });
+
+  it('uses the Radarr event slug instead of a colliding title-keyed library slug', async () => {
+    const feed = eventFeed();
+    const movie = feed.find((event) => event.kind === 'movie') as (typeof feed)[number] & {
+      titleSlug?: string;
+    };
+    movie.title = 'The Thing';
+    movie.titleSlug = 'the-thing-2011';
+    feed.sources = { sonarr: 'ok', radarr: 'ok' };
+    const api = {
+      listCalendarEvents: () => Promise.resolve(feed),
+      getArrLibrary: () =>
+        Promise.resolve({ ok: true, series: {}, movies: { 'the thing': 'the-thing-1982' } }),
+      listLibraryItems: () => Promise.resolve({ items: [], availability: 'complete' }),
+    } as unknown as MediaStackApi;
+
+    TestBed.configureTestingModule({
+      providers: [
+        CalendarFacade,
+        { provide: MEDIA_STACK_API, useValue: api },
+        { provide: CALENDAR_LINK_BASES, useValue: { sonarrBase: '', radarrBase: 'http://radarr.local' } },
+      ],
+    });
+
+    const facade = TestBed.inject(CalendarFacade);
+    await facade.refresh({ initial: true });
+
+    expect(facade.events().find((event) => event.kind === 'movie')?.href).toBe(
+      'http://radarr.local/movie/the-thing-2011',
+    );
+  });
 });

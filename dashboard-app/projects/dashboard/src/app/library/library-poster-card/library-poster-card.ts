@@ -157,7 +157,9 @@ export class LibraryPosterCard {
     this.deleteBusy.set(true);
     try {
       await this.facade.deleteItemDirectly(this.item().id);
-      this.toast.show('Removed from Jellyfin. Torrents and files were not touched.', { tone: 'success' });
+      this.toast.show('Deleted through Jellyfin. Underlying media files may also have been deleted.', {
+        tone: 'success',
+      });
       this.directDialogOpen.set(false);
     } catch {
       this.toast.show('Could not delete this title from Jellyfin', { tone: 'error' });

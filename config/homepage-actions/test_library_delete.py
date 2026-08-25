@@ -13,8 +13,10 @@ from unittest import mock
 import config
 import library_delete as ld
 from library_delete import (
+    ConflictError,
     MatchError,
     PreviewStore,
+    UnmanagedTitleError,
     UpstreamError,
     _history_download_ids,
     _intersect_hashes,
@@ -29,7 +31,6 @@ ITEM_ID = "jf-movie-1"
 HASH_A = "a" * 40
 HASH_B = "b" * 40
 HASH_C = "c" * 40
-
 
 HASH40 = "d" * 40
 HASH64 = "e" * 64
@@ -57,7 +58,7 @@ class LibraryDeleteUnitTests(unittest.TestCase):
         self.assertEqual(target["arr_id"], 7)
         self.assertEqual(target["hashes"], (HASH_A,))
 
-    def test_movie_zero_matches_raises(self):
+    def test_movie_zero_matches_is_definitively_unmanaged(self):
         with mock.patch("library_delete._jellyfin_user_id_for_queries", return_value="user-1"), mock.patch(
             "library_delete.jellyfin_get"
         ) as mock_get, mock.patch(
@@ -68,10 +69,10 @@ class LibraryDeleteUnitTests(unittest.TestCase):
                 "Name": "Dune",
                 "ProviderIds": {"Tmdb": "123"},
             }
-            with self.assertRaises(MatchError):
+            with self.assertRaises(UnmanagedTitleError):
                 resolve_library_target(ITEM_ID)
 
-    def test_movie_two_matches_raises(self):
+    def test_movie_two_matches_is_a_safety_conflict(self):
         with mock.patch("library_delete._jellyfin_user_id_for_queries", return_value="user-1"), mock.patch(
             "library_delete.jellyfin_get"
         ) as mock_get, mock.patch(
@@ -83,7 +84,7 @@ class LibraryDeleteUnitTests(unittest.TestCase):
                 "Name": "Dune",
                 "ProviderIds": {"Tmdb": "123"},
             }
-            with self.assertRaises(MatchError):
+            with self.assertRaises(ConflictError):
                 resolve_library_target(ITEM_ID)
 
     def test_series_tvdb_and_tmdb_agree(self):
@@ -109,7 +110,7 @@ class LibraryDeleteUnitTests(unittest.TestCase):
         self.assertEqual(target["arr_id"], 9)
         self.assertEqual(target["episode_count"], 10)
 
-    def test_series_tvdb_tmdb_disagree_raises(self):
+    def test_series_tvdb_tmdb_disagree_is_a_safety_conflict(self):
         with mock.patch("library_delete._jellyfin_user_id_for_queries", return_value="user-1"), mock.patch(
             "library_delete.jellyfin_get"
         ) as mock_get, mock.patch(
@@ -122,7 +123,7 @@ class LibraryDeleteUnitTests(unittest.TestCase):
                 "Name": "Show",
                 "ProviderIds": {"Tvdb": "55", "Tmdb": "66"},
             }
-            with self.assertRaises(MatchError):
+            with self.assertRaises(ConflictError):
                 resolve_library_target("jf-series-1")
 
     def test_title_not_used_for_matching(self):
@@ -139,8 +140,8 @@ class LibraryDeleteUnitTests(unittest.TestCase):
             with self.assertRaises(MatchError):
                 resolve_library_target(ITEM_ID)
 
-    def test_history_total_over_cap_raises(self):
-        with self.assertRaises(MatchError):
+    def test_history_total_over_cap_is_a_safety_conflict(self):
+        with self.assertRaises(ConflictError):
             _history_download_ids({"totalRecords": 1001, "records": []})
 
     def test_history_malformed_download_ids_ignored(self):
@@ -361,8 +362,8 @@ class LibraryDeleteHttpTests(unittest.TestCase):
             self.assertNotIn(secret, raw.lower())
 
     @mock.patch("routes.library.resolve_library_kind_title")
-    @mock.patch("routes.library.resolve_library_target", side_effect=MatchError())
-    def test_preview_match_failure_409(self, _mock_resolve, mock_kind_title):
+    @mock.patch("routes.library.resolve_library_target", side_effect=UnhandledTitleError())
+    def test_preview_unmanaged_title_409(self, _mock_resolve, mock_kind_title):
         mock_kind_title.return_value = {"kind": "movie", "title": "Lumen Test Movie"}
         status, body, _headers = self._request(
             "GET", f"/library/items/{ITEM_ID}/delete-preview"
@@ -373,8 +374,8 @@ class LibraryDeleteHttpTests(unittest.TestCase):
         self.assertEqual(body["title"], "Lumen Test Movie")
 
     @mock.patch("routes.library.resolve_library_kind_title", side_effect=RuntimeError("jf down"))
-    @mock.patch("routes.library.resolve_library_target", side_effect=MatchError())
-    def test_preview_match_failure_409_without_info(self, _mock_resolve, _mock_info):
+    @mock.patch("routes.library.resolve_library_target", side_effect=UnhandledTitleError())
+    def test_preview_unmanaged_title_409_without_info(self, _mock_resolve, _mock_info):
         status, body, _headers = self._request(
             "GET", f"/library/items/{ITEM_ID}/delete-preview"
         )
@@ -543,17 +544,21 @@ class LibraryDirectDeleteRouteTests(LibraryDeleteHttpTests):
     def test_direct_delete_success(
         self, mock_info, mock_delete, _mock_scan, mock_tombstone, mock_invalidate, mock_discover
     ):
-        mock_info.return_value = {"kind": "movie", "title": "Lumen Test Movie"}
-        calls = []
+        mock_info.return_value = {
+            "kind": "movie",
+            "title": "Lumen Test Movie",
+            "providerIds": {"Tmdb": "123"},
+        }
 
-        with mock.patch("clients.qbittorrent.qbt_login") as qbt_login, mock.patch(
+        with mock.patch("library_delete.find_radarr_movies_by_tmdb", return_value=[]), mock.patch(
+            "clients.qbittorrent.qbt_login"
+        ) as qbt_login, mock.patch(
             "clients.qbittorrent.qbt_get_json"
         ) as qbt_get, mock.patch("library_delete.delete_radarr_movie") as arr_delete:
             status, body, _headers = self._request("DELETE", f"/library/items/{ITEM_ID}/direct")
             qbt_login.assert_not_called()
             qbt_get.assert_not_called()
             arr_delete.assert_not_called()
-            del calls
 
         self.assertEqual(status, 200)
         self.assertTrue(body["removed"])
@@ -566,7 +571,7 @@ class LibraryDirectDeleteRouteTests(LibraryDeleteHttpTests):
     @mock.patch("library_delete.resolve_library_kind_title")
     @mock.patch("clients.qbittorrent.qbt_login")
     def test_direct_delete_unknown_item_404(self, mock_qbt_login, mock_info):
-        mock_info.return_value = {"kind": None, "title": None}
+        mock_info.return_value = {"kind": None, "title": None, "providerIds": {}}
         status, body, _headers = self._request("DELETE", f"/library/items/{ITEM_ID}/direct")
         self.assertEqual(status, 404)
         mock_qbt_login.assert_not_called()
@@ -578,8 +583,13 @@ class LibraryDirectDeleteRouteTests(LibraryDeleteHttpTests):
     def test_direct_delete_upstream_failure_502_no_tombstone(
         self, mock_info, _mock_delete, mock_tombstone, _mock_discover
     ):
-        mock_info.return_value = {"kind": "movie", "title": "Lumen Test Movie"}
-        status, body, _headers = self._request("DELETE", f"/library/items/{ITEM_ID}/direct")
+        mock_info.return_value = {
+            "kind": "movie",
+            "title": "Lumen Test Movie",
+            "providerIds": {"Tmdb": "123"},
+        }
+        with mock.patch("library_delete.find_radarr_movies_by_tmdb", return_value=[]):
+            status, body, _headers = self._request("DELETE", f"/library/items/{ITEM_ID}/direct")
         self.assertEqual(status, 502)
         self.assertEqual(body["error"], "Unable to delete this title from Jellyfin")
         mock_tombstone.assert_not_called()

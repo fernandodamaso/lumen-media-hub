@@ -96,6 +96,7 @@ function requireCombinedCalendarEvent(value: unknown, index: number): MediaStack
     airDate,
     episodeId,
     movieId,
+    titleSlug: optionalString(value['titleSlug'], 'titleSlug', index),
     seriesId,
     hasFile: optionalBoolean(value['hasFile'], 'hasFile', index),
     monitored: optionalBoolean(value['monitored'], 'monitored', index),

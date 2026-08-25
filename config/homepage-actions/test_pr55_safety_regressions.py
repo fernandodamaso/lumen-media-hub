@@ -8,6 +8,8 @@ from unittest import mock
 import config
 import library_delete
 import queue_hygiene
+import routes.arr as arr_routes
+import routes.automation as automation_routes
 import routes.library as library_routes
 
 NOW = datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc)
@@ -98,6 +100,19 @@ class LibraryDeletionSafetyRegressions(unittest.TestCase):
         delete_item.assert_not_called()
 
 
+class ManagerLinkRegressions(unittest.TestCase):
+    def test_duplicate_titles_use_year_keys_without_ambiguous_title_fallback(self):
+        links = arr_routes._arr_slug_map(
+            [
+                {"title": "Dune", "titleSlug": "dune-1984", "year": 1984},
+                {"title": "Dune", "titleSlug": "dune-2021", "year": 2021},
+            ]
+        )
+        self.assertNotIn("dune", links)
+        self.assertEqual(links["dune::1984"], "dune-1984")
+        self.assertEqual(links["dune::2021"], "dune-2021")
+
+
 class QueueHygieneSafetyRegressions(unittest.TestCase):
     def test_ordinary_active_download_is_outside_hygiene_scope(self):
         result = queue_hygiene.classify_queue(
@@ -164,10 +179,7 @@ class QueueHygieneSafetyRegressions(unittest.TestCase):
         with mock.patch.object(queue_hygiene, "_read_state", return_value={}), mock.patch.object(
             queue_hygiene, "_write_state"
         ) as write_state:
-            try:
-                queue_hygiene._queue_hygiene_scheduler_loop(1, object(), run_cycle, wait)
-            except RuntimeError:
-                pass
+            queue_hygiene._queue_hygiene_scheduler_loop(1, object(), run_cycle, wait)
 
         self.assertEqual(len(calls), 2)
         write_state.assert_called()
@@ -203,13 +215,40 @@ class QueueHygieneSafetyRegressions(unittest.TestCase):
         ), mock.patch.object(
             queue_hygiene, "_fetch_qbt_torrents", return_value=[torrent()]
         ), mock.patch.object(queue_hygiene, "_ignore_sonarr_queue_items"):
-            try:
-                result = queue_hygiene.run_queue_hygiene_cycle(mode="auto", now=NOW)
-            except ConnectionError:
-                result = {"status": "raised", "circuitOpen": False}
+            result = queue_hygiene.run_queue_hygiene_cycle(mode="auto", now=NOW)
 
         self.assertEqual(result["status"], "circuit_open")
         self.assertTrue(result["circuitOpen"])
+
+    def test_persisted_scheduler_error_marks_sonarr_degraded(self):
+        hygiene = {
+            "mode": "observe",
+            "circuitOpen": False,
+            "eligibleCount": 0,
+            "blockedCount": 0,
+            "eligibleItems": [],
+            "blockedItems": [],
+            "lastCycleAt": "2026-08-24T12:00:00Z",
+            "lastCleanup": None,
+            "verification": None,
+            "error": "sonarr unavailable",
+        }
+        with mock.patch.multiple(
+            config,
+            SONARR_API_KEY="sonarr-key",
+            RADARR_API_KEY="",
+            PROWLARR_API_KEY="",
+            BAZARR_ENABLED=False,
+        ), mock.patch.object(automation_routes, "_arr_get", return_value=[]), mock.patch.object(
+            automation_routes, "_sonarr_missing_preview", return_value=(0, [])
+        ), mock.patch.object(
+            automation_routes,
+            "_fetch_queue_snapshot",
+            return_value={"totalRecords": 0, "records": []},
+        ), mock.patch.object(automation_routes, "_queue_hygiene_summary", return_value=hygiene):
+            summary = automation_routes._build_automation_summary()
+
+        self.assertTrue(summary["sonarr"]["degraded"])
 
 
 if __name__ == "__main__":

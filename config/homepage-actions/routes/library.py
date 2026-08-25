@@ -7,12 +7,25 @@ from library_delete import (
     ConflictError,
     MatchError,
     PREVIEW_STORE,
+    UnmanagedTitleError,
     UpstreamError,
     delete_jellyfin_item_directly,
     execute_library_delete,
     resolve_library_kind_title,
     resolve_library_target,
 )
+
+
+def _send_delete_safety_conflict(handler):
+    send_json(
+        handler,
+        409,
+        {
+            "ok": False,
+            "error": "Unable to prove this title is safe for direct deletion.",
+            "code": "delete_safety_conflict",
+        },
+    )
 
 
 def handle_library_delete_preview(handler, item_id):
@@ -22,7 +35,7 @@ def handle_library_delete_preview(handler, item_id):
     try:
         target = resolve_library_target(item_id)
         preview = PREVIEW_STORE.put(target)
-    except MatchError:
+    except UnmanagedTitleError:
         try:
             info = resolve_library_kind_title(item_id)
         except Exception:
@@ -34,6 +47,9 @@ def handle_library_delete_preview(handler, item_id):
             "kind": info.get("kind"),
             "title": info.get("title"),
         })
+        return
+    except (ConflictError, MatchError):
+        _send_delete_safety_conflict(handler)
         return
     except UpstreamError as exc:
         print(f"library delete preview upstream failure: {exc.source}", file=sys.stderr)
@@ -90,6 +106,9 @@ def handle_library_delete_direct(handler, item_id):
         return
     try:
         result = delete_jellyfin_item_directly(item_id)
+    except ConflictError:
+        _send_delete_safety_conflict(handler)
+        return
     except MatchError:
         send_json(handler, 404, {"ok": False, "error": "Library item not found"})
         return

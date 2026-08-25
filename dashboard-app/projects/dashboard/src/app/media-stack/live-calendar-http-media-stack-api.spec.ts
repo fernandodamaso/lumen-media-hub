@@ -21,7 +21,9 @@ describe('LiveCalendarHttpMediaStackApi', () => {
     http = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => http.verify());
+  afterEach(() => {
+    http.verify();
+  });
 
   it('loads the neutral combined calendar and preserves source health and provider ids', async () => {
     const pending = api.listCalendarEvents();

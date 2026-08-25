@@ -42,10 +42,11 @@ def _episode(
     }
 
 
-def _movie(movie_id, title="Dune", day_offset=1, hour=10, minute=0):
+def _movie(movie_id, title="Dune", day_offset=1, hour=10, minute=0, title_slug="dune-2021"):
     return {
         "id": movie_id,
         "title": title,
+        "titleSlug": title_slug,
         "monitored": True,
         "hasFile": False,
         "digitalRelease": _air(day_offset, hour, minute),
@@ -107,6 +108,7 @@ class CalendarFeedTests(unittest.TestCase):
         movie, episode = body["events"]
         self.assertEqual(movie["id"], "radarr:movie:22")
         self.assertEqual(movie["movieId"], 22)
+        self.assertEqual(movie["titleSlug"], "dune-2021")
         self.assertEqual(episode["id"], "sonarr:episode:11")
         self.assertEqual(episode["episodeId"], 11)
         self.assertEqual(episode["seriesId"], 42)

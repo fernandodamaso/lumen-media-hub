@@ -362,7 +362,7 @@ class LibraryDeleteHttpTests(unittest.TestCase):
             self.assertNotIn(secret, raw.lower())
 
     @mock.patch("routes.library.resolve_library_kind_title")
-    @mock.patch("routes.library.resolve_library_target", side_effect=UnhandledTitleError())
+    @mock.patch("routes.library.resolve_library_target", side_effect=UnmanagedTitleError())
     def test_preview_unmanaged_title_409(self, _mock_resolve, mock_kind_title):
         mock_kind_title.return_value = {"kind": "movie", "title": "Lumen Test Movie"}
         status, body, _headers = self._request(
@@ -374,7 +374,7 @@ class LibraryDeleteHttpTests(unittest.TestCase):
         self.assertEqual(body["title"], "Lumen Test Movie")
 
     @mock.patch("routes.library.resolve_library_kind_title", side_effect=RuntimeError("jf down"))
-    @mock.patch("routes.library.resolve_library_target", side_effect=UnhandledTitleError())
+    @mock.patch("routes.library.resolve_library_target", side_effect=UnmanagedTitleError())
     def test_preview_unmanaged_title_409_without_info(self, _mock_resolve, _mock_info):
         status, body, _headers = self._request(
             "GET", f"/library/items/{ITEM_ID}/delete-preview"

@@ -51,6 +51,7 @@ function summaryWith(statuses: ('healthy' | 'degraded' | 'down' | 'unknown')[]):
 describe('RightRail', () => {
   const calendarEvents = signal<CalendarRailEvent[]>([]);
   const calendarStatus = signal<CalendarStatus>('loading');
+  const calendarDegradedSources = signal<string[]>([]);
   const activityFeed = signal<ActivityFeed | null>(null);
   const activityStatus = signal<ActivityStatus>('loading');
   const automationSummary = signal<AutomationSummary | null>(null);
@@ -59,6 +60,7 @@ describe('RightRail', () => {
   beforeEach(() => {
     calendarEvents.set([]);
     calendarStatus.set('loading');
+    calendarDegradedSources.set([]);
     activityFeed.set(null);
     activityStatus.set('loading');
     automationSummary.set(null);
@@ -77,6 +79,7 @@ describe('RightRail', () => {
           useValue: {
             status: calendarStatus,
             events: calendarEvents,
+            degradedSources: calendarDegradedSources,
             error: signal(''),
             refresh: vi.fn(),
           },
@@ -132,6 +135,29 @@ describe('RightRail', () => {
     expect(root.querySelector('[data-testid="rr-upcoming"] h3 a')?.getAttribute('href')).toBe(
       'http://sonarr.local/calendar',
     );
+  });
+
+  it('warns when a calendar source fails but the calendar still loaded', () => {
+    calendarStatus.set('ready');
+    calendarDegradedSources.set(['sonarr']);
+    calendarEvents.set([upcomingEvent]);
+    const fixture = TestBed.createComponent(RightRail);
+    fixture.detectChanges();
+
+    const section = fixtureHost(fixture).querySelector('[data-testid="rr-upcoming"]');
+    expect(section?.querySelector('.rail-note--warning')?.textContent).toContain('sonarr');
+    expect(section?.querySelectorAll('mm-upcoming-item')).toHaveLength(1);
+  });
+
+  it('does not show a partial-calendar warning when the calendar load failed completely', () => {
+    calendarStatus.set('error');
+    calendarDegradedSources.set(['sonarr', 'radarr']);
+    const fixture = TestBed.createComponent(RightRail);
+    fixture.detectChanges();
+
+    const section = fixtureHost(fixture).querySelector('[data-testid="rr-upcoming"]');
+    expect(section?.querySelector('.rail-note--warning')).toBeNull();
+    expect(section?.querySelector('.rail-note--danger')?.textContent).toContain('Calendar is unavailable');
   });
 
   it('renders activity rows with relative time and external links', () => {

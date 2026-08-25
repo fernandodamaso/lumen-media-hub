@@ -80,6 +80,7 @@ export const mapCalendarEvent = (event: MediaStackCalendarEventDto): CalendarEve
     art: event.art || defaultEventArt(title),
     episodeId: normalizeProviderId(event.episodeId),
     movieId: normalizeProviderId(event.movieId),
+    titleSlug: event.titleSlug?.trim() || undefined,
     seriesId: normalizeProviderId(event.seriesId),
   };
 };

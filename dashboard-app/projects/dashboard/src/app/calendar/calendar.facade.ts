@@ -49,7 +49,7 @@ export class CalendarFacade {
   readonly groups = computed(() => groupCalendarEvents(this._events()));
   readonly sources = this._sources.asReadonly();
   readonly degradedSources = computed(() =>
-    CALENDAR_SOURCES.filter((source) => this._sources()[source] !== 'ok'),
+    CALENDAR_SOURCES.filter((source) => this._sources()[source] === 'error'),
   );
   readonly error = this._error.asReadonly();
   readonly refreshing = this._refreshing.asReadonly();
@@ -101,7 +101,13 @@ export class CalendarFacade {
               posters.get(event.title.trim().toLowerCase()) ??
               resolveArrPosterArt(event, this.linkBases) ??
               event.art,
-            href: resolveCalendarLink(event.title, library, this.linkBases, event.kind),
+            href: resolveCalendarLink(
+              event.title,
+              library,
+              this.linkBases,
+              event.kind,
+              event.titleSlug,
+            ),
           }));
         // Abort after enrichment must not commit, or the scheduled timeout path would wipe a false success.
         if (!this.poll.isCurrent(requestId) || options.signal?.aborted) return;

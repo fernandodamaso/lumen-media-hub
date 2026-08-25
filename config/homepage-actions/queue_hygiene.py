@@ -1,8 +1,7 @@
 """Pure diagnostics for stale Sonarr queue imports.
 
-This module deliberately contains no network calls or mutation.  It classifies a
-complete Sonarr queue snapshot against a qBittorrent snapshot so callers can
-choose whether an independently verified cleanup is appropriate.
+This module classifies a complete Sonarr queue snapshot against a qBittorrent
+snapshot, then runs guarded cleanup only when callers explicitly select auto.
 """
 from datetime import datetime, timezone
 import math
@@ -85,6 +84,11 @@ def _nonnegative_int(value):
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
+def _configured_mode():
+    value = str(settings.QUEUE_HYGIENE_MODE or "").strip().lower()
+    return value if value in {"off", "observe", "auto"} else "observe"
+
+
 def normalized_state(state=None):
     """Return the bounded, secret-free state contract used by HTTP/UI readers."""
     raw = _read_state() if state is None else state
@@ -103,7 +107,7 @@ def normalized_state(state=None):
         }
     last_cleanup = raw.get("lastCleanup") if isinstance(raw.get("lastCleanup"), dict) else None
     result = {
-        "mode": raw.get("mode") if raw.get("mode") in {"off", "observe", "auto"} else settings.QUEUE_HYGIENE_MODE,
+        "mode": _configured_mode(),
         "circuitOpen": raw.get("circuitOpen") is True,
         "eligibleCount": _nonnegative_int(counts.get("eligible")),
         "blockedCount": _nonnegative_int(counts.get("blocked")),
@@ -118,14 +122,38 @@ def normalized_state(state=None):
     return result
 
 
+def _record_scheduler_error(error):
+    try:
+        state = _read_state()
+        _write_state(
+            {
+                **state,
+                "circuitOpen": bool(state.get("circuitOpen")),
+                "lastCycleAt": _format_timestamp(datetime.now(timezone.utc)),
+                "error": str(error),
+            }
+        )
+        _invalidate_automation_cache()
+    except Exception:
+        # A state-path failure must not terminate the scheduler as well.
+        pass
+
+
 def _queue_hygiene_scheduler_loop(interval_seconds, stop_event, run_cycle, wait):
-    run_cycle()
-    while not wait(stop_event, interval_seconds):
-        run_cycle()
+    while True:
+        try:
+            run_cycle()
+        except Exception as error:
+            _record_scheduler_error(error)
+        if wait(stop_event, interval_seconds):
+            return
 
 
 def start_queue_hygiene_scheduler(interval_seconds=None):
     interval = settings.QUEUE_HYGIENE_INTERVAL_SECONDS if interval_seconds is None else float(interval_seconds)
+    if isinstance(interval, bool) or not math.isfinite(float(interval)) or float(interval) <= 0:
+        raise ValueError("queue-hygiene interval must be a positive finite number")
+    interval = float(interval)
     global _scheduler_thread
     with _scheduler_thread_lock:
         if _scheduler_thread is not None and _scheduler_thread.is_alive():
@@ -177,6 +205,13 @@ def flatten_status_messages(row):
     if not isinstance(row, dict):
         return []
     return _flatten(row.get("statusMessages", []))
+
+
+def _has_target_reason(row):
+    return any(
+        message.startswith(NOT_AN_UPGRADE_PREFIX)
+        for message in flatten_status_messages(row)
+    )
 
 
 def group_queue_by_download_id(records):
@@ -243,7 +278,7 @@ def _title(row):
 
 def _blocked(queue_id, title, reason, blocker):
     return {
-        "queueId": queue_id,
+        "queueId": queue_id if _positive_int(queue_id) else None,
         "title": title,
         "reason": reason,
         "blocker": blocker,
@@ -322,11 +357,15 @@ def classify_queue(queue_records, qbt_torrents, now, grace_seconds):
     eligible = []
 
     for row in records:
-        if not isinstance(row, dict) or id(row) not in grouped_ids:
-            queue_id = row.get("id") if isinstance(row, dict) else None
-            blocked.append(_blocked(queue_id, _title(row) if isinstance(row, dict) else "Unknown", "", "malformed"))
+        if not isinstance(row, dict):
+            continue
+        if id(row) not in grouped_ids and _has_target_reason(row):
+            blocked.append(_blocked(row.get("id"), _title(row), "", "malformed"))
 
     for group_key, rows in groups.items():
+        if not any(_has_target_reason(row) for row in rows):
+            continue
+
         row_checks = []
         for row in rows:
             queue_id = row.get("id")
@@ -370,6 +409,8 @@ def classify_queue(queue_records, qbt_torrents, now, grace_seconds):
                 blocked.append(_blocked(item["queue_id"], _title(item["row"]), item["reason"], "missing_qbt"))
             continue
         completion, qbt_blocker = _qbt_completion(torrent, now, grace_seconds)
+        if qbt_blocker == "grace_period":
+            continue
         if qbt_blocker:
             for item in row_checks:
                 blocked.append(_blocked(item["queue_id"], _title(item["row"]), item["reason"], qbt_blocker))
@@ -391,7 +432,7 @@ def classify_queue(queue_records, qbt_torrents, now, grace_seconds):
             }
         )
 
-    blocked.sort(key=lambda item: (item["queueId"] is None, item["queueId"] if isinstance(item["queueId"], int) else 0, item["title"]))
+    blocked.sort(key=lambda item: (item["queueId"] is None, item["queueId"] or 0, item["title"]))
     eligible.sort(key=lambda item: item["downloadId"].lower())
     return {
         "observedAt": _format_timestamp(now),
@@ -399,6 +440,21 @@ def classify_queue(queue_records, qbt_torrents, now, grace_seconds):
         "eligibleGroups": eligible,
         "blockedItems": blocked,
     }
+
+
+def _open_circuit(state_update, result, error, verification=None):
+    result.update({"status": "circuit_open", "circuitOpen": True, "error": error})
+    persisted = {
+        **state_update,
+        "circuitOpen": True,
+        "error": error,
+    }
+    if verification is not None:
+        result["verification"] = verification
+        persisted["verification"] = verification
+    _write_state(persisted)
+    _invalidate_automation_cache()
+    return result
 
 
 def run_queue_hygiene_cycle(mode=None, now=None):
@@ -440,6 +496,7 @@ def run_queue_hygiene_cycle(mode=None, now=None):
                 "error": str(error),
             }
             _write_state({**state, "mode": selected_mode, "circuitOpen": circuit_open, "lastCycleAt": _format_timestamp(observed_at), "error": str(error)})
+            _invalidate_automation_cache()
             return result
 
         eligible_groups = diagnostics["eligibleGroups"]
@@ -479,12 +536,22 @@ def run_queue_hygiene_cycle(mode=None, now=None):
             _invalidate_automation_cache()
             return result
 
-        _ignore_sonarr_queue_items(queue_ids)
-        post_queue_snapshot = _fetch_sonarr_queue_snapshot()
-        post_qbt_torrents = _fetch_qbt_torrents()
+        try:
+            _ignore_sonarr_queue_items(queue_ids)
+            post_queue_snapshot = _fetch_sonarr_queue_snapshot()
+            post_qbt_torrents = _fetch_qbt_torrents()
+        except Exception as error:
+            return _open_circuit(
+                state_update,
+                result,
+                f"Cleanup outcome could not be verified: {error}",
+            )
+
         post_records = post_queue_snapshot.get("records", []) if isinstance(post_queue_snapshot, dict) else []
         remaining_ids = {
-            row.get("id") for row in post_records if isinstance(row, dict) and isinstance(row.get("id"), int)
+            row.get("id")
+            for row in post_records
+            if isinstance(row, dict) and _positive_int(row.get("id"))
         }
         post_hashes = {
             item.get("hash", "").strip().lower()
@@ -499,19 +566,19 @@ def run_queue_hygiene_cycle(mode=None, now=None):
         }
         result["verification"] = verification
         if missing_hashes:
-            error = "Expected qBittorrent hash disappeared after Sonarr cleanup."
-            result.update({"status": "circuit_open", "circuitOpen": True, "error": error})
-            _write_state({
-                **state_update,
-                "circuitOpen": True,
-                "error": error,
-                "verification": verification,
-            })
-            return result
+            return _open_circuit(
+                state_update,
+                result,
+                "Expected qBittorrent hash disappeared after Sonarr cleanup.",
+                verification,
+            )
         if not verification["queueIdsGone"]:
-            result.update({"status": "verification_failed", "error": "Sonarr queue IDs remained after cleanup."})
-            _write_state({**state_update, "verification": verification, "error": result["error"]})
-            return result
+            return _open_circuit(
+                state_update,
+                result,
+                "Sonarr queue IDs remained after cleanup.",
+                verification,
+            )
 
         result.update({"status": "cleaned", "lastCleanup": {"at": diagnostics["observedAt"], "queueIds": _bounded(queue_ids), "hashes": _bounded(hashes)}})
         state_update.update({"lastCleanup": result["lastCleanup"], "verification": verification})

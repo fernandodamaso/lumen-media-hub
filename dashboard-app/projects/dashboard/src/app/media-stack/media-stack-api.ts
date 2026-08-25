@@ -1,6 +1,6 @@
 import { InjectionToken } from '@angular/core';
 
-import { ArrLibrary, CalendarEvent } from '../calendar/calendar.models';
+import { ArrLibrary, CalendarEventCollection } from '../calendar/calendar.models';
 import {
   DiscoverAction,
   DiscoverFeedback,
@@ -32,7 +32,7 @@ export interface MediaStackApi {
   resumeAll(): Promise<void>;
   pauseTorrent(id: string): Promise<void>;
   resumeTorrent(id: string): Promise<void>;
-  listCalendarEvents(signal?: AbortSignal): Promise<CalendarEvent[]>;
+  listCalendarEvents(signal?: AbortSignal): Promise<CalendarEventCollection>;
   getArrLibrary(signal?: AbortSignal): Promise<ArrLibrary>;
   listLibraryItems(filter?: { kind?: LibraryItemKind }, signal?: AbortSignal): Promise<LibraryListResult>;
   setLibraryItemPlayed(id: string, played: boolean): Promise<{ played: boolean }>;

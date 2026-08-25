@@ -60,6 +60,24 @@ describe('LibraryPosterCard', () => {
     expect(toast.show).toHaveBeenCalledWith('Marked as watched', { tone: 'success' });
   });
 
+  it('uses the manager detail link for the poster and title while keeping Jellyfin play separate', () => {
+    fixture.componentRef.setInput('detailsHref', 'https://sonarr.example/series/the-bear');
+    fixture.detectChanges();
+
+    const root = fixtureHost(fixture);
+    const poster = root.querySelector('.mm-media-card__hit') as HTMLAnchorElement;
+    const title = root.querySelector('.library-poster-card__title-link') as HTMLAnchorElement;
+    const play = root.querySelector('a[aria-label="Play Moonrise"]') as HTMLAnchorElement;
+
+    expect(poster.href).toBe('https://sonarr.example/series/the-bear');
+    expect(poster.target).toBe('_blank');
+    expect(poster.rel).toBe('noreferrer');
+    expect(title.href).toBe('https://sonarr.example/series/the-bear');
+    expect(title.target).toBe('_blank');
+    expect(title.rel).toBe('noreferrer');
+    expect(play.href).toBe('https://jellyfin.example/item');
+  });
+
   it('keeps watched state and toasts on failure', async () => {
     facade.setPlayed.mockRejectedValue(new Error('fail'));
     const button = fixtureHost(fixture).querySelector(

@@ -6,6 +6,7 @@
       [imageUrl]="imageUrl()"
       [art]="fallbackArt()"
       captionPlacement="none"
+      [href]="detailsHref()"
       [retryToken]="retryToken()"
     />
     @if (href(); as destination) {
@@ -43,7 +44,18 @@
 </div>
 
 <div class="library-poster-card__caption">
-  <strong>{{ item().title }}</strong>
+  @if (detailsHref(); as destination) {
+    <a
+      class="library-poster-card__title-link"
+      [href]="destination"
+      target="_blank"
+      rel="noreferrer"
+    >
+      <strong>{{ item().title }}</strong>
+    </a>
+  } @else {
+    <strong>{{ item().title }}</strong>
+  }
   <small>{{ item().meta }}</small>
 </div>
 

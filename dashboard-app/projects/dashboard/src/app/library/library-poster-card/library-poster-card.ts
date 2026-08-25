@@ -40,6 +40,7 @@ export class LibraryPosterCard {
 
   readonly item = input.required<LibraryItem>();
   readonly href = input<string | null>(null);
+  readonly detailsHref = input<string | null>(null);
   readonly retryToken = input<unknown>(null);
 
   readonly watchedBusy = signal(false);

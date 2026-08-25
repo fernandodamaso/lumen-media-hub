@@ -75,7 +75,7 @@ class QueueHygieneTests(unittest.TestCase):
         )
         self.assertEqual(len(result["eligibleGroups"]), 1)
 
-    def test_active_download_is_report_only(self):
+    def test_active_target_download_is_report_only(self):
         result = classify_queue([row()], [torrent(progress=0.5, amount_left=10)], NOW, 0)
         self.assertEqual(result["eligibleGroups"], [])
         self.assertEqual(result["blockedItems"][0]["blocker"], "active_download")
@@ -101,17 +101,19 @@ class QueueHygieneTests(unittest.TestCase):
         self.assertEqual(len(result["blockedItems"]), 2)
         self.assertEqual({item["blocker"] for item in result["blockedItems"]}, {"mixed_group", "unknown_reason"})
 
-    def test_unknown_reason_is_report_only(self):
-        result = classify_queue([row(statusMessages=[{"messages": ["Unknown reason"]}])], [torrent()], NOW, 0)
+    def test_unrelated_unknown_reason_is_outside_hygiene_scope(self):
+        result = classify_queue(
+            [row(statusMessages=[{"messages": ["Unknown reason"]}])], [torrent()], NOW, 0
+        )
         self.assertEqual(result["eligibleGroups"], [])
-        self.assertEqual(result["blockedItems"][0]["blocker"], "unknown_reason")
+        self.assertEqual(result["blockedItems"], [])
 
-    def test_grace_period_blocks_young_completion(self):
+    def test_grace_period_is_quiet_until_candidate_becomes_eligible(self):
         result = classify_queue(
             [row()], [torrent(completed_at=NOW - timedelta(hours=2))], NOW, 6 * 3600
         )
         self.assertEqual(result["eligibleGroups"], [])
-        self.assertEqual(result["blockedItems"][0]["blocker"], "grace_period")
+        self.assertEqual(result["blockedItems"], [])
 
     def test_malformed_ids_timestamps_and_hashes_never_become_eligible(self):
         result = classify_queue(
@@ -141,7 +143,7 @@ class QueueHygieneTests(unittest.TestCase):
         for now, grace in ((None, 0), (NOW, False), (NOW, "bad")):
             result = classify_queue([row()], [torrent()], now, grace)
             self.assertEqual(result["eligibleGroups"], [])
-            self.assertEqual(result["blockedItems"][0]["blocker"], "grace_period")
+            self.assertEqual(result["blockedItems"], [])
 
     def test_duplicate_qbt_hashes_are_ambiguous_and_report_only(self):
         result = classify_queue([row()], [torrent(), torrent(progress=0.5)], NOW, 0)
@@ -232,7 +234,7 @@ class QueueHygieneCycleTests(unittest.TestCase):
     def test_auto_deletes_all_eligible_ids_once(self):
         result, _sonarr_fetch, _qbt_fetch, ignore = self._run(
             "auto",
-            [self._snapshot([row(), row(12)]) , self._snapshot([])],
+            [self._snapshot([row(), row(12)]), self._snapshot([])],
             [[torrent()], [torrent()]],
         )
         self.assertEqual(result["status"], "cleaned")

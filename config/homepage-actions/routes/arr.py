@@ -4,8 +4,68 @@ import time
 from datetime import date, datetime, timedelta
 
 import config as settings
-from clients.arr import _arr_get, _get_arr_library
+from clients.arr import _arr_get
 from http_support import send_json
+
+
+def _arr_slug_map(items):
+    entries = []
+    title_counts = {}
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        slug = item.get("titleSlug")
+        title = item.get("title")
+        if not isinstance(slug, str) or not slug.strip() or not isinstance(title, str) or not title.strip():
+            continue
+        key = title.strip().lower()
+        year = item.get("year")
+        normalized_year = year if isinstance(year, int) and not isinstance(year, bool) and year > 0 else None
+        entries.append((key, slug.strip(), normalized_year))
+        title_counts[key] = title_counts.get(key, 0) + 1
+
+    result = {}
+    for key, slug, year in entries:
+        if title_counts[key] == 1:
+            result[key] = slug
+        if year is not None:
+            result[f"{key}::{year}"] = slug
+    return result
+
+
+def _build_arr_library():
+    series = {}
+    movies = {}
+    if settings.SONARR_API_KEY:
+        try:
+            series = _arr_slug_map(
+                _arr_get(settings.SONARR_URL, settings.SONARR_API_KEY, "/api/v3/series")
+            )
+        except Exception:
+            pass
+    if settings.RADARR_API_KEY:
+        try:
+            movies = _arr_slug_map(
+                _arr_get(settings.RADARR_URL, settings.RADARR_API_KEY, "/api/v3/movie")
+            )
+        except Exception:
+            pass
+    return {"ok": True, "series": series, "movies": movies}
+
+
+def _get_arr_library():
+    now = time.monotonic()
+    cached = settings._arr_cache.get("data")
+    if cached and now - settings._arr_cache.get("ts", 0) < settings.ARR_CACHE_TTL:
+        return cached
+    with settings._arr_cache_lock:
+        cached = settings._arr_cache.get("data")
+        if cached and now - settings._arr_cache.get("ts", 0) < settings.ARR_CACHE_TTL:
+            return cached
+        data = _build_arr_library()
+        settings._arr_cache["data"] = data
+        settings._arr_cache["ts"] = time.monotonic()
+        return data
 
 
 def handle_arr_library(handler):
@@ -90,7 +150,6 @@ def _format_calendar_date(air_date):
     if not air_date:
         return ""
     try:
-        # Sonarr returns YYYY-MM-DD or ISO datetime.
         if "T" in air_date:
             dt = datetime.fromisoformat(air_date.replace("Z", "+00:00"))
             return dt.strftime("%b %d")

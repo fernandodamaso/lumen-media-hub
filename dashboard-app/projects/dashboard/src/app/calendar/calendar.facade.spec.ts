@@ -388,6 +388,7 @@ class MockApi implements MediaStackApi {
   setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
+  deleteLibraryItemDirectly = mediaStackLibraryMutationStub.deleteLibraryItemDirectly;
   events: CalendarEvent[] = [
     {
       id: 'Night Transit-Premiere-2026-07-15T12:00:00Z',
@@ -502,12 +503,17 @@ class MockApi implements MediaStackApi {
       items: [],
     });
   }
+  runQueueHygiene(_mode: 'observe' | 'auto') {
+    return Promise.reject(new Error('not implemented'));
+  }
+
   getAutomationSummary() {
     return Promise.resolve({
       generatedAt: '',
       services: [],
       preview: [],
       problems: [],
+      queueHygiene: null,
       availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const },
     });
   }

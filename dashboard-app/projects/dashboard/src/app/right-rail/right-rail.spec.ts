@@ -45,6 +45,7 @@ function summaryWith(statuses: ('healthy' | 'degraded' | 'down' | 'unknown')[]):
     problems: [],
     preview: [],
     availability: { services: 'present', preview: 'empty', problems: 'empty' },
+    queueHygiene: null,
   };
 }
 

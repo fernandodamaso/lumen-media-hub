@@ -69,6 +69,84 @@
   }
 </section>
 
+<section class="health-section queue-hygiene-section" aria-labelledby="queue-hygiene-heading">
+  <div class="queue-hygiene-head">
+    <div>
+      <h2 id="queue-hygiene-heading">Sonarr queue hygiene</h2>
+      <p class="queue-hygiene-lede">Review stale import warnings without removing torrents or downloaded files.</p>
+    </div>
+    <div class="queue-hygiene-actions">
+      <mm-button label="Preview now" variant="quiet" [busy]="health.queueHygieneRunning()" [disabled]="health.queueHygieneRunning()" (click)="previewQueueHygiene()" />
+      <mm-button label="Run safe cleanup" variant="danger" [disabled]="!canRunCleanup()" (click)="openCleanupConfirmation()" />
+    </div>
+  </div>
+
+  @if (health.queueHygieneError()) {
+    <p class="refresh-error" role="alert"><mm-status tone="warning">{{ health.queueHygieneError() }}</mm-status></p>
+  }
+
+  @if (queueHygiene(); as hygiene) {
+    @if (hygiene.circuitOpen) {
+      <div class="queue-hygiene-state queue-hygiene-state--danger" role="alert">
+        <mm-status tone="danger">Automatic cleanup paused</mm-status>
+        <p>Automatic cleanup is paused because verification failed. Review the audit state before resetting the circuit.</p>
+      </div>
+    } @else if (hygiene.error) {
+      <div class="queue-hygiene-state queue-hygiene-state--danger" role="alert">
+        <mm-status tone="danger">Queue hygiene check failed</mm-status>
+        <p>{{ hygiene.error }}</p>
+      </div>
+    } @else if (hygiene.eligibleCount > 0) {
+      <div class="queue-hygiene-state queue-hygiene-state--warning" role="status">
+        <mm-status tone="warning">{{ hygiene.eligibleCount }} stale import{{ hygiene.eligibleCount === 1 ? '' : 's' }} detected</mm-status>
+        <p>{{ hygiene.mode === 'observe' ? 'Automatic cleanup is observing only.' : 'Eligible rows will be ignored after the grace period.' }}</p>
+      </div>
+    } @else {
+      <p class="queue-hygiene-clean" role="status"><mm-status tone="success">Queue hygiene is clear</mm-status> No cleanup candidates are currently eligible.</p>
+    }
+
+    @if (hygiene.blockedCount > 0) {
+      <div class="queue-hygiene-blocked" aria-label="Blocked queue hygiene items">
+        <strong>{{ hygiene.blockedCount }} item{{ hygiene.blockedCount === 1 ? '' : 's' }} require review</strong>
+        @for (item of hygiene.blockedItems; track item.queueId ?? item.title) {
+          <p><b>{{ item.title }}</b> — {{ item.blocker }}<span class="queue-hygiene-reason">{{ item.reason }}</span></p>
+        }
+      </div>
+    }
+
+    @if (hygiene.eligibleItems.length) {
+      <div class="queue-hygiene-items" aria-label="Eligible queue hygiene items">
+        @for (item of hygiene.eligibleItems; track item.downloadId) {
+          <article class="queue-hygiene-item">
+            <strong>{{ item.titles.join(', ') }}</strong>
+            <span>{{ item.ageHours | number:'1.0-2' }}h old · queue IDs {{ item.queueIds.join(', ') }}</span>
+            <small>{{ item.reason }}</small>
+          </article>
+        }
+      </div>
+    }
+
+    @if (hygiene.lastCleanup; as cleanup) {
+      <p class="queue-hygiene-cleanup" role="status">
+        Last cleanup: {{ cleanup.queueIds.length }} queue row{{ cleanup.queueIds.length === 1 ? '' : 's' }} at {{ cleanup.at }}.
+        @if (hygiene.verification?.hashesPreserved && hygiene.verification.missingHashes.length === 0) {
+          qBittorrent torrents verified present.
+        }
+      </p>
+    }
+  } @else {
+    <p class="queue-hygiene-unavailable" role="status">Queue hygiene has not reported yet.</p>
+  }
+</section>
+
+<mm-dialog title="Confirm Sonarr queue cleanup" tone="warning" [opened]="confirmCleanup()" (openedChange)="confirmCleanup.set($event)">
+  <p>This ignores eligible Sonarr queue rows only. It does not remove qBittorrent torrents or downloaded files.</p>
+  <div mmDialogFooter>
+    <mm-button label="Cancel" variant="quiet" (click)="cancelCleanupConfirmation()" />
+    <mm-button label="Confirm safe cleanup" variant="danger" [disabled]="!canRunCleanup()" (click)="confirmSafeCleanup()" />
+  </div>
+</mm-dialog>
+
 <section class="cron-section" aria-labelledby="cron-history-heading">
   <h2 id="cron-history-heading">Cron history</h2>
 

@@ -131,6 +131,7 @@ class MockApi implements MediaStackApi {
   setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
+  deleteLibraryItemDirectly = mediaStackLibraryMutationStub.deleteLibraryItemDirectly;
   result: WatchNextResult = { items: [movie('m1', 'Moonrise'), episode('e1', 'Night Watch')] };
   failure = false;
   nextResponse?: Promise<WatchNextResult>;
@@ -182,12 +183,17 @@ class MockApi implements MediaStackApi {
   getStorageOverview() {
     return Promise.resolve({ generatedAt: '', volumes: [] });
   }
+  runQueueHygiene(_mode: 'observe' | 'auto') {
+    return Promise.reject(new Error('not implemented'));
+  }
+
   getAutomationSummary() {
     return Promise.resolve({
       generatedAt: '',
       services: [],
       preview: [],
       problems: [],
+      queueHygiene: null,
       availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const },
     });
   }

@@ -1073,6 +1073,7 @@ class MockApi implements MediaStackApi {
   setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
+  deleteLibraryItemDirectly = mediaStackLibraryMutationStub.deleteLibraryItemDirectly;
   hermes: HermesDiscover = {
     ok: true,
     library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
@@ -1193,8 +1194,19 @@ class MockApi implements MediaStackApi {
       items: [],
     });
   }
+  runQueueHygiene(_mode: 'observe' | 'auto') {
+    return Promise.reject(new Error('not implemented'));
+  }
+
   getAutomationSummary() {
-    return Promise.resolve({ generatedAt: '', services: [], preview: [], problems: [], availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const } });
+    return Promise.resolve({
+      generatedAt: '',
+      services: [],
+      preview: [],
+      problems: [],
+      queueHygiene: null,
+      availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const },
+    });
   }
   listHermesRecommendations(signal?: AbortSignal) {
     this.hermesCalls++;

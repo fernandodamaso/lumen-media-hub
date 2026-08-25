@@ -7,10 +7,25 @@ from library_delete import (
     ConflictError,
     MatchError,
     PREVIEW_STORE,
+    UnmanagedTitleError,
     UpstreamError,
+    delete_jellyfin_item_directly,
     execute_library_delete,
+    resolve_library_kind_title,
     resolve_library_target,
 )
+
+
+def _send_delete_safety_conflict(handler):
+    send_json(
+        handler,
+        409,
+        {
+            "ok": False,
+            "error": "Unable to prove this title is safe for direct deletion.",
+            "code": "delete_safety_conflict",
+        },
+    )
 
 
 def handle_library_delete_preview(handler, item_id):
@@ -20,8 +35,21 @@ def handle_library_delete_preview(handler, item_id):
     try:
         target = resolve_library_target(item_id)
         preview = PREVIEW_STORE.put(target)
-    except MatchError:
-        send_json(handler, 409, {"ok": False, "error": "Unable to prepare deletion"})
+    except UnmanagedTitleError:
+        try:
+            info = resolve_library_kind_title(item_id)
+        except Exception:
+            info = {"kind": None, "title": None}
+        send_json(handler, 409, {
+            "ok": False,
+            "error": "This title is not managed by Radarr or Sonarr.",
+            "code": "unmanaged_title",
+            "kind": info.get("kind"),
+            "title": info.get("title"),
+        })
+        return
+    except (ConflictError, MatchError):
+        _send_delete_safety_conflict(handler)
         return
     except UpstreamError as exc:
         print(f"library delete preview upstream failure: {exc.source}", file=sys.stderr)
@@ -70,3 +98,29 @@ def handle_library_delete_execute(handler, item_id, preview_id):
         return
     status = 200
     send_json(handler, status, result)
+
+
+def handle_library_delete_direct(handler, item_id):
+    if not settings.JELLYFIN_API_KEY:
+        send_json(handler, 502, {"ok": False, "error": "Unable to delete this title from Jellyfin"})
+        return
+    try:
+        result = delete_jellyfin_item_directly(item_id)
+    except ConflictError:
+        _send_delete_safety_conflict(handler)
+        return
+    except MatchError:
+        send_json(handler, 404, {"ok": False, "error": "Library item not found"})
+        return
+    except UpstreamError as exc:
+        print(f"library direct delete upstream failure: {exc.source}", file=sys.stderr)
+        send_json(handler, 502, {"ok": False, "error": "Unable to delete this title from Jellyfin"})
+        return
+    except Exception as exc:
+        print(f"library direct delete failure: {exc.__class__.__name__} {exc}", file=sys.stderr)
+        if "404" in str(exc) or "not found" in str(exc).lower():
+            send_json(handler, 404, {"ok": False, "error": "Library item not found"})
+            return
+        send_json(handler, 502, {"ok": False, "error": "Unable to delete this title from Jellyfin"})
+        return
+    send_json(handler, 200, result)

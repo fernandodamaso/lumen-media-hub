@@ -2,7 +2,7 @@ import { mediaStackLibraryMutationStub } from '../../testing/media-stack-library
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
-import { AutomationSummary } from './automation.models';
+import { AutomationSummary, QueueHygieneRunResult } from './automation.models';
 import { ServiceHealthFacade, SCHEDULED_REFRESH_TIMEOUT_MS } from './service-health.facade';
 
 const healthySummary: AutomationSummary = {
@@ -10,6 +10,7 @@ const healthySummary: AutomationSummary = {
   services: [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'OK', latencyMs: 20 }],
   preview: [],
   problems: [],
+  queueHygiene: null,
   availability: { services: 'present', preview: 'empty', problems: 'empty' },
 };
 
@@ -18,6 +19,7 @@ const emptySummary: AutomationSummary = {
   services: [],
   preview: [],
   problems: [],
+  queueHygiene: null,
   availability: { services: 'empty', preview: 'empty', problems: 'empty' },
 };
 
@@ -228,17 +230,39 @@ describe('ServiceHealthFacade', () => {
     TestBed.resetTestingModule();
     vi.useRealTimers();
   });
+  it('single-flights concurrent queue hygiene actions and refreshes retained health', async () => {
+    await facade.refresh({ initial: true });
+    const { promise, resolve } = Promise.withResolvers<QueueHygieneRunResult>();
+    api.nextQueueRun = promise;
+    const first = facade.runQueueHygiene('observe');
+    const second = facade.runQueueHygiene('auto');
+    expect(first).toBe(second);
+    expect(api.queueRuns).toBe(1);
+    expect(facade.queueHygieneRunning()).toBe(true);
+    resolve(makeQueueRunResult());
+    await first;
+    expect(facade.queueHygieneRunning()).toBe(false);
+    expect(facade.lastQueueHygieneRun()?.status).toBe('observed');
+  });
 });
 
 class MockApi implements MediaStackApi {
   setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
+  deleteLibraryItemDirectly = mediaStackLibraryMutationStub.deleteLibraryItemDirectly;
   summary: AutomationSummary = structuredClone(healthySummary);
   nextResponse?: Promise<AutomationSummary>;
   failure = false;
   summaryCalls = 0;
   lastSignal?: AbortSignal;
+  nextQueueRun?: Promise<QueueHygieneRunResult>;
+  queueRuns = 0;
+
+  runQueueHygiene(_mode: 'observe' | 'auto'): Promise<QueueHygieneRunResult> {
+    this.queueRuns++;
+    return this.nextQueueRun ?? Promise.resolve(makeQueueRunResult());
+  }
 
   getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary> {
     this.summaryCalls++;
@@ -319,6 +343,14 @@ class MockApi implements MediaStackApi {
   requestMedia() {
     return Promise.resolve({ ok: true });
   }
+}
+
+function makeQueueRunResult(): QueueHygieneRunResult {
+  return {
+    mode: 'observe', status: 'observed', circuitOpen: false,
+    eligibleCount: 0, blockedCount: 0, eligibleItems: [], blockedItems: [],
+    lastCycleAt: '2026-08-23T12:00:00Z', lastCleanup: null, verification: null,
+  };
 }
 
 function abortable<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {

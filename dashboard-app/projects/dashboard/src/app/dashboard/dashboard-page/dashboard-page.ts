@@ -11,9 +11,10 @@ import {
   formatRateParts,
   groupTorrents,
   StatusTone,
-  TORRENT_STATE_VIEW,
+  torrentDisplayLabel,
+  torrentDisplayTone,
 } from '../../downloads/downloads-format';
-import { TorrentState } from '../../downloads/downloads.models';
+import { DownloadTorrent } from '../../downloads/downloads.models';
 import { LibraryItemsFacade } from '../../library/library-items.facade';
 import { LibraryStatsFacade } from '../../library/library-stats.facade';
 import { RecentlyAvailableFacade } from '../../library/recently-available.facade';
@@ -87,7 +88,7 @@ export class DashboardPage {
     const total = this.watchNext.items().filter((item) => item.progressPercent > 0).length;
     return total === 1 ? '1 in progress' : `${total} in progress`;
   });
-  readonly groups = computed(() => groupTorrents(this.downloads.torrents()));
+  readonly groups = computed(() => groupTorrents(this.downloads.visibleTorrents()));
 
   readonly libraryNotice = computed(() => {
     if (this.libraryStats.error() && this.libraryStats.status() === 'ready') {
@@ -138,19 +139,29 @@ export class DashboardPage {
     return base ? `${base}/` : null;
   }
 
-  stateLabel(state: TorrentState): string {
-    return TORRENT_STATE_VIEW[state].label;
+  stateLabel(torrent: DownloadTorrent): string {
+    return torrentDisplayLabel(torrent);
   }
 
-  statePillClass(state: TorrentState): string {
-    const tone = TORRENT_STATE_VIEW[state].tone;
+  statePillClass(torrent: DownloadTorrent): string {
+    const tone = torrentDisplayTone(torrent);
     const map: Record<StatusTone, string> = {
-      info: 'pill--accent',
+      info: 'pill--blue',
       success: 'pill--green',
       warning: 'pill--amber',
       danger: 'pill--danger',
     };
     return map[tone];
+  }
+
+  progressTone(torrent: DownloadTorrent): 'success' | 'info' | 'muted' {
+    if (torrent.completed) return 'success';
+    if (torrent.state === 'downloading') return 'info';
+    return 'muted';
+  }
+
+  clearCompleted(): void {
+    this.downloads.clearCompletedFromView();
   }
 
   runAction(action: DownloadsAction): void {

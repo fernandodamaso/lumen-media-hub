@@ -37,6 +37,20 @@
   font-weight: 600;
 }
 
+.library-poster-card__title-link {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 3px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.library-poster-card__title-link:focus-visible {
+  outline: 3px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
+}
+
 .library-poster-card__caption small {
   color: var(--mm-component-text-muted);
   font-size: 11px;

@@ -67,6 +67,20 @@ describe('MockMediaStackApi', () => {
     );
   });
 
+  it('provides eligible and circuit queue-hygiene fixtures without torrent mutation', async () => {
+    const api = createApi();
+    api.setAutomationScenario('queue-hygiene-eligible');
+    const before = await api.listTorrents();
+    const preview = await api.getAutomationSummary();
+    expect(preview.queueHygiene?.eligibleCount).toBe(1);
+    expect((await api.runQueueHygiene('observe')).status).toBe('observed');
+    expect(await api.listTorrents()).toEqual(before);
+
+    api.setAutomationScenario('queue-hygiene-circuit');
+    expect((await api.runQueueHygiene('auto')).status).toBe('circuit_open');
+    expect(await api.listTorrents()).toEqual(before);
+  });
+
   it('pauses and resumes a single torrent statefully', async () => {
     const api: MediaStackApi = createApi();
     const [before] = await api.listTorrents();

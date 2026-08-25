@@ -174,6 +174,7 @@ class MockApi implements MediaStackApi {
   setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
+  deleteLibraryItemDirectly = mediaStackLibraryMutationStub.deleteLibraryItemDirectly;
   overview: StorageOverview = { ...overview, volumes: overview.volumes.map((v) => ({ ...v })) };
   listCalls = 0;
   failure = false;
@@ -260,12 +261,17 @@ class MockApi implements MediaStackApi {
       items: [],
     });
   }
+  runQueueHygiene(_mode: 'observe' | 'auto') {
+    return Promise.reject(new Error('not implemented'));
+  }
+
   getAutomationSummary() {
     return Promise.resolve({
       generatedAt: '',
       services: [],
       preview: [],
       problems: [],
+      queueHygiene: null,
       availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const },
     });
   }

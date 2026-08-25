@@ -6,6 +6,7 @@
       [imageUrl]="imageUrl()"
       [art]="fallbackArt()"
       captionPlacement="none"
+      [href]="detailsHref()"
       [retryToken]="retryToken()"
     />
     @if (href(); as destination) {
@@ -43,7 +44,18 @@
 </div>
 
 <div class="library-poster-card__caption">
-  <strong>{{ item().title }}</strong>
+  @if (detailsHref(); as destination) {
+    <a
+      class="library-poster-card__title-link"
+      [href]="destination"
+      target="_blank"
+      rel="noreferrer"
+    >
+      <strong>{{ item().title }}</strong>
+    </a>
+  } @else {
+    <strong>{{ item().title }}</strong>
+  }
   <small>{{ item().meta }}</small>
 </div>
 
@@ -72,5 +84,36 @@
     variant="danger"
     [busy]="deleteBusy()"
     (click)="confirmDelete()"
+  />
+</mm-dialog>
+
+<mm-dialog
+  title="Delete unmanaged media through Jellyfin"
+  tone="danger"
+  [dismissible]="!deleteBusy()"
+  [(opened)]="directDialogOpen"
+>
+  <p>
+    @if (directDeleteTitle(); as title) {
+      <strong class="library-poster-card__delete-title">{{ title }}</strong> is not managed by Radarr or Sonarr.
+    } @else {
+      This title is not managed by Radarr or Sonarr.
+    }
+    Deleting it through Jellyfin can also delete the underlying media files from disk.
+    Radarr, Sonarr, and qBittorrent are not asked to remove anything.
+  </p>
+  <mm-button
+    mmDialogFooter
+    label="Cancel"
+    variant="quiet"
+    [disabled]="deleteBusy()"
+    (click)="cancelDirectDelete()"
+  />
+  <mm-button
+    mmDialogFooter
+    label="Delete through Jellyfin"
+    variant="danger"
+    [busy]="deleteBusy()"
+    (click)="confirmDirectDelete()"
   />
 </mm-dialog>

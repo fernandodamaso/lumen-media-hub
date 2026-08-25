@@ -20,6 +20,7 @@ from clients.jellyfin import (
     invalidate_jellyfin_caches,
     jellyfin_get,
     jellyfin_post,
+    delete_jellyfin_item,
     tombstone_jellyfin_item,
 )
 from clients.qbittorrent import qbt_get_json, qbt_login, qbt_post
@@ -35,14 +36,18 @@ class MatchError(Exception):
     pass
 
 
+class UnmanagedTitleError(MatchError):
+    """The title has a stable provider identity and no matching Arr entity."""
+
+
+class ConflictError(MatchError):
+    """A destructive operation cannot be proven safe with the current snapshot."""
+
+
 class UpstreamError(Exception):
     def __init__(self, source):
         super().__init__(source)
         self.source = source
-
-
-class ConflictError(Exception):
-    pass
 
 
 def _parse_provider_id(provider_ids, *keys):
@@ -65,8 +70,10 @@ def _match_movie(provider_ids):
     if tmdb is None:
         raise MatchError()
     matches = find_radarr_movies_by_tmdb(tmdb)
+    if not matches:
+        raise UnmanagedTitleError()
     if len(matches) != 1:
-        raise MatchError()
+        raise ConflictError()
     movie = matches[0]
     return "Radarr", movie["id"]
 
@@ -78,25 +85,24 @@ def _match_series(provider_ids):
         raise MatchError()
     tvdb_matches = find_sonarr_series_by_tvdb(tvdb) if tvdb is not None else []
     tmdb_matches = find_sonarr_series_by_tmdb(tmdb) if tmdb is not None else []
-    if tmdb is not None and tvdb is not None:
-        if len(tvdb_matches) != 1 or len(tmdb_matches) != 1:
-            raise MatchError()
-        if tvdb_matches[0]["id"] != tmdb_matches[0]["id"]:
-            raise MatchError()
-        return "Sonarr", tvdb_matches[0]["id"]
-    if tvdb is not None:
-        if len(tvdb_matches) != 1:
-            raise MatchError()
-        return "Sonarr", tvdb_matches[0]["id"]
-    if len(tmdb_matches) != 1:
-        raise MatchError()
-    return "Sonarr", tmdb_matches[0]["id"]
+    if len(tvdb_matches) > 1 or len(tmdb_matches) > 1:
+        raise ConflictError()
+    matched_ids = {
+        matches[0]["id"]
+        for matches in (tvdb_matches, tmdb_matches)
+        if len(matches) == 1
+    }
+    if not matched_ids:
+        raise UnmanagedTitleError()
+    if len(matched_ids) != 1:
+        raise ConflictError()
+    return "Sonarr", next(iter(matched_ids))
 
 
 def _history_download_ids(history, entity_key=None, arr_id=None):
     total = history.get("totalRecords", 0)
     if total > HISTORY_PAGE_SIZE:
-        raise MatchError()
+        raise ConflictError()
     ids = []
     for record in history.get("records") or []:
         if entity_key is not None and arr_id is not None:
@@ -175,6 +181,71 @@ def resolve_library_target(jellyfin_item_id):
         "manager": manager,
         "arr_id": arr_id,
         "hashes": hashes,
+    }
+
+
+def resolve_library_kind_title(jellyfin_item_id):
+    """Best-effort identity lookup used for unmanaged-title deletion checks."""
+    user_id = _jellyfin_user_id_for_queries()
+    path = (
+        f"/Users/{user_id}/Items/{jellyfin_item_id}"
+        if user_id
+        else f"/Items/{jellyfin_item_id}"
+    )
+    raw = jellyfin_get(path, {"Fields": "ProviderIds,Type,Name"})
+    item_type = raw.get("Type")
+    kind = "movie" if item_type == "Movie" else "series" if item_type == "Series" else None
+    provider_ids = raw.get("ProviderIds") if isinstance(raw.get("ProviderIds"), dict) else {}
+    return {
+        "kind": kind,
+        "title": raw.get("Name") or None,
+        "providerIds": provider_ids,
+    }
+
+
+def delete_jellyfin_item_directly(jellyfin_item_id):
+    """Hard-delete through Jellyfin without directly mutating Arr or qBittorrent."""
+    info = resolve_library_kind_title(jellyfin_item_id)
+    if info["kind"] is None:
+        raise MatchError()
+
+    try:
+        if info["kind"] == "movie":
+            _match_movie(info["providerIds"])
+        else:
+            _match_series(info["providerIds"])
+    except UnmanagedTitleError:
+        pass
+    except ConflictError:
+        raise
+    except MatchError as exc:
+        raise ConflictError() from exc
+    else:
+        raise ConflictError()
+
+    try:
+        delete_jellyfin_item(jellyfin_item_id)
+    except Exception as exc:
+        raise UpstreamError("jellyfin") from exc
+    tombstone_jellyfin_item(jellyfin_item_id)
+    invalidate_jellyfin_caches()
+    with settings._arr_cache_lock:
+        settings._arr_cache.clear()
+    from routes.discover import invalidate_discover_library_caches
+
+    invalidate_discover_library_caches()
+    jellyfin_refresh = "ok"
+    try:
+        jellyfin_post("/Library/Refresh")
+    except Exception:
+        jellyfin_refresh = "pending"
+    return {
+        "ok": True,
+        "removed": True,
+        "mode": "jellyfin-direct",
+        "title": info["title"],
+        "kind": info["kind"],
+        "jellyfinRefresh": jellyfin_refresh,
     }
 
 

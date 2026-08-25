@@ -67,6 +67,7 @@ const meta: Meta = {
               problems: [],
               preview: [],
               availability: { services: 'present' as const, preview: 'empty' as const, problems: 'empty' as const },
+              queueHygiene: null,
             });
             return {
               services: computed(() => summary().services),

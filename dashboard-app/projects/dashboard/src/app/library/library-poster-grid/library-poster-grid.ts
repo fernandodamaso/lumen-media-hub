@@ -16,6 +16,7 @@ import {
   resolveJellyfinItemLink,
 } from '../library.models';
 import { LibraryPosterCard } from '../library-poster-card/library-poster-card';
+import { LibraryManagerLinksFacade } from '../library-manager-links.facade';
 
 const COMPACT_PAGE_SIZE = 5;
 
@@ -28,6 +29,7 @@ const COMPACT_PAGE_SIZE = 5;
 })
 export class LibraryPosterGrid {
   private readonly jellyfinBases = inject(JELLYFIN_LINK_BASES);
+  private readonly managerLinks = inject(LibraryManagerLinksFacade);
 
   readonly items = input.required<LibraryItem[]>();
   readonly compact = input(false);
@@ -68,6 +70,10 @@ export class LibraryPosterGrid {
 
   playHref(item: LibraryItem): string | null {
     return item.href ?? resolveJellyfinItemLink(item, this.jellyfinBases);
+  }
+
+  detailHref(item: LibraryItem): string | null {
+    return this.managerLinks.resolveHref(item) ?? this.playHref(item);
   }
 
   kindLabel(kind: LibraryItemKind): string {

@@ -5,6 +5,7 @@ import { vi } from 'vitest';
 import { fixtureHost } from '../../../testing/fixture-host';
 import { LibraryItem } from '../library.models';
 import { LibraryItemsFacade, LibraryItemsStatus } from '../library-items.facade';
+import { LibraryManagerLinksFacade } from '../library-manager-links.facade';
 import { LibraryPage } from './library-page';
 
 describe('LibraryPage', () => {
@@ -16,6 +17,11 @@ describe('LibraryPage', () => {
     TestBed.configureTestingModule({
       imports: [LibraryPage],
       providers: [provideRouter([]), { provide: LibraryItemsFacade, useValue: facade }],
+    });
+    TestBed.overrideComponent(LibraryPage, {
+      set: {
+        providers: [{ provide: LibraryManagerLinksFacade, useValue: { resolveHref: vi.fn() } }],
+      },
     });
     fixture = TestBed.createComponent(LibraryPage);
   });

@@ -28,6 +28,13 @@ export interface LibraryDeletePreview {
   expiresAt: string;
 }
 
+export interface DirectDeleteResult {
+  ok: boolean;
+  removed: boolean;
+  mode: 'jellyfin-direct';
+  title?: string | null;
+}
+
 export type LibraryDeleteStepStatus = 'ok' | 'skipped' | 'failed' | 'pending';
 
 export interface LibraryDeleteSteps {

@@ -3,10 +3,12 @@ import { MmButton, MmSegmentedControl, MmStateCard, MmStatus } from '@app/ui';
 import { LibraryItemKind } from '../library.models';
 import { LibraryItemsFacade } from '../library-items.facade';
 import { LibraryPosterGrid } from '../library-poster-grid/library-poster-grid';
+import { LibraryManagerLinksFacade } from '../library-manager-links.facade';
 
 @Component({
   selector: 'mm-library-page',
   imports: [LibraryPosterGrid, MmButton, MmSegmentedControl, MmStateCard, MmStatus],
+  providers: [LibraryManagerLinksFacade],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './library-page.html',
   styleUrl: './library-page.scss',

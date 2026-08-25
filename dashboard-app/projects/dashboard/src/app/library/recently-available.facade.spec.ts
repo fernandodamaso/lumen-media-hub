@@ -129,6 +129,7 @@ class MockApi implements MediaStackApi {
   setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
+  deleteLibraryItemDirectly = mediaStackLibraryMutationStub.deleteLibraryItemDirectly;
   result: { items: RecentlyAvailableItem[] } = {
     items: [item('ep-1', '2026-08-11T12:00:00Z')],
   };
@@ -165,12 +166,17 @@ class MockApi implements MediaStackApi {
   }
   getLibraryStats() { return Promise.resolve({ movies: 0, series: 0, availability: 'complete' as const }); }
   getStorageOverview() { return Promise.resolve({ generatedAt: '', volumes: [] }); }
+  runQueueHygiene(_mode: 'observe' | 'auto') {
+    return Promise.reject(new Error('not implemented'));
+  }
+
   getAutomationSummary() {
     return Promise.resolve({
       generatedAt: '',
       services: [],
       preview: [],
       problems: [],
+      queueHygiene: null,
       availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const },
     });
   }

@@ -3,7 +3,7 @@ import { signal } from '@angular/core';
 import { ActivatedRoute, convertToParamMap, ParamMap } from '@angular/router';
 import { BehaviorSubject, of } from 'rxjs';
 import { vi } from 'vitest';
-import { AutomationProblem, AutomationService } from '../automation/automation.models';
+import { AutomationProblem, AutomationService, QueueHygieneSummary } from '../automation/automation.models';
 import { ServiceHealthFacade, ServiceHealthStatus } from '../automation/service-health.facade';
 import { fixtureHost } from '../../testing/fixture-host';
 import { CronHealthSummary, CronHistoricalRun, CronRun } from './reports.models';
@@ -249,7 +249,55 @@ describe('ReportsPage', () => {
     fixture.detectChanges();
     expect(findButton('Refresh').disabled).toBe(true);
   });
+
+  it('renders eligible observe candidates and previews without enabling cleanup on its own', () => {
+    health.queueHygiene.set(makeQueueHygiene());
+    fixture.detectChanges();
+    const root = fixtureHost(fixture);
+    expect(root.textContent).toContain('1 stale import detected');
+    expect(root.textContent).toContain('Automatic cleanup is observing only.');
+    expect(root.textContent).toContain('Not an upgrade for existing episode file(s).');
+    expect(findButton('Run safe cleanup').disabled).toBe(false);
+
+    findButton('Preview now').click();
+    expect(health.runQueueHygiene).toHaveBeenCalledWith('observe');
+  });
+
+  it('requires confirmation before auto cleanup and disables it when the circuit is open', () => {
+    health.queueHygiene.set(makeQueueHygiene());
+    fixture.detectChanges();
+    findButton('Run safe cleanup').click();
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).textContent).toContain('does not remove qBittorrent torrents or downloaded files');
+    expect(health.runQueueHygiene).not.toHaveBeenCalledWith('auto');
+
+    health.queueHygiene.set({ ...makeQueueHygiene(), circuitOpen: true });
+    fixture.detectChanges();
+    expect(fixtureHost(fixture).textContent).toContain('Automatic cleanup paused');
+    expect(findButton('Run safe cleanup').disabled).toBe(true);
+  });
 });
+
+function makeQueueHygiene(): QueueHygieneSummary {
+  return {
+    mode: 'observe',
+    circuitOpen: false,
+    eligibleCount: 1,
+    blockedCount: 0,
+    eligibleItems: [{
+      downloadId: 'a'.repeat(40),
+      queueIds: [101],
+      titles: ['Demo Show S01E02'],
+      reason: 'Not an upgrade for existing episode file(s).',
+      completedAt: '2026-08-23T08:00:00Z',
+      ageHours: 4.5,
+    }],
+    blockedItems: [],
+    lastCycleAt: '2026-08-23T12:30:00Z',
+    lastCleanup: null,
+    verification: null,
+  };
+}
 
 function makeRun(partial: Partial<CronRun> & Pick<CronRun, 'id' | 'jobTitle' | 'status' | 'triage'>): CronRun {
   return {
@@ -284,7 +332,12 @@ function createHealthFacade() {
     problems: signal<AutomationProblem[]>([]),
     error: signal(''),
     refreshing: signal(false),
+    queueHygiene: signal<QueueHygieneSummary | null>(null),
+    queueHygieneRunning: signal(false),
+    queueHygieneError: signal(''),
+    lastQueueHygieneRun: signal(null),
     refresh: vi.fn().mockResolvedValue(undefined),
+    runQueueHygiene: vi.fn().mockResolvedValue({ status: 'observed' }),
   };
 }
 

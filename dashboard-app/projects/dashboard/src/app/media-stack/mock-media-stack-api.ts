@@ -12,12 +12,12 @@ import {
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
-import { LibraryItem, LibraryItemKind, LibraryDeletePreview, LibraryDeleteResult, LibraryListResult, LibraryStats } from '../library/library.models';
+import { LibraryItem, LibraryItemKind, LibraryDeletePreview, LibraryDeleteResult, DirectDeleteResult, LibraryListResult, LibraryStats } from '../library/library.models';
 import { WatchNextResult } from '../library/watch-next.models';
 import { RecentlyAvailableResult } from '../library/recently-available.models';
 import { ActivityFeed } from '../activity/activity.models';
 import { mapActivityFeed } from '../activity/activity-format';
-import { AutomationSummary } from '../automation/automation.models';
+import { AutomationSummary, QueueHygieneRunResult } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
 import { MediaStackApi } from './media-stack-api';
@@ -54,18 +54,18 @@ const GIB = 1024 * MIB;
 const TIB = 1024 * GIB;
 
 const DEMO_TORRENTS: MediaStackTorrentDto[] = [
-  { hash: 'demo-afterlight', name: 'Afterlight', state: 'downloading', progress: 0.68, size: Math.round(6.9 * GIB), downloaded: Math.round(4.7 * GIB), dlspeed: Math.round(4.0 * MIB), upspeed: 312 * KIB, eta: 9 * 60, category: 'Movies' },
-  { hash: 'demo-blue-hour', name: 'The Blue Hour', state: 'downloading', progress: 0.31, size: 2 * GIB, downloaded: 620 * MIB, dlspeed: Math.round(1.7 * MIB), upspeed: 78 * KIB, eta: 13 * 60, category: 'TV · S2E3' },
-  { hash: 'demo-orbit', name: 'Orbit Station', state: 'stalledUP', progress: 1, size: Math.round(5.4 * GIB), downloaded: Math.round(5.4 * GIB), dlspeed: 0, upspeed: 117 * KIB, eta: 0, category: 'Movies' },
+  { hash: 'demo-afterlight', name: 'Afterlight', state: 'downloading', progress: 0.68, size: Math.round(6.9 * GIB), downloaded: Math.round(4.7 * GIB), dlspeed: Math.round(4.0 * MIB), upspeed: 312 * KIB, eta: 9 * 60, category: 'Movies', completionOn: null },
+  { hash: 'demo-blue-hour', name: 'The Blue Hour', state: 'downloading', progress: 0.31, size: 2 * GIB, downloaded: 620 * MIB, dlspeed: Math.round(1.7 * MIB), upspeed: 78 * KIB, eta: 13 * 60, category: 'TV · S2E3', completionOn: null },
+  { hash: 'demo-orbit', name: 'Orbit Station', state: 'stalledUP', progress: 1, size: Math.round(5.4 * GIB), downloaded: Math.round(5.4 * GIB), dlspeed: 0, upspeed: 117 * KIB, eta: 0, category: 'Movies', completionOn: null },
 ];
 
 const MIXED_TORRENTS: MediaStackTorrentDto[] = [
-  { hash: 'demo-afterlight', name: 'Afterlight', state: 'downloading', progress: 0.68, size: Math.round(6.9 * GIB), downloaded: Math.round(4.7 * GIB), dlspeed: Math.round(4.0 * MIB), upspeed: 312 * KIB, eta: 9 * 60, category: 'Movies' },
-  { hash: 'demo-orbit', name: 'Orbit Station', state: 'stalledUP', progress: 1, size: Math.round(5.4 * GIB), downloaded: Math.round(5.4 * GIB), dlspeed: 0, upspeed: 117 * KIB, eta: 0, category: 'Movies' },
-  { hash: 'demo-silent-wave', name: 'Silent Wave', state: 'pausedDL', progress: 0.45, size: Math.round(3.2 * GIB), downloaded: Math.round(1.44 * GIB), dlspeed: 0, upspeed: 0, eta: 0, category: 'TV · S1E6' },
-  { hash: 'demo-dust-road', name: 'Dust Road', state: 'queuedDL', progress: 0, size: Math.round(4.1 * GIB), downloaded: 0, dlspeed: 0, upspeed: 0, eta: 0, category: 'Movies' },
-  { hash: 'demo-echo-point', name: 'Echo Point', state: 'checkingDL', progress: 0.92, size: Math.round(2.8 * GIB), downloaded: Math.round(2.8 * GIB), dlspeed: 0, upspeed: 0, eta: 0, category: 'TV · S3E1' },
-  { hash: 'demo-broken-link', name: 'Broken Link', state: 'error', progress: 0.12, size: Math.round(6.1 * GIB), downloaded: Math.round(0.73 * GIB), dlspeed: 0, upspeed: 0, eta: 0, category: 'Movies' },
+  { hash: 'demo-afterlight', name: 'Afterlight', state: 'downloading', progress: 0.68, size: Math.round(6.9 * GIB), downloaded: Math.round(4.7 * GIB), dlspeed: Math.round(4.0 * MIB), upspeed: 312 * KIB, eta: 9 * 60, category: 'Movies', completionOn: null },
+  { hash: 'demo-orbit', name: 'Orbit Station', state: 'stalledUP', progress: 1, size: Math.round(5.4 * GIB), downloaded: Math.round(5.4 * GIB), dlspeed: 0, upspeed: 117 * KIB, eta: 0, category: 'Movies', completionOn: null },
+  { hash: 'demo-silent-wave', name: 'Silent Wave', state: 'pausedDL', progress: 0.45, size: Math.round(3.2 * GIB), downloaded: Math.round(1.44 * GIB), dlspeed: 0, upspeed: 0, eta: 0, category: 'TV · S1E6', completionOn: null },
+  { hash: 'demo-dust-road', name: 'Dust Road', state: 'queuedDL', progress: 0, size: Math.round(4.1 * GIB), downloaded: 0, dlspeed: 0, upspeed: 0, eta: 0, category: 'Movies', completionOn: null },
+  { hash: 'demo-echo-point', name: 'Echo Point', state: 'checkingDL', progress: 0.92, size: Math.round(2.8 * GIB), downloaded: Math.round(2.8 * GIB), dlspeed: 0, upspeed: 0, eta: 0, category: 'TV · S3E1', completionOn: null },
+  { hash: 'demo-broken-link', name: 'Broken Link', state: 'error', progress: 0.12, size: Math.round(6.1 * GIB), downloaded: Math.round(0.73 * GIB), dlspeed: 0, upspeed: 0, eta: 0, category: 'Movies', completionOn: null },
 ];
 
 const DEMO_LIBRARY_STATS: MediaStackLibraryStatsDto = { ok: true, movies: 428, series: 76 };
@@ -363,7 +363,35 @@ function demoAutomationSummary(): MediaStackAutomationSummaryDto {
         itemCount: 4,
       },
     ],
+    queueHygiene: null,
   };
+}
+
+function demoQueueHygiene(scenario: AutomationScenario): NonNullable<MediaStackAutomationSummaryDto['queueHygiene']> | null {
+  const eligible = {
+    downloadId: 'a'.repeat(40),
+    queueIds: [101],
+    titles: ['Demo Show S01E02'],
+    reason: 'Not an upgrade for existing episode file(s).',
+    completedAt: '2026-08-23T08:00:00Z',
+    ageHours: 4.5,
+  };
+  if (scenario === 'queue-hygiene-eligible') {
+    return {
+      mode: 'observe', circuitOpen: false, eligibleCount: 1, blockedCount: 0,
+      eligibleItems: [eligible], blockedItems: [], lastCycleAt: '2026-08-23T12:30:00Z',
+      lastCleanup: null, verification: null,
+    };
+  }
+  if (scenario === 'queue-hygiene-circuit') {
+    return {
+      mode: 'auto', circuitOpen: true, eligibleCount: 0, blockedCount: 0,
+      eligibleItems: [], blockedItems: [], lastCycleAt: '2026-08-23T12:30:00Z',
+      lastCleanup: null, verification: { queueIdsGone: true, hashesPreserved: false, missingHashes: ['b'.repeat(40)] },
+      error: 'Automatic cleanup paused; manual reset required.',
+    };
+  }
+  return null;
 }
 
 const PARTIAL_AUTOMATION_SUMMARY: MediaStackAutomationSummaryDto = {
@@ -372,6 +400,7 @@ const PARTIAL_AUTOMATION_SUMMARY: MediaStackAutomationSummaryDto = {
     { id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'OK' },
   ],
   preview: [],
+  queueHygiene: null,
   unavailable: { preview: true, problems: true },
 };
 
@@ -512,7 +541,7 @@ function copyCronLogs(source: MediaStackCronLogsDto): MediaStackCronLogsDto {
   };
 }
 
-export type AutomationScenario = 'default' | 'partial' | 'empty';
+export type AutomationScenario = 'default' | 'partial' | 'empty' | 'queue-hygiene-eligible' | 'queue-hygiene-circuit';
 export type DownloadsScenario = 'default' | 'empty' | 'error' | 'paused' | 'mixed';
 export type WatchNextScenario = 'default' | 'empty';
 
@@ -971,6 +1000,20 @@ export class MockMediaStackApi implements MediaStackApi {
     });
   }
 
+  deleteLibraryItemDirectly(id: string): Promise<DirectDeleteResult> {
+    const index = this.libraryItems.findIndex((row) => row.id === id);
+    if (index < 0) {
+      return Promise.reject(new Error('Library item not found'));
+    }
+    this.libraryItems.splice(index, 1);
+    return this.withLatency({
+      ok: true,
+      removed: true,
+      mode: 'jellyfin-direct' as const,
+      title: null,
+    });
+  }
+
   listWatchNext(_signal?: AbortSignal): Promise<WatchNextResult> {
     if (this.watchNextScenario === 'empty') {
       return this.withLatency(mapWatchNextResult([]));
@@ -1005,11 +1048,39 @@ export class MockMediaStackApi implements MediaStackApi {
     if (this.automationScenario === 'partial') {
       summary = PARTIAL_AUTOMATION_SUMMARY;
     } else if (this.automationScenario === 'empty') {
-      summary = { generatedAt: new Date().toISOString(), services: [], preview: [], problems: [] };
+      summary = { generatedAt: new Date().toISOString(), services: [], preview: [], problems: [], queueHygiene: null };
     } else {
       summary = demoAutomationSummary();
     }
+    if (this.automationScenario === 'queue-hygiene-eligible' || this.automationScenario === 'queue-hygiene-circuit') {
+      summary = { ...summary, queueHygiene: demoQueueHygiene(this.automationScenario) };
+    }
     return this.withLatency(mapAutomationSummary(structuredClone(summary)));
+  }
+
+  runQueueHygiene(mode: 'observe' | 'auto'): Promise<QueueHygieneRunResult> {
+    const summary = demoQueueHygiene(this.automationScenario);
+    const clean = summary === null;
+    const circuitOpen = summary?.circuitOpen === true;
+    const shouldClean = mode === 'auto' && !clean && !circuitOpen;
+    const queueIds = shouldClean ? summary.eligibleItems.flatMap((item) => item.queueIds) : [];
+    const hashes = shouldClean ? summary.eligibleItems.map((item) => item.downloadId) : [];
+    let status: 'circuit_open' | 'cleaned' | 'observed' = 'observed';
+    if (circuitOpen) status = 'circuit_open';
+    else if (shouldClean) status = 'cleaned';
+    return Promise.resolve({
+      mode,
+      status,
+      circuitOpen,
+      eligibleCount: shouldClean ? 0 : summary?.eligibleCount ?? 0,
+      blockedCount: summary?.blockedCount ?? 0,
+      eligibleItems: shouldClean ? [] : summary?.eligibleItems ?? [],
+      blockedItems: summary?.blockedItems ?? [],
+      lastCycleAt: new Date().toISOString(),
+      lastCleanup: shouldClean ? { at: new Date().toISOString(), queueIds, hashes } : summary?.lastCleanup ?? null,
+      verification: shouldClean ? { queueIdsGone: true, hashesPreserved: true, missingHashes: [] } : summary?.verification ?? null,
+      ...(summary?.error ? { error: summary.error } : {}),
+    });
   }
 
   listCronLogs(_signal?: AbortSignal): Promise<CronLogs> {

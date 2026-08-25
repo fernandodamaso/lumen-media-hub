@@ -348,6 +348,34 @@ def delete_sonarr_series(arr_id):
     )
 
 
+def ignore_sonarr_queue_items(queue_ids):
+    """Ignore Sonarr queue items without blocklisting or redownloading them."""
+    if not isinstance(queue_ids, list) or not queue_ids:
+        raise ValueError("queue_ids must be a non-empty list of positive integers")
+    if any(
+        isinstance(queue_id, bool) or not isinstance(queue_id, int) or queue_id <= 0
+        for queue_id in queue_ids
+    ):
+        raise ValueError("queue_ids must be a non-empty list of positive integers")
+
+    ids = sorted(set(queue_ids))
+    query = urllib.parse.urlencode(
+        {
+            "removeFromClient": "false",
+            "blocklist": "false",
+            "skipRedownload": "false",
+            "changeCategory": "false",
+        }
+    )
+    return _arr_json(
+        settings.SONARR_URL,
+        settings.SONARR_API_KEY,
+        f"/api/v3/queue/bulk?{query}",
+        method="DELETE",
+        payload={"ids": ids},
+    )
+
+
 def find_radarr_movies_by_tmdb(tmdb_id):
     matches = []
     for movie in _arr_get(settings.RADARR_URL, settings.RADARR_API_KEY, "/api/v3/movie"):

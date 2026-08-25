@@ -25,6 +25,70 @@ class _CaptureHandler:
         pass
 
 
+class TestQueueSnapshot(unittest.TestCase):
+    def test_sonarr_snapshot_fetches_full_queue_with_nested_entities(self):
+        with patch("config.SONARR_URL", "http://sonarr"), patch(
+            "routes.automation._arr_get", return_value={"totalRecords": 4, "records": []}
+        ) as arr_get:
+            snapshot = automation_routes._fetch_queue_snapshot("http://sonarr", "key")
+
+        self.assertEqual(snapshot["totalRecords"], 4)
+        path = arr_get.call_args.args[2]
+        self.assertIn("pageSize=1000", path)
+        self.assertIn("includeUnknownSeriesItems=true", path)
+        self.assertIn("includeSeries=true", path)
+        self.assertIn("includeEpisode=true", path)
+
+    def test_queue_preview_caps_items_but_keeps_total_and_derives_error(self):
+        snapshot = {
+            "totalRecords": 5,
+            "records": [
+                {"title": "One", "statusMessages": [{"messages": ["Not an upgrade"]}]},
+                {"title": "Two", "errorMessage": "explicit"},
+                {"title": "Three"},
+            ],
+        }
+        with patch("config.AUTOMATION_PREVIEW_LIMIT", 2):
+            count, items = automation_routes._queue_preview(snapshot)
+
+        self.assertEqual(count, 5)
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0]["error"], "Not an upgrade")
+        self.assertTrue(items[0]["warning"])
+        self.assertEqual(items[1]["error"], "explicit")
+
+
+class TestQueueHygieneSummary(unittest.TestCase):
+    def test_maps_bounded_state_and_preserves_cleanup(self):
+        state = {
+            "mode": "observe",
+            "circuitOpen": True,
+            "counts": {"eligible": 4, "blocked": 3},
+            "eligibleItems": [{"queueIds": [1]}] * 5,
+            "blockedItems": [{"queueId": 2}] * 5,
+            "lastCycleAt": "2026-08-23T12:00:00Z",
+            "lastCleanup": {"queueIds": [9]},
+            "verification": {"queueIdsGone": True, "hashesPreserved": True, "missingHashes": []},
+        }
+        with patch("routes.automation._read_state", return_value=state), patch(
+            "config.AUTOMATION_PREVIEW_LIMIT", 2
+        ):
+            result = automation_routes._queue_hygiene_summary()
+        self.assertEqual(result["eligibleCount"], 4)
+        self.assertEqual(result["blockedCount"], 3)
+        self.assertTrue(result["circuitOpen"])
+        self.assertEqual(len(result["eligibleItems"]), 2)
+        self.assertEqual(result["lastCleanup"], {"queueIds": [9]})
+        self.assertEqual(result["verification"]["hashesPreserved"], True)
+
+    def test_state_read_failure_returns_safe_empty_block(self):
+        with patch("routes.automation._read_state", side_effect=OSError("unavailable")):
+            result = automation_routes._queue_hygiene_summary()
+        self.assertEqual(result["eligibleCount"], 0)
+        self.assertEqual(result["blockedCount"], 0)
+        self.assertFalse(result["circuitOpen"])
+
+
 class TestMissingPreviewPosterUrls(unittest.TestCase):
     """posterUrl emission for Sonarr/Radarr missing-item previews."""
 

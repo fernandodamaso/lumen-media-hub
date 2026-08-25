@@ -180,3 +180,13 @@
   .run-head { grid-template-columns: minmax(0, 1fr) auto; }
   .run-time { grid-column: 1 / -1; }
 }
+
+.queue-hygiene-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.queue-hygiene-section h2 { margin: 0 0 8px; }
+.queue-hygiene-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: end; }
+.queue-hygiene-state, .queue-hygiene-blocked, .queue-hygiene-item { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--mm-component-border); border-radius: var(--mm-radius-sm); }
+.queue-hygiene-items { display: grid; gap: 8px; }
+@media (max-width: 700px) {
+  .queue-hygiene-head { flex-direction: column; }
+  .queue-hygiene-actions { justify-content: start; }
+}

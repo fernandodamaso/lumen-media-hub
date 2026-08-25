@@ -40,12 +40,15 @@ export class LibraryPosterCard {
 
   readonly item = input.required<LibraryItem>();
   readonly href = input<string | null>(null);
+  readonly detailsHref = input<string | null>(null);
   readonly retryToken = input<unknown>(null);
 
   readonly watchedBusy = signal(false);
   readonly previewBusy = signal(false);
   readonly deleteBusy = signal(false);
   readonly dialogOpen = signal(false);
+  readonly directDialogOpen = signal(false);
+  readonly directDeleteTitle = signal('');
   private readonly preview = signal<LibraryDeletePreview | null>(null);
 
   readonly dialogCopy = computed(() => {
@@ -95,7 +98,13 @@ export class LibraryPosterCard {
       const preview = await this.facade.previewDeletion(this.item().id);
       this.preview.set(preview);
       this.dialogOpen.set(true);
-    } catch {
+    } catch (error) {
+      if (this.isUnmanagedTitleError(error)) {
+        const title = this.extractUnmanagedTitle(error);
+        this.directDeleteTitle.set(title || this.item().title);
+        this.directDialogOpen.set(true);
+        return;
+      }
       this.toast.show('Could not prepare deletion', { tone: 'error' });
     } finally {
       this.previewBusy.set(false);
@@ -123,6 +132,38 @@ export class LibraryPosterCard {
       this.toast.show('Could not delete this title', { tone: 'error' });
       this.dialogOpen.set(false);
       this.preview.set(null);
+    } finally {
+      this.deleteBusy.set(false);
+    }
+  }
+
+  private isUnmanagedTitleError(error: unknown): boolean {
+    const code = (error as { code?: unknown } | null)?.['code'];
+    return code === 'unmanaged_title';
+  }
+
+  private extractUnmanagedTitle(error: unknown): string {
+    const title = (error as { title?: unknown } | null)?.['title'];
+    return typeof title === 'string' && title.trim() ? title : '';
+  }
+
+  cancelDirectDelete(): void {
+    if (this.deleteBusy()) return;
+    this.directDialogOpen.set(false);
+  }
+
+  async confirmDirectDelete(): Promise<void> {
+    if (this.deleteBusy()) return;
+    this.deleteBusy.set(true);
+    try {
+      await this.facade.deleteItemDirectly(this.item().id);
+      this.toast.show('Deleted through Jellyfin. Underlying media files may also have been deleted.', {
+        tone: 'success',
+      });
+      this.directDialogOpen.set(false);
+    } catch {
+      this.toast.show('Could not delete this title from Jellyfin', { tone: 'error' });
+      this.directDialogOpen.set(false);
     } finally {
       this.deleteBusy.set(false);
     }

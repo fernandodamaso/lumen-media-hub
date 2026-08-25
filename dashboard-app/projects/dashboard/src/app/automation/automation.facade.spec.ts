@@ -37,6 +37,7 @@ describe('AutomationFacade', () => {
       services: [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'OK', latencyMs: 20 }],
       preview: [],
       problems: [],
+      queueHygiene: null,
       availability: { services: 'present', preview: 'empty', problems: 'empty' },
     };
     health.summary.set(summary);
@@ -314,6 +315,7 @@ describe('AutomationFacade', () => {
       services: [{ id: 'sonarr', name: 'Sonarr', status: 'healthy', detail: 'OK', latencyMs: 20 }],
       preview: [],
       problems: [],
+      queueHygiene: null,
       availability: { services: 'present', preview: 'empty', problems: 'empty' },
     });
     health.status.set('ready');
@@ -362,6 +364,7 @@ class MockApi implements MediaStackApi {
   setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
+  deleteLibraryItemDirectly = mediaStackLibraryMutationStub.deleteLibraryItemDirectly;
   cronFailure = false;
   cronLogs: CronLogs = { ok: true, generatedAt: '2026-07-14T12:00:00Z', currentRuns: [], historyRuns: [] };
   nextResponse?: Promise<CronLogs>;
@@ -377,6 +380,10 @@ class MockApi implements MediaStackApi {
     if (this.cronFailure) return Promise.reject(new Error('offline'));
     if (this.nextResponse) return abortable(this.nextResponse, signal);
     return Promise.resolve(structuredClone(this.cronLogs));
+  }
+
+  runQueueHygiene(_mode: 'observe' | 'auto') {
+    return Promise.reject(new Error('not implemented'));
   }
 
   getAutomationSummary(): Promise<AutomationSummary> {

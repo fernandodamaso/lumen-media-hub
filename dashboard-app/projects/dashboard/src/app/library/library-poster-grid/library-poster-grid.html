@@ -37,9 +37,11 @@
     >
       @for (item of visibleItems(); track item.id) {
         @let href = playHref(item);
+        @let detailsHref = detailHref(item);
         <mm-library-poster-card
           [item]="item"
           [href]="href"
+          [detailsHref]="detailsHref"
           [retryToken]="artNonce()"
         />
       }

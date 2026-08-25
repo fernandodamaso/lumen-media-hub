@@ -18,11 +18,12 @@ import {
   LibraryStats,
   LibraryDeletePreview,
   LibraryDeleteResult,
+  DirectDeleteResult,
 } from '../library/library.models';
 import { WatchNextResult } from '../library/watch-next.models';
 import { RecentlyAvailableResult } from '../library/recently-available.models';
 import { ActivityFeed } from '../activity/activity.models';
-import { AutomationSummary } from '../automation/automation.models';
+import { AutomationSummary, QueueHygieneRunResult } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
 
@@ -38,12 +39,14 @@ export interface MediaStackApi {
   setLibraryItemPlayed(id: string, played: boolean): Promise<{ played: boolean }>;
   previewLibraryItemDeletion(id: string): Promise<LibraryDeletePreview>;
   deleteLibraryItem(id: string, previewId: string): Promise<LibraryDeleteResult>;
+  deleteLibraryItemDirectly(id: string): Promise<DirectDeleteResult>;
   listWatchNext(signal?: AbortSignal): Promise<WatchNextResult>;
   listRecentlyAvailable(limit?: number, signal?: AbortSignal): Promise<RecentlyAvailableResult>;
   getActivity(limit?: number, signal?: AbortSignal): Promise<ActivityFeed>;
   getLibraryStats(signal?: AbortSignal): Promise<LibraryStats>;
   getStorageOverview(signal?: AbortSignal): Promise<StorageOverview>;
   getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary>;
+  runQueueHygiene(mode: 'observe' | 'auto'): Promise<QueueHygieneRunResult>;
   listCronLogs(signal?: AbortSignal): Promise<CronLogs>;
   listHermesRecommendations(signal?: AbortSignal): Promise<HermesDiscover>;
   submitHermesFeedback(

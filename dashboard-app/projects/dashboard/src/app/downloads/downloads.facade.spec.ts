@@ -4,6 +4,7 @@ import { vi } from 'vitest';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { DownloadTorrent } from './downloads.models';
 import { DownloadsFacade, SCHEDULED_REFRESH_TIMEOUT_MS } from './downloads.facade';
+import { HIDDEN_COMPLETED_STORAGE_KEY } from './downloads-visibility';
 
 const torrent: DownloadTorrent = {
   id: 'a',
@@ -16,6 +17,8 @@ const torrent: DownloadTorrent = {
   uploadRate: 2,
   eta: 30,
   category: 'Uncategorized',
+  completed: false,
+  completedAt: null,
 };
 
 describe('DownloadsFacade', () => {
@@ -334,12 +337,38 @@ describe('DownloadsFacade', () => {
     expect(api.listCalls).toBe(3);
     vi.useRealTimers();
   });
+  it('filters completed rows after 24 hours while retaining raw summary totals', async () => {
+    localStorage.removeItem(HIDDEN_COMPLETED_STORAGE_KEY);
+    const now = Date.now();
+    api.items = [
+      { ...torrent, id: 'old', name: 'Old', completed: true, completedAt: new Date(now - 25 * 60 * 60 * 1000).toISOString(), progress: 100, downloaded: 100 },
+      { ...torrent, id: 'fresh', name: 'Fresh', completed: true, completedAt: new Date(now - 2 * 60 * 60 * 1000).toISOString(), progress: 100, downloaded: 100 },
+      { ...torrent, id: 'active', name: 'Active', completed: false, completedAt: null },
+    ];
+    await facade.refresh({ initial: true });
+    expect(facade.torrents()).toHaveLength(3);
+    expect(facade.visibleTorrents().map((item) => item.id)).toEqual(['fresh', 'active']);
+    expect(facade.summary().total).toBe(3);
+  });
+
+  it('clears completed rows from the dashboard without calling the API', async () => {
+    localStorage.removeItem(HIDDEN_COMPLETED_STORAGE_KEY);
+    api.items = [{ ...torrent, completed: true, completedAt: new Date().toISOString(), progress: 100, downloaded: 100 }];
+    await facade.refresh({ initial: true });
+    const callsBefore = api.listCalls;
+    facade.clearCompletedFromView();
+    expect(facade.visibleTorrents()).toEqual([]);
+    expect(api.listCalls).toBe(callsBefore);
+    expect(facade.notice()).toContain('Torrents and files were not removed');
+    expect(JSON.parse(localStorage.getItem(HIDDEN_COMPLETED_STORAGE_KEY) ?? '[]')).toEqual(['a']);
+  });
 });
 
 class MockApi implements MediaStackApi {
   setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
+  deleteLibraryItemDirectly = mediaStackLibraryMutationStub.deleteLibraryItemDirectly;
   items: DownloadTorrent[] = [{ ...torrent }];
   actions: string[] = [];
   torrentActions: string[] = [];
@@ -430,12 +459,17 @@ class MockApi implements MediaStackApi {
       items: [],
     });
   }
+  runQueueHygiene(_mode: 'observe' | 'auto') {
+    return Promise.reject(new Error('not implemented'));
+  }
+
   getAutomationSummary() {
     return Promise.resolve({
       generatedAt: '',
       services: [],
       preview: [],
       problems: [],
+      queueHygiene: null,
       availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const },
     });
   }

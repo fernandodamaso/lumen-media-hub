@@ -4,12 +4,15 @@ import { fixtureHost } from '../../../testing/fixture-host';
 import { MmToastService } from '@app/ui';
 import { JELLYFIN_LINK_BASES, LibraryItem } from '../library.models';
 import { LibraryItemsFacade } from '../library-items.facade';
+import { LibraryManagerLinksFacade } from '../library-manager-links.facade';
 import { LibraryPosterGrid } from './library-poster-grid';
 
 describe('LibraryPosterGrid', () => {
   let fixture: ComponentFixture<LibraryPosterGrid>;
+  let resolveManagerHref: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    resolveManagerHref = vi.fn().mockReturnValue(null);
     TestBed.configureTestingModule({
       imports: [LibraryPosterGrid],
       providers: [
@@ -21,6 +24,10 @@ describe('LibraryPosterGrid', () => {
             previewDeletion: vi.fn(),
             deleteItem: vi.fn(),
           },
+        },
+        {
+          provide: LibraryManagerLinksFacade,
+          useValue: { resolveHref: resolveManagerHref },
         },
         { provide: MmToastService, useValue: { show: vi.fn() } },
       ],
@@ -37,13 +44,36 @@ describe('LibraryPosterGrid', () => {
     const root = fixtureHost(fixture);
     const poster = root.querySelector('mm-library-poster-card');
     const hit = poster?.querySelector('a[aria-label="Play Moonrise"]') as HTMLAnchorElement;
+    const detailHit = poster?.querySelector('.mm-media-card__hit') as HTMLAnchorElement;
+    const title = poster?.querySelector('.library-poster-card__title-link') as HTMLAnchorElement;
     expect(poster).toBeTruthy();
     expect(hit.getAttribute('href')).toBe('https://jellyfin.example/web/index.html#!/details?id=m1');
+    expect(detailHit.getAttribute('href')).toBe('https://jellyfin.example/web/index.html#!/details?id=m1');
+    expect(title.getAttribute('href')).toBe('https://jellyfin.example/web/index.html#!/details?id=m1');
     expect(hit.classList.contains('mm-icon-button--overlay')).toBe(true);
     expect(poster?.querySelector('.library-poster-card__caption')).toBeTruthy();
     expect(poster?.querySelector('.mm-media-card__play-cue')).toBeNull();
     expect(poster?.querySelector('button[aria-label="Mark watched"]')).toBeTruthy();
     expect(poster?.querySelector('button[aria-label="Delete"]')).toBeTruthy();
+  });
+
+  it('prefers an Arr detail link over Jellyfin for the poster and title', () => {
+    resolveManagerHref.mockReturnValue('https://radarr.example/movie/moonrise');
+    fixture.componentRef.setInput('items', [
+      item('m1', 'Moonrise', 'https://jellyfin.example/web/index.html#!/details?id=m1'),
+    ]);
+    fixture.detectChanges();
+
+    const poster = fixtureHost(fixture).querySelector('mm-library-poster-card');
+    expect((poster?.querySelector('.mm-media-card__hit') as HTMLAnchorElement).href).toBe(
+      'https://radarr.example/movie/moonrise',
+    );
+    expect((poster?.querySelector('.library-poster-card__title-link') as HTMLAnchorElement).href).toBe(
+      'https://radarr.example/movie/moonrise',
+    );
+    expect((poster?.querySelector('a[aria-label="Play Moonrise"]') as HTMLAnchorElement).href).toBe(
+      'https://jellyfin.example/web/index.html#!/details?id=m1',
+    );
   });
 
   it('renders an inert poster when a title is not playable', () => {

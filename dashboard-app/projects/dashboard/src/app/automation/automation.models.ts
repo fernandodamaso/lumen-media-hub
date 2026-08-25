@@ -32,6 +32,63 @@ export interface AutomationProblem {
   itemCount?: number | null;
 }
 
+type QueueHygieneMode = 'off' | 'observe' | 'auto';
+type QueueHygieneStatus =
+  | 'observed'
+  | 'cleaned'
+  | 'circuit_open'
+  | 'verification_failed'
+  | 'error'
+  | 'skipped'
+  | 'off';
+
+interface QueueHygieneEligibleItem {
+  downloadId: string;
+  queueIds: number[];
+  titles: string[];
+  reason: string;
+  completedAt: string;
+  ageHours: number;
+}
+
+interface QueueHygieneBlockedItem {
+  queueId: number | null;
+  title: string;
+  reason: string;
+  blocker: string;
+}
+
+interface QueueHygieneVerification {
+  queueIdsGone: boolean;
+  hashesPreserved: boolean;
+  missingHashes: string[];
+}
+
+interface QueueHygieneCleanup {
+  at: string;
+  queueIds: number[];
+  hashes: string[];
+}
+
+export interface QueueHygieneSummary {
+  mode: QueueHygieneMode;
+  circuitOpen: boolean;
+  eligibleCount: number;
+  blockedCount: number;
+  eligibleItems: QueueHygieneEligibleItem[];
+  blockedItems: QueueHygieneBlockedItem[];
+  lastCycleAt: string | null;
+  lastCleanup: QueueHygieneCleanup | null;
+  verification: QueueHygieneVerification | null;
+  error?: string;
+}
+
+export interface QueueHygieneRunResult extends QueueHygieneSummary {
+  status: QueueHygieneStatus;
+  observedAt?: string;
+  counts?: { eligible: number; blocked: number; queued: number };
+}
+
 type AutomationSectionState = 'present' | 'empty' | 'unavailable';
 
 interface AutomationSectionAvailability {
@@ -45,6 +102,7 @@ export interface AutomationSummary {
   services: AutomationService[];
   preview: AutomationPreviewItem[];
   problems: AutomationProblem[];
+  queueHygiene: QueueHygieneSummary | null;
   availability: AutomationSectionAvailability;
 }
 

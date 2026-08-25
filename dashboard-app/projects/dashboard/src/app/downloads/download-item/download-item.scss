@@ -43,6 +43,7 @@
   font-weight: 700;
 }
 .pill--accent { color: var(--mm-component-accent); background: color-mix(in srgb, var(--mm-component-accent) 12%, transparent); }
+.pill--blue { color: var(--mm-component-info); background: color-mix(in srgb, var(--mm-component-info) 12%, transparent); }
 .pill--green { color: var(--mm-component-success); background: color-mix(in srgb, var(--mm-component-success) 12%, transparent); }
 .pill--amber { color: var(--mm-component-warning); background: color-mix(in srgb, var(--mm-component-warning) 12%, transparent); }
 .pill--danger { color: var(--mm-component-danger); background: color-mix(in srgb, var(--mm-component-danger) 12%, transparent); }

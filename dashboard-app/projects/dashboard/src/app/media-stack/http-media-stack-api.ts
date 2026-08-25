@@ -22,6 +22,7 @@ import {
   LibraryStats,
   LibraryDeletePreview,
   LibraryDeleteResult,
+  DirectDeleteResult,
   LibraryDeleteStepStatus,
   LibraryDeleteSteps,
 } from '../library/library.models';
@@ -29,7 +30,7 @@ import { WatchNextResult } from '../library/watch-next.models';
 import { RecentlyAvailableResult } from '../library/recently-available.models';
 import { ActivityFeed } from '../activity/activity.models';
 import { mapActivityFeed } from '../activity/activity-format';
-import { AutomationService, AutomationSummary } from '../automation/automation.models';
+import { AutomationService, AutomationSummary, QueueHygieneRunResult } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
 import { MediaStackApi } from './media-stack-api';
@@ -58,6 +59,7 @@ import {
   LiveRecentlyAvailableListResponse,
   mapLiveActivityFeed,
   mapLiveAutomationSummary,
+  mapLiveQueueHygieneRun,
   mapLiveJellyfinItem,
   mapLiveWatchNextItem,
   mapLiveRecentlyAvailableItem,
@@ -175,12 +177,24 @@ export class HttpMediaStackApi implements MediaStackApi {
   }
 
   previewLibraryItemDeletion(id: string): Promise<LibraryDeletePreview> {
-    return this.getHardEnvelope<OkEnvelope & Partial<LibraryDeletePreview>>(
-      `/library/items/${encodeURIComponent(id)}/delete-preview`,
-      (envelope) => {
-        this.validateDeletePreview(envelope);
-      },
-    ).then((envelope) => {
+    const path = `/library/items/${encodeURIComponent(id)}/delete-preview`;
+    return firstValueFrom(this.http.get<unknown>(`${this.base}${path}`)).catch((error: unknown) => {
+      if (error instanceof HttpErrorResponse && isRecord(error.error)) {
+        const body: Record<string, unknown> = error.error;
+        if (body['code'] === 'unmanaged_title') {
+          const mapped = new Error(typeof body['error'] === 'string' ? body['error'] : 'Unmanaged title');
+          Object.assign(mapped, {
+            code: 'unmanaged_title',
+            title: typeof body['title'] === 'string' ? body['title'] : null,
+          });
+          throw mapped;
+        }
+      }
+      throw error;
+    }).then((raw: unknown) => {
+      const envelope = requireHardEnvelope(raw, 'GET delete preview failed') as OkEnvelope &
+        Partial<LibraryDeletePreview>;
+      this.validateDeletePreview(envelope);
       const episodeCount =
         typeof envelope.episodeCount === 'number' && Number.isFinite(envelope.episodeCount)
           ? Math.floor(envelope.episodeCount)
@@ -215,6 +229,29 @@ export class HttpMediaStackApi implements MediaStackApi {
           requireSoftEnvelope(error.error, 'DELETE library item failed'),
         );
       }
+      throw this.toError(error, 'DELETE library item failed');
+    }
+  }
+
+  async deleteLibraryItemDirectly(id: string): Promise<DirectDeleteResult> {
+    try {
+      const data = await firstValueFrom(
+        this.http.delete<unknown>(`${this.base}/library/items/${encodeURIComponent(id)}/direct`),
+      );
+      const envelope = requireHardEnvelope(
+        data,
+        'DELETE library item failed',
+      ) as unknown as Record<string, unknown>;
+      if (envelope['removed'] !== true || envelope['mode'] !== 'jellyfin-direct') {
+        throw new Error('Malformed direct delete response');
+      }
+      return {
+        ok: envelope['ok'] === true,
+        removed: true,
+        mode: 'jellyfin-direct',
+        title: typeof envelope['title'] === 'string' ? envelope['title'] : null,
+      };
+    } catch (error) {
       throw this.toError(error, 'DELETE library item failed');
     }
   }
@@ -370,6 +407,14 @@ export class HttpMediaStackApi implements MediaStackApi {
       await probesPromise.catch(() => undefined);
       throw error;
     }
+  }
+
+  runQueueHygiene(mode: 'observe' | 'auto'): Promise<QueueHygieneRunResult> {
+    return this.mutateHard<OkEnvelope & Record<string, unknown>>(
+      '/automation/queue-hygiene/run',
+      'POST',
+      { mode },
+    ).then((envelope) => mapLiveQueueHygieneRun(envelope));
   }
 
   /** Soft-probe Jellyfin / qBittorrent so sidebar dots are API-driven (not stuck unknown). */

@@ -25,7 +25,7 @@ describe('LiveCalendarHttpMediaStackApi', () => {
     http.verify();
   });
 
-  it('loads the neutral combined calendar and preserves source health and provider ids', async () => {
+  it('loads the neutral combined calendar and preserves source health and provider identity', async () => {
     const pending = api.listCalendarEvents();
     const request = http.expectOne(`${environment.apiBaseUrl.replace(/\/$/, '')}/calendar`);
     expect(request.request.method).toBe('GET');
@@ -38,6 +38,7 @@ describe('LiveCalendarHttpMediaStackApi', () => {
           id: 'radarr:movie:22',
           kind: 'movie',
           movieId: 22,
+          titleSlug: 'dune-2021',
           title: 'Dune',
           additional: 'Digital release',
           date: 'Aug 26',
@@ -49,7 +50,12 @@ describe('LiveCalendarHttpMediaStackApi', () => {
     });
 
     const events = await pending;
-    expect(events[0]).toMatchObject({ id: 'radarr:movie:22', kind: 'movie', movieId: 22 });
+    expect(events[0]).toMatchObject({
+      id: 'radarr:movie:22',
+      kind: 'movie',
+      movieId: 22,
+      titleSlug: 'dune-2021',
+    });
     expect(events.sources).toEqual({ sonarr: 'error', radarr: 'ok' });
     expect(events.generatedAt).toBe('2026-08-25T10:00:00Z');
   });

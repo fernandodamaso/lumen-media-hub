@@ -153,6 +153,7 @@ ACTIVITY_CACHE_TTL = float(os.environ.get("ACTIVITY_CACHE_TTL", "30"))
 RESOURCES_CACHE_TTL = float(os.environ.get("RESOURCES_CACHE_TTL", "5"))
 CALENDAR_MAX_EVENTS = int(os.environ.get("CALENDAR_MAX_EVENTS", "10"))
 CALENDAR_DAYS = int(os.environ.get("CALENDAR_DAYS", "30"))
+CALENDAR_PROVIDER_TIMEOUT = float(os.environ.get("CALENDAR_PROVIDER_TIMEOUT", str(TIMEOUT)))
 
 CORS_ALLOW_HEADERS = "Content-Type, X-Actions-Token"
 CORS_ALLOW_METHODS = "GET, POST, PATCH, DELETE, OPTIONS"
@@ -190,5 +191,3 @@ _arr_cache_lock = threading.Lock()
 
 _cpu_prev = None
 _cpu_prev_lock = threading.Lock()
-
-

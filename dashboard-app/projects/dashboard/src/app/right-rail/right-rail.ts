@@ -55,6 +55,15 @@ export class RightRail {
     return base ? `${base}/calendar` : null;
   }
 
+  radarrCalendarHref(): string | null {
+    const base = this.linkBases.radarr?.replace(/\/$/, '');
+    return base ? `${base}/calendar` : null;
+  }
+
+  calendarDegradedSources(): string[] {
+    return typeof this.calendar.degradedSources === 'function' ? this.calendar.degradedSources() : [];
+  }
+
   whenLabel(event: CalendarRailEvent): string {
     if (event.status === 'available') return 'Ready';
     return formatRelativeTime(event.airDate) || 'Scheduled';

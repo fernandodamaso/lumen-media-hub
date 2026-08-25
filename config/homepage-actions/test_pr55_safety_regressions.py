@@ -57,7 +57,7 @@ class LibraryDeletionSafetyRegressions(unittest.TestCase):
 
     def test_preview_safety_conflict_does_not_offer_unmanaged_direct_delete(self):
         handler = object()
-        with mock.patch.object(
+        with mock.patch.object(config, "JELLYFIN_API_KEY", "test-key"), mock.patch.object(
             library_routes,
             "resolve_library_target",
             side_effect=library_delete.ConflictError(),

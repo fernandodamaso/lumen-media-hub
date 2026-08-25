@@ -20,6 +20,8 @@ export interface CalendarEvent {
   episodeId?: number;
   /** Radarr movie id when known. */
   movieId?: number;
+  /** Radarr title slug when known — used for identity-specific deep links. */
+  titleSlug?: string;
   /** Sonarr series id when known — used for MediaCover poster fallback. */
   seriesId?: number;
 }
@@ -73,16 +75,18 @@ export const resolveCalendarLink = (
   library: Pick<ArrLibrary, 'series' | 'movies'>,
   bases: CalendarLinkBases = {},
   kind?: CalendarMediaKind,
+  titleSlug?: string,
 ): string | null => {
-  if (!title) return null;
-  const key = title.trim().toLowerCase();
+  const key = title?.trim().toLowerCase() ?? '';
+  const directMovieSlug = titleSlug?.trim() || undefined;
+  if (!key && !directMovieSlug) return null;
   const sonarrBase = (bases.sonarrBase ?? DEFAULT_CALENDAR_LINK_BASES.sonarrBase).replace(/\/$/, '');
   const radarrBase = (bases.radarrBase ?? DEFAULT_CALENDAR_LINK_BASES.radarrBase).replace(/\/$/, '');
+  const movieSlug = directMovieSlug ?? (key ? library.movies[key] : undefined);
   // Empty bases must not emit relative /series/... or /movie/... URLs.
   const seriesHref =
-    sonarrBase && library.series[key] ? `${sonarrBase}/series/${library.series[key]}` : null;
-  const movieHref =
-    radarrBase && library.movies[key] ? `${radarrBase}/movie/${library.movies[key]}` : null;
+    sonarrBase && key && library.series[key] ? `${sonarrBase}/series/${library.series[key]}` : null;
+  const movieHref = radarrBase && movieSlug ? `${radarrBase}/movie/${movieSlug}` : null;
   if (kind === 'movie') return movieHref;
   if (kind === 'episode') return seriesHref;
   return seriesHref ?? movieHref;

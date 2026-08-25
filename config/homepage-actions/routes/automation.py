@@ -83,7 +83,6 @@ def _radarr_missing_preview():
             )
         return int(data.get("totalRecords", 0)), items
     except Exception:
-        # Fallback for older Radarr: scan movie list for monitored without file.
         movies = _arr_get(settings.RADARR_URL, settings.RADARR_API_KEY, "/api/v3/movie")
         missing = [
             m for m in movies
@@ -193,7 +192,6 @@ def _prowlarr_indexer_details():
                 }
             )
     except Exception:
-        # Some indexers embed status on the indexer object.
         for i in indexers:
             status = i.get("status") or {}
             until = status.get("disabledTill")
@@ -212,8 +210,6 @@ def _prowlarr_indexer_details():
         "disabled": disabled[:settings.AUTOMATION_PREVIEW_LIMIT],
         "cooldown": cooldown[:settings.AUTOMATION_PREVIEW_LIMIT],
     }
-
-
 
 
 def _build_automation_summary():
@@ -241,7 +237,10 @@ def _build_automation_summary():
             hygiene = _queue_hygiene_summary()
             sonarr["queueHygiene"] = hygiene
             sonarr["degraded"] = bool(
-                hygiene["eligibleCount"] or hygiene["blockedCount"] or hygiene["circuitOpen"]
+                hygiene["eligibleCount"]
+                or hygiene["blockedCount"]
+                or hygiene["circuitOpen"]
+                or hygiene.get("error")
             )
         except Exception as e:
             sonarr = {"ok": False, "error": str(e)}

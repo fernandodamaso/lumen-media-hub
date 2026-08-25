@@ -88,8 +88,8 @@
 </mm-dialog>
 
 <mm-dialog
-  title="Not managed by Radarr or Sonarr"
-  tone="warning"
+  title="Delete unmanaged media through Jellyfin"
+  tone="danger"
   [dismissible]="!deleteBusy()"
   [(opened)]="directDialogOpen"
 >
@@ -99,7 +99,8 @@
     } @else {
       This title is not managed by Radarr or Sonarr.
     }
-    Deleting it here removes it from Jellyfin only. Torrents and downloaded files are not touched.
+    Deleting it through Jellyfin can also delete the underlying media files from disk.
+    Radarr, Sonarr, and qBittorrent are not asked to remove anything.
   </p>
   <mm-button
     mmDialogFooter
@@ -110,7 +111,7 @@
   />
   <mm-button
     mmDialogFooter
-    label="Delete from Jellyfin"
+    label="Delete through Jellyfin"
     variant="danger"
     [busy]="deleteBusy()"
     (click)="confirmDirectDelete()"

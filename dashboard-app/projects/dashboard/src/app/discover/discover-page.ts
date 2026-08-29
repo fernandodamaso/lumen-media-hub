@@ -3,13 +3,16 @@ import { MmButton, MmDialog, MmInput, MmSegmentedControl, MmSkeleton, MmStateCar
 import { DiscoverFeedback, DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { DiscoverCard } from './discover-card';
 import { DiscoverHistoryFilter, isWatchedFeedbackDisabled, matchesDiscoverSearch } from './discover-format';
+import { DiscoverRequestAction } from './discover-format';
 import { DiscoverFacade, HermesView } from './discover.facade';
+import { MediaRequestDialog, MediaRequestCompletion } from '../media-request/media-request-dialog/media-request-dialog';
+import { RequestableMediaItem } from '../media-request/media-request.models';
 
 export const DISCOVER_BATCH_SIZE = 24;
 
 @Component({
   selector: 'mm-discover-page',
-  imports: [MmButton, MmDialog, MmInput, MmSegmentedControl, MmSkeleton, MmStateCard, MmStatus, DiscoverCard],
+  imports: [MmButton, MmDialog, MmInput, MmSegmentedControl, MmSkeleton, MmStateCard, MmStatus, DiscoverCard, MediaRequestDialog],
   providers: [DiscoverFacade],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './discover-page.html',
@@ -25,6 +28,8 @@ export class DiscoverPage {
   readonly showWatchConfirm = signal(false);
   readonly pendingWatchId = signal<string | null>(null);
   readonly pendingWatchTitle = signal('');
+  readonly requestDialogItem = signal<RequestableMediaItem | null>(null);
+  readonly requestDialogOpen = signal(false);
 
   readonly filteredItems = computed(() =>
     this.facade.visibleItems().filter((item) => matchesDiscoverSearch(item, this.searchQuery())),
@@ -189,7 +194,29 @@ export class DiscoverPage {
     this.pendingWatchTitle.set('');
   }
 
-  onRequest(item: ReturnType<DiscoverFacade['visibleItems']>[number]): void {
-    void this.facade.requestItem(item);
+  onRequest(
+    item: ReturnType<DiscoverFacade['visibleItems']>[number],
+    action: DiscoverRequestAction,
+  ): void {
+    if (action.intent === 'open' && action.href) {
+      window.open(action.href, '_blank', 'noreferrer');
+      return;
+    }
+    if (action.intent !== 'request') return;
+    this.requestDialogItem.set({
+      identity: `${item.type}:${item.tmdbId}`,
+      type: item.type,
+      tmdbId: item.tmdbId,
+      title: item.title,
+      year: item.year,
+      posterUrl: item.posterUrl,
+      ...(item.hermesId ? { hermesId: item.hermesId } : {}),
+    });
+    this.requestDialogOpen.set(true);
+  }
+
+  async onRequestCompleted(_completion: MediaRequestCompletion): Promise<void> {
+    this.requestDialogOpen.set(false);
+    await this.facade.refreshActiveFeed();
   }
 }

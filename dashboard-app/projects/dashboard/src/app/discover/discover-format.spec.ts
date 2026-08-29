@@ -93,32 +93,27 @@ describe('discover-format', () => {
     expect(mapped.items[0]).not.toHaveProperty('provider_metadata');
   });
 
-  it('maps request button labels and titles to the contract matrix', () => {
-    expect(resolveRequestAction({ tmdbId: 0, requestState: null, inLibrary: false })).toEqual({
-      label: 'No TMDB ID',
-      title: 'Cannot request — missing TMDB id',
-      disabled: true,
+  it('maps backend lifecycle states to durable actions', () => {
+    expect(resolveRequestAction({ tmdbId: 0, mediaStatus: 'missing', service: null, serviceHref: null } as never)).toEqual({
+      label: 'No TMDB ID', title: 'Cannot request — missing TMDB id', disabled: true, intent: 'disabled',
     });
-    expect(resolveRequestAction({ tmdbId: 1, requestState: null, inLibrary: false }, { syncFailed: true })).toEqual({
-      label: 'Added (sync failed)',
-      title: 'Added to Sonarr/Radarr; dashboard synchronization failed.',
-      disabled: true,
-      syncFailed: true,
+    expect(resolveRequestAction({ tmdbId: 1, mediaStatus: 'available', service: 'jellyfin', serviceHref: 'https://jellyfin.example/item/1' } as never)).toEqual({
+      label: 'Open in Jellyfin', title: 'Open in Jellyfin', disabled: false, intent: 'open', href: 'https://jellyfin.example/item/1',
     });
-    expect(resolveRequestAction({ tmdbId: 1, requestState: 'requested', inLibrary: false })).toEqual({
-      label: 'Requested',
-      title: 'Already added to Sonarr/Radarr',
-      disabled: true,
+    expect(resolveRequestAction({ tmdbId: 1, mediaStatus: 'requested', service: null, serviceHref: null } as never)).toEqual({
+      label: 'Requested', title: 'Request submitted to Jellyseerr', disabled: true, intent: 'disabled',
     });
-    expect(resolveRequestAction({ tmdbId: 1, requestState: null, inLibrary: true })).toEqual({
-      label: 'In library',
-      title: 'Already in your Jellyfin library',
-      disabled: true,
+    expect(resolveRequestAction({ tmdbId: 1, mediaStatus: 'processing', service: null, serviceHref: null } as never)).toEqual({
+      label: 'Processing', title: 'Acquisition is in progress', disabled: true, intent: 'disabled',
     });
-    expect(resolveRequestAction({ tmdbId: 1, requestState: null, inLibrary: false })).toEqual({
-      label: 'Request',
-      title: 'Add to Sonarr/Radarr without monitoring or downloading',
-      disabled: false,
+    expect(resolveRequestAction({ tmdbId: 1, mediaStatus: 'tracked', service: 'radarr', serviceHref: 'https://radarr.example/movie/1' } as never)).toEqual({
+      label: 'Open in Radarr', title: 'Open in Radarr', disabled: false, intent: 'open', href: 'https://radarr.example/movie/1',
+    });
+    expect(resolveRequestAction({ tmdbId: 1, mediaStatus: 'missing', service: null, serviceHref: null } as never)).toEqual({
+      label: 'Request', title: 'Request through Jellyseerr', disabled: false, intent: 'request',
+    });
+    expect(resolveRequestAction({ tmdbId: 1, mediaStatus: 'unknown', service: null, serviceHref: null } as never)).toEqual({
+      label: 'Status unavailable', title: 'Media status is unavailable; requesting is disabled', disabled: true, intent: 'disabled',
     });
   });
 
@@ -207,9 +202,6 @@ describe('discover-format', () => {
       feedback: null,
       requestState: null,
     });
-    expect(
-      toExternalCardItem({ type: 'tv', title: 'Relay', tmdb_id: 9 }, 'trakt', new Set(['tv:9'])).requestState,
-    ).toBe('requested');
   });
 
   it('keeps an in-library Hermes item out of Active while preserving it for History', () => {

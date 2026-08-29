@@ -6,16 +6,44 @@ import { DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from './
 import { DiscoverCardItem, DiscoverHistoryFilter } from './discover-format';
 import { DISCOVER_BATCH_SIZE, DiscoverPage } from './discover-page';
 import { DiscoverFacade, DiscoverStatus, HermesView } from './discover.facade';
+import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 
 describe('DiscoverPage', () => {
   let fixture: ComponentFixture<DiscoverPage>;
   let facade: ReturnType<typeof createFacade>;
+  let requestMedia: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     facade = createFacade();
+    requestMedia = vi.fn(() => Promise.resolve({
+      ok: true,
+      partial_success: false,
+      jellyseerr_request_id: 701,
+      request_status: 'requested',
+      already_requested: false,
+      dashboard_state_persisted: true,
+      reconciliation_queued: false,
+      message: 'Request submitted to Jellyseerr.',
+    }));
     TestBed.configureTestingModule({
       imports: [DiscoverPage],
-      providers: [{ provide: DiscoverFacade, useValue: facade }],
+      providers: [
+        { provide: DiscoverFacade, useValue: facade },
+        {
+          provide: MEDIA_STACK_API,
+          useValue: {
+            getTvSeasons: vi.fn((tmdbId: number) => Promise.resolve({
+              tmdbId,
+              title: 'Shared dialog fixture',
+              seasons: [
+                { seasonNumber: 0, name: 'Specials', episodeCount: 2, airDate: null },
+                { seasonNumber: 1, name: 'Season 1', episodeCount: 8, airDate: '2025-01-01' },
+              ],
+            })),
+            requestMedia,
+          },
+        },
+      ],
     });
     TestBed.overrideComponent(DiscoverPage, {
       set: { providers: [{ provide: DiscoverFacade, useValue: facade }] },
@@ -110,6 +138,76 @@ describe('DiscoverPage', () => {
     }
   });
 
+  it('opens the shared request dialog for movies and TV with season selection', async () => {
+    facade.status.set('ready');
+    facade.visibleItems.set([card({
+      id: 'tv-missing',
+      title: 'Shared TV',
+      type: 'tv',
+      tmdbId: 901,
+      mediaStatus: 'missing',
+    })]);
+    fixture.detectChanges();
+
+    const request = Array.from(fixtureHost(fixture).querySelectorAll('button')).find((button) =>
+      button.textContent.trim() === 'Request',
+    ) as HTMLButtonElement;
+    request.click();
+    fixture.detectChanges();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(fixtureHost(fixture).querySelector('mm-media-request-dialog')).toBeTruthy();
+    expect(fixtureHost(fixture).textContent).toContain('Choose seasons');
+  });
+
+  it('refreshes the active feed after the shared dialog completes a movie request', async () => {
+    facade.status.set('ready');
+    facade.visibleItems.set([card({
+      id: 'movie-missing',
+      title: 'Shared Movie',
+      type: 'movie',
+      tmdbId: 902,
+      mediaStatus: 'missing',
+    })]);
+    fixture.detectChanges();
+
+    clickAction('Request');
+    fixture.detectChanges();
+    clickAction('Add & search');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(requestMedia).toHaveBeenCalledWith({ mediaType: 'movie', mediaId: 902, hermesId: 'item' });
+    expect(facade.refreshActiveFeed).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the backend service link for an available title', async () => {
+    const opened = vi.spyOn(window, 'open').mockImplementation(() => null);
+    facade.status.set('ready');
+    facade.visibleItems.set([card({
+      id: 'movie-available',
+      title: 'Available Movie',
+      type: 'movie',
+      tmdbId: 903,
+      mediaStatus: 'available',
+      service: 'jellyfin',
+      serviceHref: 'https://jellyfin.example/item/903',
+    })]);
+    fixture.detectChanges();
+
+    clickAction('Open in Jellyfin');
+    await Promise.resolve();
+
+    expect(opened).toHaveBeenCalledWith('https://jellyfin.example/item/903', '_blank', 'noreferrer');
+    expect(fixtureHost(fixture).querySelector('mm-media-request-dialog')).toBeNull();
+    opened.mockRestore();
+  });
+
   it('disables request controls for unavailable items and keeps feedback separate', () => {
     facade.status.set('ready');
     facade.tab.set('hermes');
@@ -128,7 +226,6 @@ describe('DiscoverPage', () => {
     if (!liked) throw new Error('Liked button not found');
     liked.click();
     expect(facade.submitFeedback).toHaveBeenCalledWith('no-tmdb', 'liked');
-    expect(facade.requestItem).not.toHaveBeenCalled();
   });
 
   it('exposes source filters as labelled radio groups with roving focus', () => {
@@ -354,6 +451,14 @@ function clickLoadMore(): void {
   button.click();
 }
 
+function clickAction(label: string): void {
+  const button = Array.from(document.querySelectorAll('button')).find((candidate) =>
+    candidate.textContent.trim() === label,
+  );
+  if (!(button instanceof HTMLButtonElement)) throw new Error(`Action button not found: ${label}`);
+  button.click();
+}
+
 function clickHermesView(label: string): void {
   const button = Array.from(document.querySelectorAll('[role="radio"]')).find((candidate) =>
     candidate.textContent.includes(label),
@@ -385,6 +490,9 @@ function card(overrides: Partial<DiscoverCardItem> = {}): DiscoverCardItem {
     requestState: null,
     inLibrary: false,
     watchedOnTrakt: false,
+    mediaStatus: 'missing',
+    service: null,
+    serviceHref: null,
     ...overrides,
   };
 }
@@ -434,8 +542,8 @@ function createFacade() {
       traktType.set(value);
     }),
     submitFeedback: vi.fn(() => Promise.resolve()),
-    requestItem: vi.fn(() => Promise.resolve()),
     requestMore: vi.fn(() => Promise.resolve()),
+    refreshActiveFeed: vi.fn(() => Promise.resolve()),
     isSyncFailed: () => false,
   };
 }

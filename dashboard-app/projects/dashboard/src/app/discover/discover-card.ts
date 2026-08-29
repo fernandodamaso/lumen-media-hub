@@ -4,6 +4,7 @@ import { MmButton, MmIconButton, MmMediaCard, MmPosterActionOverlay, MmStatus } 
 import { DiscoverFeedback } from './discover.models';
 import {
   DiscoverCardItem,
+  DiscoverRequestAction,
   discoverPosterFallback,
   formatDiscoverMeta,
   isDiscoverFeedbackPressed,
@@ -38,15 +39,13 @@ export class DiscoverCard {
   readonly syncFailed = input(false);
   readonly busy = input(false);
   readonly feedback = output<DiscoverFeedback>();
-  readonly request = output();
+  readonly request = output<DiscoverRequestAction>();
 
   readonly feedbackOptions = FEEDBACK_OPTIONS;
 
   readonly meta = computed(() => formatDiscoverMeta(this.item()));
   readonly fallbackArt = computed(() => discoverPosterFallback(this.item().title));
-  readonly requestAction = computed(() =>
-    resolveRequestAction(this.item(), { syncFailed: this.syncFailed() }),
-  );
+  readonly requestAction = computed(() => resolveRequestAction(this.item()));
 
   readonly summaryText = computed(() => this.item().reason ?? this.item().overview ?? '');
 
@@ -65,6 +64,6 @@ export class DiscoverCard {
 
   onRequest(): void {
     if (this.requestAction().disabled || this.busy()) return;
-    this.request.emit();
+    this.request.emit(this.requestAction());
   }
 }

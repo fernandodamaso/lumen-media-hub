@@ -16,7 +16,7 @@ Open [http://localhost:4200/](http://localhost:4200/). Default startup uses in-p
 | `/` | Lumen home: dashboard hero, stat strip, Continue Watching, Newly Available, Trending in Trakt, downloads, and shell rails |
 | `/library` | Library poster grid with movie/series filtering |
 | `/reports` | Status-weighted automation / cron triage |
-| `/discover` | Hermes, Jellyseerr, and Trakt recommendations |
+| `/discover` | Hermes, Jellyseerr, and Trakt recommendations with lifecycle-aware Jellyseerr requests |
 | Storybook | Design-system showcase - `npm run storybook` -> [http://localhost:6006/](http://localhost:6006/) |
 
 ## Stack and Live development
@@ -72,6 +72,8 @@ Single dark theme — **Lumen** (gold/violet on near-black). Fonts (Fraunces, In
 ## Architecture
 
 See [docs/architecture.md](docs/architecture.md) for the port -> adapter -> facade -> page flow, Demo/Live modes, and operational link policy.
+
+The command palette is the global movie/show search surface in both modes. It shows local library matches immediately, then uses the shared `MediaStackApi` search/request contracts for authoritative lifecycle groups, TV season selection, and degraded catalog messaging. Demo uses deterministic fixtures; Live keeps Jellyseerr and service credentials behind the same-origin backend proxy.
 
 ## Testing
 

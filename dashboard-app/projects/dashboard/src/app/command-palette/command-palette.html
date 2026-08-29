@@ -13,11 +13,16 @@
           [value]="query()"
           placeholder="Search media, routes, actions…"
           aria-label="Search commands"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls="command-palette-results"
+          [attr.aria-expanded]="open()"
+          [attr.aria-activedescendant]="activeOptionId()"
           (input)="onQueryInput($event)"
         />
         <kbd>esc</kbd>
       </div>
-      <div class="palette__results" role="listbox" aria-label="Command results">
+      <div id="command-palette-results" class="palette__results" role="listbox" aria-label="Command results">
         @for (group of grouped(); track group.name; let groupIndex = $index) {
           <div class="palette__group">
             <p class="palette__group-label">{{ group.name }}</p>
@@ -26,8 +31,10 @@
                 type="button"
                 class="palette__item"
                 role="option"
+                [id]="optionId(flatIndex(groupIndex, itemIndex))"
                 [class.is-active]="activeIndex() === flatIndex(groupIndex, itemIndex)"
                 [attr.aria-selected]="activeIndex() === flatIndex(groupIndex, itemIndex)"
+                [attr.aria-disabled]="item.disabled ? true : null"
                 (mouseenter)="activeIndex.set(flatIndex(groupIndex, itemIndex))"
                 (click)="selectItem(item)"
               >
@@ -41,6 +48,22 @@
           <p class="palette__empty">No matches</p>
         }
       </div>
+      @if (searchStatus()) {
+        <p
+          class="palette__search-status"
+          data-testid="palette-search-status"
+          role="status"
+          aria-live="polite"
+        >{{ searchStatus() }}</p>
+      }
       <div class="palette__foot">↑↓ navigate · ↵ select</div>
   </div>
 </mm-dialog>
+
+@if (requestDialogItem(); as item) {
+  <mm-media-request-dialog
+    [item]="item"
+    [(opened)]="requestDialogOpen"
+    (completed)="onRequestCompleted($event)"
+  />
+}

@@ -83,6 +83,11 @@ mm-dialog.palette-dialog {
   background: color-mix(in srgb, var(--mm-component-accent) 13%, transparent);
 }
 
+.palette__item[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.68;
+}
+
 .palette__item-title {
   grid-area: title;
   color: var(--mm-component-text-primary);
@@ -107,6 +112,14 @@ mm-dialog.palette-dialog {
   margin: 24px 12px;
   color: var(--mm-component-text-muted);
   text-align: center;
+}
+
+.palette__search-status {
+  margin: 0;
+  padding: 8px 16px;
+  border-top: 1px solid var(--mm-component-border);
+  color: var(--mm-component-text-muted);
+  font-size: 12px;
 }
 
 .palette__foot {

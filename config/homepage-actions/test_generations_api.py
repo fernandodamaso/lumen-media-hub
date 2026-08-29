@@ -20,6 +20,7 @@ from http.server import ThreadingHTTPServer
 from unittest import mock
 
 import config
+import media_requests
 import reconciliation
 import routes.discover as discover_routes
 from server import ActionsHandler
@@ -889,7 +890,7 @@ class DiscoverSafeErrorBoundaryTests(GenerationApiTestCase):
 
         with mock.patch.object(
             discover_routes,
-            "_add_to_arr_unmonitored",
+            "request_media",
             side_effect=RuntimeError(self.SECRET_ERROR),
         ):
             status, payload = self.request(
@@ -898,7 +899,7 @@ class DiscoverSafeErrorBoundaryTests(GenerationApiTestCase):
                 {"mediaType": "movie", "mediaId": 7},
             )
         self.assertEqual(status, 502)
-        self.assertEqual(payload["error"], "Unable to add this title to the library")
+        self.assertEqual(payload["error"], "Jellyseerr could not accept this request")
 
         with mock.patch.object(
             discover_routes,
@@ -1388,7 +1389,7 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
 
         self.assertEqual(normalized.get("request_provider"), "arr_legacy")
 
-    def test_arr_success_with_store_failure_is_explicit_and_reconcilable(self):
+    def test_jellyseerr_success_with_store_failure_is_explicit_and_reconcilable(self):
         self.seed([make_item(42)], presented=["movie:42"])
         original_update = self.store.update
         failed = True
@@ -1400,15 +1401,13 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
                 raise OSError("simulated dashboard persistence failure")
             return original_update(mutator)
 
-        with mock.patch.object(self.store, "update", side_effect=fail_once), mock.patch(
-            "routes.discover._add_to_arr_unmonitored",
-            return_value={
-                "service": "radarr",
-                "already_added": False,
-                "arr_id": 812,
-                "title": "Title 42",
-                "monitored": False,
-            },
+        service = media_requests.MediaRequestService(
+            state_reader=lambda *_args, **_kwargs: {"status": "missing"},
+            post_request=lambda *_args: {"id": 812, "status": 1},
+            invalidate_state=lambda *_args: None,
+        )
+        with mock.patch.object(self.store, "update", side_effect=fail_once), mock.patch.object(
+            discover_routes, "request_media", side_effect=service.request
         ):
             status, payload = self.request(
                 "POST",
@@ -1419,16 +1418,17 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["partial_success"])
-        self.assertEqual(payload["arr_id"], 812)
         self.assertEqual(payload["jellyseerr_request_id"], 812)
+        self.assertEqual(payload["request_status"], "requested")
+        self.assertFalse(payload["already_requested"])
         self.assertFalse(payload["dashboard_state_persisted"])
         self.assertTrue(payload["reconciliation_queued"])
         with config._reconciliation_lock:
             queued = reconciliation._read_reconciliation_queue()
-        self.assertEqual(queued[0]["request_provider"], "arr_legacy")
+        self.assertEqual(queued[0]["request_provider"], "jellyseerr")
         self.assertEqual(
             payload["message"],
-            "Added to Sonarr/Radarr; dashboard synchronization failed.",
+            "Jellyseerr accepted the request; dashboard synchronization failed.",
         )
         self.assertIsNone(self.item_by_tmdb(self.current_doc(), 42)["request_state"])
 
@@ -1438,7 +1438,7 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
         self.assertEqual(reconcile["pending"], 0)
         item = self.item_by_tmdb(self.current_doc(), 42)
         self.assertEqual(item["request_state"], "requested")
-        self.assertEqual(item["request_provider"], "arr_legacy")
+        self.assertEqual(item["request_provider"], "jellyseerr")
         self.assertEqual(item["jellyseerr_request_id"], 812)
 
         # Retrying reconciliation is idempotent after the durable mutation.
@@ -1447,18 +1447,17 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
         self.assertEqual(retry["reconciled"], 0)
         self.assertEqual(retry["pending"], 0)
 
-    def test_request_adds_unmonitored_without_search(self):
+    def test_request_uses_jellyseerr_as_the_only_writer(self):
         self.seed([make_item(42)], presented=["movie:42"])
-        with mock.patch(
-            "routes.discover._add_to_arr_unmonitored",
-            return_value={
-                "service": "radarr",
-                "already_added": False,
-                "arr_id": 901,
-                "title": "Title 42",
-                "monitored": False,
-            },
-        ) as add_mock:
+        post = mock.Mock(return_value={"id": 901, "status": 1})
+        service = media_requests.MediaRequestService(
+            state_reader=lambda *_args, **_kwargs: {"status": "missing"},
+            post_request=post,
+            invalidate_state=lambda *_args: None,
+        )
+        with mock.patch.object(
+            discover_routes, "request_media", side_effect=service.request
+        ):
             status, payload = self.request(
                 "POST",
                 "/discover/request",
@@ -1466,14 +1465,16 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
             )
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["service"], "radarr")
-        self.assertFalse(payload["monitored"])
-        self.assertFalse(payload["already_added"])
-        self.assertEqual(payload["arr_id"], 901)
-        add_mock.assert_called_once_with("movie", 42)
+        self.assertFalse(payload["already_requested"])
+        self.assertEqual(payload["request_status"], "requested")
+        self.assertEqual(payload["jellyseerr_request_id"], 901)
+        post.assert_called_once_with(
+            "/api/v1/request",
+            {"mediaType": "movie", "mediaId": 42, "is4k": False},
+        )
         item = self.item_by_tmdb(self.current_doc(), 42)
         self.assertEqual(item["request_state"], "requested")
-        self.assertEqual(item["request_provider"], "arr_legacy")
+        self.assertEqual(item["request_provider"], "jellyseerr")
         self.assertEqual(item["jellyseerr_request_id"], 901)
         self.assertFalse(item["active"])
 

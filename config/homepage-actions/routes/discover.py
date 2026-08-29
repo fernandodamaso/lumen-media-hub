@@ -6,7 +6,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import config as settings
-from clients.arr import _add_to_arr_unmonitored
 from clients.jellyfin import (
     _jellyfin_image_url,
     _jellyfin_item_is_playable,
@@ -18,6 +17,15 @@ from clients.jellyseerr import _jellyseerr_get, _trakt_get, _trakt_get_page
 from clients.trakt import TraktAuthError
 import media_state
 from media_state import LibraryExclusionSnapshot
+from media_requests import (
+    HermesIdentityMismatch,
+    HermesItemNotFound as RequestHermesItemNotFound,
+    MediaRequestConflict,
+    MediaRequestUnavailable,
+    MediaRequestUpstreamFailure,
+    MediaRequestValidationError,
+    request_media,
+)
 from trakt_history import TraktWatchedService, WatchedSnapshot, WatchedSnapshotStore
 from http_support import (
     _BodyTooLarge,
@@ -30,7 +38,6 @@ from recommendations_store import (
     ITEM_TYPES,
     RecommendationError,
     apply_feedback,
-    apply_request,
     media_identity,
     utc_now,
 )
@@ -46,7 +53,6 @@ from reconciliation import (
     RequestSyncConflict,
     StaleBaseRevision,
     _clear_generation_request,
-    _enqueue_request_reconciliation,
     _generation_request_public,
     _pending_request_sync_public,
     _request_hermes_generation,
@@ -63,6 +69,59 @@ from shared import (
 
 VALID_FEEDBACK_STATUSES = frozenset({"liked", "disliked", "watched", "skipped"})
 
+
+def _decorate_discover_lifecycle(items, *, library=None):
+    identities = [
+        (item.get("type"), item.get("tmdb_id"))
+        for item in items
+        if isinstance(item, dict)
+    ]
+    if library is None:
+        try:
+            library = media_state.get_library_exclusion_snapshot()
+        except Exception:
+            library = media_state.LibraryExclusionSnapshot.from_maps(
+                {}, {}, status="unavailable", last_successful_refresh_at=None
+            )
+    try:
+        arr = media_state.get_arr_tracking_snapshot()
+    except Exception:
+        arr = media_state.ArrTrackingSnapshot.from_maps(
+            movie={},
+            tv={},
+            sources={"radarr": "unavailable", "sonarr": "unavailable"},
+        )
+    try:
+        requests = media_state.get_jellyseerr_request_snapshot(identities)
+    except Exception:
+        requests = media_state.JellyseerrRequestSnapshot(
+            {},
+            {
+                f"{item_type}:{tmdb_id}": "unavailable"
+                for item_type, tmdb_id in identities
+                if item_type in ("movie", "tv") and _normalize_tmdb_id(tmdb_id)
+            },
+        )
+    for item in items:
+        item_type = item.get("type")
+        tmdb_id = item.get("tmdb_id")
+        state = media_state.resolve_media_state(
+            item_type,
+            tmdb_id,
+            library=library,
+            arr=arr,
+            jellyseerr=requests.get(item_type, tmdb_id),
+            jellyseerr_status=requests.status(item_type, tmdb_id),
+        )
+        item.update(
+            media_status=state.get("status", "unknown"),
+            service=state.get("service"),
+            service_href=state.get("serviceHref"),
+            request_id=state.get("requestId"),
+            monitored=state.get("monitored"),
+        )
+    return items
+
 # Keep the dashboard response independent from the recommendation-store schema.
 # In particular, identity sets and generation context are server-only data.
 _HERMES_PUBLIC_ITEM_FIELDS = frozenset(
@@ -71,7 +130,8 @@ _HERMES_PUBLIC_ITEM_FIELDS = frozenset(
         "feedback", "feedback_at", "request_state", "request_provider", "requested_at",
         "jellyseerr_request_id", "in_library", "excluded_reason", "watched_on_trakt",
         "jellyfin_id", "poster_path", "poster_url", "added_at", "notes", "rating",
-        "trakt_history_sync",
+        "trakt_history_sync", "media_status", "service", "service_href", "request_id",
+        "monitored",
     }
 )
 
@@ -550,6 +610,7 @@ def handle_discover_hermes_get(handler):
             for item in _hermes_items(data)
         ]
         items = _enrich_hermes_posters(_enrich_hermes_library_flags(items, snapshot))
+        items = _decorate_discover_lifecycle(items, library=snapshot)
         items = [_hermes_public_item(item) for item in items]
     except Exception:
         send_json(handler, 500, {"ok": False, "error": "Discover recommendations are temporarily unavailable"})
@@ -1310,6 +1371,7 @@ def handle_discover_jellyseerr(handler, query):
         )
         watched_snapshot = _trakt_watched_snapshot()
         items = _filter_watched_items(items, watched_snapshot)
+        items = _decorate_discover_lifecycle(items, library=snapshot)
         send_json(
             handler,
             200,
@@ -1388,6 +1450,7 @@ def handle_discover_trakt(handler, query):
             [_map_trakt_result(item, media_type) for item in results if item], snapshot
         )
         items = _filter_watched_items(items, watched_snapshot)
+        items = _decorate_discover_lifecycle(items, library=snapshot)
         send_json(
             handler,
             200,
@@ -1424,121 +1487,46 @@ def handle_discover_request(handler):
     if not isinstance(body, dict):
         send_json(handler, 400, {"ok": False, "error": "Expected a JSON object body"})
         return
-
-    media_type = body.get("mediaType")
-    media_id = _normalize_tmdb_id(body.get("mediaId"))
-    if not media_type or not media_id:
-        send_json(handler, 400, {"ok": False, "error": "mediaType and mediaId required"})
-        return
-
-    hermes_id = body.get("hermesId")
-    if hermes_id:
-        try:
-            current = settings.RECOMMENDATIONS_STORE.load()
-        except RecommendationError:
-            send_json(handler, 500, {"ok": False, "error": "Discover recommendations are temporarily unavailable"})
-            return
-        item = _find_hermes_item(current, hermes_id)
-        if not item:
-            send_json(handler, 404, {"ok": False, "error": "Hermes item not found"})
-            return
-        expected_type = "tv" if str(media_type).lower() in ("tv", "series") else "movie"
-        if item.get("type") != expected_type or item.get("tmdb_id") != media_id:
-            send_json(
-                handler,
-                400,
-                {"ok": False, "error": "Hermes item does not match the requested media"},
-            )
-            return
-
     try:
-        arr_result = _add_to_arr_unmonitored(media_type, media_id)
-    except RecommendationError:
-        send_json(handler, 502, {"ok": False, "error": "Unable to add this title to the library"})
+        result = request_media(body)
+    except MediaRequestValidationError as error:
+        send_json(handler, 400, {"ok": False, "error": str(error)})
         return
-    except Exception:
-        send_json(handler, 502, {"ok": False, "error": "Unable to add this title to the library"})
+    except RequestHermesItemNotFound:
+        send_json(handler, 404, {"ok": False, "error": "Hermes item not found"})
         return
-
-    arr_id = arr_result.get("arr_id")
-    dashboard_state_persisted = True
-    reconciliation_queued = False
-    if hermes_id:
-        def _apply(doc):
-            item = _find_hermes_item(doc, hermes_id)
-            if not item:
-                raise HermesItemNotFound()
-            # Request fields only; feedback is preserved. Store the *arr id in
-            # jellyseerr_request_id for durable tracing of the add.
-            apply_request(item, provider="arr_legacy", request_id=arr_id)
-
-        try:
-            settings.RECOMMENDATIONS_STORE.update(_apply)
-        except Exception as error:
-            dashboard_state_persisted = False
-            persistence_error = type(error).__name__
-            try:
-                _enqueue_request_reconciliation(
-                    hermes_id, arr_id, provider="arr_legacy"
-                )
-                reconciliation_queued = True
-            except Exception as queue_error:
-                reconciliation_queued = False
-                print(
-                    "[discover-request] reconciliation enqueue failed "
-                    f"exception={type(queue_error).__name__}",
-                    flush=True,
-                )
-            print(
-                "[discover-request] Arr add succeeded but dashboard state "
-                "persistence diverged "
-                f"exception={persistence_error}",
-                flush=True,
-            )
-
-    if not dashboard_state_persisted:
+    except HermesIdentityMismatch:
         send_json(
             handler,
-            200,
-            {
-                "ok": True,
-                "partial_success": True,
-                "jellyseerr_request_id": arr_id,
-                "arr_id": arr_id,
-                "service": arr_result.get("service"),
-                "already_added": arr_result.get("already_added"),
-                "monitored": arr_result.get("monitored"),
-                "dashboard_state_persisted": False,
-                "reconciliation_queued": reconciliation_queued,
-                "message": (
-                    "Added to Sonarr/Radarr; dashboard synchronization failed."
-                ),
-            },
+            400,
+            {"ok": False, "error": "Hermes item does not match the requested media"},
         )
         return
-
-    service = arr_result.get("service")
-    title = arr_result.get("title") or "title"
-    already = bool(arr_result.get("already_added"))
-    if already:
-        message = f"Already in {service}: {title} (left unmonitored / no search)."
-    else:
-        message = f"Added to {service} unmonitored (no download): {title}."
-
-    send_json(
-        handler,
-        200,
-        {
-            "ok": True,
-            "jellyseerr_request_id": arr_id,
-            "arr_id": arr_id,
-            "service": service,
-            "already_added": already,
-            "monitored": arr_result.get("monitored"),
-            "dashboard_state_persisted": True,
-            "message": message,
-        },
-    )
+    except MediaRequestConflict:
+        send_json(handler, 409, {"ok": False, "error": "This title is already managed"})
+        return
+    except MediaRequestUnavailable:
+        send_json(
+            handler,
+            503,
+            {"ok": False, "error": "Media status is temporarily unavailable"},
+        )
+        return
+    except MediaRequestUpstreamFailure:
+        send_json(
+            handler,
+            502,
+            {"ok": False, "error": "Jellyseerr could not accept this request"},
+        )
+        return
+    except Exception:
+        send_json(
+            handler,
+            502,
+            {"ok": False, "error": "Jellyseerr could not accept this request"},
+        )
+        return
+    send_json(handler, 200, result)
 
 
 def handle_discover_request_reconcile(handler):

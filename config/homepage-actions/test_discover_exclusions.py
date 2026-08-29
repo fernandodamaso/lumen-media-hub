@@ -201,6 +201,11 @@ class DiscoverExclusionTests(unittest.TestCase):
             "poster_path": "/keep.jpg",
             "poster_url": "https://image.tmdb.org/t/p/w342/keep.jpg",
             "rating": 8.2,
+            "media_status": "unknown",
+            "service": None,
+            "service_href": None,
+            "request_id": None,
+            "monitored": None,
         }])
         self.assertEqual(captured["library_exclusion"], library.public())
         self.assertEqual(captured["watched_exclusion"], watched.public())

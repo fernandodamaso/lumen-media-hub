@@ -5,6 +5,7 @@ import re
 import threading
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -16,6 +17,7 @@ from clients.jellyfin import (
     _jellyfin_items_path,
     jellyfin_get,
 )
+from clients.jellyseerr import _jellyseerr_get
 from shared import _normalize_tmdb_id
 
 
@@ -77,6 +79,38 @@ class ArrMediaState:
 
 
 @dataclass(frozen=True)
+class JellyseerrRequestSnapshot:
+    states: dict
+    sources: dict
+
+    def get(self, item_type, tmdb_id):
+        identity = _typed_identity(item_type, tmdb_id)
+        state = self.states.get(identity) if identity else None
+        return dict(state) if isinstance(state, dict) else None
+
+    def status(self, item_type, tmdb_id):
+        identity = _typed_identity(item_type, tmdb_id)
+        return self.sources.get(identity, _SOURCE_UNAVAILABLE)
+
+
+def _typed_identity(item_type, tmdb_id):
+    if isinstance(tmdb_id, bool):
+        return None
+    normalized = _normalize_tmdb_id(tmdb_id)
+    if item_type not in ("movie", "tv") or not normalized:
+        return None
+    return f"{item_type}:{normalized}"
+
+
+def _request_identity_parts(identity):
+    item_type, _, value = str(identity).partition(":")
+    normalized = _normalize_tmdb_id(value)
+    if item_type not in ("movie", "tv") or not normalized:
+        return None
+    return item_type, normalized
+
+
+@dataclass(frozen=True)
 class ArrTrackingSnapshot:
     """Typed Radarr/Sonarr tracking state with per-provider freshness."""
 
@@ -128,6 +162,148 @@ ARR_TRACKING_CACHE_TTL = 60.0
 _ARR_RETRY_TTL = 15.0
 _ARR_TRACKING_CACHE = {}
 _ARR_TRACKING_CACHE_LOCK = threading.Lock()
+
+JELLYSEERR_REQUEST_CACHE_TTL = 45.0
+_JELLYSEERR_REQUEST_RETRY_TTL = 10.0
+_JELLYSEERR_REQUEST_CACHE_LIMIT = 512
+_JELLYSEERR_REQUEST_CACHE = {}
+_JELLYSEERR_REQUEST_CACHE_LOCK = threading.Lock()
+
+
+def _empty_jellyseerr_request_cache():
+    return {
+        "expires": 0.0,
+        "state": None,
+        "status": _SOURCE_UNAVAILABLE,
+        "has_success": False,
+    }
+
+
+def _detail_media_type(raw):
+    value = raw.get("mediaType") or raw.get("media_type")
+    if value is None:
+        return None
+    value = str(value).lower()
+    if value in ("tv", "series"):
+        return "tv"
+    return "movie" if value == "movie" else None
+
+
+def _fetch_jellyseerr_request_detail(item_type, tmdb_id):
+    raw = _jellyseerr_get(f"/api/v1/{item_type}/{tmdb_id}")
+    if not isinstance(raw, dict):
+        raise ValueError("invalid Jellyseerr detail")
+    media_info = raw.get("mediaInfo") or raw.get("media_info") or {}
+    if not isinstance(media_info, dict):
+        media_info = {}
+    returned_id = _normalize_tmdb_id(
+        raw.get("id") or raw.get("tmdbId") or media_info.get("tmdbId")
+    )
+    if isinstance(
+        raw.get("id") or raw.get("tmdbId") or media_info.get("tmdbId"), bool
+    ):
+        returned_id = None
+    returned_type = _detail_media_type(raw)
+    if returned_id != tmdb_id or (returned_type is not None and returned_type != item_type):
+        raise ValueError("mismatched Jellyseerr detail")
+    return raw
+
+
+def _bounded_request_cache_locked(protected):
+    overflow = len(_JELLYSEERR_REQUEST_CACHE) - _JELLYSEERR_REQUEST_CACHE_LIMIT
+    if overflow <= 0:
+        return
+    candidates = sorted(
+        (
+            (entry.get("expires", 0.0), identity)
+            for identity, entry in _JELLYSEERR_REQUEST_CACHE.items()
+            if identity not in protected
+        )
+    )
+    for _expires, identity in candidates[:overflow]:
+        _JELLYSEERR_REQUEST_CACHE.pop(identity, None)
+
+
+def get_jellyseerr_request_snapshot(
+    identities,
+    *,
+    force=False,
+    fetch=_fetch_jellyseerr_request_detail,
+    now_fn=time.monotonic,
+):
+    """Return typed active-request state with bounded last-good caching."""
+    requested = {}
+    for value in identities or ():
+        if isinstance(value, str):
+            parts = _request_identity_parts(value)
+        elif isinstance(value, (tuple, list)) and len(value) == 2:
+            identity = _typed_identity(value[0], value[1])
+            parts = _request_identity_parts(identity) if identity else None
+        else:
+            parts = None
+        if parts:
+            requested[f"{parts[0]}:{parts[1]}"] = parts
+
+    now = now_fn()
+    pending = []
+    with _JELLYSEERR_REQUEST_CACHE_LOCK:
+        for identity in requested:
+            entry = _JELLYSEERR_REQUEST_CACHE.setdefault(
+                identity, _empty_jellyseerr_request_cache()
+            )
+            if force or now >= entry["expires"]:
+                pending.append(identity)
+
+    def refresh(identity):
+        item_type, tmdb_id = requested[identity]
+        try:
+            raw = fetch(item_type, tmdb_id)
+            state = jellyseerr_request_state(raw)
+            return identity, state, None
+        except Exception as error:
+            return identity, None, error
+
+    if pending:
+        worker_count = min(4, len(pending))
+        with ThreadPoolExecutor(
+            max_workers=worker_count, thread_name_prefix="jellyseerr-state"
+        ) as pool:
+            refreshed = list(pool.map(refresh, pending))
+        refreshed_at = now_fn()
+        with _JELLYSEERR_REQUEST_CACHE_LOCK:
+            for identity, state, error in refreshed:
+                entry = _JELLYSEERR_REQUEST_CACHE.setdefault(
+                    identity, _empty_jellyseerr_request_cache()
+                )
+                if error is None:
+                    entry.update(
+                        state=dict(state) if isinstance(state, dict) else None,
+                        status=_SOURCE_FRESH,
+                        has_success=True,
+                        expires=refreshed_at + JELLYSEERR_REQUEST_CACHE_TTL,
+                    )
+                else:
+                    entry["status"] = (
+                        _SOURCE_STALE if entry["has_success"] else _SOURCE_UNAVAILABLE
+                    )
+                    if not entry["has_success"]:
+                        entry["state"] = None
+                    entry["expires"] = refreshed_at + _JELLYSEERR_REQUEST_RETRY_TTL
+            _bounded_request_cache_locked(set(requested))
+
+    with _JELLYSEERR_REQUEST_CACHE_LOCK:
+        return JellyseerrRequestSnapshot(
+            states={
+                identity: dict(entry["state"])
+                for identity in requested
+                for entry in [_JELLYSEERR_REQUEST_CACHE[identity]]
+                if isinstance(entry.get("state"), dict)
+            },
+            sources={
+                identity: _JELLYSEERR_REQUEST_CACHE[identity]["status"]
+                for identity in requested
+            },
+        )
 
 # Compatibility cache used by the Hermes generation context. Its storage and
 # fallback policy live here even though Discover retains small wrapper names.
@@ -469,20 +645,46 @@ def get_tracked_media_ids(
         return result, errors
 
 
+def invalidate_request_state_caches(item_type=None, tmdb_id=None):
+    """Expire typed Jellyseerr and relevant Arr request-state caches."""
+    identity = _typed_identity(item_type, tmdb_id) if item_type is not None else None
+    with _JELLYSEERR_REQUEST_CACHE_LOCK:
+        targets = (
+            [identity]
+            if identity and identity in _JELLYSEERR_REQUEST_CACHE
+            else list(_JELLYSEERR_REQUEST_CACHE)
+            if item_type is None
+            else []
+        )
+        for key in targets:
+            cached = _JELLYSEERR_REQUEST_CACHE[key]
+            cached["expires"] = 0.0
+            cached["status"] = (
+                _SOURCE_STALE if cached["has_success"] else _SOURCE_UNAVAILABLE
+            )
+    with _ARR_TRACKING_CACHE_LOCK:
+        _ensure_arr_tracking_cache()
+        sources = (
+            ("radarr", "sonarr")
+            if item_type is None
+            else (("sonarr",) if item_type == "tv" else ("radarr",))
+        )
+        for source in sources:
+            cached = _ARR_TRACKING_CACHE[source]
+            cached["expires"] = 0.0
+            if cached["last_successful_refresh_at"] is not None:
+                cached["status"] = _SOURCE_STALE
+    with _tracked_media_cache_lock:
+        _tracked_media_cache["expires"] = 0.0
+
+
 def invalidate_media_state_caches():
     """Expire caches while preserving positive last-good state."""
     with _TMDB_LIBRARY_CACHE_LOCK:
         _TMDB_LIBRARY_CACHE["expires"] = 0.0
         if _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None:
             _TMDB_LIBRARY_CACHE["status"] = _SOURCE_STALE
-    with _ARR_TRACKING_CACHE_LOCK:
-        _ensure_arr_tracking_cache()
-        for cached in _ARR_TRACKING_CACHE.values():
-            cached["expires"] = 0.0
-            if cached["last_successful_refresh_at"] is not None:
-                cached["status"] = _SOURCE_STALE
-    with _tracked_media_cache_lock:
-        _tracked_media_cache["expires"] = 0.0
+    invalidate_request_state_caches()
 
 
 def _normalized_request_status(value):

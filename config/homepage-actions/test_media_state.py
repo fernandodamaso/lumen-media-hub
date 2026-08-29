@@ -230,5 +230,60 @@ class JellyseerrRequestStateTests(unittest.TestCase):
         )
 
 
+class JellyseerrRequestSnapshotTests(unittest.TestCase):
+    def setUp(self):
+        self.original = dict(media_state._JELLYSEERR_REQUEST_CACHE)
+        media_state._JELLYSEERR_REQUEST_CACHE.clear()
+        self.addCleanup(media_state._JELLYSEERR_REQUEST_CACHE.clear)
+        self.addCleanup(media_state._JELLYSEERR_REQUEST_CACHE.update, self.original)
+
+    def test_typed_collision_keeps_distinct_real_request_ids(self):
+        def upstream(path):
+            if "/movie/" in path:
+                return {
+                    "id": 42,
+                    "mediaType": "movie",
+                    "mediaInfo": {"requests": [{"id": 101, "status": 1}]},
+                }
+            return {
+                "id": 42,
+                "mediaType": "tv",
+                "mediaInfo": {"requests": [{"id": 202, "status": 2}]},
+            }
+
+        with mock.patch.object(media_state, "_jellyseerr_get", side_effect=upstream):
+            snapshot = media_state.get_jellyseerr_request_snapshot(
+                [("movie", 42), ("tv", 42)], force=True
+            )
+
+        self.assertEqual(
+            snapshot.get("movie", 42),
+            {"status": "requested", "request_id": 101},
+        )
+        self.assertEqual(
+            snapshot.get("tv", 42),
+            {"status": "processing", "request_id": 202},
+        )
+        self.assertEqual(snapshot.status("movie", 42), "fresh")
+        self.assertEqual(snapshot.status("tv", 42), "fresh")
+
+    def test_mismatched_detail_cannot_recover_a_request_id(self):
+        with mock.patch.object(
+            media_state,
+            "_jellyseerr_get",
+            return_value={
+                "id": 99,
+                "mediaType": "movie",
+                "mediaInfo": {"requests": [{"id": 777, "status": 1}]},
+            },
+        ):
+            snapshot = media_state.get_jellyseerr_request_snapshot(
+                [("movie", 42)], force=True
+            )
+
+        self.assertIsNone(snapshot.get("movie", 42))
+        self.assertEqual(snapshot.status("movie", 42), "unavailable")
+
+
 if __name__ == "__main__":
     unittest.main()

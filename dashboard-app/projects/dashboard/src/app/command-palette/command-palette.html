@@ -22,7 +22,12 @@
         />
         <kbd>esc</kbd>
       </div>
-      <div id="command-palette-results" class="palette__results" role="listbox" aria-label="Command results">
+      <div
+        id="command-palette-results"
+        class="palette__results"
+        [attr.role]="grouped().length > 0 ? 'listbox' : null"
+        [attr.aria-label]="grouped().length > 0 ? 'Command results' : null"
+      >
         @for (group of grouped(); track group.name; let groupIndex = $index) {
           <div class="palette__group">
             <p class="palette__group-label">{{ group.name }}</p>
@@ -45,7 +50,7 @@
             }
           </div>
         } @empty {
-          <p class="palette__empty">No matches</p>
+          <p class="palette__empty" role="status">No matches</p>
         }
       </div>
       @if (searchStatus()) {

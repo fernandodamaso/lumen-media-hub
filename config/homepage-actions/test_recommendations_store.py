@@ -82,6 +82,145 @@ class StoreTestCase(unittest.TestCase):
 
 
 class MigrationTests(StoreTestCase):
+    def test_ensure_current_upgrades_legacy_ai_v4_request_providers_with_backup(self):
+        generation = {
+            "id": "generation-1",
+            "status": "running",
+            "trigger": "on_demand",
+            "requested_at": "2026-08-29T12:00:00Z",
+            "started_at": "2026-08-29T12:00:01Z",
+            "finished_at": None,
+            "desired_count": 10,
+            "attempt": 1,
+            "lease_expires_at": "2026-08-29T12:05:00Z",
+            "lease_token": "lease-1",
+            "base_revision": 19,
+            "candidates": [],
+            "taste": {},
+            "required_retain": [],
+            "error_code": None,
+            "counts": None,
+        }
+        legacy_v4 = {
+            "version": 4,
+            "revision": 19,
+            "updated_at": "2026-08-29T12:00:00Z",
+            "presented_media_ids": ["movie:42", "tv:84"],
+            "items": [
+                {
+                    "id": "ai-movie-42",
+                    "identity": "movie:42",
+                    "source": "ai",
+                    "type": "movie",
+                    "title": "Requested",
+                    "year": 2024,
+                    "tmdb_id": 42,
+                    "reason": "fixture",
+                    "active": False,
+                    "feedback": None,
+                    "feedback_at": None,
+                    "request_state": "requested",
+                    "requested_at": "2026-08-29T11:00:00Z",
+                    "jellyseerr_request_id": 101,
+                    "added_at": "2026-08-01T00:00:00Z",
+                },
+                {
+                    "id": "ai-tv-84",
+                    "identity": "tv:84",
+                    "source": "ai",
+                    "type": "tv",
+                    "title": "Unrequested",
+                    "year": 2025,
+                    "tmdb_id": 84,
+                    "reason": "fixture",
+                    "active": True,
+                    "feedback": None,
+                    "feedback_at": None,
+                    "request_state": None,
+                    "requested_at": None,
+                    "jellyseerr_request_id": None,
+                    "added_at": "2026-08-01T00:00:00Z",
+                },
+            ],
+            "generation": generation,
+        }
+        self.write_json(legacy_v4)
+        original = self.read_raw()
+
+        migrated = self.store.ensure_current()
+
+        self.assertEqual(migrated["items"][0]["request_provider"], "arr_legacy")
+        self.assertIsNone(migrated["items"][1]["request_provider"])
+        self.assertEqual(migrated["generation"], generation)
+        self.assertEqual(migrated["revision"], 19)
+        self.assertTrue(rs.validate_v4(migrated))
+        self.assertEqual(self.read_json(), migrated)
+        backup_path = f"{self.path}.v4-pre-request-provider.bak"
+        with open(backup_path, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), original)
+
+        with open(backup_path, "w", encoding="utf-8") as fh:
+            fh.write("keep-existing-backup")
+        self.store.ensure_current()
+        with open(backup_path, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "keep-existing-backup")
+
+    def test_legacy_ai_v4_migration_rejects_mixed_provider_shape_without_rewrite(self):
+        mixed_v4 = {
+            "version": 4,
+            "revision": 1,
+            "updated_at": "2026-08-29T12:00:00Z",
+            "presented_media_ids": ["movie:42", "tv:84"],
+            "items": [
+                {
+                    "id": "ai-movie-42",
+                    "identity": "movie:42",
+                    "source": "ai",
+                    "type": "movie",
+                    "title": "Current",
+                    "year": 2024,
+                    "tmdb_id": 42,
+                    "reason": "fixture",
+                    "active": True,
+                    "feedback": None,
+                    "feedback_at": None,
+                    "request_state": None,
+                    "request_provider": None,
+                    "requested_at": None,
+                    "jellyseerr_request_id": None,
+                    "added_at": "2026-08-01T00:00:00Z",
+                },
+                {
+                    "id": "ai-tv-84",
+                    "identity": "tv:84",
+                    "source": "ai",
+                    "type": "tv",
+                    "title": "Legacy",
+                    "year": 2025,
+                    "tmdb_id": 84,
+                    "reason": "fixture",
+                    "active": True,
+                    "feedback": None,
+                    "feedback_at": None,
+                    "request_state": None,
+                    "requested_at": None,
+                    "jellyseerr_request_id": None,
+                    "added_at": "2026-08-01T00:00:00Z",
+                },
+            ],
+            "generation": None,
+        }
+        self.write_json(mixed_v4)
+        original = self.read_raw()
+
+        with self.assertRaises(rs.RecommendationValidationError):
+            self.store.ensure_current()
+
+        self.assertEqual(self.read_raw(), original)
+        self.assertFalse(
+            os.path.exists(f"{self.path}.v4-pre-request-provider.bak")
+        )
+
     def test_v3_to_v4_preserves_user_state_and_renames_ai_pick_identity(self):
         event = {
             "event_id": "event-1",

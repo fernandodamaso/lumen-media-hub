@@ -481,14 +481,45 @@ def _migrate_v3_to_v4(v3):
     return doc
 
 
+def _migrate_legacy_ai_v4_request_providers(v4):
+    """Upgrade the pre-FDM-756 AI Picks v4 shape without masking corruption.
+
+    AI Picks shipped schema v4 before request ownership was added. That
+    deployed shape has no ``request_provider`` field on any item. Only that
+    uniform legacy shape is upgraded; mixed documents remain invalid.
+    """
+    items = v4.get("items")
+    if not isinstance(items, list) or not items:
+        validate_v4(v4)
+        return copy.deepcopy(v4)
+
+    provider_presence = [
+        isinstance(item, dict) and "request_provider" in item for item in items
+    ]
+    if all(provider_presence):
+        validate_v4(v4)
+        return copy.deepcopy(v4)
+    if any(provider_presence):
+        validate_v4(v4)
+
+    doc = copy.deepcopy(v4)
+    for item in doc["items"]:
+        if not isinstance(item, dict):
+            validate_v4(v4)
+        item["request_provider"] = (
+            "arr_legacy" if item.get("request_state") == "requested" else None
+        )
+    validate_v4(doc)
+    return doc
+
+
 def migrate_to_v4(raw):
     """Return a validated v4 copy for valid v2, v3, or v4 input."""
     if not isinstance(raw, dict):
         _fail("$", "expected object")
     version = raw.get("version")
     if version == SCHEMA_VERSION:
-        validate_v4(raw)
-        return copy.deepcopy(raw)
+        return _migrate_legacy_ai_v4_request_providers(raw)
     if version in (SCHEMA_V2_VERSION, SCHEMA_V3_VERSION):
         return _migrate_v3_to_v4(migrate_to_v3(raw))
     _fail(
@@ -580,7 +611,7 @@ class RecommendationStore:
         return migrate_to_v4(raw)
 
     def ensure_current(self):
-        """Persist valid v2/v3 input as v4 after a non-overwriting backup."""
+        """Persist supported migrations after a non-overwriting backup."""
         with self._process_lock:
             if not os.path.isfile(self.path):
                 return self.default_document()
@@ -591,9 +622,12 @@ class RecommendationStore:
             except (OSError, ValueError, UnicodeError) as e:
                 raise RecommendationError(f"cannot read {self.path}: {e}") from e
             migrated = migrate_to_v4(raw)
-            if raw.get("version") == SCHEMA_VERSION:
+            if migrated == raw:
                 return migrated
-            backup_path = f"{self.path}.v{raw.get('version')}.bak"
+            if raw.get("version") == SCHEMA_VERSION:
+                backup_path = f"{self.path}.v4-pre-request-provider.bak"
+            else:
+                backup_path = f"{self.path}.v{raw.get('version')}.bak"
             if not os.path.exists(backup_path):
                 directory = os.path.dirname(backup_path)
                 if directory:

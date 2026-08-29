@@ -306,8 +306,8 @@ def _validate_generation(value, path="generation"):
     for field in ("started_at", "finished_at", "lease_expires_at", "lease_token", "error_code"):
         _validate_nullable_str(value.get(field), f"{path}.{field}")
     desired_count = value.get("desired_count")
-    if not _is_int(desired_count) or desired_count <= 0:
-        _fail(f"{path}.desired_count", "expected positive integer")
+    if not _is_int(desired_count) or not 1 <= desired_count <= 100:
+        _fail(f"{path}.desired_count", "expected integer between 1 and 100")
     attempt = value.get("attempt")
     if not _is_int(attempt) or attempt < 0:
         _fail(f"{path}.attempt", "expected non-negative integer")

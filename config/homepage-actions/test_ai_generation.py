@@ -60,6 +60,14 @@ class AiGenerationCoordinatorTests(unittest.TestCase):
         self.assertEqual(generation["status"], "queued")
         self.assertEqual(self.store.load()["revision"], revision)
 
+    def test_queue_rejects_counts_outside_the_worker_contract(self):
+        for desired_count in (0, 101):
+            with self.subTest(desired_count=desired_count):
+                with self.assertRaises(ValueError):
+                    self.coordinator.queue("on_demand", desired_count)
+
+        self.assertEqual(self.store.load()["generation"], None)
+
     def test_empty_claim_poll_does_not_mutate_store_revision(self):
         self.assertEqual(self.coordinator.claim(), None)
         self.assertEqual(self.store.load()["revision"], 0)
@@ -118,6 +126,61 @@ class AiGenerationCoordinatorTests(unittest.TestCase):
         self.assertEqual(item["title"], "Fixture")
         self.assertEqual(item["reason"], "Matches your taste.")
         self.assertEqual(item["poster_path"], "/fixture.jpg")
+
+    def test_completion_rejects_a_pick_that_became_authoritatively_excluded(self):
+        coordinator = AiGenerationCoordinator(
+            self.store,
+            candidate_builder=lambda _doc: self.pool,
+            commit_exclusions=lambda _doc: {
+                "tracked": ["movie:42"],
+                "in_library": [],
+                "watched": [],
+                "errors": [],
+            },
+            now=lambda: NOW,
+            lease_token=lambda: "lease-token",
+            job_id=lambda: "job-1",
+        )
+        coordinator.queue("on_demand", 10)
+        claimed = coordinator.claim()
+
+        result = coordinator.complete(
+            "job-1",
+            claimed["lease_token"],
+            [{"identity": "movie:42", "reason": "No longer eligible."}],
+        )
+
+        self.assertEqual(result, {"ok": False, "code": "stale_revision"})
+        doc = self.store.load()
+        self.assertEqual(doc["items"], [])
+        self.assertEqual(doc["presented_media_ids"], [])
+        self.assertEqual(doc["generation"]["status"], "failed")
+
+    def test_completion_fails_closed_when_authoritative_exclusions_are_unavailable(self):
+        coordinator = AiGenerationCoordinator(
+            self.store,
+            candidate_builder=lambda _doc: self.pool,
+            commit_exclusions=lambda _doc: {
+                "tracked": [],
+                "in_library": [],
+                "watched": [],
+                "errors": ["jellyfin: unavailable"],
+            },
+            now=lambda: NOW,
+            lease_token=lambda: "lease-token",
+            job_id=lambda: "job-1",
+        )
+        coordinator.queue("on_demand", 10)
+        claimed = coordinator.claim()
+
+        result = coordinator.complete(
+            "job-1",
+            claimed["lease_token"],
+            [{"identity": "movie:42", "reason": "Cannot verify exclusions."}],
+        )
+
+        self.assertEqual(result, {"ok": False, "code": "candidate_unavailable"})
+        self.assertEqual(self.store.load()["items"], [])
 
     def test_concurrent_claims_issue_only_one_private_lease(self):
         self.coordinator.queue("on_demand", 10)

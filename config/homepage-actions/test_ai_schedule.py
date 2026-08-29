@@ -6,12 +6,16 @@ from ai_schedule import AiPicksSchedule
 
 
 class AiPicksScheduleTests(unittest.TestCase):
-    def test_scheduled_top_up_queues_once_when_effective_active_is_below_target(self):
+    def test_scheduled_top_up_does_not_queue_a_second_job_while_one_is_pending(self):
         queued = []
+        results = iter([
+            {"queued": True, "already_pending": False},
+            {"queued": False, "already_pending": True},
+        ])
         schedule = AiPicksSchedule(
             load=lambda: {"items": [{"active": True}, {"active": False}]},
             count_effective=lambda _doc: 1,
-            queue=lambda trigger, count: queued.append((trigger, count)),
+            queue=lambda trigger, count: queued.append((trigger, count)) or next(results),
             enabled=lambda: True,
             target=20,
             hour=10,
@@ -19,7 +23,7 @@ class AiPicksScheduleTests(unittest.TestCase):
 
         self.assertTrue(schedule.tick(datetime(2026, 8, 29, 10, 0)))
         self.assertFalse(schedule.tick(datetime(2026, 8, 29, 10, 30)))
-        self.assertEqual(queued, [("scheduled", 19)])
+        self.assertEqual(queued, [("scheduled", 19), ("scheduled", 19)])
 
     def test_schedule_skips_disabled_or_full_active_slate(self):
         queued = []
@@ -43,7 +47,7 @@ class AiPicksScheduleTests(unittest.TestCase):
         schedule = AiPicksSchedule(
             load=lambda: {"items": [{"active": True}] * 20},
             count_effective=lambda _doc: 14,
-            queue=lambda trigger, count: queued.append((trigger, count)),
+            queue=lambda trigger, count: queued.append((trigger, count)) or {"queued": True},
             enabled=lambda: True,
             target=20,
             hour=10,
@@ -59,6 +63,7 @@ class AiPicksScheduleTests(unittest.TestCase):
             attempts.append((trigger, count))
             if len(attempts) == 1:
                 raise RuntimeError("store unavailable")
+            return {"queued": True}
 
         schedule = AiPicksSchedule(
             load=lambda: {"items": []},
@@ -73,6 +78,59 @@ class AiPicksScheduleTests(unittest.TestCase):
             schedule.tick(datetime(2026, 8, 29, 10, 0))
         self.assertTrue(schedule.tick(datetime(2026, 8, 29, 10, 1)))
         self.assertEqual(attempts, [("scheduled", 20), ("scheduled", 20)])
+
+    def test_schedule_rechecks_after_a_pending_job_collision(self):
+        results = iter([
+            {"queued": False, "already_pending": True},
+            {"queued": True, "already_pending": False},
+        ])
+        queued = []
+
+        def queue(trigger, count):
+            queued.append((trigger, count))
+            return next(results)
+
+        schedule = AiPicksSchedule(
+            load=lambda: {"items": []},
+            count_effective=lambda _doc: 0,
+            queue=queue,
+            enabled=lambda: True,
+            target=20,
+            hour=10,
+        )
+
+        self.assertFalse(schedule.tick(datetime(2026, 8, 29, 10, 0)))
+        self.assertTrue(schedule.tick(datetime(2026, 8, 29, 10, 1)))
+        self.assertEqual(queued, [("scheduled", 20), ("scheduled", 20)])
+
+    def test_schedule_caps_each_job_at_the_candidate_contract_limit(self):
+        queued = []
+        schedule = AiPicksSchedule(
+            load=lambda: {"items": []},
+            count_effective=lambda _doc: 0,
+            queue=lambda trigger, count: queued.append((trigger, count)) or {"queued": True},
+            enabled=lambda: True,
+            target=250,
+            hour=10,
+        )
+
+        self.assertTrue(schedule.tick(datetime(2026, 8, 29, 10, 0)))
+        self.assertEqual(queued, [("scheduled", 100)])
+
+    def test_schedule_retries_after_a_queued_job_later_fails(self):
+        queued = []
+        schedule = AiPicksSchedule(
+            load=lambda: {"items": []},
+            count_effective=lambda _doc: 0,
+            queue=lambda trigger, count: queued.append((trigger, count)) or {"queued": True},
+            enabled=lambda: True,
+            target=20,
+            hour=10,
+        )
+
+        self.assertTrue(schedule.tick(datetime(2026, 8, 29, 10, 0)))
+        self.assertTrue(schedule.tick(datetime(2026, 8, 29, 10, 1)))
+        self.assertEqual(queued, [("scheduled", 20), ("scheduled", 20)])
 
 
 if __name__ == "__main__":

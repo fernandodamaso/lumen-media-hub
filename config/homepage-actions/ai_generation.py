@@ -17,6 +17,7 @@ ALLOWED_FAILURE_CODES = {
     "provider_failure",
     "stale_revision",
 }
+MAX_DESIRED_COUNT = 100
 
 
 def _parse_timestamp(value):
@@ -82,6 +83,7 @@ class AiGenerationCoordinator:
         store,
         candidate_builder,
         *,
+        commit_exclusions=None,
         now=utc_now,
         lease_token=lambda: secrets.token_urlsafe(32),
         job_id=lambda: str(uuid.uuid4()),
@@ -89,12 +91,19 @@ class AiGenerationCoordinator:
     ):
         self.store = store
         self.candidate_builder = candidate_builder
+        self.commit_exclusions = commit_exclusions or (lambda _doc: {})
         self.now = now
         self.lease_token = lease_token
         self.job_id = job_id
         self.lease_seconds = lease_seconds
 
     def queue(self, trigger, desired_count):
+        if (
+            isinstance(desired_count, bool)
+            or not isinstance(desired_count, int)
+            or not 1 <= desired_count <= MAX_DESIRED_COUNT
+        ):
+            raise ValueError(f"desired_count must be between 1 and {MAX_DESIRED_COUNT}")
         result = {}
 
         def mutate(doc):
@@ -178,6 +187,19 @@ class AiGenerationCoordinator:
         return response or None
 
     def complete(self, job_id, lease, picks):
+        try:
+            exclusions = self.commit_exclusions(self.store.load())
+            if not isinstance(exclusions, dict) or exclusions.get("errors"):
+                raise ValueError("authoritative exclusions unavailable")
+        except Exception:
+            failed = self.fail(job_id, lease, "candidate_unavailable")
+            if not failed.get("ok"):
+                return failed
+            return {"ok": False, "code": "candidate_unavailable"}
+
+        denied = set(exclusions.get("tracked", ()))
+        denied.update(exclusions.get("in_library", ()))
+        denied.update(exclusions.get("watched", ()))
         result = {}
 
         def mutate(doc):
@@ -203,6 +225,11 @@ class AiGenerationCoordinator:
             candidates = {item["identity"]: item for item in generation["candidates"]}
             existing = {item["identity"]: item for item in doc["items"]}
             required = set(generation.get("required_retain", []))
+            selected = {pick["identity"] for pick in normalized}
+            if denied.intersection(selected | required):
+                self._mark_failed(generation, "stale_revision")
+                result.update(ok=False, code="stale_revision")
+                return
             retained = []
             for identity in required:
                 item = existing.get(identity)

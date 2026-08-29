@@ -35,15 +35,15 @@ jobs:
           print("core services ok:", sorted(services))
           '
           docker compose --env-file .env.example \
-            --profile subtitles --profile requests --profile maintenance --profile indexer-tools \
+            --profile subtitles --profile requests --profile maintenance --profile indexer-tools --profile ai \
             -f docker-compose.yml config --quiet
           docker compose --env-file .env.example \
-            --profile subtitles --profile requests --profile maintenance --profile indexer-tools \
+            --profile subtitles --profile requests --profile maintenance --profile indexer-tools --profile ai \
             -f docker-compose.yml config --format json \
           | python3 -c '
           import json, sys
           services = set(json.load(sys.stdin)["services"])
-          expected = {"jellyfin", "qbittorrent", "sonarr", "radarr", "prowlarr", "flaresolverr", "bazarr", "jellyseerr", "unpackerr", "recyclarr", "maintainerr", "homepage-actions", "dashboard"}
+          expected = {"jellyfin", "qbittorrent", "sonarr", "radarr", "prowlarr", "flaresolverr", "bazarr", "jellyseerr", "unpackerr", "recyclarr", "maintainerr", "homepage-actions", "ai-recommendations", "dashboard"}
           assert services == expected, services
           assert "dashboard-react" not in services
           print("all supported profiles ok:", sorted(services))
@@ -123,3 +123,20 @@ jobs:
           python-version: "3.13"
       - run: python -m compileall .
       - run: python -m unittest discover -v
+
+  ai-worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: config/ai-recommendations
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.3'
+          cache: npm
+          cache-dependency-path: config/ai-recommendations/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build

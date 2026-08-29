@@ -29,10 +29,12 @@ class AiPicksSchedule:
         if missing == 0:
             self._last_date = now.date()
             return False
-        self.queue("scheduled", missing)
-        # Mark the day only after queueing succeeds so transient failures retry
-        # on the next scheduler tick instead of suppressing the whole day.
-        self._last_date = now.date()
+        result = self.queue("scheduled", min(missing, 100))
+        if not isinstance(result, dict) or not result.get("queued"):
+            return False
+        # Do not mark the date complete until a later tick observes the target.
+        # While this job is pending, queue() reports a collision; if it fails or
+        # cannot fill a deficit larger than one job, the same day can retry.
         return True
 
 

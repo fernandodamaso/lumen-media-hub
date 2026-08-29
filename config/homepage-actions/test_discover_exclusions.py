@@ -1,3 +1,4 @@
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -58,6 +59,17 @@ class TrackedArrCacheTests(unittest.TestCase):
 
         self.assertEqual(ids, ["movie:101", "tv:202"])
         self.assertEqual(errors, ["sonarr: unavailable"])
+
+    def test_forced_refresh_bypasses_a_live_tracked_cache(self):
+        routes._tracked_media_cache.update(
+            {"expires": 9999.0, "ids": ["movie:101"], "errors": [], "has_success": True}
+        )
+        with mock.patch.object(routes.time, "monotonic", return_value=100.0), \
+             mock.patch.object(routes, "_build_tracked_media_ids", return_value=(["movie:202"], [])):
+            ids, errors = routes._get_tracked_media_ids(force=True)
+
+        self.assertEqual(ids, ["movie:202"])
+        self.assertEqual(errors, [])
 
 
 class DiscoverExclusionTests(unittest.TestCase):
@@ -415,6 +427,30 @@ class DiscoverExclusionTests(unittest.TestCase):
             self.assertEqual(snapshot.movie, {42: "new-movie-jf"})
             self.assertEqual(snapshot.tv, {7: "new-tv-jf"})
             self.assertEqual(snapshot.status, "fresh")
+        finally:
+            routes._TMDB_LIBRARY_CACHE.clear()
+            routes._TMDB_LIBRARY_CACHE.update(old_cache)
+
+    def test_forced_library_refresh_bypasses_a_live_cache(self):
+        old_cache = dict(routes._TMDB_LIBRARY_CACHE)
+        try:
+            routes._TMDB_LIBRARY_CACHE.update(
+                expires=time.time() + 3600,
+                movie={42: "old-movie-jf"},
+                tv={},
+                status="fresh",
+                last_successful_refresh_at="2026-08-11T12:00:00+00:00",
+            )
+
+            def fetch(item_type):
+                return {99: "new-movie-jf"} if item_type == "Movie" else {}
+
+            with mock.patch.object(routes.settings, "JELLYFIN_API_KEY", "key"), \
+                 mock.patch.object(routes, "_fetch_tmdb_map_for_type", side_effect=fetch):
+                snapshot = routes._library_exclusion_snapshot(force=True)
+
+            self.assertEqual(snapshot.movie, {99: "new-movie-jf"})
+            self.assertFalse(snapshot.contains("movie", 42))
         finally:
             routes._TMDB_LIBRARY_CACHE.clear()
             routes._TMDB_LIBRARY_CACHE.update(old_cache)

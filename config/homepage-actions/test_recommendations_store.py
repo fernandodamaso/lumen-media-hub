@@ -636,6 +636,20 @@ class ValidatorTests(unittest.TestCase):
         with self.assertRaises(rs.RecommendationValidationError):
             rs.validate_v4(doc)
 
+    def test_v4_rejects_generation_count_above_candidate_cap(self):
+        doc = rs.RecommendationStore("unused").default_document()
+        doc["generation"] = {
+            "id": "job", "status": "queued", "trigger": "on_demand",
+            "requested_at": "2026-08-29T10:00:00Z", "started_at": None,
+            "finished_at": None, "desired_count": 101, "attempt": 0,
+            "lease_expires_at": None, "lease_token": None,
+            "base_revision": None, "candidates": [], "taste": {},
+            "required_retain": [], "error_code": None, "counts": None,
+        }
+
+        with self.assertRaises(rs.RecommendationValidationError):
+            rs.validate_v4(doc)
+
     def test_invalid_documents_raise(self):
         base = {
             "version": 2,

@@ -243,6 +243,7 @@ services:
     ports:
       - "127.0.0.1:8085:8085"
     environment:
+      - TZ=${TZ}
       - QBT_URL=http://qbittorrent:${QBITTORRENT_WEBUI_PORT}
       - QBT_USERNAME=admin
       - QBT_PASSWORD=${QBT_PASSWORD:?QBT_PASSWORD must be set}

@@ -165,7 +165,6 @@ def run_server():
     config.RECOMMENDATIONS_STORE.ensure_current()
     coordinator = discover._generation_coordinator()
     migrate_legacy_generation_request(coordinator, config.AI_PICKS_ON_DEMAND_COUNT)
-    discover._sync_ai_picks_collection_best_effort()
     ai_schedule = AiPicksScheduleRunner(
         AiPicksSchedule(
             load=config.RECOMMENDATIONS_STORE.load,
@@ -180,6 +179,7 @@ def run_server():
     start_reconciliation_scheduler()
     start_queue_hygiene_scheduler()
     server = ThreadingHTTPServer(("0.0.0.0", config.PORT), ActionsHandler)
+    discover._request_ai_picks_collection_sync()
     print(
         f"Dashboard actions API listening on :{config.PORT} "
         f"(request reconcile every {config.RECONCILE_INTERVAL_SECONDS:g}s; "

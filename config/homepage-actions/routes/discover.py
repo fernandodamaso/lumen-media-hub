@@ -197,7 +197,7 @@ def _fetch_tmdb_map_for_type(item_type):
     return mapping
 
 
-def _tmdb_library_maps():
+def _tmdb_library_maps(*, force=False):
     if not settings.JELLYFIN_API_KEY:
         with _TMDB_LIBRARY_CACHE_LOCK:
             has_last_good = _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None
@@ -211,7 +211,7 @@ def _tmdb_library_maps():
             return {"movie": {}, "tv": {}}
     now = time.time()
     with _TMDB_LIBRARY_CACHE_LOCK:
-        if now < _TMDB_LIBRARY_CACHE["expires"]:
+        if not force and now < _TMDB_LIBRARY_CACHE["expires"]:
             return {
                 "movie": _TMDB_LIBRARY_CACHE["movie"],
                 "tv": _TMDB_LIBRARY_CACHE["tv"],
@@ -238,9 +238,9 @@ def _tmdb_library_maps():
         return {"movie": refreshed_movie_map, "tv": refreshed_tv_map}
 
 
-def _library_exclusion_snapshot():
+def _library_exclusion_snapshot(*, force=False):
     """Return the cached library exclusion set and its refresh health."""
-    maps = _tmdb_library_maps()
+    maps = _tmdb_library_maps(force=force)
     with _TMDB_LIBRARY_CACHE_LOCK:
         status = _TMDB_LIBRARY_CACHE["status"]
         refreshed_at = _TMDB_LIBRARY_CACHE["last_successful_refresh_at"]
@@ -570,6 +570,9 @@ def sync_ai_picks_collection():
         raise RuntimeError("JELLYFIN_API_KEY not configured")
 
     data = settings.RECOMMENDATIONS_STORE.load()
+    snapshot = _library_exclusion_snapshot()
+    if snapshot.status == "unavailable":
+        raise RuntimeError("Jellyfin library snapshot unavailable")
 
     target_ids = []
     for item in _ai_picks_items(data):
@@ -577,7 +580,7 @@ def sync_ai_picks_collection():
             continue
         jf_id = item.get("jellyfin_id") if item.get("in_library") else None
         if not jf_id:
-            jf_id = _jellyfin_id_for_tmdb(item.get("type"), item.get("tmdb_id"))
+            jf_id = snapshot.jellyfin_id(item.get("type"), item.get("tmdb_id"))
         if jf_id:
             target_ids.append(jf_id)
 
@@ -641,6 +644,41 @@ def _sync_ai_picks_collection_best_effort():
         return sync_ai_picks_collection()
     except Exception:
         return {"ok": False, "error": "AI Picks collection is temporarily unavailable"}
+
+
+_AI_PICKS_COLLECTION_SYNC_LOCK = threading.Lock()
+_AI_PICKS_COLLECTION_SYNC_PENDING = threading.Event()
+_AI_PICKS_COLLECTION_SYNC_THREAD = None
+
+
+def _request_ai_picks_collection_sync():
+    """Coalesce best-effort collection syncs without blocking API readiness."""
+    global _AI_PICKS_COLLECTION_SYNC_THREAD
+    _AI_PICKS_COLLECTION_SYNC_PENDING.set()
+    with _AI_PICKS_COLLECTION_SYNC_LOCK:
+        thread = _AI_PICKS_COLLECTION_SYNC_THREAD
+        if thread is not None and thread.is_alive():
+            return False
+
+        def run():
+            global _AI_PICKS_COLLECTION_SYNC_THREAD
+            try:
+                while _AI_PICKS_COLLECTION_SYNC_PENDING.is_set():
+                    _AI_PICKS_COLLECTION_SYNC_PENDING.clear()
+                    _sync_ai_picks_collection_best_effort()
+            finally:
+                with _AI_PICKS_COLLECTION_SYNC_LOCK:
+                    _AI_PICKS_COLLECTION_SYNC_THREAD = None
+                if _AI_PICKS_COLLECTION_SYNC_PENDING.is_set():
+                    _request_ai_picks_collection_sync()
+
+        _AI_PICKS_COLLECTION_SYNC_THREAD = threading.Thread(
+            target=run,
+            name="ai-picks-collection-sync",
+            daemon=True,
+        )
+        _AI_PICKS_COLLECTION_SYNC_THREAD.start()
+        return True
 
 
 def _ai_picks_item_for_client(item, snapshot=None, watched_snapshot=None):
@@ -765,6 +803,9 @@ def handle_discover_ai_picks_patch(handler, item_id):
         send_json(handler, 500, {"ok": False, "error": "Feedback could not be saved"})
         return
 
+    if status in ("disliked", "skipped"):
+        _request_ai_picks_collection_sync()
+
     if status == "watched":
         try:
             deliver_trakt_history_for_item(item_id)
@@ -834,11 +875,11 @@ def _build_tracked_media_ids():
     return sorted(ids), errors
 
 
-def _get_tracked_media_ids():
+def _get_tracked_media_ids(*, force=False):
     """Cached Arr tracked identities; preserve a complete stale set on errors."""
     now = time.monotonic()
     with _tracked_media_cache_lock:
-        if now < _tracked_media_cache["expires"]:
+        if not force and now < _tracked_media_cache["expires"]:
             return list(_tracked_media_cache["ids"]), list(_tracked_media_cache["errors"])
     ids, errors = _build_tracked_media_ids()
     errors = [_safe_arr_error(error) for error in errors]
@@ -954,15 +995,15 @@ def _ai_picks_taste_summary(items, cap=AI_PICKS_TASTE_CAP):
     return buckets
 
 
-def _ai_picks_generation_context(data, snapshot=None, watched_snapshot=None):
+def _ai_picks_generation_context(data, snapshot=None, watched_snapshot=None, *, force=False):
     """Server-built helpers so AI Picks need not curl Arr/Jellyfin itself."""
     items = list(_ai_picks_items(data))
-    tracked, tracked_errors = _get_tracked_media_ids()
-    snapshot = snapshot or _library_exclusion_snapshot()
+    tracked, tracked_errors = _get_tracked_media_ids(force=force)
+    snapshot = snapshot or _library_exclusion_snapshot(force=force)
     in_library = _in_library_media_ids_from_maps(
         {"movie": snapshot.movie, "tv": snapshot.tv}
     )
-    watched_snapshot = watched_snapshot or _trakt_watched_snapshot()
+    watched_snapshot = watched_snapshot or _trakt_watched_snapshot(force=force)
     watched = (
         sorted(set(watched_snapshot.identities))
         if watched_snapshot.status != "unavailable"
@@ -1333,8 +1374,8 @@ def _jellyseerr_candidate_source(kind):
     )
 
 
-def _candidate_exclusions(doc):
-    context = _ai_picks_generation_context(doc)
+def _candidate_exclusions(doc, *, force=False):
+    context = _ai_picks_generation_context(doc, force=force)
     return {
         "tracked": context["tracked_media_ids"],
         "in_library": context["in_library_media_ids"],
@@ -1384,6 +1425,7 @@ def _generation_coordinator():
             _AI_GENERATION_COORDINATOR = AiGenerationCoordinator(
                 settings.RECOMMENDATIONS_STORE,
                 _build_ai_candidate_snapshot,
+                commit_exclusions=lambda doc: _candidate_exclusions(doc, force=True),
                 lease_seconds=settings.AI_PICKS_LEASE_SECONDS,
             )
         return _AI_GENERATION_COORDINATOR

@@ -14,7 +14,7 @@ const movie: RequestableMediaItem = {
   title: 'Arrival',
   year: 2016,
   posterUrl: null,
-  hermesId: 'hermes-movie-42',
+  aiPickId: 'ai-movie-42',
 };
 
 const show: RequestableMediaItem = {

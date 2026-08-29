@@ -436,13 +436,13 @@ class MockApi implements MediaStackApi {
       items: [],
     });
   }
-  listHermesRecommendations() {
+  listAiPicks() {
     return Promise.resolve({ ok: true, items: [] });
   }
-  submitHermesFeedback() {
+  submitAiPickFeedback() {
     return Promise.resolve({ ok: true });
   }
-  requestHermesMore() {
+  requestMoreAiPicks() {
     return Promise.resolve({ ok: true });
   }
   listJellyseerrDiscover() {

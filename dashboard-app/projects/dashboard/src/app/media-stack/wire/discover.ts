@@ -67,11 +67,23 @@ export interface MediaStackExternalDiscoverItemDto {
   monitored?: boolean | null;
 }
 
-export interface MediaStackHermesDiscoverDto {
+export interface MediaStackAiPicksDiscoverDto {
   ok: boolean;
   items?: MediaStackDiscoverItemDto[];
   pending_request_sync?: { id: string; jellyseerr_request_id: number }[];
-  generation_request?: { requested_at: string; status: 'pending' } | null;
+  generation_enabled?: boolean;
+  generation?: {
+    id: string;
+    status: 'queued' | 'running' | 'succeeded' | 'failed';
+    trigger: 'on_demand' | 'scheduled';
+    requested_at: string;
+    started_at: string | null;
+    finished_at: string | null;
+    desired_count: number;
+    attempt: number;
+    error_code: string | null;
+    counts: { accepted: number; retained: number; rotated: number; rejected: number } | null;
+  } | null;
   library_exclusion?: MediaStackLibraryExclusionDto;
   watched_exclusion?: MediaStackWatchedExclusionDto;
   error?: string;
@@ -108,7 +120,7 @@ export interface MediaStackDiscoverActionDto {
 export interface MediaStackDiscoverRequestPayloadDto {
   mediaType: MediaStackDiscoverMediaTypeDto;
   mediaId: number;
-  hermesId?: string;
+  aiPickId?: string;
   is4k?: boolean;
   seasons?: number[] | 'all';
 }

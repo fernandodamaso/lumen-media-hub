@@ -8,6 +8,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
+TRAKT_USER_AGENT = "media-stack-dashboard/1.0"
+
 
 class TraktAuthError(RuntimeError):
     """A safe authentication error suitable for a public API response."""
@@ -192,7 +194,11 @@ class TraktClient:
         response = self._call(
             "POST",
             "https://auth.trakt.tv/oauth/token",
-            {"Content-Type": "application/json", "Accept": "application/json"},
+            {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": TRAKT_USER_AGENT,
+            },
             body,
         )
         if response.status in (400, 401):
@@ -226,7 +232,7 @@ class TraktClient:
         return {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": "media-stack-dashboard/1.0",
+            "User-Agent": TRAKT_USER_AGENT,
             "trakt-api-version": "2",
             "trakt-api-key": self.client_id,
             "Authorization": "Bearer " + state.access_token,
@@ -301,7 +307,11 @@ class TraktDeviceAuthorizer:
         self.timeout = timeout
 
     def _call(self, method, url, body):
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": TRAKT_USER_AGENT,
+        }
         try:
             response = self.transport(method, url, headers, body, self.timeout)
         except TypeError:

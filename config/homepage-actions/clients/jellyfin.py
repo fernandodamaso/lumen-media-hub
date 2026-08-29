@@ -875,6 +875,21 @@ def jellyfin_post(path, query=None, method="POST"):
         return json.loads(body.decode("utf-8"))
 
 
+def jellyfin_post_json(path, payload, method="POST"):
+    """POST a complete JSON DTO to a Jellyfin item endpoint."""
+    url = f"{settings.JELLYFIN_URL}{path}"
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=body, method=method)
+    req.add_header("X-Emby-Token", settings.JELLYFIN_API_KEY)
+    req.add_header("Accept", "application/json")
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=settings.TIMEOUT) as resp:
+        if resp.status == 204:
+            return {}
+        response_body = resp.read()
+        return json.loads(response_body.decode("utf-8")) if response_body else {}
+
+
 def delete_jellyfin_item(item_id):
     """Hard-delete a Jellyfin item (removes the item and its metadata)."""
     if not item_id or not isinstance(item_id, str):

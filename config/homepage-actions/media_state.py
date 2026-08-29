@@ -413,7 +413,7 @@ def _fetch_tmdb_map_for_type(item_type):
     return mapping
 
 
-def get_tmdb_library_maps(*, fetch=_fetch_tmdb_map_for_type, now_fn=time.time):
+def get_tmdb_library_maps(*, fetch=_fetch_tmdb_map_for_type, now_fn=time.time, force=False):
     with _TMDB_LIBRARY_CACHE_LOCK:
         if not settings.JELLYFIN_API_KEY:
             _TMDB_LIBRARY_CACHE["status"] = (
@@ -427,7 +427,7 @@ def get_tmdb_library_maps(*, fetch=_fetch_tmdb_map_for_type, now_fn=time.time):
             }
 
         now = now_fn()
-        if now < _TMDB_LIBRARY_CACHE["expires"]:
+        if not force and now < _TMDB_LIBRARY_CACHE["expires"]:
             return {
                 "movie": _TMDB_LIBRARY_CACHE["movie"],
                 "tv": _TMDB_LIBRARY_CACHE["tv"],
@@ -460,8 +460,8 @@ def get_tmdb_library_maps(*, fetch=_fetch_tmdb_map_for_type, now_fn=time.time):
         return {"movie": refreshed_movie, "tv": refreshed_tv}
 
 
-def get_library_exclusion_snapshot(*, fetch=_fetch_tmdb_map_for_type, now_fn=time.time):
-    maps = get_tmdb_library_maps(fetch=fetch, now_fn=now_fn)
+def get_library_exclusion_snapshot(*, fetch=_fetch_tmdb_map_for_type, now_fn=time.time, force=False):
+    maps = get_tmdb_library_maps(fetch=fetch, now_fn=now_fn, force=force)
     with _TMDB_LIBRARY_CACHE_LOCK:
         return LibraryExclusionSnapshot.from_maps(
             maps.get("movie"),
@@ -615,11 +615,12 @@ def get_tracked_media_ids(
     build=build_tracked_media_ids,
     ttl=TRACKED_MEDIA_CACHE_TTL,
     now_fn=time.monotonic,
+    force=False,
 ):
     """Preserve the last complete typed Arr deny set on partial failures."""
     now = now_fn()
     with _tracked_media_cache_lock:
-        if now < _tracked_media_cache["expires"]:
+        if not force and now < _tracked_media_cache["expires"]:
             return (
                 list(_tracked_media_cache["ids"]),
                 list(_tracked_media_cache["errors"]),

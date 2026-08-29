@@ -6,9 +6,9 @@ import {
   DiscoverFeedback,
   DiscoverRequestPayload,
   ExternalDiscover,
-  HermesDiscover,
+  AiPicksDiscover,
   JellyseerrDiscoverKind,
-  SubmitHermesFeedbackOptions,
+  SubmitAiPickFeedbackOptions,
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
@@ -51,13 +51,13 @@ export interface MediaStackApi {
   getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary>;
   runQueueHygiene(mode: 'observe' | 'auto'): Promise<QueueHygieneRunResult>;
   listCronLogs(signal?: AbortSignal): Promise<CronLogs>;
-  listHermesRecommendations(signal?: AbortSignal): Promise<HermesDiscover>;
-  submitHermesFeedback(
+  listAiPicks(signal?: AbortSignal): Promise<AiPicksDiscover>;
+  submitAiPickFeedback(
     id: string,
     feedback: DiscoverFeedback,
-    options?: SubmitHermesFeedbackOptions,
+    options?: SubmitAiPickFeedbackOptions,
   ): Promise<DiscoverAction>;
-  requestHermesMore(): Promise<DiscoverAction>;
+  requestMoreAiPicks(): Promise<DiscoverAction>;
   listJellyseerrDiscover(kind: JellyseerrDiscoverKind, signal?: AbortSignal): Promise<ExternalDiscover>;
   listTraktDiscover(type: TraktDiscoverType, signal?: AbortSignal): Promise<ExternalDiscover>;
   requestMedia(payload: DiscoverRequestPayload): Promise<DiscoverAction>;

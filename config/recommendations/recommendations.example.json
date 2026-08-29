@@ -5,9 +5,9 @@
   "presented_media_ids": ["movie:1538"],
   "items": [
     {
-      "id": "hermes-movie-1538",
+      "id": "ai-movie-1538",
       "identity": "movie:1538",
-      "source": "hermes",
+      "source": "ai",
       "type": "movie",
       "title": "Collateral",
       "year": 2004,
@@ -23,5 +23,6 @@
       "poster_path": "/iOpb3IXV6w7QqkF7L0uCYFxQKkK.jpg",
       "added_at": "2026-07-11T12:00:00Z"
     }
-  ]
+  ],
+  "generation": null
 }

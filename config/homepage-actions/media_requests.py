@@ -9,7 +9,7 @@ import media_state
 from clients.jellyseerr import JellyseerrUpstreamError, _jellyseerr_post
 from recommendations_store import apply_request
 from reconciliation import _enqueue_request_reconciliation
-from shared import _find_hermes_item
+from shared import _find_ai_picks_item
 
 
 class MediaRequestValidationError(Exception):
@@ -60,7 +60,7 @@ class MediaRequestCommand:
         return payload
 
 
-_REQUEST_FIELDS = frozenset({"mediaType", "mediaId", "hermesId", "seasons", "is4k"})
+_REQUEST_FIELDS = frozenset({"mediaType", "mediaId", "aiPickId", "hermesId", "seasons", "is4k"})
 
 
 def validate_request_payload(payload):
@@ -101,15 +101,18 @@ def validate_request_payload(payload):
                 raise MediaRequestValidationError("TV seasons must be unique")
             seasons = tuple(sorted(seasons))
 
-    hermes_id = payload.get("hermesId")
-    if "hermesId" in payload:
+    if "aiPickId" in payload and "hermesId" in payload:
+        raise MediaRequestValidationError("provide only one recommendation item id")
+    item_id_field = "aiPickId" if "aiPickId" in payload else "hermesId"
+    hermes_id = payload.get(item_id_field)
+    if item_id_field in payload:
         if (
             not isinstance(hermes_id, str)
             or not hermes_id.strip()
             or len(hermes_id) > 256
             or any(ord(char) < 32 for char in hermes_id)
         ):
-            raise MediaRequestValidationError("hermesId must be a non-empty string")
+            raise MediaRequestValidationError(f"{item_id_field} must be a non-empty string")
         hermes_id = hermes_id.strip()
 
     return MediaRequestCommand(media_type, media_id, seasons, hermes_id)
@@ -243,7 +246,7 @@ class MediaRequestService:
             raise MediaRequestUnavailable(
                 "Discover recommendations are temporarily unavailable"
             ) from None
-        item = _find_hermes_item(document, command.hermes_id)
+        item = _find_ai_picks_item(document, command.hermes_id)
         if not item:
             raise HermesItemNotFound("Hermes item not found")
         if (
@@ -259,7 +262,7 @@ class MediaRequestService:
             return True, False
 
         def apply(document):
-            item = _find_hermes_item(document, command.hermes_id)
+            item = _find_ai_picks_item(document, command.hermes_id)
             if not item:
                 raise HermesItemNotFound()
             if (

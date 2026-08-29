@@ -54,5 +54,5 @@ export interface RequestableMediaItem {
   title: string;
   year?: number | null;
   posterUrl?: string | null;
-  hermesId?: string;
+  aiPickId?: string;
 }

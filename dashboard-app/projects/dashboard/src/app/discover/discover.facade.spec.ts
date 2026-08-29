@@ -1,7 +1,7 @@
 import { mediaStackLibraryMutationStub } from '../../testing/media-stack-library-stub';
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
-import { DiscoverAction, DiscoverFeedback, DiscoverItem, DiscoverRequestPayload, ExternalDiscoverAvailability, ExternalDiscoverItem, HermesDiscover, JellyseerrDiscoverKind, SubmitHermesFeedbackOptions, TraktDiscoverType } from './discover.models';
+import { DiscoverAction, DiscoverFeedback, DiscoverItem, DiscoverRequestPayload, ExternalDiscoverAvailability, ExternalDiscoverItem, AiPicksDiscover, JellyseerrDiscoverKind, SubmitAiPickFeedbackOptions, TraktDiscoverType } from './discover.models';
 import { MEDIA_STACK_API, MediaStackApi } from '../media-stack/media-stack-api';
 import { DiscoverFacade, SCHEDULED_REFRESH_TIMEOUT_MS } from './discover.facade';
 
@@ -19,11 +19,11 @@ describe('DiscoverFacade', () => {
     facade = TestBed.inject(DiscoverFacade);
   });
 
-  it('loads Hermes by default and isolates visible content across tabs', async () => {
-    await facade.setTab('hermes');
-    expect(facade.tab()).toBe('hermes');
+  it('loads AI Picks by default and isolates visible content across tabs', async () => {
+    await facade.setTab('ai-picks');
+    expect(facade.tab()).toBe('ai-picks');
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
-    expect(api.hermesCalls).toBe(1);
+    expect(api.aiPicksCalls).toBe(1);
 
     void facade.setTab('jellyseerr');
     await Promise.resolve();
@@ -41,7 +41,7 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trakt Horizon']);
     expect(api.traktCalls).toEqual(['movies']);
 
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
     await flush();
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
   });
@@ -73,12 +73,12 @@ describe('DiscoverFacade', () => {
     expect(facade.notice()).toBe('');
   });
 
-  it('warns and recovers library filtering independently for Hermes, Jellyseerr, and Trakt', async () => {
-    api.hermes.library_exclusion = { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' };
-    await facade.setTab('hermes');
+  it('warns and recovers library filtering independently for AI Picks, Jellyseerr, and Trakt', async () => {
+    api.aiPicks.library_exclusion = { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' };
+    await facade.setTab('ai-picks');
     expect(facade.notice()).toContain('Library filtering');
-    api.hermes.library_exclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:01:00Z' };
-    await facade.setTab('hermes');
+    api.aiPicks.library_exclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:01:00Z' };
+    await facade.setTab('ai-picks');
     expect(facade.notice()).toBe('');
 
     api.jellyseerrLibraryExclusion = { status: 'unavailable', last_successful_refresh_at: null };
@@ -162,28 +162,28 @@ describe('DiscoverFacade', () => {
     expect(facade.notice()).toBe('');
   });
 
-  it('shows a stale watched warning for Hermes and clears it after fresh recovery', async () => {
-    api.hermes.watched_exclusion = {
+  it('shows a stale watched warning for AI Picks and clears it after fresh recovery', async () => {
+    api.aiPicks.watched_exclusion = {
       status: 'stale',
       last_successful_refresh_at: '2026-08-11T12:00:00+00:00',
     };
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
 
     expect(facade.visibleItems()).toHaveLength(1);
     expect(facade.notice()).toContain('cached snapshot');
 
-    api.hermes.watched_exclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:15:00+00:00' };
-    await facade.setTab('hermes');
+    api.aiPicks.watched_exclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:15:00+00:00' };
+    await facade.setTab('ai-picks');
     expect(facade.visibleItems()).toHaveLength(1);
     expect(facade.notice()).toBe('');
   });
 
-  it('shows an unavailable watched warning for Hermes while preserving cards', async () => {
-    api.hermes.watched_exclusion = { status: 'unavailable', last_successful_refresh_at: null };
-    await facade.setTab('hermes');
+  it('shows an unavailable watched warning for AI Picks while preserving cards', async () => {
+    api.aiPicks.watched_exclusion = { status: 'unavailable', last_successful_refresh_at: null };
+    await facade.setTab('ai-picks');
 
     expect(facade.visibleItems()).toHaveLength(1);
-    expect(facade.notice()).toBe('Watched filtering is unavailable. Showing Hermes recommendations.');
+    expect(facade.notice()).toBe('Watched filtering is unavailable. Showing AI Picks recommendations.');
   });
 
   it('renders the local Trakt reconnect instruction only for the safe backend code', async () => {
@@ -196,10 +196,10 @@ describe('DiscoverFacade', () => {
     expect(facade.notice()).not.toContain('connect-trakt');
   });
 
-  it('uses safe copy for Hermes browse failures and does not expose backend text', async () => {
-    api.hermes = { ok: false, items: [], error: '<script>backend-secret</script>' };
+  it('uses safe copy for AI Picks browse failures and does not expose backend text', async () => {
+    api.aiPicks = { ok: false, items: [], error: '<script>backend-secret</script>' };
 
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
 
     expect(facade.status()).toBe('error');
     expect(facade.error()).toBe('Discover is temporarily unavailable. Try again.');
@@ -276,84 +276,84 @@ describe('DiscoverFacade', () => {
     await active;
   });
 
-  it('submitFeedback calls only submitHermesFeedback and refreshes Hermes', async () => {
-    await facade.setTab('hermes');
-    await facade.submitFeedback('hermes-eligible', 'liked');
-    expect(api.feedbackCalls).toEqual([{ id: 'hermes-eligible', feedback: 'liked', options: undefined }]);
+  it('submitFeedback calls only submitAiPickFeedback and refreshes AI Picks', async () => {
+    await facade.setTab('ai-picks');
+    await facade.submitFeedback('ai-eligible', 'liked');
+    expect(api.feedbackCalls).toEqual([{ id: 'ai-eligible', feedback: 'liked', options: undefined }]);
     expect(api.requestCalls).toEqual([]);
     expect(facade.notice()).toContain('Feedback');
   });
 
   it('stores pending Trakt sync after watched feedback and updates on refresh', async () => {
-    await facade.setTab('hermes');
-    await facade.submitFeedback('hermes-eligible', 'watched', { confirmAllAired: true });
+    await facade.setTab('ai-picks');
+    await facade.submitFeedback('ai-eligible', 'watched', { confirmAllAired: true });
     expect(api.feedbackCalls[0]).toEqual({
-      id: 'hermes-eligible',
+      id: 'ai-eligible',
       feedback: 'watched',
       options: { confirmAllAired: true },
     });
-    api.hermes.items = api.hermes.items.map((item) =>
-      item.id === 'hermes-eligible'
+    api.aiPicks.items = api.aiPicks.items.map((item) =>
+      item.id === 'ai-eligible'
         ? { ...item, active: false, feedback: 'watched', trakt_history_sync: { status: 'synced' } }
         : item,
     );
-    facade.setHermesView('history');
-    await facade.setTab('hermes');
-    const card = facade.visibleItems().find((item) => item.id === 'hermes-eligible');
+    facade.setAiPicksView('history');
+    await facade.setTab('ai-picks');
+    const card = facade.visibleItems().find((item) => item.id === 'ai-eligible');
     expect(card?.traktHistorySync?.status).toBe('synced');
   });
 
-  it('ignores stale Hermes poll responses that predate feedback', async () => {
-    await facade.setTab('hermes');
-    expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(true);
+  it('ignores stale AI Picks poll responses that predate feedback', async () => {
+    await facade.setTab('ai-picks');
+    expect(facade.visibleItems().some((item) => item.id === 'ai-eligible')).toBe(true);
 
-    let resolveStale!: (value: HermesDiscover) => void;
-    api.hermesGate = new Promise((resolve) => {
+    let resolveStale!: (value: AiPicksDiscover) => void;
+    api.aiPicksGate = new Promise((resolve) => {
       resolveStale = resolve;
     });
 
-    const poll = facade.setTab('hermes');
+    const poll = facade.setTab('ai-picks');
 
-    api.hermes.items = api.hermes.items.map((item) =>
-      item.id === 'hermes-eligible'
+    api.aiPicks.items = api.aiPicks.items.map((item) =>
+      item.id === 'ai-eligible'
         ? { ...item, active: false, feedback: 'liked' as const, feedback_at: '2026-07-27T00:00:00Z' }
         : item,
     );
-    await facade.submitFeedback('hermes-eligible', 'liked');
-    expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(false);
+    await facade.submitFeedback('ai-eligible', 'liked');
+    expect(facade.visibleItems().some((item) => item.id === 'ai-eligible')).toBe(false);
 
     resolveStale({
       ok: true,
-      items: api.hermes.items.map((item) =>
-        item.id === 'hermes-eligible' ? { ...item, active: true, feedback: null } : item,
+      items: api.aiPicks.items.map((item) =>
+        item.id === 'ai-eligible' ? { ...item, active: true, feedback: null } : item,
       ),
     });
     await poll;
 
-    expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(false);
+    expect(facade.visibleItems().some((item) => item.id === 'ai-eligible')).toBe(false);
   });
 
   it('removes liked titles from Active even when the API still reports active', async () => {
-    await facade.setTab('hermes');
-    expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(true);
+    await facade.setTab('ai-picks');
+    expect(facade.visibleItems().some((item) => item.id === 'ai-eligible')).toBe(true);
 
-    api.hermes.items = api.hermes.items.map((item) =>
-      item.id === 'hermes-eligible'
+    api.aiPicks.items = api.aiPicks.items.map((item) =>
+      item.id === 'ai-eligible'
         ? { ...item, active: true, feedback: 'liked' as const, feedback_at: '2026-07-27T00:00:00Z' }
         : item,
     );
-    await facade.submitFeedback('hermes-eligible', 'liked');
+    await facade.submitFeedback('ai-eligible', 'liked');
 
-    expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(false);
-    facade.setHermesView('history');
+    expect(facade.visibleItems().some((item) => item.id === 'ai-eligible')).toBe(false);
+    facade.setAiPicksView('history');
     facade.setHistoryFilter('watched');
-    expect(facade.visibleItems().some((item) => item.id === 'hermes-eligible')).toBe(true);
+    expect(facade.visibleItems().some((item) => item.id === 'ai-eligible')).toBe(true);
   });
 
-  it('moves an excluded Hermes item from Active to History without removing it', async () => {
-    api.hermes.items = [
+  it('moves an excluded AI Picks item from Active to History without removing it', async () => {
+    api.aiPicks.items = [
       {
-        ...api.hermes.items[0],
+        ...api.aiPicks.items[0],
         title: 'The Bear',
         active: true,
         in_library: true,
@@ -361,29 +361,29 @@ describe('DiscoverFacade', () => {
       },
     ];
 
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
     expect(facade.visibleItems()).toEqual([]);
 
-    facade.setHermesView('history');
+    facade.setAiPicksView('history');
     expect(facade.visibleItems()).toMatchObject([
       { title: 'The Bear', inLibrary: true, excludedReason: 'in_library' },
     ]);
   });
 
-  it('moves a projected Trakt-watched Hermes item from Active to Watched History', async () => {
-    api.hermes.items = [
+  it('moves a projected Trakt-watched AI Picks item from Active to Watched History', async () => {
+    api.aiPicks.items = [
       {
-        ...api.hermes.items[0],
+        ...api.aiPicks.items[0],
         active: true,
         excluded_reason: 'watched_on_trakt',
         watched_on_trakt: true,
       },
     ];
 
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
     expect(facade.visibleItems()).toEqual([]);
 
-    facade.setHermesView('history');
+    facade.setAiPicksView('history');
     facade.setHistoryFilter('watched');
     expect(facade.visibleItems()).toMatchObject([
       { title: 'Signal Drift', watchedOnTrakt: true, excludedReason: 'watched_on_trakt' },
@@ -391,19 +391,19 @@ describe('DiscoverFacade', () => {
   });
 
   it('prevents duplicate busy mutations', async () => {
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
     const { promise: feedbackGate, resolve: resolveFeedback } = Promise.withResolvers<DiscoverAction>();
     const release = () => { resolveFeedback({ ok: true, message: 'Feedback saved.' }); };
     api.feedbackGate = feedbackGate;
-    const first = facade.submitFeedback('hermes-eligible', 'liked');
-    await facade.submitFeedback('hermes-eligible', 'disliked');
+    const first = facade.submitFeedback('ai-eligible', 'liked');
+    await facade.submitFeedback('ai-eligible', 'disliked');
     expect(api.feedbackCalls).toHaveLength(1);
     release();
     await first;
   });
 
   it('requestMore reports queued then blocks duplicates while pending', async () => {
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
     api.moreResult = { ok: true, queued: true, message: 'More recommendations queued.' };
     await facade.requestMore();
     expect(facade.generationPending()).toBe(true);
@@ -414,8 +414,70 @@ describe('DiscoverFacade', () => {
     expect(api.moreCalls).toBe(1);
   });
 
+  it('disables generation without clearing existing picks', async () => {
+    api.aiPicks.generation_enabled = false;
+    await facade.setTab('ai-picks');
+
+    expect(facade.generationEnabled()).toBe(false);
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
+    await facade.requestMore();
+    expect(api.moreCalls).toBe(0);
+  });
+
+  it('shows a safe failed generation state while retaining cards', async () => {
+    api.aiPicks.generation = {
+      id: 'job-failed',
+      status: 'failed',
+      trigger: 'on_demand',
+      requested_at: '2026-08-29T10:00:00Z',
+      started_at: '2026-08-29T10:00:01Z',
+      finished_at: '2026-08-29T10:01:01Z',
+      desired_count: 10,
+      attempt: 1,
+      error_code: 'model_timeout',
+      counts: null,
+    };
+
+    await facade.setTab('ai-picks');
+
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
+    expect(facade.generationPending()).toBe(false);
+    expect(facade.notice()).toBe(
+      'AI generation failed (model_timeout). Existing picks are unchanged.',
+    );
+  });
+
+  it('clears a failed generation warning after a later generation succeeds', async () => {
+    api.aiPicks.generation = {
+      id: 'job-failed',
+      status: 'failed',
+      trigger: 'on_demand',
+      requested_at: '2026-08-29T10:00:00Z',
+      started_at: '2026-08-29T10:00:01Z',
+      finished_at: '2026-08-29T10:01:01Z',
+      desired_count: 10,
+      attempt: 1,
+      error_code: 'model_timeout',
+      counts: null,
+    };
+    await facade.setTab('ai-picks');
+    expect(facade.notice()).toContain('AI generation failed');
+
+    api.aiPicks.generation = {
+      ...api.aiPicks.generation,
+      id: 'job-succeeded',
+      status: 'succeeded',
+      finished_at: '2026-08-29T10:02:00Z',
+      error_code: null,
+      counts: { accepted: 10, retained: 0, rotated: 10, rejected: 0 },
+    };
+    await facade.setTab('ai-picks');
+
+    expect(facade.notice()).toBe('');
+  });
+
   it('surfaces already_pending when the adapter reports it on first call', async () => {
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
     api.moreResult = { ok: true, already_pending: true, message: 'A recommendation refresh is already pending.' };
     await facade.requestMore();
     expect(facade.generationPending()).toBe(true);
@@ -423,11 +485,11 @@ describe('DiscoverFacade', () => {
     expect(facade.notice()).toContain('already pending');
   });
 
-  it('recomputes ready/empty when switching Hermes view after active becomes empty', async () => {
-    api.hermes.items = [
+  it('recomputes ready/empty when switching AI Picks view after active becomes empty', async () => {
+    api.aiPicks.items = [
       {
-        id: 'hermes-eligible',
-        source: 'hermes',
+        id: 'ai-eligible',
+        source: 'ai',
         type: 'movie',
         title: 'Signal Drift',
         year: 2024,
@@ -442,8 +504,8 @@ describe('DiscoverFacade', () => {
         added_at: '2026-07-10T12:00:00Z',
       },
       {
-        id: 'hermes-history-liked',
-        source: 'hermes',
+        id: 'ai-history-liked',
+        source: 'ai',
         type: 'movie',
         title: 'Copper Skies',
         year: 2021,
@@ -458,27 +520,27 @@ describe('DiscoverFacade', () => {
         added_at: '2026-06-20T12:00:00Z',
       },
     ];
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
     expect(facade.status()).toBe('ready');
 
-    api.hermes.items = api.hermes.items.map((item) =>
-      item.id === 'hermes-eligible'
+    api.aiPicks.items = api.aiPicks.items.map((item) =>
+      item.id === 'ai-eligible'
         ? { ...item, active: false, feedback: 'skipped' as const, feedback_at: '2026-07-12T00:00:00Z' }
         : item,
     );
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
     expect(facade.status()).toBe('empty');
     expect(facade.visibleItems()).toEqual([]);
 
-    facade.setHermesView('history');
+    facade.setAiPicksView('history');
     expect(facade.status()).toBe('ready');
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift', 'Copper Skies']);
   });
 
-  it('uses the active feed lifecycle instead of projecting Hermes request state', async () => {
-    api.hermes.items = [
+  it('uses the active feed lifecycle instead of projecting AI Picks request state', async () => {
+    api.aiPicks.items = [
       {
-        ...api.hermes.items[0],
+        ...api.aiPicks.items[0],
         request_state: 'requested',
         media_status: 'requested',
         service: null,
@@ -499,7 +561,7 @@ describe('DiscoverFacade', () => {
       request_id: null,
       monitored: null,
     }];
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
     await facade.setTab('jellyseerr');
     await flush();
     expect(facade.visibleItems()[0]).toMatchObject({
@@ -517,16 +579,16 @@ describe('DiscoverFacade', () => {
     await facade.refreshActiveFeed();
 
     expect(api.jellyseerrCalls).toEqual(['trending', 'tv', 'tv']);
-    expect(api.hermesCalls).toBe(0);
+    expect(api.aiPicksCalls).toBe(0);
   });
 
   it('honors pending_request_sync as sync-failed across identities', async () => {
-    api.hermes = {
+    api.aiPicks = {
       ok: true,
       items: [
         {
-          id: 'hermes-sync',
-          source: 'hermes',
+          id: 'ai-sync',
+          source: 'ai',
           type: 'tv',
           title: 'Night Courier',
           year: 2022,
@@ -541,11 +603,11 @@ describe('DiscoverFacade', () => {
           added_at: '2026-07-10T14:00:00Z',
         },
       ],
-      pending_request_sync: [{ id: 'hermes-sync', jellyseerr_request_id: 55 }],
+      pending_request_sync: [{ id: 'ai-sync', jellyseerr_request_id: 55 }],
     };
     api.jellyseerr.trending = [{ type: 'tv', title: 'Night Courier External', tmdb_id: 101005 }];
-    await facade.setTab('hermes');
-    expect(facade.isSyncFailed('hermes-sync')).toBe(true);
+    await facade.setTab('ai-picks');
+    expect(facade.isSyncFailed('ai-sync')).toBe(true);
     expect(facade.isSyncFailed(facade.visibleItems()[0])).toBe(true);
 
     await facade.setTab('jellyseerr');
@@ -553,32 +615,32 @@ describe('DiscoverFacade', () => {
     expect(facade.isSyncFailed(facade.visibleItems()[0])).toBe(true);
   });
 
-  it('ignores stale Hermes failures after switching tabs', async () => {
-    const { promise: hermesGate, resolve: releaseHermes } = Promise.withResolvers<HermesDiscover>();
-    api.hermesGate = hermesGate;
-    const pending = facade.setTab('hermes');
+  it('ignores stale AI Picks failures after switching tabs', async () => {
+    const { promise: aiPicksGate, resolve: releaseAiPicks } = Promise.withResolvers<AiPicksDiscover>();
+    api.aiPicksGate = aiPicksGate;
+    const pending = facade.setTab('ai-picks');
     await facade.setTab('jellyseerr');
     await flush();
     expect(facade.status()).toBe('ready');
-    releaseHermes({ ok: false, items: [], error: 'Hermes offline' });
+    releaseAiPicks({ ok: false, items: [], error: 'AI Picks offline' });
     await pending;
     expect(facade.tab()).toBe('jellyseerr');
     expect(facade.status()).toBe('ready');
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trending Ember']);
   });
 
-  it('does not let a late Hermes success clear the active Trakt watched warning', async () => {
-    const { promise: hermesGate, resolve: releaseHermes } = Promise.withResolvers<HermesDiscover>();
-    api.hermesGate = hermesGate;
-    const pending = facade.setTab('hermes');
+  it('does not let a late AI Picks success clear the active Trakt watched warning', async () => {
+    const { promise: aiPicksGate, resolve: releaseAiPicks } = Promise.withResolvers<AiPicksDiscover>();
+    api.aiPicksGate = aiPicksGate;
+    const pending = facade.setTab('ai-picks');
     await Promise.resolve();
 
     api.traktWatchedExclusion = { status: 'unavailable', last_successful_refresh_at: null };
     await facade.setTab('trakt');
     expect(facade.notice()).toBe('Watched filtering is unavailable. Showing Trakt recommendations.');
 
-    releaseHermes({
-      ...api.hermes,
+    releaseAiPicks({
+      ...api.aiPicks,
       watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     });
     await pending;
@@ -609,34 +671,34 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Trakt Horizon']);
   });
 
-  it('ignores a superseded Hermes response for the same filter', async () => {
-    await facade.setTab('hermes');
+  it('ignores a superseded AI Picks response for the same filter', async () => {
+    await facade.setTab('ai-picks');
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
 
-    const { promise: firstGate, resolve: releaseFirst } = Promise.withResolvers<HermesDiscover>();
-    api.hermesGate = firstGate;
-    const first = facade.setTab('hermes');
+    const { promise: firstGate, resolve: releaseFirst } = Promise.withResolvers<AiPicksDiscover>();
+    api.aiPicksGate = firstGate;
+    const first = facade.setTab('ai-picks');
     await Promise.resolve();
 
-    api.hermes = {
+    api.aiPicks = {
       ok: true,
       items: [
         {
-          ...api.hermes.items[0],
-          title: 'Newer Hermes',
+          ...api.aiPicks.items[0],
+          title: 'Newer AI Picks',
         },
       ],
     };
-    const second = facade.setTab('hermes');
+    const second = facade.setTab('ai-picks');
     await second;
-    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Newer Hermes']);
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Newer AI Picks']);
 
     releaseFirst({
       ok: true,
-      items: [{ ...api.hermes.items[0], title: 'Stale Hermes' }],
+      items: [{ ...api.aiPicks.items[0], title: 'Stale AI Picks' }],
     });
     await first;
-    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Newer Hermes']);
+    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Newer AI Picks']);
   });
 
   it('ignores a superseded Jellyseerr filter response after switching kinds', async () => {
@@ -744,57 +806,57 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Newer Trakt']);
   });
 
-  it('retains last-good Hermes results when a background refresh fails', async () => {
-    await facade.setTab('hermes');
+  it('retains last-good AI Picks results when a background refresh fails', async () => {
+    await facade.setTab('ai-picks');
     expect(facade.status()).toBe('ready');
     expect(facade.visibleItems()).toHaveLength(1);
 
-    api.hermes = { ok: false, items: [], error: 'Hermes offline' };
-    await facade.setTab('hermes');
+    api.aiPicks = { ok: false, items: [], error: 'AI Picks offline' };
+    await facade.setTab('ai-picks');
     expect(facade.status()).toBe('ready');
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
     expect(facade.noticeTone()).toBe('warning');
     expect(facade.notice()).toBe('Could not refresh. Showing last loaded results.');
   });
 
-  it('retains an empty Hermes last-good state when a later refresh fails', async () => {
-    api.hermes = { ok: true, items: [] };
-    await facade.setTab('hermes');
+  it('retains an empty AI Picks last-good state when a later refresh fails', async () => {
+    api.aiPicks = { ok: true, items: [] };
+    await facade.setTab('ai-picks');
     expect(facade.status()).toBe('empty');
     expect(facade.visibleItems()).toEqual([]);
 
-    api.hermes = { ok: false, items: [], error: 'Hermes offline' };
-    await facade.setTab('hermes');
+    api.aiPicks = { ok: false, items: [], error: 'AI Picks offline' };
+    await facade.setTab('ai-picks');
     expect(facade.status()).toBe('empty');
     expect(facade.error()).toBe('');
     expect(facade.noticeTone()).toBe('warning');
     expect(facade.notice()).toBe('Could not refresh. Showing last loaded results.');
   });
 
-  it('hard-errors on the initial Hermes load failure', async () => {
-    api.hermes = { ok: false, items: [], error: 'Hermes offline' };
-    await facade.setTab('hermes');
+  it('hard-errors on the initial AI Picks load failure', async () => {
+    api.aiPicks = { ok: false, items: [], error: 'AI Picks offline' };
+    await facade.setTab('ai-picks');
     expect(facade.status()).toBe('error');
     expect(facade.error()).toBe('Discover is temporarily unavailable. Try again.');
     expect(facade.visibleItems()).toEqual([]);
   });
 
-  it('ignores a superseded Hermes success after a newer failure', async () => {
-    const { promise: firstGate, resolve: releaseFirst } = Promise.withResolvers<HermesDiscover>();
-    api.hermesGate = firstGate;
-    const first = facade.setTab('hermes');
+  it('ignores a superseded AI Picks success after a newer failure', async () => {
+    const { promise: firstGate, resolve: releaseFirst } = Promise.withResolvers<AiPicksDiscover>();
+    api.aiPicksGate = firstGate;
+    const first = facade.setTab('ai-picks');
     await Promise.resolve();
 
-    api.hermes = { ok: false, items: [], error: 'Hermes offline' };
-    await facade.setTab('hermes');
+    api.aiPicks = { ok: false, items: [], error: 'AI Picks offline' };
+    await facade.setTab('ai-picks');
     expect(facade.status()).toBe('error');
 
     releaseFirst({
       ok: true,
       items: [
         {
-          id: 'hermes-eligible',
-          source: 'hermes',
+          id: 'ai-eligible',
+          source: 'ai',
           type: 'movie',
           title: 'Recovered Title',
           year: 2024,
@@ -828,7 +890,7 @@ describe('DiscoverFacade', () => {
     const pending = facade.setTab('jellyseerr');
     await Promise.resolve();
 
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
     resolve({
       ok: true,
       items: [{ type: 'movie', title: 'Stale Jellyseerr', tmdb_id: 991 }],
@@ -859,80 +921,80 @@ describe('DiscoverFacade', () => {
 
   it('skips overlapping scheduled polls while a refresh is in flight', async () => {
     vi.useFakeTimers();
-    await facade.setTab('hermes');
-    expect(api.hermesCalls).toBe(1);
+    await facade.setTab('ai-picks');
+    expect(api.aiPicksCalls).toBe(1);
 
-    const { promise: hermesGate, resolve: releaseHermes } = Promise.withResolvers<HermesDiscover>();
-    api.hermesGate = hermesGate;
+    const { promise: aiPicksGate, resolve: releaseAiPicks } = Promise.withResolvers<AiPicksDiscover>();
+    api.aiPicksGate = aiPicksGate;
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(api.hermesCalls).toBe(2);
+    expect(api.aiPicksCalls).toBe(2);
 
     await vi.advanceTimersByTimeAsync(29_000);
-    expect(api.hermesCalls).toBe(2);
+    expect(api.aiPicksCalls).toBe(2);
 
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(api.hermesCalls).toBe(2);
+    expect(api.aiPicksCalls).toBe(2);
 
-    releaseHermes({
+    releaseAiPicks({
       ok: true,
-      items: api.hermes.items.map((item) => ({ ...item })),
+      items: api.aiPicks.items.map((item) => ({ ...item })),
     });
     await flush();
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(api.hermesCalls).toBe(3);
+    expect(api.aiPicksCalls).toBe(3);
     vi.useRealTimers();
   });
 
-  it('keeps request-more pending when the follow-up list omits generation_request', async () => {
-    await facade.setTab('hermes');
+  it('uses the authoritative generation state after request-more', async () => {
+    await facade.setTab('ai-picks');
     api.moreResult = { ok: true, queued: true, message: 'More recommendations queued.' };
     api.skipGenerationOnMore = true;
     await facade.requestMore();
-    expect(facade.generationPending()).toBe(true);
+    expect(facade.generationPending()).toBe(false);
     await facade.requestMore();
-    expect(api.moreCalls).toBe(1);
+    expect(api.moreCalls).toBe(2);
   });
 
-  it('recovers scheduled polling after a hung Hermes refresh times out', async () => {
+  it('recovers scheduled polling after a hung AI Picks refresh times out', async () => {
     vi.useFakeTimers();
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
     expect(facade.status()).toBe('ready');
 
-    const { promise: hermesDeferred, resolve: releaseHermes } = Promise.withResolvers<HermesDiscover>();
-    api.hermesDeferred = hermesDeferred;
+    const { promise: aiPicksDeferred, resolve: releaseAiPicks } = Promise.withResolvers<AiPicksDiscover>();
+    api.aiPicksDeferred = aiPicksDeferred;
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(api.hermesCalls).toBe(2);
+    expect(api.aiPicksCalls).toBe(2);
 
     await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
     expect(facade.status()).toBe('ready');
     expect(facade.notice()).toContain('Could not refresh');
 
-    releaseHermes({
+    releaseAiPicks({
       ok: true,
-      items: api.hermes.items.map((item) => ({ ...item })),
+      items: api.aiPicks.items.map((item) => ({ ...item })),
     });
-    api.hermesDeferred = null;
+    api.aiPicksDeferred = null;
     await flush();
 
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(api.hermesCalls).toBe(3);
+    expect(api.aiPicksCalls).toBe(3);
 
     TestBed.resetTestingModule();
     vi.useRealTimers();
   });
 
-  it('aborts the active Hermes signal when a scheduled refresh times out', async () => {
+  it('aborts the active AI Picks signal when a scheduled refresh times out', async () => {
     vi.useFakeTimers();
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
 
-    const { promise: hermesDeferred } = Promise.withResolvers<HermesDiscover>();
-    api.hermesDeferred = hermesDeferred;
+    const { promise: aiPicksDeferred } = Promise.withResolvers<AiPicksDiscover>();
+    api.aiPicksDeferred = aiPicksDeferred;
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(api.hermesCalls).toBe(2);
-    expect(api.lastHermesSignal?.aborted).toBe(false);
+    expect(api.aiPicksCalls).toBe(2);
+    expect(api.lastAiPicksSignal?.aborted).toBe(false);
 
     await vi.advanceTimersByTimeAsync(SCHEDULED_REFRESH_TIMEOUT_MS);
-    expect(api.lastHermesSignal?.aborted).toBe(true);
+    expect(api.lastAiPicksSignal?.aborted).toBe(true);
 
     TestBed.resetTestingModule();
     vi.useRealTimers();
@@ -943,10 +1005,10 @@ describe('DiscoverFacade', () => {
     await flush();
     expect(facade.status()).toBe('ready');
 
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
     await flush();
-    api.hermes = { ok: true, items: [] };
-    await facade.setTab('hermes');
+    api.aiPicks = { ok: true, items: [] };
+    await facade.setTab('ai-picks');
     expect(facade.status()).toBe('empty');
 
     const { promise: jellyseerrGate, resolve: resolveJellyseerr } = Promise.withResolvers<{
@@ -965,14 +1027,14 @@ describe('DiscoverFacade', () => {
 
   it('polls only while started and stops on destroy', async () => {
     vi.useFakeTimers();
-    await facade.setTab('hermes');
+    await facade.setTab('ai-picks');
     await vi.advanceTimersByTimeAsync(0);
-    expect(api.hermesCalls).toBe(1);
+    expect(api.aiPicksCalls).toBe(1);
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(api.hermesCalls).toBe(2);
+    expect(api.aiPicksCalls).toBe(2);
     TestBed.resetTestingModule();
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(api.hermesCalls).toBe(2);
+    expect(api.aiPicksCalls).toBe(2);
     vi.useRealTimers();
   });
 });
@@ -989,14 +1051,16 @@ class MockApi implements MediaStackApi {
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;
   deleteLibraryItemDirectly = mediaStackLibraryMutationStub.deleteLibraryItemDirectly;
-  hermes: HermesDiscover = {
+  aiPicks: AiPicksDiscover = {
     ok: true,
+    generation_enabled: true,
+    generation: null,
     library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     items: [
       {
-        id: 'hermes-eligible',
-        source: 'hermes',
+        id: 'ai-eligible',
+        source: 'ai',
         type: 'movie',
         title: 'Signal Drift',
         year: 2024,
@@ -1036,16 +1100,16 @@ class MockApi implements MediaStackApi {
   };
   traktError: { message: string; code?: 'reconnect_required' } | null = null;
   jellyseerrError: { message: string; code?: 'reconnect_required' } | null = null;
-  hermesCalls = 0;
+  aiPicksCalls = 0;
   jellyseerrCalls: JellyseerrDiscoverKind[] = [];
   traktCalls: TraktDiscoverType[] = [];
-  feedbackCalls: { id: string; feedback: DiscoverFeedback; options?: SubmitHermesFeedbackOptions }[] = [];
+  feedbackCalls: { id: string; feedback: DiscoverFeedback; options?: SubmitAiPickFeedbackOptions }[] = [];
   requestCalls: DiscoverRequestPayload[] = [];
   moreCalls = 0;
   feedbackGate: Promise<DiscoverAction> | null = null;
-  hermesGate: Promise<HermesDiscover> | null = null;
-  hermesDeferred: Promise<HermesDiscover> | null = null;
-  lastHermesSignal?: AbortSignal;
+  aiPicksGate: Promise<AiPicksDiscover> | null = null;
+  aiPicksDeferred: Promise<AiPicksDiscover> | null = null;
+  lastAiPicksSignal?: AbortSignal;
   jellyseerrGate: Promise<{
     ok: boolean;
     items: ExternalDiscoverItem[];
@@ -1123,24 +1187,24 @@ class MockApi implements MediaStackApi {
       availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const },
     });
   }
-  listHermesRecommendations(signal?: AbortSignal) {
-    this.hermesCalls++;
-    this.lastHermesSignal = signal;
-    if (this.hermesDeferred) {
-      return this.withAbort(signal, this.hermesDeferred);
+  listAiPicks(signal?: AbortSignal) {
+    this.aiPicksCalls++;
+    this.lastAiPicksSignal = signal;
+    if (this.aiPicksDeferred) {
+      return this.withAbort(signal, this.aiPicksDeferred);
     }
-    if (this.hermesGate) {
-      const gate = this.hermesGate;
-      this.hermesGate = null;
+    if (this.aiPicksGate) {
+      const gate = this.aiPicksGate;
+      this.aiPicksGate = null;
       return gate;
     }
     return Promise.resolve({
-      ...this.hermes,
-      items: this.hermes.items.map((item) => ({ ...item })),
-      pending_request_sync: this.hermes.pending_request_sync?.map((entry) => ({ ...entry })),
+      ...this.aiPicks,
+      items: this.aiPicks.items.map((item) => ({ ...item })),
+      pending_request_sync: this.aiPicks.pending_request_sync?.map((entry) => ({ ...entry })),
     });
   }
-  submitHermesFeedback(id: string, feedback: DiscoverFeedback, options?: SubmitHermesFeedbackOptions) {
+  submitAiPickFeedback(id: string, feedback: DiscoverFeedback, options?: SubmitAiPickFeedbackOptions) {
     this.feedbackCalls.push({ id, feedback, options });
     if (feedback === 'watched') {
       return this.feedbackGate ?? Promise.resolve({
@@ -1151,10 +1215,15 @@ class MockApi implements MediaStackApi {
     }
     return this.feedbackGate ?? Promise.resolve({ ok: true, message: 'Feedback saved.' });
   }
-  requestHermesMore() {
+  requestMoreAiPicks() {
     this.moreCalls++;
     if (!this.skipGenerationOnMore && (this.moreResult.queued || this.moreResult.already_pending)) {
-      this.hermes.generation_request = { requested_at: '2026-07-12T00:00:00Z', status: 'pending' };
+      this.aiPicks.generation_enabled = true;
+      this.aiPicks.generation = {
+        id: 'job-1', status: 'queued', trigger: 'on_demand',
+        requested_at: '2026-07-12T00:00:00Z', started_at: null, finished_at: null,
+        desired_count: 10, attempt: 0, error_code: null, counts: null,
+      };
     }
     return Promise.resolve(this.moreResult);
   }

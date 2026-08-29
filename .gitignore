@@ -7,13 +7,17 @@
 /config/**
 !/config/homepage-actions/
 !/config/homepage-actions/**
-/config/homepage-actions/__pycache__/
+/config/homepage-actions/**/__pycache__/
+!/config/ai-recommendations/
+!/config/ai-recommendations/**
+/config/ai-recommendations/node_modules/
+/config/ai-recommendations/dist/
+/config/ai-recommendations/coverage/
 !/config/recommendations/
 !/config/recommendations/schema-v2.json
 !/config/recommendations/schema-v3.json
 !/config/recommendations/schema-v4.json
 !/config/recommendations/recommendations.example.json
-!/config/recommendations/HERMES_DISCOVER_PROMPT.md
 !/config/recommendations/README.md
 
 # Media data (large volumes)

@@ -87,10 +87,10 @@ class DiscoverLifecycleDecorationTests(unittest.TestCase):
             )
         return items
 
-    def test_hermes_projection_keeps_compatibility_and_adds_lifecycle(self):
+    def test_ai_picks_projection_keeps_request_state_and_adds_lifecycle(self):
         item = {
-            "id": "hermes-movie-42",
-            "source": "hermes",
+            "id": "ai-movie-42",
+            "source": "ai",
             "type": "movie",
             "title": "Title",
             "tmdb_id": 42,
@@ -115,7 +115,7 @@ class DiscoverLifecycleDecorationTests(unittest.TestCase):
             "_trakt_watched_snapshot",
             return_value=WatchedSnapshot(frozenset(), None, "fresh"),
         ), mock.patch.object(
-            discover, "_enrich_hermes_posters", side_effect=lambda values: values
+            discover, "_enrich_ai_picks_posters", side_effect=lambda values: values
         ), mock.patch.object(
             discover,
             "_decorate_discover_lifecycle",
@@ -125,7 +125,7 @@ class DiscoverLifecycleDecorationTests(unittest.TestCase):
             "send_json",
             side_effect=lambda _handler, _status, payload: captured.update(payload),
         ):
-            discover.handle_discover_hermes_get(SimpleNamespace())
+            discover.handle_discover_ai_picks_get(SimpleNamespace())
 
         public = captured["items"][0]
         self.assertTrue(LIFECYCLE_KEYS.issubset(public))

@@ -4,7 +4,7 @@ import { DiscoverFeedback, DiscoverSourceTab, JellyseerrDiscoverKind, TraktDisco
 import { DiscoverCard } from './discover-card';
 import { DiscoverHistoryFilter, isWatchedFeedbackDisabled, matchesDiscoverSearch } from './discover-format';
 import { DiscoverRequestAction } from './discover-format';
-import { DiscoverFacade, HermesView } from './discover.facade';
+import { DiscoverFacade, AiPicksView } from './discover.facade';
 import { MediaRequestDialog, MediaRequestCompletion } from '../media-request/media-request-dialog/media-request-dialog';
 import { RequestableMediaItem } from '../media-request/media-request.models';
 
@@ -60,11 +60,11 @@ export class DiscoverPage {
   readonly skeletonSlots = Array.from({ length: 12 }, (_, index) => index);
 
   readonly tabs: { id: DiscoverSourceTab; label: string }[] = [
-    { id: 'hermes', label: 'Hermes' },
+    { id: 'ai-picks', label: 'AI Picks' },
     { id: 'jellyseerr', label: 'Jellyseerr' },
     { id: 'trakt', label: 'Trakt' },
   ];
-  readonly hermesViews: { id: HermesView; label: string }[] = [
+  readonly aiPicksViews: { id: AiPicksView; label: string }[] = [
     { id: 'active', label: 'Active' },
     { id: 'history', label: 'History' },
   ];
@@ -92,7 +92,7 @@ export class DiscoverPage {
   });
 
   constructor() {
-    void this.facade.setTab('hermes');
+    void this.facade.setTab('ai-picks');
   }
 
   private withLimitReset(changed: boolean, run: () => void): void {
@@ -108,9 +108,9 @@ export class DiscoverPage {
     });
   }
 
-  setHermesView(view: HermesView): void {
-    this.withLimitReset(this.facade.hermesView() !== view, () => {
-      this.facade.setHermesView(view);
+  setAiPicksView(view: AiPicksView): void {
+    this.withLimitReset(this.facade.aiPicksView() !== view, () => {
+      this.facade.setAiPicksView(view);
     });
   }
 
@@ -210,7 +210,7 @@ export class DiscoverPage {
       title: item.title,
       year: item.year,
       posterUrl: item.posterUrl,
-      ...(item.hermesId ? { hermesId: item.hermesId } : {}),
+      ...(item.aiPickId ? { aiPickId: item.aiPickId } : {}),
     });
     this.requestDialogOpen.set(true);
   }

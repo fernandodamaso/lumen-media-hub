@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://local.media/hermes/recommendations.schema-v4.json",
-  "title": "Hermes Recommendations v4",
-  "description": "Versioned contract for config/recommendations/recommendations.json. v4 records which request provider owns requested state.",
+  "$id": "https://local.media/ai-picks/recommendations.schema-v4.json",
+  "title": "AI Picks Recommendations v4",
+  "description": "Versioned contract for config/recommendations/recommendations.json. v4 stores model-agnostic AI Picks, one durable generation job, and authoritative request-provider provenance while preserving composite never-twice identities.",
   "type": "object",
-  "required": ["version", "revision", "updated_at", "presented_media_ids", "items"],
+  "required": ["version", "revision", "updated_at", "presented_media_ids", "items", "generation"],
   "additionalProperties": true,
   "properties": {
     "version": { "const": 4 },
@@ -20,6 +20,77 @@
       "items": {
         "type": "string",
         "pattern": "^(?:(?:movie|tv):[1-9][0-9]*|legacy:[1-9][0-9]*)$"
+      }
+    },
+    "generation": {
+      "type": ["object", "null"],
+      "required": [
+        "id", "status", "trigger", "requested_at", "started_at", "finished_at",
+        "desired_count", "attempt", "lease_expires_at", "lease_token",
+        "base_revision", "candidates", "taste", "required_retain", "error_code", "counts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["queued", "running", "succeeded", "failed"] },
+        "trigger": { "enum": ["on_demand", "scheduled"] },
+        "requested_at": { "type": "string" },
+        "started_at": { "type": ["string", "null"] },
+        "finished_at": { "type": ["string", "null"] },
+        "desired_count": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "attempt": { "type": "integer", "minimum": 0 },
+        "lease_expires_at": { "type": ["string", "null"] },
+        "lease_token": { "type": ["string", "null"] },
+        "base_revision": { "type": ["integer", "null"], "minimum": 0 },
+        "candidates": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "required": ["identity", "type", "title", "tmdb_id"],
+            "properties": {
+              "identity": { "type": "string", "pattern": "^(?:movie|tv):[1-9][0-9]*$" },
+              "type": { "enum": ["movie", "tv"] },
+              "title": { "type": "string", "minLength": 1 },
+              "tmdb_id": { "type": "integer", "minimum": 1 },
+              "overview": { "type": "string" },
+              "signals": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "taste": { "type": "object" },
+        "required_retain": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^(?:movie|tv):[1-9][0-9]*$" }
+        },
+        "error_code": { "type": ["string", "null"] },
+        "counts": {
+          "type": ["object", "null"],
+          "required": ["accepted", "retained", "rotated", "rejected"],
+          "properties": {
+            "accepted": { "type": "integer", "minimum": 0 },
+            "retained": { "type": "integer", "minimum": 0 },
+            "rotated": { "type": "integer", "minimum": 0 },
+            "rejected": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": ["request_state"],
+              "properties": { "request_state": { "const": "requested" } }
+            },
+            "then": {
+              "properties": {
+                "request_provider": { "enum": ["jellyseerr", "arr_legacy"] }
+              }
+            },
+            "else": {
+              "properties": { "request_provider": { "const": null } }
+            }
+          }
+        ]
       }
     },
     "items": {
@@ -47,13 +118,13 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^hermes-(?:movie|tv)-[1-9][0-9]*$"
+            "pattern": "^ai-(?:movie|tv)-[1-9][0-9]*$"
           },
           "identity": {
             "type": "string",
             "pattern": "^(?:movie|tv):[1-9][0-9]*$"
           },
-          "source": { "type": "string" },
+          "source": { "const": "ai" },
           "type": { "enum": ["movie", "tv"] },
           "title": { "type": "string" },
           "year": { "type": ["integer", "null"] },
@@ -111,23 +182,7 @@
               "last_post_status": { "type": ["integer", "null"] }
             }
           }
-        },
-        "allOf": [
-          {
-            "if": {
-              "required": ["request_state"],
-              "properties": { "request_state": { "const": "requested" } }
-            },
-            "then": {
-              "properties": {
-                "request_provider": { "enum": ["jellyseerr", "arr_legacy"] }
-              }
-            },
-            "else": {
-              "properties": { "request_provider": { "const": null } }
-            }
-          }
-        ]
+        }
       }
     }
   }

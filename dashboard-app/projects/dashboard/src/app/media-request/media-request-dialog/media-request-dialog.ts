@@ -103,7 +103,7 @@ export class MediaRequestDialog {
       const action = await this.api.requestMedia({
         mediaType: item.type,
         mediaId: item.tmdbId,
-        ...(item.hermesId ? { hermesId: item.hermesId } : {}),
+        ...(item.aiPickId ? { aiPickId: item.aiPickId } : {}),
         ...(item.type === 'tv' ? { seasons } : {}),
       });
       if (

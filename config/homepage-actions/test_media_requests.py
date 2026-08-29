@@ -23,11 +23,11 @@ class _Store:
         return self.doc
 
 
-def _hermes_item(media_type="movie", tmdb_id=42):
+def _ai_pick_item(media_type="movie", tmdb_id=42):
     return {
-        "id": f"hermes-{media_type}-{tmdb_id}",
+        "id": f"ai-{media_type}-{tmdb_id}",
         "identity": f"{media_type}:{tmdb_id}",
-        "source": "hermes",
+        "source": "ai",
         "type": media_type,
         "tmdb_id": tmdb_id,
         "active": True,
@@ -50,7 +50,7 @@ class RequestValidationTests(unittest.TestCase):
                 "mediaId": 42,
                 "seasons": [2, 0, 1],
                 "is4k": False,
-                "hermesId": "hermes-tv-42",
+                "aiPickId": "ai-tv-42",
             }
         )
 
@@ -69,7 +69,7 @@ class RequestValidationTests(unittest.TestCase):
                 "is4k": False,
             },
         )
-        self.assertEqual(tv.hermes_id, "hermes-tv-42")
+        self.assertEqual(tv.hermes_id, "ai-tv-42")
 
     def test_tv_all_is_preserved(self):
         command = media_requests.validate_request_payload(
@@ -260,7 +260,7 @@ class MediaRequestServiceTests(unittest.TestCase):
         self.assertEqual(calls, [("movie", 42, False)])
 
     def test_hermes_identity_is_validated_before_post_and_persists_jellyseerr(self):
-        store = _Store(_hermes_item())
+        store = _Store(_ai_pick_item())
         posts = []
         service, _, _ = self.service(
             store=store,
@@ -271,7 +271,7 @@ class MediaRequestServiceTests(unittest.TestCase):
             {
                 "mediaType": "movie",
                 "mediaId": 42,
-                "hermesId": "hermes-movie-42",
+                "aiPickId": "ai-movie-42",
             }
         )
         item = store.doc["items"][0]
@@ -281,7 +281,7 @@ class MediaRequestServiceTests(unittest.TestCase):
         self.assertEqual(item["request_state"], "requested")
         self.assertEqual(item["feedback"], "liked")
 
-        mismatched = _Store(_hermes_item("movie", 42))
+        mismatched = _Store(_ai_pick_item("movie", 42))
         mismatch_service, _, _ = self.service(store=mismatched, post=lambda *a: posts.append(a))
         with self.assertRaises(media_requests.HermesIdentityMismatch):
             mismatch_service.request(
@@ -289,13 +289,13 @@ class MediaRequestServiceTests(unittest.TestCase):
                     "mediaType": "tv",
                     "mediaId": 42,
                     "seasons": [1],
-                    "hermesId": "hermes-movie-42",
+                    "aiPickId": "ai-movie-42",
                 }
             )
         self.assertEqual(len(posts), 1)
 
     def test_jellyseerr_success_with_persistence_failure_queues_provider_aware_reconciliation(self):
-        store = _Store(_hermes_item(), fail_update=True)
+        store = _Store(_ai_pick_item(), fail_update=True)
         queued = []
         service, _, _ = self.service(
             store=store,
@@ -308,11 +308,11 @@ class MediaRequestServiceTests(unittest.TestCase):
             {
                 "mediaType": "movie",
                 "mediaId": 42,
-                "hermesId": "hermes-movie-42",
+                "aiPickId": "ai-movie-42",
             }
         )
 
-        self.assertEqual(queued, [("hermes-movie-42", 812, "jellyseerr")])
+        self.assertEqual(queued, [("ai-movie-42", 812, "jellyseerr")])
         self.assertTrue(result["partial_success"])
         self.assertFalse(result["dashboard_state_persisted"])
         self.assertTrue(result["reconciliation_queued"])

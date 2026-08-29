@@ -4,7 +4,7 @@
 Covers the TTL poster cache (positive 24h, negative 5min, retry after
 failure), the bounded worker pool (concurrency bound, batch timing vs
 sequential), warm reads with zero Jellyseerr calls, and degraded-mode
-resilience of GET /discover/hermes and POST /discover/hermes/generations.
+resilience of GET /discover/ai-picks and POST /discover/ai-picks/request-more.
 
 Only the network layer (routes._fetch_poster_path) and the cache clock
 (routes._now) are faked; the cache, pool, and enrichment logic run for real.
@@ -131,12 +131,12 @@ class ReadJsonBodyTests(unittest.TestCase):
         self.assertEqual(http_support._read_json_body(handler), {"p": "x" * pad_len})
 
 
-def make_hermes_item(tmdb_id, **extra):
+def make_ai_picks_item(tmdb_id, **extra):
     media_type = extra.get("type", "movie")
     item = {
-        "id": f"hermes-{media_type}-{tmdb_id}",
+        "id": f"ai-{media_type}-{tmdb_id}",
         "identity": f"{media_type}:{tmdb_id}",
-        "source": "hermes",
+        "source": "ai",
         "type": "movie",
         "title": f"Title {tmdb_id}",
         "year": 2000,
@@ -297,11 +297,11 @@ class ConcurrencyTests(PosterEnrichmentTestCase):
 class EnrichmentTests(PosterEnrichmentTestCase):
     def test_enriches_only_items_missing_both_poster_fields(self):
         items = [
-            make_hermes_item(1, poster_path="/persisted.jpg"),
-            make_hermes_item(2, poster_url="https://example.com/x.jpg"),
-            make_hermes_item(3),
+            make_ai_picks_item(1, poster_path="/persisted.jpg"),
+            make_ai_picks_item(2, poster_url="https://example.com/x.jpg"),
+            make_ai_picks_item(3),
         ]
-        routes._enrich_hermes_posters(items)
+        routes._enrich_ai_picks_posters(items)
         # Only item 3 needed a Jellyseerr call.
         self.assertEqual(self.client.call_count(), 1)
         self.assertEqual(items[0]["poster_url"], "https://image.tmdb.org/t/p/w342/persisted.jpg")
@@ -309,8 +309,8 @@ class EnrichmentTests(PosterEnrichmentTestCase):
         self.assertEqual(items[2]["poster_url"], "https://image.tmdb.org/t/p/w342/movie-3.jpg")
 
     def test_warm_read_with_persisted_poster_path_makes_zero_calls(self):
-        items = [make_hermes_item(i, poster_path=f"/p{i}.jpg") for i in range(1, 26)]
-        routes._enrich_hermes_posters(items)
+        items = [make_ai_picks_item(i, poster_path=f"/p{i}.jpg") for i in range(1, 26)]
+        routes._enrich_ai_picks_posters(items)
         self.assertEqual(self.client.call_count(), 0)
         for item in items:
             i = item["tmdb_id"]
@@ -318,8 +318,8 @@ class EnrichmentTests(PosterEnrichmentTestCase):
 
     def test_enrichment_degrades_when_client_raises(self):
         self.client.fail_keys = {("movie", i) for i in range(1, 4)}
-        items = [make_hermes_item(i) for i in range(1, 4)]
-        result = routes._enrich_hermes_posters(items)  # must not raise
+        items = [make_ai_picks_item(i) for i in range(1, 4)]
+        result = routes._enrich_ai_picks_posters(items)  # must not raise
         for item in result:
             self.assertIsNone(item["poster_url"])
             self.assertTrue(item["title"])  # title fallback intact
@@ -361,19 +361,19 @@ class TimingComparisonTests(PosterEnrichmentTestCase):
         # Cold: 25 misses, each fake call sleeps 0.02s. Sequential would be
         # 0.5s; bounded at 4 -> ~7 waves ~0.14s.
         self.client.sleep = 0.02
-        cold_items = [make_hermes_item(i) for i in range(1, 26)]
+        cold_items = [make_ai_picks_item(i) for i in range(1, 26)]
         started = time.monotonic()
-        routes._enrich_hermes_posters(cold_items)
+        routes._enrich_ai_picks_posters(cold_items)
         cold = time.monotonic() - started
         self.assertEqual(self.client.call_count(), 25)
         self.assertLess(cold, 0.35)
 
         # Warm: same cards with persisted poster_path -> zero calls.
         warm_items = [
-            make_hermes_item(i, poster_path=f"/movie-{i}.jpg") for i in range(1, 26)
+            make_ai_picks_item(i, poster_path=f"/movie-{i}.jpg") for i in range(1, 26)
         ]
         started = time.monotonic()
-        routes._enrich_hermes_posters(warm_items)
+        routes._enrich_ai_picks_posters(warm_items)
         warm = time.monotonic() - started
         self.assertEqual(self.client.call_count(), 25)
         self.assertLess(warm, cold)
@@ -418,10 +418,10 @@ class ApiResilienceTests(PosterEnrichmentTestCase):
         return self.store.update(_apply)
 
     def test_get_returns_data_when_jellyseerr_is_down(self):
-        self.seed([make_hermes_item(1), make_hermes_item(2, poster_path="/p2.jpg")])
+        self.seed([make_ai_picks_item(1), make_ai_picks_item(2, poster_path="/p2.jpg")])
         self.client.fail_keys = {("movie", 1)}
         handler = FakeHandler()
-        routes.handle_discover_hermes_get(handler)
+        routes.handle_discover_ai_picks_get(handler)
         self.assertEqual(handler.status, 200)
         payload = handler.payload()
         self.assertTrue(payload["ok"])
@@ -432,52 +432,6 @@ class ApiResilienceTests(PosterEnrichmentTestCase):
         self.assertEqual(
             by_tmdb[2]["poster_url"], "https://image.tmdb.org/t/p/w342/p2.jpg"
         )
-
-    def test_generation_persists_poster_path_on_accepted_items(self):
-        handler = FakeHandler(
-            {
-                "base_revision": 0,
-                "candidates": [
-                    {"type": "movie", "title": "Heat", "year": 1995,
-                     "tmdb_id": 949, "reason": "fixture"},
-                    {"type": "tv", "title": "Show", "tmdb_id": 100, "reason": "fixture"},
-                ],
-            }
-        )
-        routes.handle_discover_hermes_generations(handler)
-        self.assertEqual(handler.status, 200)
-        payload = handler.payload()
-        self.assertTrue(payload["ok"])
-        self.assertEqual(len(payload["accepted"]), 2)
-        doc = self.store.load()
-        by_tmdb = {i["tmdb_id"]: i for i in doc["items"]}
-        self.assertEqual(by_tmdb[949]["poster_path"], "/movie-949.jpg")
-        self.assertEqual(by_tmdb[100]["poster_path"], "/tv-100.jpg")
-        self.assertNotIn("poster_url", by_tmdb[949])  # derived, never stored
-
-    def test_generation_survives_metadata_outage(self):
-        self.client.fail_keys = {("movie", 949)}
-        revision = self.store.load().get("revision", 0)
-        handler = FakeHandler(
-            {
-                "base_revision": revision,
-                "candidates": [
-                    {"type": "movie", "title": "Heat", "tmdb_id": 949, "reason": "fixture"},
-                ],
-            }
-        )
-        routes.handle_discover_hermes_generations(handler)
-        self.assertEqual(handler.status, 200)
-        payload = handler.payload()
-        self.assertTrue(payload["ok"])
-        self.assertEqual(
-            payload["accepted"],
-            [{"identity": "movie:949", "tmdb_id": 949, "id": "hermes-movie-949"}],
-        )
-        item = self.store.load()["items"][0]
-        self.assertNotIn("poster_path", item)  # nothing persisted on failure
-        self.assertEqual(item["title"], "Heat")
-
 
 if __name__ == "__main__":
     unittest.main()

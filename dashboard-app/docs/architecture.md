@@ -119,7 +119,7 @@ use relative ages (30m, 4h, 30h, 3d, 8d) at call time.
 Browser → http://127.0.0.1:3000
   → Angular Nginx container
     /        → Angular static SPA (production-live build)
-    /api/*   → homepage-actions:8085/* (Nginx strips /api prefix; private Hermes paths below return 404)
+    /api/*   → homepage-actions:8085/* (Nginx strips /api prefix; private worker paths return 404)
                   → qBittorrent / Jellyfin / system resources
 ```
 
@@ -158,7 +158,7 @@ Library, automation, and service-health facades stay as separate stores. Do not 
 | `CalendarFacade` | `app.config` singleton | Right-rail upcoming releases, dashboard refresh | `App` `startPolling` | App (60s) | Runs for app lifetime |
 | `ActivityFacade` | `app.config` singleton | Right-rail recent activity | `App` `startPolling` | App (60s) | Runs for app lifetime |
 | `AutomationFacade` | `app.config` singleton | Dashboard refresh and synced state | `App` `startPolling` | App (60s) | Runs for app lifetime |
-| `DiscoverFacade` | Page `providers` | Discover page | Page / tab change | Discover page (Hermes 30s / external 60s) | Page destroy → `stopPolling` |
+| `DiscoverFacade` | Page `providers` | Discover page | Page / tab change | Discover page (AI Picks 30s / external 60s) | Page destroy → `stopPolling` |
 | `ReportsFacade` | Page `providers` | Reports page | Page `load` | None | Request-id bump |
 
 Manual “refresh all” goes through [`dashboard-refresh.ts`](../projects/dashboard/src/app/dashboard/dashboard-refresh.ts) (`refreshDashboardData` / `DashboardRefreshDeps`): one-shot `refresh()` on each dashboard source, no new poll loops. The command palette resolves those deps lazily inside the action so shell boot does not construct dashboard-only facades early.
@@ -215,8 +215,9 @@ npm run test:smoke
 | `/api/activity` | GET | Recent activity feed for the right rail |
 | `/api/automation/summary` | GET | Service health and warnings |
 | `/api/cron/logs` | GET | Automation run logs |
-| `/api/discover/hermes` | GET | Browser-safe Hermes recommendations |
-| `http://localhost:8085/internal/discover/hermes` | GET | Authenticated Hermes generation snapshot; direct access without token is 401 |
+| `/api/discover/ai-picks` | GET | Browser-safe AI Picks and generation status |
+| `/api/discover/ai-picks/request-more` | POST | Queue an on-demand AI Picks job |
+| `http://homepage-actions:8085/internal/ai-picks/jobs/*` | POST | Worker-only claim, complete, and fail endpoints |
 | `/api/discover/jellyseerr` | GET | Jellyseerr discover |
 | `/api/discover/trakt` | GET | Trakt discover |
 | `/api/media/search?q=<2–100 chars>` | GET | Authoritative catalog search plus Jellyfin/Jellyseerr/Arr lifecycle state |
@@ -247,7 +248,7 @@ the Trakt access token, refresh token, client ID, or client secret is invalid.
 After recreating services, wait until both `homepage-actions` and `dashboard`
 are ready. Query all five public Discover feeds twice:
 
-- `/api/discover/hermes`
+- `/api/discover/ai-picks`
 - `/api/discover/trakt?type=movies`
 - `/api/discover/trakt?type=shows`
 - `/api/discover/jellyseerr?kind=movies`
@@ -282,8 +283,8 @@ Jellyfin Trakt plugin (`Scrobble`, `PostWatchedHistory`, and `PostSetWatched`
 enabled; historical and playback-progress imports disabled). The Live API does
 not listen to Jellyfin playback events.
 
-Discover Hermes `watched` feedback is the only Media Manager write path to
-Trakt. It persists a private `trakt_history_event` on the Hermes item,
+Discover AI Picks `watched` feedback is the only Media Manager write path to
+Trakt. It persists a private `trakt_history_event` on the AI Pick,
 delivers `POST /sync/history` outside the recommendations store lock, and
 exposes only `trakt_history_sync.status` (`pending`, `synced`,
 `reconnect_required`, or `failed`) to the browser. Show watches require
@@ -302,7 +303,7 @@ Storage uses `/system/resources` (not `/storage/overview`) and labels the volume
 | `/` | Lumen home: hero, stat strip, Continue Watching, Newly Available, Trending in Trakt, downloads, and shell right rail |
 | `/library` | Library poster grid and movie/series filter |
 | `/reports` | Cron log triage |
-| `/discover` | Hermes / Jellyseerr / Trakt |
+| `/discover` | AI Picks / Jellyseerr / Trakt |
 | `/dashboard` | Redirects to `/` |
 
 Design-system showcase is Storybook (`npm run storybook`), not an in-app `/ui` route.
@@ -317,16 +318,18 @@ Design-system showcase is Storybook (`npm run storybook`), not an in-app `/ui` r
 
 Backend security (fail-closed `ACTIONS_TOKEN`, per-torrent qBT routes, CORS allowlist) is implemented in `D:\media\config\homepage-actions` (Milestone 1, commit `f0b4213` on the media stack repo).
 
-The browser and cron routes have separate ownership:
+The browser and worker routes have separate ownership:
 
-- **Browser public read:** `/api/discover/hermes`
-- **Browser queue action:** `/api/discover/hermes/request-more`
-- **Browser private attempts:** `/api/internal/*`, `/api/discover/hermes/generations`, and `/api/discover/hermes/sync` → **404**
-- **Hermes cron direct API:** `GET http://localhost:8085/internal/discover/hermes`, `POST http://localhost:8085/discover/hermes/generations`, and `POST http://localhost:8085/discover/hermes/sync`
+- **Browser public read:** `/api/discover/ai-picks`
+- **Browser queue action:** `/api/discover/ai-picks/request-more`
+- **Browser private attempts:** `/api/internal/*` → **404**
+- **Worker direct API:** `POST /internal/ai-picks/jobs/claim`, `POST /internal/ai-picks/jobs/{id}/complete`, and `POST /internal/ai-picks/jobs/{id}/fail`
 
-Operational safety: test dashboard denial for the two cron-only routes with non-mutating `HEAD` probes. Never send `POST` to `/api/discover/hermes/generations` or `/api/discover/hermes/sync` during a proxy check.
-
-Hermes uses the direct host routes with a valid `X-Actions-Token` and approved `Origin`; direct requests without the token return 401. Revision, presented identities, watched identities, and generation context remain internal.
+The worker is network-internal, shares `ACTIONS_TOKEN`, and starts only with the
+Compose `ai` profile. `AI_ENABLED=true` enables backend scheduling, on-demand
+queueing, and worker claims. Provider credentials exist only in the worker
+environment. Candidates, taste context, revisions, and lease tokens never cross
+the public API.
 
 ## Docker build
 

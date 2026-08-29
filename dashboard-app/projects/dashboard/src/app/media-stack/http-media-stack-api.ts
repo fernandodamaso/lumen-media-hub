@@ -9,9 +9,9 @@ import {
   DiscoverFeedback,
   DiscoverRequestPayload,
   ExternalDiscover,
-  HermesDiscover,
+  AiPicksDiscover,
   JellyseerrDiscoverKind,
-  SubmitHermesFeedbackOptions,
+  SubmitAiPickFeedbackOptions,
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
@@ -46,7 +46,7 @@ import { mapCronLogs } from '../reports/reports-format';
 import {
   mapDiscoverAction,
   mapExternalDiscover,
-  mapHermesDiscover,
+  mapAiPicksDiscover,
   toDiscoverRequestPayloadDto,
 } from '../discover/discover-format';
 import { mapLibraryItem, mapLibraryStats } from '../library/library-format';
@@ -56,7 +56,7 @@ import { mapTorrent } from '../downloads/downloads-format';
 import { mapStorageOverview } from '../storage/storage-format';
 import { MediaStackArrLibraryDto } from './wire/calendar';
 import { MediaStackCronLogsDto } from './wire/cron';
-import { MediaStackDiscoverActionDto, MediaStackExternalDiscoverDto, MediaStackHermesDiscoverDto } from './wire/discover';
+import { MediaStackDiscoverActionDto, MediaStackExternalDiscoverDto, MediaStackAiPicksDiscoverDto } from './wire/discover';
 import {
   LiveAutomationSummary,
   LiveActivityFeed,
@@ -72,7 +72,7 @@ import {
   mapLiveSystemResourcesDisk,
   mapLiveTorrent,
   requireExternalDiscoverPayload,
-  requireHermesDiscoverPayload,
+  requireAiPicksDiscoverPayload,
   requireLiveCalendarEvent,
 } from './live-api.mappers';
 import {
@@ -507,30 +507,30 @@ export class HttpMediaStackApi implements MediaStackApi {
     ).then(mapCronLogs);
   }
 
-  listHermesRecommendations(signal?: AbortSignal): Promise<HermesDiscover> {
-    return this.getSoftEnvelope<MediaStackHermesDiscoverDto>(
-      '/discover/hermes',
+  listAiPicks(signal?: AbortSignal): Promise<AiPicksDiscover> {
+    return this.getSoftEnvelope<MediaStackAiPicksDiscoverDto>(
+      '/discover/ai-picks',
       (data) => {
-        requireHermesDiscoverPayload(requireEnvelopeRecord(data, 'Malformed Hermes response'));
+        requireAiPicksDiscoverPayload(requireEnvelopeRecord(data, 'Malformed AI Picks response'));
       },
       signal,
-    ).then(mapHermesDiscover);
+    ).then(mapAiPicksDiscover);
   }
 
-  submitHermesFeedback(
+  submitAiPickFeedback(
     id: string,
     feedback: DiscoverFeedback,
-    options?: SubmitHermesFeedbackOptions,
+    options?: SubmitAiPickFeedbackOptions,
   ): Promise<DiscoverAction> {
-    return this.mutateSoft(`/discover/hermes/${encodeURIComponent(id)}`, 'PATCH', {
+    return this.mutateSoft(`/discover/ai-picks/${encodeURIComponent(id)}`, 'PATCH', {
       status: feedback,
       notes: options?.notes,
       ...(options?.confirmAllAired ? { confirm_all_aired: true } : {}),
     });
   }
 
-  requestHermesMore(): Promise<DiscoverAction> {
-    return this.mutateSoft('/discover/hermes/request-more', 'POST');
+  requestMoreAiPicks(): Promise<DiscoverAction> {
+    return this.mutateSoft('/discover/ai-picks/request-more', 'POST');
   }
 
   listJellyseerrDiscover(kind: JellyseerrDiscoverKind, signal?: AbortSignal): Promise<ExternalDiscover> {

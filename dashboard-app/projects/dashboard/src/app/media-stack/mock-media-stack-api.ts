@@ -6,9 +6,9 @@ import {
   DiscoverFeedback,
   DiscoverRequestPayload,
   ExternalDiscover,
-  HermesDiscover,
+  AiPicksDiscover,
   JellyseerrDiscoverKind,
-  SubmitHermesFeedbackOptions,
+  SubmitAiPickFeedbackOptions,
   TraktDiscoverType,
 } from '../discover/discover.models';
 import { DownloadTorrent } from '../downloads/downloads.models';
@@ -32,7 +32,7 @@ import { mapCronLogs } from '../reports/reports-format';
 import {
   mapDiscoverAction,
   mapExternalDiscover,
-  mapHermesDiscover,
+  mapAiPicksDiscover,
 } from '../discover/discover-format';
 import { mapLibraryItem, mapLibraryStats } from '../library/library-format';
 import { mapWatchNextResult } from '../library/watch-next-format';
@@ -621,10 +621,10 @@ function demoRecentlyAvailable(now = Date.now()): MediaStackRecentlyAvailableIte
   ];
 }
 
-const DEMO_HERMES: MediaStackDiscoverItemDto[] = [
+const DEMO_AI_PICKS: MediaStackDiscoverItemDto[] = [
   {
-    id: 'hermes-eligible',
-    source: 'hermes',
+    id: 'ai-eligible',
+    source: 'ai',
     type: 'movie',
     title: 'Signal Drift',
     year: 2024,
@@ -641,8 +641,8 @@ const DEMO_HERMES: MediaStackDiscoverItemDto[] = [
     added_at: '2026-07-10T12:00:00Z',
   },
   {
-    id: 'hermes-in-library',
-    source: 'hermes',
+    id: 'ai-in-library',
+    source: 'ai',
     type: 'tv',
     title: 'Harbor Lights',
     year: 2023,
@@ -660,8 +660,8 @@ const DEMO_HERMES: MediaStackDiscoverItemDto[] = [
     added_at: '2026-07-10T12:05:00Z',
   },
   {
-    id: 'hermes-requested',
-    source: 'hermes',
+    id: 'ai-requested',
+    source: 'ai',
     type: 'movie',
     title: 'Glass Atlas',
     year: 2025,
@@ -678,8 +678,8 @@ const DEMO_HERMES: MediaStackDiscoverItemDto[] = [
     added_at: '2026-07-08T12:00:00Z',
   },
   {
-    id: 'hermes-no-tmdb',
-    source: 'hermes',
+    id: 'ai-no-tmdb',
+    source: 'ai',
     type: 'movie',
     title: 'Untitled Cut',
     year: null,
@@ -696,8 +696,8 @@ const DEMO_HERMES: MediaStackDiscoverItemDto[] = [
     added_at: '2026-07-10T13:00:00Z',
   },
   {
-    id: 'hermes-sync-failed',
-    source: 'hermes',
+    id: 'ai-sync-failed',
+    source: 'ai',
     type: 'tv',
     title: 'Night Courier',
     year: 2022,
@@ -714,8 +714,8 @@ const DEMO_HERMES: MediaStackDiscoverItemDto[] = [
     added_at: '2026-07-10T14:00:00Z',
   },
   {
-    id: 'hermes-history-liked',
-    source: 'hermes',
+    id: 'ai-history-liked',
+    source: 'ai',
     type: 'movie',
     title: 'Copper Skies',
     year: 2021,
@@ -731,8 +731,8 @@ const DEMO_HERMES: MediaStackDiscoverItemDto[] = [
     added_at: '2026-06-20T12:00:00Z',
   },
   {
-    id: 'hermes-history-watched',
-    source: 'hermes',
+    id: 'ai-history-watched',
+    source: 'ai',
     type: 'tv',
     title: 'River Protocol',
     year: 2020,
@@ -748,8 +748,8 @@ const DEMO_HERMES: MediaStackDiscoverItemDto[] = [
     added_at: '2026-06-21T12:00:00Z',
   },
   {
-    id: 'hermes-history-disliked',
-    source: 'hermes',
+    id: 'ai-history-disliked',
+    source: 'ai',
     type: 'movie',
     title: 'Static Bloom',
     year: 2019,
@@ -765,8 +765,8 @@ const DEMO_HERMES: MediaStackDiscoverItemDto[] = [
     added_at: '2026-06-22T12:00:00Z',
   },
   {
-    id: 'hermes-history-skipped',
-    source: 'hermes',
+    id: 'ai-history-skipped',
+    source: 'ai',
     type: 'tv',
     title: 'Quiet Frequency',
     year: 2018,
@@ -912,7 +912,7 @@ const DEMO_TV_SEASONS: Partial<Record<number, TvSeasonCollection>> = {
 };
 
 /** Fixture id that simulates dashboard_state_persisted: false on request. */
-export const MOCK_SYNC_FAILED_HERMES_ID = 'hermes-sync-failed';
+export const MOCK_SYNC_FAILED_AI_PICK_ID = 'ai-sync-failed';
 
 @Injectable()
 export class MockMediaStackApi implements MediaStackApi {
@@ -922,9 +922,9 @@ export class MockMediaStackApi implements MediaStackApi {
     series: { ...DEMO_LIBRARY.series },
     movies: { ...DEMO_LIBRARY.movies },
   };
-  private hermesItems = DEMO_HERMES.map((item) => ({ ...item }));
-  private hermesMorePending = false;
-  private hermesMoreRequestedAt: string | null = null;
+  private aiPickItems = DEMO_AI_PICKS.map((item) => ({ ...item }));
+  private aiPicksMorePending = false;
+  private aiPicksMoreRequestedAt: string | null = null;
   private nextJellyseerrRequestId = 9100;
   private requestedKeys = new Set<string>();
   private mediaRequestIds = new Map<string, number>([
@@ -1276,29 +1276,36 @@ export class MockMediaStackApi implements MediaStackApi {
     return this.withLatency(mapCronLogs(copyCronLogs(demoCronLogs())));
   }
 
-  listHermesRecommendations(_signal?: AbortSignal): Promise<HermesDiscover> {
-    const pending_request_sync = this.hermesItems
-      .filter((item) => item.id === MOCK_SYNC_FAILED_HERMES_ID && item.jellyseerr_request_id && item.request_state == null)
+  listAiPicks(_signal?: AbortSignal): Promise<AiPicksDiscover> {
+    const pending_request_sync = this.aiPickItems
+      .filter((item) => item.id === MOCK_SYNC_FAILED_AI_PICK_ID && item.jellyseerr_request_id && item.request_state == null)
       .map((item) => ({ id: item.id, jellyseerr_request_id: item.jellyseerr_request_id as number }));
     return this.withLatency(
-      mapHermesDiscover({
+      mapAiPicksDiscover({
         ok: true,
-        items: this.hermesItems.map((item) => ({ ...item, ...this.demoLifecycle(item) })),
+        items: this.aiPickItems.map((item) => ({ ...item, ...this.demoLifecycle(item) })),
         pending_request_sync,
-        generation_request: this.hermesMorePending && this.hermesMoreRequestedAt
-          ? { requested_at: this.hermesMoreRequestedAt, status: 'pending' }
+        generation_enabled: true,
+        generation: this.aiPicksMorePending && this.aiPicksMoreRequestedAt
+          ? {
+              id: 'demo-job', status: 'queued', trigger: 'on_demand',
+              requested_at: this.aiPicksMoreRequestedAt, started_at: null,
+              finished_at: null, desired_count: 10, attempt: 0,
+              error_code: null, counts: null,
+            }
           : null,
+        library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
         watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       }),
     );
   }
 
-  submitHermesFeedback(
+  submitAiPickFeedback(
     id: string,
     feedback: DiscoverFeedback,
-    options?: SubmitHermesFeedbackOptions,
+    options?: SubmitAiPickFeedbackOptions,
   ): Promise<DiscoverAction> {
-    const item = this.hermesItems.find((candidate) => candidate.id === id);
+    const item = this.aiPickItems.find((candidate) => candidate.id === id);
     if (!item) {
       return Promise.resolve(mapDiscoverAction({ ok: false, error: 'Recommendation not found' }));
     }
@@ -1331,27 +1338,27 @@ export class MockMediaStackApi implements MediaStackApi {
     );
   }
 
-  requestHermesMore(): Promise<DiscoverAction> {
-    if (this.hermesMorePending) {
+  requestMoreAiPicks(): Promise<DiscoverAction> {
+    if (this.aiPicksMorePending) {
       return Promise.resolve(
         mapDiscoverAction({
           ok: true,
           already_pending: true,
           queued: false,
           message: 'A recommendation refresh is already pending',
-          requested_at: this.hermesMoreRequestedAt ?? undefined,
+          requested_at: this.aiPicksMoreRequestedAt ?? undefined,
         }),
       );
     }
-    this.hermesMorePending = true;
-    this.hermesMoreRequestedAt = new Date().toISOString();
+    this.aiPicksMorePending = true;
+    this.aiPicksMoreRequestedAt = new Date().toISOString();
     return Promise.resolve(
       mapDiscoverAction({
         ok: true,
         queued: true,
         already_pending: false,
         message: 'More recommendations queued',
-        requested_at: this.hermesMoreRequestedAt,
+        requested_at: this.aiPicksMoreRequestedAt,
       }),
     );
   }
@@ -1380,16 +1387,16 @@ export class MockMediaStackApi implements MediaStackApi {
     }
 
     const identityKey = `${payload.mediaType}:${payload.mediaId}`;
-    const hermesItem = payload.hermesId
-      ? this.hermesItems.find((item) => item.id === payload.hermesId)
-      : this.hermesItems.find(
+    const aiPickItem = payload.aiPickId
+      ? this.aiPickItems.find((item) => item.id === payload.aiPickId)
+      : this.aiPickItems.find(
           (item) => item.tmdb_id === payload.mediaId && item.type === payload.mediaType,
         );
 
     const existingRequestId =
-      this.mediaRequestIds.get(identityKey) ?? hermesItem?.jellyseerr_request_id ?? null;
+      this.mediaRequestIds.get(identityKey) ?? aiPickItem?.jellyseerr_request_id ?? null;
     if (
-      hermesItem?.request_state === 'requested' ||
+      aiPickItem?.request_state === 'requested' ||
       this.requestedKeys.has(identityKey) ||
       existingRequestId
     ) {
@@ -1409,12 +1416,12 @@ export class MockMediaStackApi implements MediaStackApi {
 
     const requestId = this.nextJellyseerrRequestId++;
     const requestedAt = new Date().toISOString();
-    const syncFailed = hermesItem?.id === MOCK_SYNC_FAILED_HERMES_ID;
+    const syncFailed = aiPickItem?.id === MOCK_SYNC_FAILED_AI_PICK_ID;
 
-    if (hermesItem) {
+    if (aiPickItem) {
       if (syncFailed) {
         // Arr accepted the request but dashboard state did not persist — leave request_state null.
-        hermesItem.jellyseerr_request_id = requestId;
+        aiPickItem.jellyseerr_request_id = requestId;
         return Promise.resolve(
           mapDiscoverAction({
             ok: true,
@@ -1429,9 +1436,9 @@ export class MockMediaStackApi implements MediaStackApi {
           }),
         );
       }
-      hermesItem.request_state = 'requested';
-      hermesItem.requested_at = requestedAt;
-      hermesItem.jellyseerr_request_id = requestId;
+      aiPickItem.request_state = 'requested';
+      aiPickItem.requested_at = requestedAt;
+      aiPickItem.jellyseerr_request_id = requestId;
     }
 
     this.requestedKeys.add(identityKey);
@@ -1495,8 +1502,8 @@ export class MockMediaStackApi implements MediaStackApi {
   }
 
   /** Test helper: clear generation pending so request-more can queue again. */
-  resetHermesMorePending(): void {
-    this.hermesMorePending = false;
-    this.hermesMoreRequestedAt = null;
+  resetAiPicksMorePending(): void {
+    this.aiPicksMorePending = false;
+    this.aiPicksMoreRequestedAt = null;
   }
 }

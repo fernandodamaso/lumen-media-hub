@@ -1107,62 +1107,70 @@ export function mapLiveSystemResourcesDisk(disk: unknown): MediaStackStorageVolu
 }
 
 /**
- * Validate GET /discover/hermes success envelopes before domain mapping.
+ * Validate GET /discover/ai-picks success envelopes before domain mapping.
  * Soft `{ ok: false }` envelopes skip this (handled by requireSoftEnvelope).
  */
-export function requireHermesDiscoverPayload(data: Record<string, unknown>): void {
-  const items = requireArrayField(data, 'items', 'Malformed Hermes response');
+export function requireAiPicksDiscoverPayload(data: Record<string, unknown>): void {
+  const items = requireArrayField(data, 'items', 'Malformed AI Picks response');
   items.forEach((item, index) => {
-    requireLiveHermesDiscoverItem(item, index);
+    requireLiveAiPicksDiscoverItem(item, index);
   });
 
   requirePendingRequestSync(data['pending_request_sync']);
-  requireGenerationRequest(data['generation_request']);
+  if (typeof data['generation_enabled'] !== 'boolean') {
+    throw new Error('Malformed AI Picks response: generation_enabled is required');
+  }
+  requireAiPicksGeneration(data['generation']);
   const library = data['library_exclusion'];
   if (library === undefined || library === null) {
-    throw new Error('Malformed Hermes response: library_exclusion is required');
+    throw new Error('Malformed AI Picks response: library_exclusion is required');
   }
-  requireLibraryExclusion(library, 'Hermes');
+  requireLibraryExclusion(library, 'AI Picks');
   const watched = data['watched_exclusion'];
   if (watched === undefined || watched === null) {
-    throw new Error('Malformed Hermes response: watched_exclusion is required');
+    throw new Error('Malformed AI Picks response: watched_exclusion is required');
   }
-  requireWatchedExclusion(watched, 'Hermes');
+  requireWatchedExclusion(watched, 'AI Picks');
 }
 
 function requirePendingRequestSync(pending: unknown): void {
   if (pending === undefined || pending === null) return;
   if (!Array.isArray(pending)) {
-    throw new Error('Malformed Hermes response: pending_request_sync is not an array');
+    throw new Error('Malformed AI Picks response: pending_request_sync is not an array');
   }
   pending.forEach((entry, index) => {
     if (!isRecord(entry)) {
-      throw new Error(`Malformed Hermes response: pending_request_sync member ${index} is not an object`);
+      throw new Error(`Malformed AI Picks response: pending_request_sync member ${index} is not an object`);
     }
     requireNonEmptyString(
       entry['id'],
-      `Malformed Hermes response: pending_request_sync member ${index} is missing id`,
+      `Malformed AI Picks response: pending_request_sync member ${index} is missing id`,
     );
     const requestId = entry['jellyseerr_request_id'];
     if (typeof requestId !== 'number' || !Number.isFinite(requestId)) {
       throw new Error(
-        `Malformed Hermes response: pending_request_sync member ${index} is missing jellyseerr_request_id`,
+        `Malformed AI Picks response: pending_request_sync member ${index} is missing jellyseerr_request_id`,
       );
     }
   });
 }
 
-function requireGenerationRequest(generation: unknown): void {
+function requireAiPicksGeneration(generation: unknown): void {
   if (generation === undefined || generation === null) return;
   if (!isRecord(generation)) {
-    throw new Error('Malformed Hermes response: generation_request is not an object');
+    throw new Error('Malformed AI Picks response: generation is not an object');
   }
-  requireNonEmptyString(
-    generation['requested_at'],
-    'Malformed Hermes response: generation_request is missing requested_at',
-  );
-  if (generation['status'] !== 'pending') {
-    throw new Error('Malformed Hermes response: generation_request has invalid status');
+  for (const field of ['id', 'requested_at', 'trigger']) {
+    requireNonEmptyString(generation[field], `Malformed AI Picks response: generation is missing ${field}`);
+  }
+  if (!['queued', 'running', 'succeeded', 'failed'].includes(String(generation['status']))) {
+    throw new Error('Malformed AI Picks response: generation has invalid status');
+  }
+  for (const field of ['desired_count', 'attempt']) {
+    const value = generation[field];
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+      throw new Error(`Malformed AI Picks response: generation has invalid ${field}`);
+    }
   }
 }
 
@@ -1191,7 +1199,7 @@ export function requireExternalDiscoverPayload(
   requireWatchedExclusion(watched, resource);
 }
 
-function requireWatchedExclusion(value: unknown, resource: 'Hermes' | 'Jellyseerr' | 'Trakt'): void {
+function requireWatchedExclusion(value: unknown, resource: 'AI Picks' | 'Jellyseerr' | 'Trakt'): void {
   if (value === undefined || value === null) return;
   if (!isRecord(value) || !['fresh', 'stale', 'unavailable'].includes(String(value['status']))) {
     throw new Error(`Malformed ${resource} response: watched_exclusion is invalid`);
@@ -1204,7 +1212,7 @@ function requireWatchedExclusion(value: unknown, resource: 'Hermes' | 'Jellyseer
   }
 }
 
-function requireLibraryExclusion(value: unknown, resource: 'Hermes' | 'Jellyseerr' | 'Trakt'): void {
+function requireLibraryExclusion(value: unknown, resource: 'AI Picks' | 'Jellyseerr' | 'Trakt'): void {
   if (!isRecord(value) || !['fresh', 'stale', 'unavailable'].includes(String(value['status']))) {
     throw new Error(`Malformed ${resource} response: library_exclusion is invalid`);
   }
@@ -1217,62 +1225,62 @@ function requireLibraryExclusion(value: unknown, resource: 'Hermes' | 'Jellyseer
 }
 
 /**
- * Reject Hermes members lacking required identity/browse fields.
- * Call before mapHermesDiscover so missing values are never synthesized into plausible cards.
+ * Reject AI Picks members lacking required identity/browse fields.
+ * Call before mapAiPicksDiscover so missing values are never synthesized into plausible cards.
  */
-function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDiscoverItemDto {
+function requireLiveAiPicksDiscoverItem(raw: unknown, index = 0): MediaStackDiscoverItemDto {
   if (!isRecord(raw)) {
-    throw new Error(`Malformed Hermes response: member ${index} is not an object`);
+    throw new Error(`Malformed AI Picks response: member ${index} is not an object`);
   }
 
-  const id = requireNonEmptyString(raw['id'], `Malformed Hermes response: member ${index} is missing id`);
+  const id = requireNonEmptyString(raw['id'], `Malformed AI Picks response: member ${index} is missing id`);
   const source = requireNonEmptyString(
     raw['source'],
-    `Malformed Hermes response: member ${index} is missing source`,
+    `Malformed AI Picks response: member ${index} is missing source`,
   );
-  const type = requireDiscoverMediaType(raw['type'], index, 'Hermes');
+  const type = requireDiscoverMediaType(raw['type'], index, 'AI Picks');
   const title = requireNonEmptyString(
     raw['title'],
-    `Malformed Hermes response: member ${index} is missing title`,
+    `Malformed AI Picks response: member ${index} is missing title`,
   );
-  const tmdbId = requireFiniteNumberField(raw, 'tmdb_id', index, 'Hermes');
+  const tmdbId = requireFiniteNumberField(raw, 'tmdb_id', index, 'AI Picks');
   if (!Number.isInteger(tmdbId) || tmdbId <= 0) {
-    throw new Error(`Malformed Hermes response: member ${index} has invalid tmdb_id`);
+    throw new Error(`Malformed AI Picks response: member ${index} has invalid tmdb_id`);
   }
-  const lifecycle = requireDiscoverLifecycle(raw, index, 'Hermes', type);
+  const lifecycle = requireDiscoverLifecycle(raw, index, 'AI Picks', type);
   const active = raw['active'];
   if (typeof active !== 'boolean') {
-    throw new Error(`Malformed Hermes response: member ${index} is missing active`);
+    throw new Error(`Malformed AI Picks response: member ${index} is missing active`);
   }
   const addedAt = requireNonEmptyString(
     raw['added_at'],
-    `Malformed Hermes response: member ${index} is missing added_at`,
+    `Malformed AI Picks response: member ${index} is missing added_at`,
   );
 
-  const year = optionalNullableFiniteNumber(raw, 'year', index, 'Hermes');
-  const reason = optionalNullableString(raw, 'reason', index, 'Hermes');
-  const feedback = requireDiscoverFeedback(raw['feedback'], index, 'Hermes');
-  const feedbackAt = optionalNullableString(raw, 'feedback_at', index, 'Hermes') ?? null;
-  const requestState = requireDiscoverRequestState(raw['request_state'], index, 'Hermes');
-  const requestedAt = optionalNullableString(raw, 'requested_at', index, 'Hermes') ?? null;
-  const jellyseerrRequestId = optionalNullableFiniteNumber(raw, 'jellyseerr_request_id', index, 'Hermes');
-  const inLibrary = optionalBoolean(raw, 'in_library', index, 'Hermes');
-  const watchedOnTrakt = optionalBoolean(raw, 'watched_on_trakt', index, 'Hermes');
-  const excludedReasonRaw = optionalNullableString(raw, 'excluded_reason', index, 'Hermes');
+  const year = optionalNullableFiniteNumber(raw, 'year', index, 'AI Picks');
+  const reason = optionalNullableString(raw, 'reason', index, 'AI Picks');
+  const feedback = requireDiscoverFeedback(raw['feedback'], index, 'AI Picks');
+  const feedbackAt = optionalNullableString(raw, 'feedback_at', index, 'AI Picks') ?? null;
+  const requestState = requireDiscoverRequestState(raw['request_state'], index, 'AI Picks');
+  const requestedAt = optionalNullableString(raw, 'requested_at', index, 'AI Picks') ?? null;
+  const jellyseerrRequestId = optionalNullableFiniteNumber(raw, 'jellyseerr_request_id', index, 'AI Picks');
+  const inLibrary = optionalBoolean(raw, 'in_library', index, 'AI Picks');
+  const watchedOnTrakt = optionalBoolean(raw, 'watched_on_trakt', index, 'AI Picks');
+  const excludedReasonRaw = optionalNullableString(raw, 'excluded_reason', index, 'AI Picks');
   if (
     excludedReasonRaw !== undefined &&
     excludedReasonRaw !== null &&
     excludedReasonRaw !== 'in_library' &&
     excludedReasonRaw !== 'watched_on_trakt'
   ) {
-    throw new Error(`Malformed Hermes response: member ${index} has invalid excluded_reason`);
+    throw new Error(`Malformed AI Picks response: member ${index} has invalid excluded_reason`);
   }
-  const jellyfinId = optionalNullableString(raw, 'jellyfin_id', index, 'Hermes');
-  const posterPath = optionalNullableString(raw, 'poster_path', index, 'Hermes');
-  const posterUrl = optionalNullableString(raw, 'poster_url', index, 'Hermes');
-  const notes = optionalNullableString(raw, 'notes', index, 'Hermes');
-  const rating = optionalNullableFiniteNumber(raw, 'rating', index, 'Hermes');
-  const traktHistorySync = requireTraktHistorySync(raw['trakt_history_sync'], index, 'Hermes');
+  const jellyfinId = optionalNullableString(raw, 'jellyfin_id', index, 'AI Picks');
+  const posterPath = optionalNullableString(raw, 'poster_path', index, 'AI Picks');
+  const posterUrl = optionalNullableString(raw, 'poster_url', index, 'AI Picks');
+  const notes = optionalNullableString(raw, 'notes', index, 'AI Picks');
+  const rating = optionalNullableFiniteNumber(raw, 'rating', index, 'AI Picks');
+  const traktHistorySync = requireTraktHistorySync(raw['trakt_history_sync'], index, 'AI Picks');
 
   return {
     id,

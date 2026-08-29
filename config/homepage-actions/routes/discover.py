@@ -69,7 +69,7 @@ VALID_FEEDBACK_STATUSES = frozenset({"liked", "disliked", "watched", "skipped"})
 _HERMES_PUBLIC_ITEM_FIELDS = frozenset(
     {
         "id", "source", "type", "title", "year", "tmdb_id", "reason", "active",
-        "feedback", "feedback_at", "request_state", "requested_at",
+        "feedback", "feedback_at", "request_state", "request_provider", "requested_at",
         "jellyseerr_request_id", "in_library", "excluded_reason", "watched_on_trakt",
         "jellyfin_id", "poster_path", "poster_url", "added_at", "notes", "rating",
         "trakt_history_sync",
@@ -1333,6 +1333,7 @@ def handle_discover_hermes_generations(handler):
                     "feedback": None,
                     "feedback_at": None,
                     "request_state": None,
+                    "request_provider": None,
                     "requested_at": None,
                     "jellyseerr_request_id": None,
                     "added_at": now,
@@ -1646,7 +1647,7 @@ def handle_discover_request(handler):
                 raise HermesItemNotFound()
             # Request fields only; feedback is preserved. Store the *arr id in
             # jellyseerr_request_id for durable tracing of the add.
-            apply_request(item, request_id=arr_id)
+            apply_request(item, provider="arr_legacy", request_id=arr_id)
 
         try:
             settings.RECOMMENDATIONS_STORE.update(_apply)
@@ -1654,7 +1655,9 @@ def handle_discover_request(handler):
             dashboard_state_persisted = False
             persistence_error = type(error).__name__
             try:
-                _enqueue_request_reconciliation(hermes_id, arr_id)
+                _enqueue_request_reconciliation(
+                    hermes_id, arr_id, provider="arr_legacy"
+                )
                 reconciliation_queued = True
             except Exception as queue_error:
                 reconciliation_queued = False

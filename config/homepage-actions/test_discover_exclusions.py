@@ -236,7 +236,7 @@ class DiscoverExclusionTests(unittest.TestCase):
         library = library or routes.LibraryExclusionSnapshot.from_maps(
             {}, {}, status="fresh", last_successful_refresh_at=None
         )
-        store_data = {"version": 3, "revision": 4, "items": items}
+        store_data = {"version": 4, "revision": 4, "items": items}
         with mock.patch.object(routes.settings.RECOMMENDATIONS_STORE, "load", return_value=store_data), \
                 mock.patch.object(routes, "_library_exclusion_snapshot", return_value=library), \
                 mock.patch.object(routes, "_trakt_watched_snapshot", return_value=watched) as watched_snapshot, \
@@ -277,7 +277,8 @@ class DiscoverExclusionTests(unittest.TestCase):
         item = {
             "id": "hermes-movie-9", "source": "hermes", "type": "movie", "title": "Liked watched",
             "tmdb_id": 9, "active": True, "feedback": "liked", "feedback_at": "2026-01-01T00:00:00Z",
-            "request_state": "requested", "requested_at": "2026-01-02T00:00:00Z",
+            "request_state": "requested", "request_provider": "jellyseerr",
+            "requested_at": "2026-01-02T00:00:00Z",
             "jellyseerr_request_id": 55,
         }
         watched = WatchedSnapshot(frozenset({"movie:9"}), "2026-08-11T12:00:00+00:00", "fresh")
@@ -289,6 +290,7 @@ class DiscoverExclusionTests(unittest.TestCase):
         self.assertEqual(projected["feedback"], "liked")
         self.assertEqual(projected["feedback_at"], item["feedback_at"])
         self.assertEqual(projected["request_state"], item["request_state"])
+        self.assertEqual(projected["request_provider"], item["request_provider"])
         self.assertEqual(projected["requested_at"], item["requested_at"])
         self.assertEqual(projected["jellyseerr_request_id"], item["jellyseerr_request_id"])
         self.assertEqual(store_data["items"], [item])
@@ -311,13 +313,14 @@ class DiscoverExclusionTests(unittest.TestCase):
             "id": "hermes-movie-42", "identity": "movie:42", "source": "hermes",
             "type": "movie", "title": "Public title", "year": 2026, "tmdb_id": 42,
             "reason": "fixture", "active": True, "feedback": None,
-            "feedback_at": None, "request_state": None, "requested_at": None,
+            "feedback_at": None, "request_state": None, "request_provider": None,
+            "requested_at": None,
             "jellyseerr_request_id": None, "added_at": "2026-01-01T00:00:00Z",
             "watched_identities": ["movie:42"], "watched_at": "private-history",
             "token": "private-token", "provider_metadata": {"secret": "value"},
         }
         captured = {}
-        store_data = {"version": 3, "revision": 4, "items": [item]}
+        store_data = {"version": 4, "revision": 4, "items": [item]}
         with mock.patch.object(routes.settings.RECOMMENDATIONS_STORE, "load", return_value=store_data), \
                 mock.patch.object(routes, "_library_exclusion_snapshot", return_value=self.snapshot), \
                 mock.patch.object(routes, "_trakt_watched_snapshot", return_value=WatchedSnapshot(frozenset(), None, "fresh")), \
@@ -329,6 +332,7 @@ class DiscoverExclusionTests(unittest.TestCase):
         self.assertNotIn("context", captured)
         public_item = captured["items"][0]
         self.assertEqual(public_item["title"], "Public title")
+        self.assertIsNone(public_item["request_provider"])
         self.assertNotIn("identity", public_item)
         self.assertNotIn("watched_identities", public_item)
         self.assertNotIn("watched_at", public_item)
@@ -445,7 +449,7 @@ class DiscoverExclusionTests(unittest.TestCase):
             "tmdb_id": 42, "active": True, "feedback": None,
         }
         captured = {}
-        store_data = {"version": 3, "revision": 4, "items": [item]}
+        store_data = {"version": 4, "revision": 4, "items": [item]}
         with mock.patch.object(routes.settings.RECOMMENDATIONS_STORE, "load", return_value=store_data), \
                 mock.patch.object(routes, "_library_exclusion_snapshot", return_value=self.snapshot), \
                 mock.patch.object(routes, "_enrich_hermes_posters", side_effect=lambda values: values), \

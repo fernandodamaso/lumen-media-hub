@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for recommendations_store (v2 schema, migration, transactions).
+"""Unit tests for recommendations_store (v4 schema, migration, transactions).
 
 Run from the repo root:
     python -m unittest discover -s config/homepage-actions -p "test_*.py" -t .
@@ -22,6 +22,7 @@ LIVE_V1_PATH = os.path.join(
 )
 SCHEMA_PATH = os.path.join(REPO_ROOT, "config", "recommendations", "schema-v2.json")
 SCHEMA_V3_PATH = os.path.join(REPO_ROOT, "config", "recommendations", "schema-v3.json")
+SCHEMA_V4_PATH = os.path.join(REPO_ROOT, "config", "recommendations", "schema-v4.json")
 EXAMPLE_PATH = os.path.join(
     REPO_ROOT, "config", "recommendations", "recommendations.example.json"
 )
@@ -81,7 +82,7 @@ class StoreTestCase(unittest.TestCase):
 
 
 class MigrationTests(StoreTestCase):
-    def test_live_copy_loads_valid_v2_or_v3_or_rejects_legacy(self):
+    def test_live_copy_loads_valid_v2_v3_or_v4_or_rejects_legacy(self):
         if not os.path.isfile(LIVE_V1_PATH):
             self.skipTest("live recommendations.json not present")
         shutil.copyfile(LIVE_V1_PATH, self.path)
@@ -89,9 +90,9 @@ class MigrationTests(StoreTestCase):
             live = json.load(fh)
         before = self.read_raw()
 
-        if live.get("version") == 3:
+        if live.get("version") == 4:
             doc = self.store.load()
-            self.assertTrue(rs.validate_v3(doc))
+            self.assertTrue(rs.validate_v4(doc))
             self.assertGreaterEqual(len(doc["items"]), 10)
             self.assertEqual(
                 [item["title"] for item in doc["items"]],
@@ -101,9 +102,21 @@ class MigrationTests(StoreTestCase):
             self.assertEqual(self.read_raw(), before)
             return
 
+        if live.get("version") == 3:
+            doc = self.store.load()
+            self.assertTrue(rs.validate_v4(doc))
+            self.assertGreaterEqual(len(doc["items"]), 10)
+            self.assertEqual(
+                [item["title"] for item in doc["items"]],
+                [item["title"] for item in live["items"]],
+            )
+            self.assertEqual(self.read_raw(), before)
+            self.assertEqual(self.read_json()["version"], 3)
+            return
+
         if live.get("version") == 2:
             doc = self.store.load()
-            self.assertTrue(rs.validate_v3(doc))
+            self.assertTrue(rs.validate_v4(doc))
             self.assertGreaterEqual(len(doc["items"]), 10)
             self.assertEqual(
                 [item["title"] for item in doc["items"]],
@@ -187,7 +200,7 @@ class MigrationTests(StoreTestCase):
         # Migration is pure and never discards or rewrites v2 input.
         self.assertEqual(v2, before)
 
-    def test_v2_load_persists_as_v3_only_after_successful_mutation(self):
+    def test_v2_load_persists_as_v4_only_after_successful_mutation(self):
         v2 = {
             "version": 2,
             "revision": 0,
@@ -219,9 +232,10 @@ class MigrationTests(StoreTestCase):
         self.assertEqual(self.read_json()["version"], 2)
         self.store.update(lambda doc: None)
         saved = self.read_json()
-        self.assertEqual(saved["version"], 3)
+        self.assertEqual(saved["version"], 4)
         self.assertEqual(saved["revision"], 1)
-        self.assertTrue(rs.validate_v3(saved))
+        self.assertIsNone(saved["items"][0]["request_provider"])
+        self.assertTrue(rs.validate_v4(saved))
 
     def test_v2_numeric_tombstone_blocks_both_composite_types(self):
         v2 = {
@@ -247,6 +261,94 @@ class MigrationTests(StoreTestCase):
         twice = rs.migrate_to_v3(once)
         self.assertEqual(once, twice)
 
+    def test_v3_to_v4_migration_records_legacy_provider_by_request_state(self):
+        v3 = {
+            "version": 3,
+            "revision": 7,
+            "updated_at": "2026-01-01T00:00:00Z",
+            "presented_media_ids": ["movie:42", "tv:84"],
+            "items": [
+                {
+                    "id": "hermes-movie-42",
+                    "identity": "movie:42",
+                    "source": "hermes",
+                    "type": "movie",
+                    "title": "Requested",
+                    "year": 2024,
+                    "tmdb_id": 42,
+                    "reason": "fixture",
+                    "active": False,
+                    "feedback": None,
+                    "feedback_at": None,
+                    "request_state": "requested",
+                    "requested_at": "2026-01-01T00:00:00Z",
+                    "jellyseerr_request_id": 101,
+                    "added_at": "2026-01-01T00:00:00Z",
+                },
+                {
+                    "id": "hermes-tv-84",
+                    "identity": "tv:84",
+                    "source": "hermes",
+                    "type": "tv",
+                    "title": "Unrequested",
+                    "year": 2024,
+                    "tmdb_id": 84,
+                    "reason": "fixture",
+                    "active": True,
+                    "feedback": None,
+                    "feedback_at": None,
+                    "request_state": None,
+                    "requested_at": None,
+                    "jellyseerr_request_id": None,
+                    "added_at": "2026-01-01T00:00:00Z",
+                },
+            ],
+        }
+        before = json.loads(json.dumps(v3))
+
+        migrated = rs.migrate_to_v4(v3)
+
+        self.assertTrue(rs.validate_v4(migrated))
+        self.assertEqual(migrated["version"], 4)
+        self.assertEqual(migrated["items"][0]["request_provider"], "arr_legacy")
+        self.assertIsNone(migrated["items"][1]["request_provider"])
+        self.assertEqual(v3, before)
+
+    def test_v2_load_runs_v2_to_v3_to_v4_without_rewriting_source(self):
+        v2 = {
+            "version": 2,
+            "revision": 3,
+            "updated_at": "2026-01-01T00:00:00Z",
+            "presented_tmdb_ids": [42],
+            "items": [
+                {
+                    "id": "hermes-42",
+                    "source": "hermes",
+                    "type": "movie",
+                    "title": "Requested",
+                    "year": 2024,
+                    "tmdb_id": 42,
+                    "reason": "fixture",
+                    "active": False,
+                    "feedback": None,
+                    "feedback_at": None,
+                    "request_state": "requested",
+                    "requested_at": "2026-01-01T00:00:00Z",
+                    "jellyseerr_request_id": 101,
+                    "added_at": "2026-01-01T00:00:00Z",
+                }
+            ],
+        }
+        self.write_json(v2)
+        before = self.read_raw()
+
+        loaded = self.store.load()
+
+        self.assertEqual(loaded["version"], 4)
+        self.assertEqual(loaded["items"][0]["identity"], "movie:42")
+        self.assertEqual(loaded["items"][0]["request_provider"], "arr_legacy")
+        self.assertEqual(self.read_raw(), before)
+
 
 class TransactionTests(StoreTestCase):
     def test_like_then_request_preserves_both_fields(self):
@@ -254,15 +356,20 @@ class TransactionTests(StoreTestCase):
         self.store.update(
             lambda doc: rs.apply_feedback(self._first(doc), "liked")
         )
-        self.store.update(lambda doc: rs.apply_request(self._first(doc)))
+        self.store.update(
+            lambda doc: rs.apply_request(self._first(doc), provider="jellyseerr")
+        )
         item = self._first(self.store.load())
         self.assertEqual(item["feedback"], "liked")
         self.assertEqual(item["request_state"], "requested")
+        self.assertEqual(item["request_provider"], "jellyseerr")
         self.assertFalse(item["active"])
 
     def test_request_then_feedback_preserves_request_state(self):
         self.store.update(self._append_item)
-        self.store.update(lambda doc: rs.apply_request(self._first(doc)))
+        self.store.update(
+            lambda doc: rs.apply_request(self._first(doc), provider="arr_legacy")
+        )
         self.store.update(
             lambda doc: rs.apply_feedback(self._first(doc), "disliked")
         )
@@ -371,7 +478,9 @@ class TransactionTests(StoreTestCase):
 
     def test_like_does_not_reactivate_inactive_item(self):
         self.store.update(self._append_item)
-        self.store.update(lambda doc: rs.apply_request(self._first(doc)))
+        self.store.update(
+            lambda doc: rs.apply_request(self._first(doc), provider="arr_legacy")
+        )
         item = self._first(self.store.load())
         self.assertFalse(item["active"])
         self.store.update(
@@ -391,11 +500,11 @@ class TransactionTests(StoreTestCase):
         self.assertEqual(item["feedback"], "liked")
         self.assertFalse(item["active"])
 
-    def test_missing_file_loads_empty_v2_default(self):
+    def test_missing_file_loads_empty_v4_default(self):
         doc = self.store.load()
-        self.assertEqual(doc["version"], 3)
+        self.assertEqual(doc["version"], 4)
         self.assertEqual(doc["items"], [])
-        self.assertTrue(rs.validate_v3(doc))
+        self.assertTrue(rs.validate_v4(doc))
 
     def test_concurrent_updates_commit_serially_without_corruption(self):
         import threading
@@ -423,7 +532,7 @@ class TransactionTests(StoreTestCase):
         doc = self.store.load()
         self.assertEqual(doc["revision"], 20)
         self.assertEqual(sorted(doc["presented_media_ids"]), ["movie:1", "movie:2", "movie:3", "movie:4"])
-        self.assertTrue(rs.validate_v3(doc))
+        self.assertTrue(rs.validate_v4(doc))
         # The file on disk is one well-formed JSON document.
         self.assertEqual(self.read_json()["revision"], 20)
 
@@ -441,6 +550,7 @@ class TransactionTests(StoreTestCase):
             "feedback": None,
             "feedback_at": None,
             "request_state": None,
+            "request_provider": None,
             "requested_at": None,
             "jellyseerr_request_id": None,
             "added_at": rs.utc_now(),
@@ -489,7 +599,7 @@ class ValidatorTests(unittest.TestCase):
             self.skipTest("recommendations.example.json not present")
         with open(EXAMPLE_PATH, encoding="utf-8") as fh:
             example = json.load(fh)
-        self.assertTrue(rs.validate_v3(example))
+        self.assertTrue(rs.validate_v4(example))
 
     def test_v3_schema_file_declares_unique_composite_history_and_identity(self):
         with open(SCHEMA_V3_PATH, encoding="utf-8") as fh:
@@ -500,6 +610,64 @@ class ValidatorTests(unittest.TestCase):
         self.assertIn("identity", schema["properties"]["items"]["items"]["required"])
         event_schema = schema["properties"]["items"]["items"]["properties"]["trakt_history_event"]
         self.assertIn("event_id", event_schema["required"])
+
+    def test_v4_schema_requires_provider_and_declares_exact_values(self):
+        with open(SCHEMA_V4_PATH, encoding="utf-8") as fh:
+            schema = json.load(fh)
+        self.assertEqual(schema["title"], "Hermes Recommendations v4")
+        self.assertEqual(schema["properties"]["version"]["const"], 4)
+        item_schema = schema["properties"]["items"]["items"]
+        self.assertIn("request_provider", item_schema["required"])
+        self.assertEqual(
+            item_schema["properties"]["request_provider"]["enum"],
+            [None, "jellyseerr", "arr_legacy"],
+        )
+
+    def test_v4_provider_must_match_request_state(self):
+        base = {
+            "version": 4,
+            "revision": 1,
+            "updated_at": "2026-01-01T00:00:00Z",
+            "presented_media_ids": ["movie:42"],
+            "items": [
+                {
+                    "id": "hermes-movie-42",
+                    "identity": "movie:42",
+                    "source": "hermes",
+                    "type": "movie",
+                    "title": "Fixture",
+                    "year": 2024,
+                    "tmdb_id": 42,
+                    "reason": "test",
+                    "active": False,
+                    "feedback": None,
+                    "feedback_at": None,
+                    "request_state": "requested",
+                    "request_provider": "jellyseerr",
+                    "requested_at": "2026-01-01T00:00:00Z",
+                    "jellyseerr_request_id": 123,
+                    "added_at": "2026-01-01T00:00:00Z",
+                }
+            ],
+        }
+        invalid_pairs = [
+            ("requested", None),
+            ("requested", "sonarr"),
+            (None, "jellyseerr"),
+            (None, "arr_legacy"),
+        ]
+        for request_state, provider in invalid_pairs:
+            with self.subTest(request_state=request_state, provider=provider):
+                doc = json.loads(json.dumps(base))
+                doc["items"][0]["request_state"] = request_state
+                doc["items"][0]["request_provider"] = provider
+                with self.assertRaises(rs.RecommendationValidationError):
+                    rs.validate_v4(doc)
+
+        missing = json.loads(json.dumps(base))
+        del missing["items"][0]["request_provider"]
+        with self.assertRaises(rs.RecommendationValidationError):
+            rs.validate_v4(missing)
 
     def test_invalid_trakt_history_event_rejected(self):
         doc = {
@@ -603,6 +771,22 @@ class CutoverTests(unittest.TestCase):
     def test_apply_helpers_validate(self):
         with self.assertRaises(rs.RecommendationValidationError):
             rs.apply_feedback({}, "meh")
+
+        with self.assertRaises(TypeError):
+            rs.apply_request({})
+        with self.assertRaises(rs.RecommendationValidationError):
+            rs.apply_request({}, provider="sonarr")
+
+        item = {"active": True, "request_state": None, "request_provider": None}
+        rs.apply_request(
+            item,
+            provider="jellyseerr",
+            request_id=123,
+            now="2026-01-01T00:00:00Z",
+        )
+        self.assertEqual(item["request_state"], "requested")
+        self.assertEqual(item["request_provider"], "jellyseerr")
+        self.assertEqual(item["jellyseerr_request_id"], 123)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Versioned recommendations store (v3) with v2→v3 migration only.
+"""Versioned recommendations store (v4) with v2→v3→v4 migration.
 
 Sole in-process read/write abstraction for ``recommendations.json``:
 
@@ -10,12 +10,12 @@ Sole in-process read/write abstraction for ``recommendations.json``:
 - monotonically increment ``revision`` on every successful mutation;
 - never mutate the caller's object in place.
 
-Runtime loading accepts valid v2 (migrated in memory to v3) and valid v3.
-Missing, unknown, malformed, or legacy-v1 documents are rejected; fields are
-never derived from a legacy ``status`` value.
+Runtime loading accepts valid v2 and v3 (migrated in memory to v4) and valid
+v4. Missing, unknown, malformed, or legacy-v1 documents are rejected; fields
+are never derived from a legacy ``status`` value.
 
-The shipped contract documentation is ``config/recommendations/schema-v3.json``;
-``validate_v3`` here is the enforcing implementation and must stay in sync.
+The shipped contract documentation is ``config/recommendations/schema-v4.json``;
+``validate_v4`` here is the enforcing implementation and must stay in sync.
 """
 
 import copy
@@ -26,10 +26,12 @@ import threading
 from datetime import datetime, timezone
 
 SCHEMA_V2_VERSION = 2
-SCHEMA_VERSION = 3
+SCHEMA_V3_VERSION = 3
+SCHEMA_VERSION = 4
 
 FEEDBACK_VALUES = ("liked", "disliked", "watched", "skipped")
 REQUEST_STATE_VALUES = ("requested",)
+REQUEST_PROVIDER_VALUES = ("jellyseerr", "arr_legacy")
 ITEM_TYPES = ("movie", "tv")
 TRAKT_HISTORY_SYNC_STATUSES = ("pending", "synced", "reconnect_required", "failed")
 
@@ -232,8 +234,8 @@ def validate_v3(data):
     """Validate a document against the v3 composite-identity contract."""
     if not isinstance(data, dict):
         _fail("$", "expected object")
-    if data.get("version") != SCHEMA_VERSION:
-        _fail("version", f"expected {SCHEMA_VERSION}")
+    if data.get("version") != SCHEMA_V3_VERSION:
+        _fail("version", f"expected {SCHEMA_V3_VERSION}")
     revision = data.get("revision")
     if not _is_int(revision) or revision < 0:
         _fail("revision", "expected non-negative integer")
@@ -278,6 +280,46 @@ def validate_v3(data):
     return True
 
 
+def validate_v4(data):
+    """Validate a document against the v4 provider-aware contract."""
+    if not isinstance(data, dict):
+        _fail("$", "expected object")
+    if data.get("version") != SCHEMA_VERSION:
+        _fail("version", f"expected {SCHEMA_VERSION}")
+    items = data.get("items")
+    if not isinstance(items, list):
+        _fail("items", "expected array")
+    for i, item in enumerate(items):
+        path = f"items[{i}]"
+        if not isinstance(item, dict):
+            _fail(path, "expected object")
+        if "request_provider" not in item:
+            _fail(f"{path}.request_provider", "required field missing")
+        provider = item.get("request_provider")
+        if provider is not None and provider not in REQUEST_PROVIDER_VALUES:
+            _fail(
+                f"{path}.request_provider",
+                f"expected null or one of {REQUEST_PROVIDER_VALUES}",
+            )
+        request_state = item.get("request_state")
+        if request_state == "requested" and provider is None:
+            _fail(
+                f"{path}.request_provider",
+                "requested items require a request provider",
+            )
+        if request_state is None and provider is not None:
+            _fail(
+                f"{path}.request_provider",
+                "unrequested items require a null request provider",
+            )
+
+    historical = copy.deepcopy(data)
+    historical["version"] = SCHEMA_V3_VERSION
+    for item in historical["items"]:
+        item.pop("request_provider", None)
+    return validate_v3(historical)
+
+
 def _migrate_v2_to_v3(v2):
     """Migrate v2 numeric history without discarding any deny entries.
 
@@ -287,7 +329,7 @@ def _migrate_v2_to_v3(v2):
     """
     validate_v2(v2)
     doc = copy.deepcopy(v2)
-    doc["version"] = SCHEMA_VERSION
+    doc["version"] = SCHEMA_V3_VERSION
     numeric_history = doc.pop("presented_tmdb_ids")
     presented = [_legacy_tombstone(tmdb_id) for tmdb_id in numeric_history]
     for item in doc["items"]:
@@ -311,14 +353,46 @@ def migrate_to_v3(raw):
     if not isinstance(raw, dict):
         _fail("$", "expected object")
     version = raw.get("version")
-    if version == SCHEMA_VERSION:
+    if version == SCHEMA_V3_VERSION:
         validate_v3(raw)
         return copy.deepcopy(raw)
     if version == SCHEMA_V2_VERSION:
         return _migrate_v2_to_v3(raw)
     _fail(
         "version",
-        f"unsupported version {version!r}; expected {SCHEMA_V2_VERSION} or {SCHEMA_VERSION}",
+        f"unsupported version {version!r}; expected {SCHEMA_V2_VERSION} or {SCHEMA_V3_VERSION}",
+    )
+
+
+def _migrate_v3_to_v4(v3):
+    """Add provider provenance without rewriting any other v3 state."""
+    validate_v3(v3)
+    doc = copy.deepcopy(v3)
+    doc["version"] = SCHEMA_VERSION
+    for item in doc["items"]:
+        item["request_provider"] = (
+            "arr_legacy" if item.get("request_state") == "requested" else None
+        )
+    validate_v4(doc)
+    return doc
+
+
+def migrate_to_v4(raw):
+    """Return a v4 document for valid v2, v3, or v4 input without mutation."""
+    if not isinstance(raw, dict):
+        _fail("$", "expected object")
+    version = raw.get("version")
+    if version == SCHEMA_VERSION:
+        validate_v4(raw)
+        return copy.deepcopy(raw)
+    if version == SCHEMA_V3_VERSION:
+        return _migrate_v3_to_v4(raw)
+    if version == SCHEMA_V2_VERSION:
+        return _migrate_v3_to_v4(_migrate_v2_to_v3(raw))
+    _fail(
+        "version",
+        "unsupported version "
+        f"{version!r}; expected {SCHEMA_V2_VERSION}, {SCHEMA_V3_VERSION}, or {SCHEMA_VERSION}",
     )
 
 
@@ -345,14 +419,20 @@ def apply_feedback(item, feedback, now=None):
             del item["trakt_history_event"]
 
 
-def apply_request(item, now=None, request_id=None):
+def apply_request(item, provider, now=None, request_id=None):
     """Set request fields only; feedback fields are preserved."""
+    if provider not in REQUEST_PROVIDER_VALUES:
+        raise RecommendationValidationError(
+            f"request_provider: expected one of {REQUEST_PROVIDER_VALUES}"
+        )
     if (
         item.get("request_state") == "requested"
+        and item.get("request_provider") == provider
         and item.get("jellyseerr_request_id") == request_id
     ):
         return
     item["request_state"] = "requested"
+    item["request_provider"] = provider
     item["requested_at"] = now or utc_now()
     if request_id is not None:
         item["jellyseerr_request_id"] = request_id
@@ -377,9 +457,9 @@ class RecommendationStore:
         }
 
     def load(self):
-        """Return the current document as v3.
+        """Return the current document as v4.
 
-        Valid v2 files are migrated in memory only; v3 is persisted on the
+        Valid v2/v3 files are migrated in memory only; v4 is persisted on the
         next successful mutation (after validation). Invalid or legacy-v1
         documents raise and leave the on-disk bytes unchanged.
         """
@@ -395,12 +475,12 @@ class RecommendationStore:
         except (OSError, ValueError) as e:
             raise RecommendationError(f"cannot read {self.path}: {e}") from e
         # Invalid / legacy-v1 documents raise without rewriting the file.
-        return migrate_to_v3(raw)
+        return migrate_to_v4(raw)
 
     def update(self, mutator):
         """Run one read-modify-write transaction.
 
-        ``mutator`` receives a deep copy of the current v3 document and may
+        ``mutator`` receives a deep copy of the current v4 document and may
         modify it. On success the candidate is validated, its ``revision`` is
         incremented, ``updated_at`` is refreshed, and it is atomically written.
         If the mutator raises, or validation or the write fails, the file on
@@ -412,7 +492,7 @@ class RecommendationStore:
             mutator(candidate)
             candidate["revision"] = current.get("revision", 0) + 1
             candidate["updated_at"] = utc_now()
-            validate_v3(candidate)
+            validate_v4(candidate)
             self._atomic_write(candidate)
             return candidate
 

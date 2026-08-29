@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.media/hermes/recommendations.schema-v4.json",
+  "title": "Hermes Recommendations v4",
+  "description": "Versioned contract for config/recommendations/recommendations.json. v4 records which request provider owns requested state.",
+  "type": "object",
+  "required": ["version", "revision", "updated_at", "presented_media_ids", "items"],
+  "additionalProperties": true,
+  "properties": {
+    "version": { "const": 4 },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updated_at": { "type": "string" },
+    "presented_media_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Append-only deny set of composite identities. legacy:<id> conservatively blocks both movie:<id> and tv:<id>.",
+      "items": {
+        "type": "string",
+        "pattern": "^(?:(?:movie|tv):[1-9][0-9]*|legacy:[1-9][0-9]*)$"
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "identity",
+          "source",
+          "type",
+          "title",
+          "tmdb_id",
+          "reason",
+          "active",
+          "feedback",
+          "feedback_at",
+          "request_state",
+          "request_provider",
+          "requested_at",
+          "jellyseerr_request_id",
+          "added_at"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^hermes-(?:movie|tv)-[1-9][0-9]*$"
+          },
+          "identity": {
+            "type": "string",
+            "pattern": "^(?:movie|tv):[1-9][0-9]*$"
+          },
+          "source": { "type": "string" },
+          "type": { "enum": ["movie", "tv"] },
+          "title": { "type": "string" },
+          "year": { "type": ["integer", "null"] },
+          "tmdb_id": { "type": "integer", "minimum": 1 },
+          "reason": { "type": "string" },
+          "active": { "type": "boolean" },
+          "feedback": {
+            "enum": [null, "liked", "disliked", "watched", "skipped"]
+          },
+          "feedback_at": { "type": ["string", "null"] },
+          "request_state": { "enum": [null, "requested"] },
+          "request_provider": { "enum": [null, "jellyseerr", "arr_legacy"] },
+          "requested_at": { "type": ["string", "null"] },
+          "jellyseerr_request_id": { "type": ["integer", "null"] },
+          "poster_path": { "type": ["string", "null"] },
+          "notes": { "type": ["string", "null"] },
+          "in_library": { "type": "boolean" },
+          "jellyfin_id": { "type": ["string", "null"] },
+          "poster_url": { "type": ["string", "null"] },
+          "added_at": { "type": "string" },
+          "trakt_history_event": {
+            "type": ["object", "null"],
+            "description": "Private Trakt delivery state persisted on watched feedback. Never exposed to the browser except through trakt_history_sync.status on read responses.",
+            "required": [
+              "event_id",
+              "identity",
+              "watched_at",
+              "status",
+              "attempts",
+              "next_attempt_at",
+              "error",
+              "completed_at",
+              "trakt_history_ids",
+              "last_post_status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "event_id": { "type": "string", "minLength": 1 },
+              "identity": {
+                "type": "string",
+                "pattern": "^(?:movie|tv):[1-9][0-9]*$"
+              },
+              "watched_at": { "type": "string" },
+              "status": {
+                "enum": ["pending", "synced", "reconnect_required", "failed"]
+              },
+              "attempts": { "type": "integer", "minimum": 0 },
+              "next_attempt_at": { "type": ["string", "null"] },
+              "error": { "type": ["string", "null"] },
+              "completed_at": { "type": ["string", "null"] },
+              "trakt_history_ids": {
+                "type": "array",
+                "items": { "type": "integer" }
+              },
+              "last_post_status": { "type": ["integer", "null"] }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": ["request_state"],
+              "properties": { "request_state": { "const": "requested" } }
+            },
+            "then": {
+              "properties": {
+                "request_provider": { "enum": ["jellyseerr", "arr_legacy"] }
+              }
+            },
+            "else": {
+              "properties": { "request_provider": { "const": null } }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

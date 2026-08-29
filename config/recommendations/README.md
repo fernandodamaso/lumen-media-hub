@@ -1,14 +1,14 @@
 # Recommendations store
 
-`recommendations.json` (version 3) is the shared state between the dashboard Discover page and the Hermes agent cron. It is mutable runtime data and is **git-ignored**; the files that ship are:
+`recommendations.json` (version 4) is the shared state between the dashboard Discover page and the Hermes agent cron. It is mutable runtime data and is **git-ignored**; the files that ship are:
 
-- `schema-v3.json` — the authoritative current contract (JSON Schema, documentation)
-- `schema-v2.json` — the retained historical input contract for migration
+- `schema-v4.json` — the authoritative current contract (JSON Schema, documentation)
+- `schema-v3.json` / `schema-v2.json` — retained historical input contracts for migration
 - `recommendations.example.json` — a valid example document
 - `HERMES_DISCOVER_PROMPT.md` — the Hermes cron prompt
 - `README.md` — this file
 
-The schema is enforced on every write by `RecommendationStore.validate_v3` in `config/homepage-actions/recommendations_store.py` (hand-rolled, stdlib-only — no third-party validator is available in the container). Keep the two in sync.
+The schema is enforced on every write by `RecommendationStore.validate_v4` in `config/homepage-actions/recommendations_store.py` (hand-rolled, stdlib-only — no third-party validator is available in the container). Keep the two in sync.
 
 ## Storage guarantees
 
@@ -20,13 +20,13 @@ All reads and writes go through `RecommendationStore` (`config/homepage-actions/
 - `revision` increments monotonically on every successful mutation;
 - callers' objects are never mutated in place (mutators receive a deep copy).
 
-v2 files are migrated in memory on load and persisted as v3 only after the next successful, validated mutation. Legacy v1, unknown, or malformed documents are rejected and leave the on-disk bytes unchanged. Independent `active` / `feedback` / `request_state` fields are never derived from a legacy `status` value. The live file is never edited by the prompt or by this documentation.
+v2 and v3 files are migrated in memory on load and persisted as v4 only after the next successful, validated mutation. Legacy v1, unknown, or malformed documents are rejected and leave the on-disk bytes unchanged. Independent `active` / `feedback` / `request_state` fields are never derived from a legacy `status` value. The live file is never edited by the prompt or by this documentation.
 
-## Schema (v3)
+## Schema (v4)
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "revision": 12,
   "updated_at": "2026-07-11T12:00:00Z",
   "presented_media_ids": ["movie:1538"],
@@ -44,6 +44,7 @@ v2 files are migrated in memory on load and persisted as v3 only after the next 
       "feedback": "liked",
       "feedback_at": "2026-07-11T12:05:00Z",
       "request_state": null,
+      "request_provider": null,
       "requested_at": null,
       "jellyseerr_request_id": null,
       "poster_path": "/...jpg",
@@ -59,13 +60,14 @@ State lives on **independent dimensions** instead of one overloaded `status`:
 |-------|--------|---------|
 | `active` | `true` / `false` | Whether the title belongs in the default recommendation feed |
 | `feedback` | `null` / `liked` / `disliked` / `watched` / `skipped` | User feedback; `disliked`, `watched`, `skipped` also deactivate |
-| `request_state` | `null` / `requested` | Sent to Jellyseerr via the dashboard Request button |
+| `request_state` | `null` / `requested` | Whether a request provider accepted the title |
+| `request_provider` | `null` / `jellyseerr` / `arr_legacy` | Provider that owns requested state; required and non-null exactly when `request_state=requested` |
 | `feedback_at` / `requested_at` | timestamp or `null` | When the dimension last changed (UTC, `...Z`) |
 | `jellyseerr_request_id` | integer or `null` | Jellyseerr request ID when known |
 
 Transition rules: feedback writes never clear request fields; a successful request updates only request fields and preserves feedback. Like leaves `active` unchanged (reactivation happens exclusively through generation acceptance); dislike/watched/skipped and request set `active=false`.
 
-There is no legacy `status` field. Consumers must use the independent v3 fields above; a missing or malformed v3 state is invalid data and is not reconstructed by the API.
+There is no legacy `status` field. Consumers must use the independent v4 fields above; a missing or malformed v4 state is invalid data and is not reconstructed by the API. `jellyseerr` identifies requests accepted by Jellyseerr; `arr_legacy` identifies the previous direct Radarr/Sonarr writer and migrated requested rows.
 
 ## Generations endpoint (the only item writer)
 
@@ -131,9 +133,9 @@ Failures are never cached forever: after the negative TTL the lookup is retried,
 
 During `POST /discover/hermes/generations`, posters for the batch are resolved in the **preparation phase, before the locked commit**, and a successful `poster_path` is persisted on newly accepted items (`poster_url` is always derived, never stored). A metadata outage never fails the GET or the generation: enrichment degrades to no-poster items (the title is always present; the frontend handles poster failure/recovery). Each batch logs one concise line to stdout: `[poster-enrich] items=… hits=… fetched=… failed=… duration=…s` (plus `skipped=… reason=no-api-key` when Jellyseerr is unconfigured, so misconfiguration is distinguishable from an outage).
 
-## v2 → v3 migration
+## v2 → v3 → v4 migration
 
-Runtime loading accepts valid v2 and valid v3 only. A valid v2 document is migrated in memory:
+Runtime loading accepts valid v2, v3, and v4. A valid v2 document first receives the v3 composite identity migration in memory:
 
 - each current item gets `identity = "{type}:{tmdb_id}"` and `id = "hermes-{type}-{tmdb_id}"`;
 - numeric `presented_tmdb_ids` become conservative `legacy:<id>` tombstones;
@@ -141,11 +143,13 @@ Runtime loading accepts valid v2 and valid v3 only. A valid v2 document is migra
 
 A tombstone is checked against both `movie:<id>` and `tv:<id>`, preserving history when old data cannot identify the media type at the cost of possibly blocking one cross-type item. Migration is deterministic, idempotent, and never discards durable deny entries.
 
+The v3 → v4 step adds `request_provider`: existing requested rows become `arr_legacy`, while non-requested rows receive `null`. Loading either historical version is read-only; v4 is written only by the next successful transaction.
+
 Legacy v1 documents (and any unknown/malformed version) are rejected after the cutover. There is no runtime path that reconstructs v3 fields from a legacy `status` value. Offline historical conversion, if ever needed, must be a separate one-shot tool — not part of normal store loading.
 
 ## Request reconciliation
 
-If Jellyseerr accepts a Hermes request but dashboard persistence fails, the actions API queues `{hermes_id, jellyseerr_request_id}` in `request-reconciliation.json` (runtime data; git-ignored) next to `recommendations.json`.
+If a request provider accepts a Hermes request but dashboard persistence fails, the actions API queues `{hermes_id, jellyseerr_request_id, request_provider}` in `request-reconciliation.json` (runtime data; git-ignored) next to `recommendations.json`. New entries must name `jellyseerr` or `arr_legacy`; provider-less entries from the old queue format normalize to `arr_legacy`.
 
 Automatic retries:
 
@@ -156,13 +160,13 @@ Automatic retries:
 
 Manual recovery (ops/tests): `POST /discover/request/reconcile`.
 
-Stale-entry rule: if the item is already `request_state=requested` with a **different** Jellyseerr request ID, the queued entry is treated as superseded/conflict, logged without credentials, removed from the queue, and the newer persisted state is left untouched.
+Stale-entry rule: if the item is already `request_state=requested` with a different request ID or provider, the queued entry is treated as superseded/conflict, logged without credentials, removed from the queue, and the newer persisted state is left untouched.
 
 `GET /discover/hermes` exposes pending sync without secrets:
 
 ```json
 "pending_request_sync": [
-  { "id": "hermes-movie-42", "jellyseerr_request_id": 812 }
+  { "id": "hermes-movie-42", "jellyseerr_request_id": 812, "request_provider": "arr_legacy" }
 ]
 ```
 
@@ -174,11 +178,11 @@ Root field `presented_media_ids` is the durable, append-only deny set: every com
 
 ## Dashboard behavior
 
-- **Hermes tab** (default): shows only `source: "hermes"` items from browser `/api/discover/hermes`. That response contains dashboard-safe item fields, request state, and exclusion freshness/warning state only. It must not contain `revision`, `presented_media_ids`, `context`, typed Arr/Jellyfin/Trakt identity sets, `required_retain`, or taste data. Browser `/api/internal/*` returns **404**. Hermes uses the authenticated direct host route `http://localhost:8085/internal/discover/hermes`, which returns **401** without the token and is never called by browser code.
+- **Hermes tab** (default): shows only `source: "hermes"` items from browser `/api/discover/hermes`. That response contains dashboard-safe item fields, request state/provider, and exclusion freshness/warning state only. It must not contain `revision`, `presented_media_ids`, `context`, typed Arr/Jellyfin/Trakt identity sets, `required_retain`, or taste data. Browser `/api/internal/*` returns **404**. Hermes uses the authenticated direct host route `http://localhost:8085/internal/discover/hermes`, which returns **401** without the token and is never called by browser code.
 - **Request more**: browser `POST /api/discover/hermes/request-more` queues an on-demand generation (`generation-request.json`, git-ignored runtime data). The Active grid shows a trailing **Request more recommendations** button. The flag clears automatically after the cron calls the direct-host `POST http://localhost:8085/discover/hermes/generations`. Hermes still runs on its cron (`0 10 * * *`); the browser queue is a signal for that next run, not an instant agent spawn.
 - **Jellyseerr / Trakt tabs**: browse-only proxies; feedback buttons are Hermes-only.
 - Feedback writes via `PATCH /discover/hermes/{id}` (dashboard-only, not Jellyfin thumbs).
-- Request writes go through **Radarr/Sonarr directly** as unmonitored library entries (`monitored=false`, no search). Movies use Radarr; TV uses Sonarr. If the Arr add succeeds but the dashboard annotation cannot be committed, the API returns `dashboard_state_persisted=false` with the Arr id, queues durable reconciliation, and exposes the Hermes id on `GET /discover/hermes` as `pending_request_sync`. The dashboard shows `Added to Sonarr/Radarr; dashboard synchronization failed.`, keeps Request disabled across refresh/remount, and does not invite an immediate duplicate request.
+- The current legacy request route writes through **Radarr/Sonarr directly** as unmonitored library entries (`monitored=false`, no search) and records `request_provider=arr_legacy`. Movies use Radarr; TV uses Sonarr. If the Arr add succeeds but the dashboard annotation cannot be committed, the API returns `dashboard_state_persisted=false` with the Arr id, queues durable reconciliation, and exposes the Hermes id/provider on `GET /discover/hermes` as `pending_request_sync`. The dashboard shows `Added to Sonarr/Radarr; dashboard synchronization failed.`, keeps Request disabled across refresh/remount, and does not invite an immediate duplicate request.
 
 ## Hermes cron
 

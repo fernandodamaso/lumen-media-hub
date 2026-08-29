@@ -43,6 +43,7 @@ def make_item(tmdb_id, media_type="movie", **overrides):
         "feedback": None,
         "feedback_at": None,
         "request_state": None,
+        "request_provider": None,
         "requested_at": None,
         "jellyseerr_request_id": None,
         "added_at": "2026-01-01T00:00:00Z",
@@ -54,7 +55,7 @@ def make_item(tmdb_id, media_type="movie", **overrides):
 def base_doc(*items):
     presented = [item["identity"] for item in items]
     return {
-        "version": 3,
+        "version": 4,
         "revision": 1,
         "updated_at": "2026-01-01T00:00:00Z",
         "presented_media_ids": presented,

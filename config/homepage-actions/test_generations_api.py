@@ -34,6 +34,7 @@ def make_item(
     active=True,
     feedback=None,
     request_state=None,
+    request_provider=None,
     media_type="movie",
 ):
     identity = f"{media_type}:{tmdb_id}"
@@ -50,6 +51,11 @@ def make_item(
         "feedback": feedback,
         "feedback_at": "2026-01-01T00:00:00Z" if feedback else None,
         "request_state": request_state,
+        "request_provider": (
+            request_provider
+            if request_provider is not None
+            else ("arr_legacy" if request_state else None)
+        ),
         "requested_at": "2026-01-01T00:00:00Z" if request_state else None,
         "jellyseerr_request_id": 555 if request_state else None,
         "added_at": "2026-01-01T00:00:00Z",
@@ -318,10 +324,12 @@ class GenerationCommitTests(GenerationApiTestCase):
             self.assertIsNone(item["feedback"])
             self.assertIsNone(item["feedback_at"])
             self.assertIsNone(item["request_state"])
+            self.assertIn("request_provider", item)
+            self.assertIsNone(item["request_provider"])
             self.assertIsNone(item["requested_at"])
             self.assertIsNone(item["jellyseerr_request_id"])
             self.assertTrue(item["added_at"])
-        self.assertTrue(rs.validate_v3(doc))
+        self.assertTrue(rs.validate_v4(doc))
 
     def test_omitted_active_items_rotated_to_history_not_deleted(self):
         # Only non-keeper interacted actives may rotate when omitted.
@@ -421,6 +429,7 @@ class GenerationCommitTests(GenerationApiTestCase):
         self.assertEqual(item["feedback"], "liked")
         self.assertEqual(item["feedback_at"], "2026-01-01T00:00:00Z")
         self.assertEqual(item["request_state"], "requested")
+        self.assertEqual(item["request_provider"], "arr_legacy")
         self.assertEqual(item["requested_at"], "2026-01-01T00:00:00Z")
         self.assertEqual(item["jellyseerr_request_id"], 555)
         self.assertEqual(item["added_at"], "2026-01-01T00:00:00Z")
@@ -540,7 +549,7 @@ class RevisionConflictTests(GenerationApiTestCase):
         def _request_item(doc):
             for item in doc["items"]:
                 if item["tmdb_id"] == 7:
-                    rs.apply_request(item, request_id=777)
+                    rs.apply_request(item, provider="arr_legacy", request_id=777)
 
         self.store.update(_request_item)
         status, _ = self.post_generation(stale_rev, [self.candidate(900)])
@@ -578,7 +587,7 @@ class RevisionConflictTests(GenerationApiTestCase):
         accepted = [i["tmdb_id"] for i in doc["items"] if i["tmdb_id"] in (501, 502)]
         self.assertEqual(len(accepted), 1)
         self.assertEqual(doc["revision"], rev + 1)
-        self.assertTrue(rs.validate_v3(doc))
+        self.assertTrue(rs.validate_v4(doc))
         with open(self.path, encoding="utf-8") as fh:
             json.load(fh)
 
@@ -800,6 +809,24 @@ class InternalGenerationSnapshotTests(GenerationApiTestCase):
             "context",
         ):
             self.assertNotIn(private, encoded)
+
+    def test_public_response_includes_request_provider(self):
+        self.seed(
+            [
+                make_item(
+                    7,
+                    active=False,
+                    request_state="requested",
+                    request_provider="jellyseerr",
+                )
+            ],
+            presented=["movie:7"],
+        )
+
+        status, payload = self.request("GET", "/discover/hermes")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["items"][0].get("request_provider"), "jellyseerr")
 
 
 class DiscoverSafeErrorBoundaryTests(GenerationApiTestCase):
@@ -1350,6 +1377,17 @@ class FeedbackPatchTests(GenerationApiTestCase):
 
 
 class RequestPartialSuccessTests(GenerationApiTestCase):
+    def test_providerless_reconciliation_entry_normalizes_to_arr_legacy(self):
+        normalized = reconciliation._normalize_reconciliation_entry(
+            {
+                "hermes_id": "hermes-movie-42",
+                "jellyseerr_request_id": 812,
+                "queued_at": "2026-01-01T00:00:00Z",
+            }
+        )
+
+        self.assertEqual(normalized.get("request_provider"), "arr_legacy")
+
     def test_arr_success_with_store_failure_is_explicit_and_reconcilable(self):
         self.seed([make_item(42)], presented=["movie:42"])
         original_update = self.store.update
@@ -1385,6 +1423,9 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
         self.assertEqual(payload["jellyseerr_request_id"], 812)
         self.assertFalse(payload["dashboard_state_persisted"])
         self.assertTrue(payload["reconciliation_queued"])
+        with config._reconciliation_lock:
+            queued = reconciliation._read_reconciliation_queue()
+        self.assertEqual(queued[0]["request_provider"], "arr_legacy")
         self.assertEqual(
             payload["message"],
             "Added to Sonarr/Radarr; dashboard synchronization failed.",
@@ -1397,6 +1438,7 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
         self.assertEqual(reconcile["pending"], 0)
         item = self.item_by_tmdb(self.current_doc(), 42)
         self.assertEqual(item["request_state"], "requested")
+        self.assertEqual(item["request_provider"], "arr_legacy")
         self.assertEqual(item["jellyseerr_request_id"], 812)
 
         # Retrying reconciliation is idempotent after the durable mutation.
@@ -1431,6 +1473,7 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
         add_mock.assert_called_once_with("movie", 42)
         item = self.item_by_tmdb(self.current_doc(), 42)
         self.assertEqual(item["request_state"], "requested")
+        self.assertEqual(item["request_provider"], "arr_legacy")
         self.assertEqual(item["jellyseerr_request_id"], 901)
         self.assertFalse(item["active"])
 
@@ -1438,11 +1481,13 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
         # Failure ordering: queue A (stale), then persist B successfully.
         # Reconciling A must preserve B and drop A as a conflict.
         self.seed([make_item(42)], presented=["movie:42"])
-        reconciliation._enqueue_request_reconciliation("hermes-movie-42", 111)
+        reconciliation._enqueue_request_reconciliation(
+            "hermes-movie-42", 111, provider="arr_legacy"
+        )
 
         def _persist_newer(doc):
             item = self.item_by_tmdb(doc, 42)
-            rs.apply_request(item, request_id=222)
+            rs.apply_request(item, provider="arr_legacy", request_id=222)
 
         self.store.update(_persist_newer)
         before = self.item_by_tmdb(self.current_doc(), 42)
@@ -1457,6 +1502,7 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
 
         after = self.item_by_tmdb(self.current_doc(), 42)
         self.assertEqual(after["request_state"], "requested")
+        self.assertEqual(after["request_provider"], "arr_legacy")
         self.assertEqual(after["jellyseerr_request_id"], 222)
         self.assertEqual(after["requested_at"], before["requested_at"])
         self.assertEqual(self.current_doc()["revision"], revision_before)
@@ -1487,10 +1533,36 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
         self.assertEqual(reconcile["pending"], 0)
         item = self.item_by_tmdb(self.current_doc(), 42)
         self.assertEqual(item["jellyseerr_request_id"], 812)
+        self.assertEqual(item["request_provider"], "arr_legacy")
+
+    def test_reconciliation_provider_conflict_preserves_newer_state(self):
+        self.seed([make_item(42)], presented=["movie:42"])
+        reconciliation._enqueue_request_reconciliation(
+            "hermes-movie-42", 111, provider="arr_legacy"
+        )
+
+        def _persist_newer(doc):
+            item = self.item_by_tmdb(doc, 42)
+            rs.apply_request(item, provider="jellyseerr", request_id=111)
+
+        self.store.update(_persist_newer)
+        revision_before = self.current_doc()["revision"]
+
+        status, reconcile = self.request("POST", "/discover/request/reconcile")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(reconcile["reconciled"], 0)
+        self.assertEqual(reconcile["conflicts"], 1)
+        item = self.item_by_tmdb(self.current_doc(), 42)
+        self.assertEqual(item["request_provider"], "jellyseerr")
+        self.assertEqual(item["jellyseerr_request_id"], 111)
+        self.assertEqual(self.current_doc()["revision"], revision_before)
 
     def test_get_exposes_pending_request_sync_without_errors(self):
         self.seed([make_item(42)], presented=["movie:42"])
-        reconciliation._enqueue_request_reconciliation("hermes-movie-42", 812)
+        reconciliation._enqueue_request_reconciliation(
+            "hermes-movie-42", 812, provider="arr_legacy"
+        )
         with config._reconciliation_lock:
             queue = reconciliation._read_reconciliation_queue()
             queue[0]["last_error"] = "OSError"
@@ -1500,11 +1572,21 @@ class RequestPartialSuccessTests(GenerationApiTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(
             payload["pending_request_sync"],
-            [{"id": "hermes-movie-42", "jellyseerr_request_id": 812}],
+            [
+                {
+                    "id": "hermes-movie-42",
+                    "jellyseerr_request_id": 812,
+                    "request_provider": "arr_legacy",
+                }
+            ],
         )
         for entry in payload["pending_request_sync"]:
             self.assertNotIn("last_error", entry)
             self.assertNotIn("queued_at", entry)
+
+    def test_new_reconciliation_entries_require_provider(self):
+        with self.assertRaises(TypeError):
+            reconciliation._enqueue_request_reconciliation("hermes-movie-42", 812)
 
     def test_request_more_queues_and_is_idempotent(self):
         self.seed([make_item(42)], presented=["movie:42"])

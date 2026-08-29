@@ -31,9 +31,9 @@ from trakt_history_sync import (
 def make_item(tmdb_id, media_type="movie", **overrides):
     identity = f"{media_type}:{tmdb_id}"
     item = {
-        "id": f"hermes-{media_type}-{tmdb_id}",
+        "id": f"ai-{media_type}-{tmdb_id}",
         "identity": identity,
-        "source": "hermes",
+        "source": "ai",
         "type": media_type,
         "title": f"Title {tmdb_id}",
         "year": 2000,
@@ -54,11 +54,12 @@ def make_item(tmdb_id, media_type="movie", **overrides):
 def base_doc(*items):
     presented = [item["identity"] for item in items]
     return {
-        "version": 3,
+        "version": 4,
         "revision": 1,
         "updated_at": "2026-01-01T00:00:00Z",
         "presented_media_ids": presented,
         "items": list(items),
+        "generation": None,
     }
 
 

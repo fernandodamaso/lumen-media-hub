@@ -5,7 +5,7 @@ import { fixtureHost } from '../../testing/fixture-host';
 import { DiscoverSourceTab, JellyseerrDiscoverKind, TraktDiscoverType } from './discover.models';
 import { DiscoverCardItem, DiscoverHistoryFilter } from './discover-format';
 import { DISCOVER_BATCH_SIZE, DiscoverPage } from './discover-page';
-import { DiscoverFacade, DiscoverStatus, HermesView } from './discover.facade';
+import { DiscoverFacade, DiscoverStatus, AiPicksView } from './discover.facade';
 
 describe('DiscoverPage', () => {
   let fixture: ComponentFixture<DiscoverPage>;
@@ -27,32 +27,32 @@ describe('DiscoverPage', () => {
     facade.status.set('ready');
     facade.visibleItems.set([card({ title: 'Signal Drift' })]);
     fixture.detectChanges();
-    expect(fixtureHost(fixture).textContent).toContain('Browse Hermes');
+    expect(fixtureHost(fixture).textContent).toContain('Browse AI Picks');
 
     clickTab('Jellyseerr');
     expect(facade.setTab).toHaveBeenCalledWith('jellyseerr');
   });
 
-  it('renders the preserved Hermes History card with an In library badge', () => {
+  it('renders the preserved AI Picks History card with an In library badge', () => {
     facade.status.set('ready');
-    facade.tab.set('hermes');
+    facade.tab.set('ai-picks');
     facade.visibleItems.set([
       card({ title: 'The Bear', inLibrary: true, excludedReason: 'in_library' }),
     ]);
     fixture.detectChanges();
 
-    clickHermesView('History');
-    facade.hermesView.set('history');
+    clickAiPicksView('History');
+    facade.aiPicksView.set('history');
     fixture.detectChanges();
 
-    expect(facade.setHermesView).toHaveBeenCalledWith('history');
+    expect(facade.setAiPicksView).toHaveBeenCalledWith('history');
     expect(fixtureHost(fixture).textContent).toContain('The Bear');
     expect(fixtureHost(fixture).textContent).toContain('In library');
   });
 
   it('renders a Watched on Trakt badge for automatic watched projection', () => {
     facade.status.set('ready');
-    facade.tab.set('hermes');
+    facade.tab.set('ai-picks');
     facade.visibleItems.set([
       card({ title: 'The Bear', watchedOnTrakt: true, excludedReason: 'watched_on_trakt' }),
     ]);
@@ -62,7 +62,7 @@ describe('DiscoverPage', () => {
     expect(fixtureHost(fixture).textContent).not.toContain('In library');
   });
 
-  it('renders the watched snapshot warning for Hermes', () => {
+  it('renders the watched snapshot warning for AI Picks', () => {
     facade.status.set('ready');
     facade.notice.set('Watched filtering is using a cached snapshot.');
     fixture.detectChanges();
@@ -70,24 +70,24 @@ describe('DiscoverPage', () => {
     expect(fixtureHost(fixture).textContent).toContain('Watched filtering is using a cached snapshot.');
   });
 
-  it('renders the complete Hermes unavailable message', () => {
+  it('renders the complete AI Picks unavailable message', () => {
     facade.status.set('ready');
-    facade.notice.set('Watched filtering is unavailable. Showing Hermes recommendations.');
+    facade.notice.set('Watched filtering is unavailable. Showing AI Picks recommendations.');
     fixture.detectChanges();
 
     expect(fixtureHost(fixture).textContent).toContain(
-      'Watched filtering is unavailable. Showing Hermes recommendations.',
+      'Watched filtering is unavailable. Showing AI Picks recommendations.',
     );
     expect(fixtureHost(fixture).textContent).not.toContain('Showing Trakt recommendations');
   });
 
-  it('keeps Request in the footer for every source and only mounts Hermes feedback', () => {
+  it('keeps Request in the footer for every source and only mounts AI Picks feedback', () => {
     facade.status.set('ready');
     facade.visibleItems.set([card({ title: 'Signal Drift' })]);
     fixture.detectChanges();
 
     for (const source of [
-      { label: 'Hermes', hasFeedback: true },
+      { label: 'AI Picks', hasFeedback: true },
       { label: 'Jellyseerr', hasFeedback: false },
       { label: 'Trakt', hasFeedback: false },
     ] as const) {
@@ -112,7 +112,7 @@ describe('DiscoverPage', () => {
 
   it('disables request controls for unavailable items and keeps feedback separate', () => {
     facade.status.set('ready');
-    facade.tab.set('hermes');
+    facade.tab.set('ai-picks');
     facade.visibleItems.set([
       card({ id: 'no-tmdb', title: 'Untitled', tmdbId: 0 }),
       card({ id: 'eligible', title: 'Signal Drift', tmdbId: 101001 }),
@@ -141,7 +141,7 @@ describe('DiscoverPage', () => {
 
     const sourceButtons = sourceTabButtons();
     expect(sourceButtons.map((button) => button.textContent.trim())).toEqual([
-      'Hermes',
+      'AI Picks',
       'Jellyseerr',
       'Trakt',
     ]);
@@ -268,9 +268,9 @@ describe('DiscoverPage', () => {
     expect(root.textContent).not.toContain('Try again');
   });
 
-  it('does not show a toolbar Refresh control on the Hermes tab', () => {
+  it('does not show a toolbar Refresh control on the AI Picks tab', () => {
     facade.status.set('ready');
-    facade.tab.set('hermes');
+    facade.tab.set('ai-picks');
     facade.visibleItems.set([card({ title: 'Signal Drift' })]);
     fixture.detectChanges();
 
@@ -283,7 +283,7 @@ describe('DiscoverPage', () => {
 
   it('resets the visible limit when source filters change but not on refresh', () => {
     facade.status.set('ready');
-    facade.tab.set('hermes');
+    facade.tab.set('ai-picks');
     facade.visibleItems.set(
       Array.from({ length: 30 }, (_, index) => card({ id: `item-${index}`, title: `Title ${index}` })),
     );
@@ -296,7 +296,7 @@ describe('DiscoverPage', () => {
     fixture.detectChanges();
     expect(fixtureHost(fixture).querySelectorAll('mm-discover-card')).toHaveLength(30);
 
-    clickHermesView('History');
+    clickAiPicksView('History');
     fixture.detectChanges();
     expect(fixture.componentInstance.visibleLimit()).toBe(DISCOVER_BATCH_SIZE);
   });
@@ -327,15 +327,15 @@ describe('DiscoverPage', () => {
     expect(root.querySelector('mm-state-card')).toBeNull();
   });
 
-  it('shows Request more only on Hermes', () => {
+  it('shows Generate more picks only on AI Picks', () => {
     facade.status.set('ready');
-    facade.tab.set('hermes');
+    facade.tab.set('ai-picks');
     fixture.detectChanges();
-    expect(fixtureHost(fixture).textContent).toContain('Request more');
+    expect(fixtureHost(fixture).textContent).toContain('Generate more picks');
 
     facade.tab.set('jellyseerr');
     fixture.detectChanges();
-    expect(fixtureHost(fixture).textContent).not.toContain('Request more');
+    expect(fixtureHost(fixture).textContent).not.toContain('Generate more picks');
   });
 });
 
@@ -354,11 +354,11 @@ function clickLoadMore(): void {
   button.click();
 }
 
-function clickHermesView(label: string): void {
+function clickAiPicksView(label: string): void {
   const button = Array.from(document.querySelectorAll('[role="radio"]')).find((candidate) =>
     candidate.textContent.includes(label),
   );
-  if (!(button instanceof HTMLButtonElement)) throw new Error(`Hermes view button not found: ${label}`);
+  if (!(button instanceof HTMLButtonElement)) throw new Error(`AI Picks view button not found: ${label}`);
   button.click();
 }
 
@@ -380,7 +380,7 @@ function card(overrides: Partial<DiscoverCardItem> = {}): DiscoverCardItem {
     title: 'Title',
     type: 'movie',
     tmdbId: 1,
-    hermesId: 'item',
+    aiPickId: 'item',
     feedback: null,
     requestState: null,
     inLibrary: false,
@@ -390,8 +390,8 @@ function card(overrides: Partial<DiscoverCardItem> = {}): DiscoverCardItem {
 }
 
 function createFacade() {
-  const tab = signal<DiscoverSourceTab>('hermes');
-  const hermesView = signal<HermesView>('active');
+  const tab = signal<DiscoverSourceTab>('ai-picks');
+  const aiPicksView = signal<AiPicksView>('active');
   const historyFilter = signal<DiscoverHistoryFilter>('all');
   const jellyseerrKind = signal<JellyseerrDiscoverKind>('trending');
   const traktType = signal<TraktDiscoverType>('movies');
@@ -402,11 +402,12 @@ function createFacade() {
   const busyItemId = signal<string | null>(null);
   const requestingMore = signal(false);
   const generationPending = signal(false);
+  const generationEnabled = signal(true);
   const visibleItems = signal<DiscoverCardItem[]>([]);
 
   return {
     tab,
-    hermesView,
+    aiPicksView,
     historyFilter,
     jellyseerrKind,
     traktType,
@@ -417,12 +418,13 @@ function createFacade() {
     busyItemId,
     requestingMore,
     generationPending,
+    generationEnabled,
     visibleItems,
     setTab: vi.fn((value: DiscoverSourceTab) => {
       tab.set(value);
     }),
-    setHermesView: vi.fn((value: HermesView) => {
-      hermesView.set(value);
+    setAiPicksView: vi.fn((value: AiPicksView) => {
+      aiPicksView.set(value);
     }),
     setHistoryFilter: vi.fn((value: DiscoverHistoryFilter) => {
       historyFilter.set(value);

@@ -1,4 +1,4 @@
-"""Hermes request reconciliation queue and scheduler."""
+"""AI Picks request reconciliation queue and scheduler."""
 import json
 import os
 import threading
@@ -7,11 +7,11 @@ import config
 import config as settings
 from recommendations_store import RecommendationError, apply_request, utc_now
 
-from shared import _find_hermes_item
+from shared import _find_ai_picks_item
 
 
 
-class HermesItemNotFound(Exception):
+class AiPickItemNotFound(Exception):
     """Raised inside a store transaction to abort when the item is missing."""
 
 
@@ -35,14 +35,18 @@ def _normalize_reconciliation_entry(entry):
     """Return a validated queue entry dict, or None if malformed."""
     if not isinstance(entry, dict):
         return None
-    hermes_id = entry.get("hermes_id")
+    ai_pick_id = entry.get("ai_pick_id")
+    if ai_pick_id is None:
+        legacy_id = entry.get("hermes_id")
+        if isinstance(legacy_id, str) and legacy_id.startswith("hermes-"):
+            ai_pick_id = f"ai-{legacy_id[len('hermes-'):]}"
     request_id = entry.get("jellyseerr_request_id")
-    if not isinstance(hermes_id, str) or not hermes_id.strip():
+    if not isinstance(ai_pick_id, str) or not ai_pick_id.strip():
         return None
     if isinstance(request_id, bool) or not isinstance(request_id, int) or request_id <= 0:
         return None
     normalized = {
-        "hermes_id": hermes_id.strip(),
+        "ai_pick_id": ai_pick_id.strip(),
         "jellyseerr_request_id": request_id,
     }
     queued_at = entry.get("queued_at")
@@ -55,7 +59,7 @@ def _normalize_reconciliation_entry(entry):
 
 
 def _pending_request_sync_public():
-    """Public pending-sync view: Hermes ids + Jellyseerr ids only."""
+    """Public pending-sync view: AI Picks ids + Jellyseerr ids only."""
     with settings._reconciliation_lock:
         queue = _read_reconciliation_queue()
     pending = []
@@ -65,7 +69,7 @@ def _pending_request_sync_public():
             continue
         pending.append(
             {
-                "id": normalized["hermes_id"],
+                "id": normalized["ai_pick_id"],
                 "jellyseerr_request_id": normalized["jellyseerr_request_id"],
             }
         )
@@ -106,9 +110,9 @@ def _write_reconciliation_queue(queue):
         raise
 
 
-def _enqueue_request_reconciliation(hermes_id, jellyseerr_request_id):
+def _enqueue_request_reconciliation(ai_pick_id, jellyseerr_request_id):
     entry = {
-        "hermes_id": hermes_id,
+        "ai_pick_id": ai_pick_id,
         "jellyseerr_request_id": jellyseerr_request_id,
         "queued_at": utc_now(),
     }
@@ -116,7 +120,7 @@ def _enqueue_request_reconciliation(hermes_id, jellyseerr_request_id):
         queue = _read_reconciliation_queue()
         for existing in queue:
             if (
-                existing.get("hermes_id") == hermes_id
+                existing.get("ai_pick_id") == ai_pick_id
                 and existing.get("jellyseerr_request_id") == jellyseerr_request_id
             ):
                 return False
@@ -126,7 +130,7 @@ def _enqueue_request_reconciliation(hermes_id, jellyseerr_request_id):
 
 
 def _read_generation_request():
-    """Return the on-demand Hermes generation request dict, or None."""
+    """Return the on-demand AI Picks generation request dict, or None."""
     if not os.path.isfile(settings.GENERATION_REQUEST_PATH):
         return None
     try:
@@ -169,7 +173,7 @@ def _write_generation_request(payload):
 
 
 def _generation_request_public():
-    """Public view of a pending Hermes generation request, or None."""
+    """Public view of a pending AI Picks generation request, or None."""
     try:
         raw = _read_generation_request()
     except RecommendationError:
@@ -187,8 +191,8 @@ def _clear_generation_request():
         _write_generation_request(None)
 
 
-def _request_hermes_generation():
-    """Queue an on-demand Hermes generation. Idempotent while pending."""
+def _request_ai_picks_generation():
+    """Queue an on-demand AI Picks generation. Idempotent while pending."""
     with settings._generation_request_lock:
         existing = _read_generation_request()
         if isinstance(existing, dict) and existing.get("status") == "pending":
@@ -212,6 +216,17 @@ def _request_hermes_generation():
         }
 
 
+def migrate_legacy_generation_request(coordinator, desired_count):
+    """Import the retired file-backed pending request into the v4 job once."""
+    with settings._generation_request_lock:
+        pending = _read_generation_request()
+        if not isinstance(pending, dict) or pending.get("status") != "pending":
+            return {"queued": False, "imported": False}
+        result = coordinator.queue("on_demand", desired_count)
+        _write_generation_request(None)
+        return dict(result, imported=True)
+
+
 def _reconcile_pending_requests():
     with settings._reconciliation_lock:
         queue = _read_reconciliation_queue()
@@ -229,20 +244,20 @@ def _reconcile_pending_requests():
                 )
                 continue
 
-            hermes_id = normalized["hermes_id"]
+            ai_pick_id = normalized["ai_pick_id"]
             request_id = normalized["jellyseerr_request_id"]
 
-            def _apply(doc, _hermes_id=hermes_id, _request_id=request_id):
-                item = _find_hermes_item(doc, _hermes_id)
+            def _apply(doc, _ai_picks_id=ai_pick_id, _request_id=request_id):
+                item = _find_ai_picks_item(doc, _ai_picks_id)
                 if not item:
-                    raise HermesItemNotFound()
+                    raise AiPickItemNotFound()
                 if item.get("request_state") == "requested":
                     existing_id = item.get("jellyseerr_request_id")
                     if existing_id == _request_id:
                         raise AlreadyReconciled()
                     if existing_id is not None and existing_id != _request_id:
                         raise RequestSyncConflict(
-                            f"hermes_id={_hermes_id!r} "
+                            f"ai_pick_id={_ai_picks_id!r} "
                             f"queued_jellyseerr_request_id={_request_id!r} "
                             f"persisted_jellyseerr_request_id={existing_id!r}"
                         )
@@ -338,7 +353,7 @@ def start_reconciliation_scheduler(interval_seconds=None):
 
         thread = threading.Thread(
             target=_target,
-            name="hermes-request-reconcile",
+            name="ai-request-reconcile",
             daemon=True,
         )
         config._reconcile_thread = thread

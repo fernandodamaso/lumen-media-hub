@@ -54,10 +54,8 @@ class ActionsHandler(BaseHTTPRequestHandler):
             service_links.handle_service_links(self)
         elif path == "/cron/logs":
             reports.handle_cron_logs(self)
-        elif path == "/discover/hermes":
-            discover.handle_discover_hermes_get(self)
-        elif path == "/internal/discover/hermes":
-            discover.handle_discover_hermes_generation_snapshot(self)
+        elif path == "/discover/ai-picks":
+            discover.handle_discover_ai_picks_get(self)
         elif path == "/discover/jellyseerr":
             discover.handle_discover_jellyseerr(self, query)
         elif path == "/discover/trakt":
@@ -77,10 +75,10 @@ class ActionsHandler(BaseHTTPRequestHandler):
         if _reject_mutating(self):
             return
         path = urllib.parse.urlparse(self.path).path
-        prefix = "/discover/hermes/"
+        prefix = "/discover/ai-picks/"
         if path.startswith(prefix):
             item_id = urllib.parse.unquote(path[len(prefix):])
-            discover.handle_discover_hermes_patch(self, item_id)
+            discover.handle_discover_ai_picks_patch(self, item_id)
             return
         prefix = "/jellyfin/items/"
         suffix = "/played"
@@ -129,14 +127,20 @@ class ActionsHandler(BaseHTTPRequestHandler):
             qbittorrent.handle_qbt_action(self, "/api/v2/torrents/stop")
         elif path == "/start-all":
             qbittorrent.handle_qbt_action(self, "/api/v2/torrents/start")
-        elif path == "/discover/hermes":
-            discover.handle_discover_hermes_post(self)
-        elif path == "/discover/hermes/generations":
-            discover.handle_discover_hermes_generations(self)
-        elif path == "/discover/hermes/sync":
-            discover.handle_discover_hermes_sync(self)
-        elif path == "/discover/hermes/request-more":
-            discover.handle_discover_hermes_request_more(self)
+        elif path == "/discover/ai-picks/request-more":
+            discover.handle_discover_ai_picks_request_more(self)
+        elif path == "/internal/ai-picks/jobs/claim":
+            discover.handle_ai_picks_job_claim(self)
+        elif path.startswith("/internal/ai-picks/jobs/"):
+            remainder = path[len("/internal/ai-picks/jobs/"):]
+            if remainder.endswith("/complete"):
+                job_id = urllib.parse.unquote(remainder[:-len("/complete")])
+                discover.handle_ai_picks_job_complete(self, job_id)
+            elif remainder.endswith("/fail"):
+                job_id = urllib.parse.unquote(remainder[:-len("/fail")])
+                discover.handle_ai_picks_job_fail(self, job_id)
+            else:
+                send_json(self, 404, {"ok": False, "error": "Unknown endpoint"})
         elif path == "/discover/request/reconcile":
             discover.handle_discover_request_reconcile(self)
         elif path == "/discover/request":
@@ -150,9 +154,29 @@ class ActionsHandler(BaseHTTPRequestHandler):
 
 
 def run_server():
-    from reconciliation import start_reconciliation_scheduler, stop_reconciliation_scheduler
+    from reconciliation import (
+        migrate_legacy_generation_request,
+        start_reconciliation_scheduler,
+        stop_reconciliation_scheduler,
+    )
+    from ai_schedule import AiPicksSchedule, AiPicksScheduleRunner
     from queue_hygiene import start_queue_hygiene_scheduler, stop_queue_hygiene_scheduler
 
+    config.RECOMMENDATIONS_STORE.ensure_current()
+    coordinator = discover._generation_coordinator()
+    migrate_legacy_generation_request(coordinator, config.AI_PICKS_ON_DEMAND_COUNT)
+    discover._sync_ai_picks_collection_best_effort()
+    ai_schedule = AiPicksScheduleRunner(
+        AiPicksSchedule(
+            load=config.RECOMMENDATIONS_STORE.load,
+            queue=coordinator.queue,
+            enabled=lambda: config.AI_ENABLED,
+            target=config.AI_PICKS_TARGET_ACTIVE,
+            hour=config.AI_PICKS_SCHEDULE_HOUR,
+            count_effective=discover.effective_ai_picks_active_count,
+        )
+    )
+    ai_schedule.start()
     start_reconciliation_scheduler()
     start_queue_hygiene_scheduler()
     server = ThreadingHTTPServer(("0.0.0.0", config.PORT), ActionsHandler)
@@ -165,6 +189,7 @@ def run_server():
     try:
         server.serve_forever()
     finally:
+        ai_schedule.stop()
         stop_queue_hygiene_scheduler()
         stop_reconciliation_scheduler()
         server.server_close()

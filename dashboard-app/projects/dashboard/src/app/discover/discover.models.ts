@@ -1,7 +1,7 @@
 export type DiscoverFeedback = 'liked' | 'disliked' | 'watched' | 'skipped';
 export type TraktHistorySyncStatus = 'pending' | 'synced' | 'reconnect_required' | 'failed';
 type DiscoverMediaType = 'movie' | 'tv';
-export type DiscoverSourceTab = 'hermes' | 'jellyseerr' | 'trakt';
+export type DiscoverSourceTab = 'ai-picks' | 'jellyseerr' | 'trakt';
 export type JellyseerrDiscoverKind = 'trending' | 'movies' | 'tv';
 export type TraktDiscoverType = 'movies' | 'shows';
 type LibraryExclusionStatus = 'fresh' | 'stale' | 'unavailable';
@@ -62,11 +62,27 @@ export interface WatchedExclusionState {
   last_successful_refresh_at: string | null;
 }
 
-export interface HermesDiscover {
+type AiPicksGenerationStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+
+interface AiPicksGenerationState {
+  id: string;
+  status: AiPicksGenerationStatus;
+  trigger: 'on_demand' | 'scheduled';
+  requested_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  desired_count: number;
+  attempt: number;
+  error_code: string | null;
+  counts: { accepted: number; retained: number; rotated: number; rejected: number } | null;
+}
+
+export interface AiPicksDiscover {
   ok: boolean;
   items: DiscoverItem[];
   pending_request_sync?: { id: string; jellyseerr_request_id: number }[];
-  generation_request?: { requested_at: string; status: 'pending' } | null;
+  generation_enabled?: boolean;
+  generation?: AiPicksGenerationState | null;
   error?: string;
   library_exclusion?: LibraryExclusionState;
   watched_exclusion?: WatchedExclusionState;
@@ -94,10 +110,11 @@ export interface DiscoverAction {
   queued?: boolean;
   already_pending?: boolean;
   requested_at?: string;
+  id?: string;
   trakt_history_sync?: TraktHistorySyncState | null;
 }
 
-export interface SubmitHermesFeedbackOptions {
+export interface SubmitAiPickFeedbackOptions {
   notes?: string;
   confirmAllAired?: boolean;
 }
@@ -105,6 +122,6 @@ export interface SubmitHermesFeedbackOptions {
 export interface DiscoverRequestPayload {
   mediaType: DiscoverMediaType;
   mediaId: number;
-  hermesId?: string;
+  aiPickId?: string;
   is4k?: boolean;
 }

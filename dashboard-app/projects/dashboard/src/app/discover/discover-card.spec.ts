@@ -124,7 +124,7 @@ describe('DiscoverCard', () => {
 
   it('keeps Request in a persistent footer outside the feedback overlay for every source', () => {
     for (const source of [
-      { title: 'Hermes', showFeedback: true },
+      { title: 'AI Picks', showFeedback: true },
       { title: 'Jellyseerr', showFeedback: false },
       { title: 'Trakt', showFeedback: false },
     ]) {

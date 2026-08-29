@@ -15,7 +15,7 @@ const feed: ActivityFeed = {
       id: 'sonarr:48211',
       source: 'sonarr',
       kind: 'imported',
-      title: 'The Shōgun Court',
+      title: 'The ShÅgun Court',
       subtitle: 'S01E07 · 1080p WEB-DL',
       timestamp: '2026-07-30T00:18:41Z',
       href: 'http://sonarr.local/series/shogun-court',
@@ -199,13 +199,13 @@ class MockApi implements MediaStackApi {
   listCronLogs() {
     return Promise.resolve({ ok: true, currentRuns: [], historyRuns: [] });
   }
-  listHermesRecommendations() {
+  listAiPicks() {
     return Promise.resolve({ ok: true, items: [] });
   }
-  submitHermesFeedback() {
+  submitAiPickFeedback() {
     return Promise.resolve({ ok: true });
   }
-  requestHermesMore() {
+  requestMoreAiPicks() {
     return Promise.resolve({ ok: true });
   }
   listJellyseerrDiscover() {

@@ -23,15 +23,15 @@ const bypass = proxyConfig['/api']?.bypass;
 assert(typeof bypass === 'function', 'Vite /api proxy must define bypass(req)');
 
 const privateBrowserPaths = [
-  '/api/internal/discover/hermes',
-  '/api/discover/hermes/generations',
-  '/api/discover/hermes/sync',
+  '/api/internal/ai-picks/jobs/claim',
+  '/api/internal/ai-picks/jobs/job-1/complete',
+  '/api/internal/ai-picks/jobs/job-1/fail',
 ];
 
 const publicBrowserPaths = [
-  '/api/discover/hermes',
-  '/api/discover/hermes/request-more',
-  '/api/discover/hermes/hermes-movie-1',
+  '/api/discover/ai-picks',
+  '/api/discover/ai-picks/request-more',
+  '/api/discover/ai-picks/ai-movie-1',
   '/api/discover/request',
 ];
 
@@ -50,40 +50,22 @@ assert(
 );
 assert(proxy.includes("pathRewrite: { '^/api': '' }"), 'Vite must preserve public /api proxying');
 const internalLocation = nginx.indexOf('location ^~ /api/internal/');
-const generationLocation = nginx.indexOf(
-  'location = /api/discover/hermes/generations',
-);
-const syncLocation = nginx.indexOf('location = /api/discover/hermes/sync');
 const publicLocation = nginx.indexOf('location /api/');
 assert(internalLocation >= 0, 'Nginx must deny /api/internal/');
-assert(generationLocation >= 0, 'Nginx must deny browser generation POSTs');
-assert(syncLocation >= 0, 'Nginx must deny browser Hermes sync POSTs');
 assert(publicLocation >= 0, 'Nginx must preserve public /api/ proxying');
 assert(internalLocation < publicLocation, 'Nginx internal denial must precede public proxy');
-assert(generationLocation < publicLocation, 'Generation denial must precede /api/');
-assert(syncLocation < publicLocation, 'Sync denial must precede /api/');
 assert(nginx.indexOf('return 404;', internalLocation) < publicLocation, 'Nginx denial must return 404');
 
 const baseUrl = process.env.SMOKE_BASE_URL || 'http://127.0.0.1:3000';
 const liveDenialProbes = [
-  { path: '/api/internal/discover/hermes', method: 'GET' },
-  { path: '/api/discover/hermes/generations', method: 'HEAD' },
-  { path: '/api/discover/hermes/sync', method: 'HEAD' },
+  { path: '/api/internal/ai-picks/jobs/claim', method: 'GET' },
 ];
-for (const path of [
-  '/api/discover/hermes/generations',
-  '/api/discover/hermes/sync',
-]) {
-  const probe = liveDenialProbes.find((candidate) => candidate.path === path);
-  assert(probe?.method === 'HEAD', `${path} denial probe must use HEAD`);
-}
 const internalProbe = liveDenialProbes.find(
-  (candidate) => candidate.path === '/api/internal/discover/hermes',
+  (candidate) => candidate.path === '/api/internal/ai-picks/jobs/claim',
 );
-assert(internalProbe?.method === 'GET', 'Internal Hermes denial probe must use GET');
+assert(internalProbe?.method === 'GET', 'Internal AI Picks denial probe must use GET');
 
 try {
-  // Use HEAD for cron-only denials: the backend has no do_HEAD handler, so a misrouted probe returns 501 without invoking a mutating POST handler.
   for (const { path, method } of liveDenialProbes) {
     const response = await fetch(`${baseUrl}${path}`, {
       method,
@@ -91,10 +73,10 @@ try {
     assert(response.status === 404, `${baseUrl}${path} returned HTTP ${response.status}`);
   }
 
-  const publicResponse = await fetch(`${baseUrl}/api/discover/hermes`);
-  assert(publicResponse.status === 200, 'Public Hermes GET must remain proxied');
+  const publicResponse = await fetch(`${baseUrl}/api/discover/ai-picks`);
+  assert(publicResponse.status === 200, 'Public AI Picks GET must remain proxied');
 
-  const response = await fetch(`${baseUrl}/api/internal/discover/hermes`);
+  const response = await fetch(`${baseUrl}/api/internal/ai-picks/jobs/claim`);
   const body = await response.text();
   assert(!body.includes('presented_media_ids'), 'Port 3000 must not expose the internal snapshot');
   assert(!body.includes('required_retain'), 'Port 3000 must not expose generation context');

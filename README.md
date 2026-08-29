@@ -30,7 +30,7 @@ It is also a portfolio-grade Angular project designed to demonstrate production-
 | | Capability | What Lumen does |
 |---|---|---|
 | 🎬 | **Watch & browse** | Continue watching, trending titles, newly available media, movies and series |
-| 🔎 | **Discover** | Combines Hermes, Jellyseerr and Trakt recommendation sources |
+| 🔎 | **Discover** | Combines optional model-agnostic AI Picks, Jellyseerr and Trakt sources |
 | ➕ | **Request media** | Sends supported requests through the Live API |
 | ⬇️ | **Downloads** | Shows active qBittorrent transfers with pause/resume controls |
 | 📅 | **Upcoming releases** | Surfaces Sonarr calendar data directly in the shell |
@@ -49,7 +49,7 @@ Lumen is organized around a persistent application shell with focused feature su
 |---|---|
 | `/` | Home dashboard with hero, stats, Continue Watching, Newly Available, Trending in Trakt and downloads |
 | `/library` | Poster-based movie and series library with filtering |
-| `/discover` | Recommendations from Hermes, Jellyseerr and Trakt |
+| `/discover` | Recommendations from AI Picks, Jellyseerr and Trakt |
 | `/reports` | Status-weighted automation and cron-log triage |
 | Storybook | Interactive design-system showcase on port `6006` |
 
@@ -183,6 +183,7 @@ A plain `docker compose up -d` starts the core stack.
 | `requests` | Jellyseerr |
 | `maintenance` | Maintainerr, Recyclarr, Unpackerr |
 | `indexer-tools` | FlareSolverr |
+| `ai` | Internal model-agnostic AI Picks worker |
 
 Example:
 
@@ -196,6 +197,22 @@ docker compose `
 ```
 
 Optional capabilities are enabled explicitly. An intentionally disabled service is not treated as broken; an enabled but unreachable service is surfaced as degraded/down.
+
+To enable AI Picks, set `AI_ENABLED=true`, `AI_PROVIDER`, `AI_MODEL`, and the
+selected provider credential in `.env`, then start the `ai` profile. Supported
+providers are `openai`, `anthropic`, `google`, and `openai-compatible`. The
+compatible provider also requires `AI_COMPATIBLE_BASE_URL` and can declare
+`AI_COMPATIBLE_SUPPORTS_STRUCTURED_OUTPUTS=true`. No provider or model fallback
+is automatic. Do not start the `ai` profile with a blank `AI_MODEL`: the worker
+fails configuration validation and the Compose restart policy keeps retrying
+until the model is configured.
+
+```powershell
+docker compose --profile ai up -d --build
+```
+
+Provider credentials exist only in the worker container. The browser receives
+no candidates, taste data, revisions, exclusions, credentials, or job leases.
 
 ---
 
@@ -420,7 +437,8 @@ lumen-media-hub/
 │   └── docs/architecture.md    Detailed frontend architecture
 ├── config/
 │   ├── homepage-actions/       Live API boundary
-│   └── recommendations/        Hermes recommendation contract
+│   ├── ai-recommendations/     Node 22 model-agnostic AI worker
+│   └── recommendations/        AI Picks recommendation contract
 ├── docker-compose.yml          Core + optional media services
 ├── docker-compose.dev.yml      Live Angular hot-reload override
 ├── docker-compose.gpu.yml      Optional NVIDIA configuration

@@ -1,4 +1,4 @@
-"""Discover / Hermes route handlers."""
+"""Discover / AI Picks route handlers."""
 import json
 import os
 import threading
@@ -16,25 +16,25 @@ from clients.jellyfin import (
     _jellyfin_items_path,
     jellyfin_get,
     jellyfin_post,
+    jellyfin_post_json,
 )
 from clients.jellyseerr import _jellyseerr_get, _trakt_get, _trakt_get_page
 from clients.trakt import TraktAuthError
-from trakt_history import TraktWatchedService, WatchedSnapshot, WatchedSnapshotStore
+from trakt_history import TraktWatchedService, WatchedSnapshotStore
 from http_support import (
     _BodyTooLarge,
     _read_json_body,
-    _reject_internal_get,
     _reject_mutating,
     send_json,
 )
 from recommendations_store import (
-    ITEM_TYPES,
     RecommendationError,
     apply_feedback,
     apply_request,
     media_identity,
-    utc_now,
 )
+from ai_candidates import build_candidate_snapshot
+from ai_generation import AiGenerationCoordinator, public_generation
 from trakt_history_sync import (
     apply_watched_feedback,
     cancel_pending_trakt_history_event,
@@ -42,22 +42,15 @@ from trakt_history_sync import (
     public_trakt_history_sync,
 )
 from reconciliation import (
-    HermesItemNotFound,
-    AlreadyReconciled,
-    RequestSyncConflict,
-    StaleBaseRevision,
-    _clear_generation_request,
+    AiPickItemNotFound,
     _enqueue_request_reconciliation,
-    _generation_request_public,
     _pending_request_sync_public,
-    _request_hermes_generation,
     run_reconciliation_cycle,
 )
 from shared import (
-    _find_hermes_item,
-    _hermes_identity,
-    _hermes_items,
-    _is_int,
+    _find_ai_picks_item,
+    _ai_picks_identity,
+    _ai_picks_items,
     _normalize_tmdb_id,
 )
 
@@ -66,7 +59,7 @@ VALID_FEEDBACK_STATUSES = frozenset({"liked", "disliked", "watched", "skipped"})
 
 # Keep the dashboard response independent from the recommendation-store schema.
 # In particular, identity sets and generation context are server-only data.
-_HERMES_PUBLIC_ITEM_FIELDS = frozenset(
+_AI_PICKS_PUBLIC_ITEM_FIELDS = frozenset(
     {
         "id", "source", "type", "title", "year", "tmdb_id", "reason", "active",
         "feedback", "feedback_at", "request_state", "requested_at",
@@ -263,7 +256,7 @@ def _library_exclusion_snapshot():
 _get_library_exclusion_snapshot = _library_exclusion_snapshot
 
 
-def _enrich_hermes_library_flags(items, snapshot=None):
+def _enrich_ai_picks_library_flags(items, snapshot=None):
     if not items:
         for item in items:
             item.setdefault("in_library", False)
@@ -456,8 +449,8 @@ def _poster_url_for_item(item):
     return _tmdb_poster_url(item.get("poster_path"))
 
 
-def _enrich_hermes_posters(items):
-    """Fill poster_url on Hermes items.
+def _enrich_ai_picks_posters(items):
+    """Fill poster_url on AI Picks items.
 
     Items that already carry poster_url/poster_path (or a Jellyfin ID) need no
     network call; the remaining misses are resolved in one bounded batch.
@@ -515,23 +508,43 @@ def _jellyfin_id_for_tmdb(media_type, tmdb_id):
     return None
 
 
-def _find_hermes_collection_id():
+def _find_collection_id_named(name):
     try:
         data = jellyfin_get(
             _jellyfin_items_path(),
             {
                 "Recursive": "true",
                 "IncludeItemTypes": "BoxSet",
-                "SearchTerm": settings.HERMES_COLLECTION_NAME,
+                "SearchTerm": name,
                 "Limit": "20",
             },
         )
         for item in data.get("Items", []):
-            if item.get("Name") == settings.HERMES_COLLECTION_NAME:
+            if item.get("Name") == name:
                 return item.get("Id")
     except Exception:
         return None
     return None
+
+
+def _ensure_ai_picks_collection_name():
+    current_id = _find_collection_id_named(settings.AI_PICKS_COLLECTION_NAME)
+    legacy_id = _find_collection_id_named(settings.LEGACY_HERMES_COLLECTION_NAME)
+    if current_id and legacy_id:
+        print(
+            "[ai-picks-collection] both AI Picks and legacy collections exist; using AI Picks",
+            flush=True,
+        )
+        return current_id
+    if current_id:
+        return current_id
+    if not legacy_id:
+        return None
+    dto = jellyfin_get(f"/Items/{legacy_id}")
+    updated = dict(dto)
+    updated["Name"] = settings.AI_PICKS_COLLECTION_NAME
+    jellyfin_post_json(f"/Items/{legacy_id}", updated)
+    return legacy_id
 
 
 def _collection_item_ids(collection_id):
@@ -552,14 +565,14 @@ def _collection_item_ids(collection_id):
         return []
 
 
-def sync_hermes_collection():
+def sync_ai_picks_collection():
     if not settings.JELLYFIN_API_KEY:
         raise RuntimeError("JELLYFIN_API_KEY not configured")
 
     data = settings.RECOMMENDATIONS_STORE.load()
 
     target_ids = []
-    for item in _hermes_items(data):
+    for item in _ai_picks_items(data):
         if item.get("feedback") in ("disliked", "skipped"):
             continue
         jf_id = item.get("jellyfin_id") if item.get("in_library") else None
@@ -569,7 +582,7 @@ def sync_hermes_collection():
             target_ids.append(jf_id)
 
     target_ids = list(dict.fromkeys(target_ids))
-    collection_id = _find_hermes_collection_id()
+    collection_id = _ensure_ai_picks_collection_name()
 
     if not target_ids:
         if collection_id:
@@ -585,7 +598,7 @@ def sync_hermes_collection():
     if not collection_id:
         created = jellyfin_post(
             "/Collections",
-            {"name": settings.HERMES_COLLECTION_NAME, "ids": ",".join(target_ids)},
+            {"name": settings.AI_PICKS_COLLECTION_NAME, "ids": ",".join(target_ids)},
         )
         collection_id = created.get("Id")
         return {
@@ -621,16 +634,16 @@ def sync_hermes_collection():
     }
 
 
-def _sync_hermes_collection_best_effort():
+def _sync_ai_picks_collection_best_effort():
     if not settings.JELLYFIN_API_KEY:
         return None
     try:
-        return sync_hermes_collection()
+        return sync_ai_picks_collection()
     except Exception:
-        return {"ok": False, "error": "Hermes collection is temporarily unavailable"}
+        return {"ok": False, "error": "AI Picks collection is temporarily unavailable"}
 
 
-def _hermes_item_for_client(item, snapshot=None, watched_snapshot=None):
+def _ai_picks_item_for_client(item, snapshot=None, watched_snapshot=None):
     """Project exclusions for a read without writing the recommendation store."""
     projected = dict(item)
     watched_on_trakt = bool(
@@ -657,9 +670,9 @@ def _hermes_item_for_client(item, snapshot=None, watched_snapshot=None):
     return projected
 
 
-def _hermes_public_item(item):
-    """Return only fields declared by the dashboard Hermes item contract."""
-    return {key: item[key] for key in _HERMES_PUBLIC_ITEM_FIELDS if key in item}
+def _ai_picks_public_item(item):
+    """Return only fields declared by the dashboard AI Picks item contract."""
+    return {key: item[key] for key in _AI_PICKS_PUBLIC_ITEM_FIELDS if key in item}
 
 
 def _filter_library_items(items, snapshot):
@@ -670,17 +683,17 @@ def _filter_library_items(items, snapshot):
     ]
 
 
-def handle_discover_hermes_get(handler):
+def handle_discover_ai_picks_get(handler):
     try:
         data = settings.RECOMMENDATIONS_STORE.load()
         snapshot = _library_exclusion_snapshot()
         watched_snapshot = _trakt_watched_snapshot()
         items = [
-            _hermes_item_for_client(item, snapshot, watched_snapshot)
-            for item in _hermes_items(data)
+            _ai_picks_item_for_client(item, snapshot, watched_snapshot)
+            for item in _ai_picks_items(data)
         ]
-        items = _enrich_hermes_posters(_enrich_hermes_library_flags(items, snapshot))
-        items = [_hermes_public_item(item) for item in items]
+        items = _enrich_ai_picks_posters(_enrich_ai_picks_library_flags(items, snapshot))
+        items = [_ai_picks_public_item(item) for item in items]
     except Exception:
         send_json(handler, 500, {"ok": False, "error": "Discover recommendations are temporarily unavailable"})
         return
@@ -690,41 +703,16 @@ def handle_discover_hermes_get(handler):
         {
             "ok": True,
             "pending_request_sync": _pending_request_sync_public(),
-            "generation_request": _generation_request_public(),
             "library_exclusion": snapshot.public(),
             "watched_exclusion": watched_snapshot.public(),
+            "generation_enabled": settings.AI_ENABLED,
+            "generation": public_generation(data.get("generation")),
             "items": items,
         },
     )
 
 
-def handle_discover_hermes_generation_snapshot(handler):
-    """Return the private, server-built input required by Hermes generation.
-
-    This route is deliberately separate from the dashboard GET.  It remains
-    protected by the actions token and is not a browser-facing data contract.
-    """
-    if _reject_internal_get(handler):
-        return
-    try:
-        data = settings.RECOMMENDATIONS_STORE.load()
-        context = _hermes_generation_context(data)
-    except Exception:
-        send_json(handler, 500, {"ok": False, "error": "Generation snapshot is temporarily unavailable"})
-        return
-    send_json(
-        handler,
-        200,
-        {
-            "ok": True,
-            "revision": data.get("revision", 0),
-            "presented_media_ids": list(data.get("presented_media_ids", [])),
-            "context": context,
-        },
-    )
-
-
-def handle_discover_hermes_patch(handler, item_id):
+def handle_discover_ai_picks_patch(handler, item_id):
     try:
         body = _read_json_body(handler)
     except _BodyTooLarge:
@@ -748,9 +736,9 @@ def handle_discover_hermes_patch(handler, item_id):
     confirm_all_aired = body.get("confirm_all_aired") is True
 
     def _apply(doc):
-        item = _find_hermes_item(doc, item_id)
+        item = _find_ai_picks_item(doc, item_id)
         if not item:
-            raise HermesItemNotFound()
+            raise AiPickItemNotFound()
         if status == "watched":
             if item.get("type") == "tv" and not confirm_all_aired:
                 raise ShowWatchConfirmationRequired()
@@ -770,7 +758,7 @@ def handle_discover_hermes_patch(handler, item_id):
             {"ok": False, "code": "confirmation_required", "error": "Confirmation required"},
         )
         return
-    except HermesItemNotFound:
+    except AiPickItemNotFound:
         send_json(handler, 404, {"ok": False, "error": "Item not found"})
         return
     except Exception:
@@ -785,7 +773,7 @@ def handle_discover_hermes_patch(handler, item_id):
 
     sync_status = None
     try:
-        item = _find_hermes_item(settings.RECOMMENDATIONS_STORE.load(), item_id)
+        item = _find_ai_picks_item(settings.RECOMMENDATIONS_STORE.load(), item_id)
         sync_status = public_trakt_history_sync(
             item.get("trakt_history_event") if item else None
         )
@@ -802,88 +790,22 @@ class ShowWatchConfirmationRequired(Exception):
     """Raised when a show watched action lacks confirm_all_aired."""
 
 
-def handle_discover_hermes_post(handler):
-    # Retired in PR 2: this unrestricted upsert could create or reactivate
-    # items without checking the deny list or holding a base revision, so it
-    # bypassed the never-twice invariant. Item creation/activation now happens
-    # exclusively through POST /discover/hermes/generations. Feedback and
-    # requests still use PATCH /discover/hermes/{id} and POST /discover/request.
-    send_json(
-        handler,
-        410,
-        {
-            "ok": False,
-            "error": "Endpoint retired: direct item upserts are no longer accepted",
-            "use": "POST /discover/hermes/generations",
-        },
-    )
-
-
-def _validate_generation_candidate(raw, index):
-    """Normalize one generation candidate. Returns (candidate, rejection).
-
-    ``candidate`` is a dict with type/title/year/tmdb_id/identity/reason/retain on
-    success; ``rejection`` is a machine-readable entry for the response on
-    failure. Exactly one of the two is non-None.
-    """
-    if not isinstance(raw, dict):
-        return None, {"index": index, "reason": "invalid_candidate", "detail": "expected object"}
-    tmdb_id = raw.get("tmdb_id")
-    label = {"index": index}
-    if raw.get("type") in ITEM_TYPES and _is_int(tmdb_id) and tmdb_id > 0:
-        label["identity"] = media_identity(raw["type"], tmdb_id)
-    if _is_int(tmdb_id):
-        label["tmdb_id"] = tmdb_id
-    errors = []
-    if raw.get("type") not in ITEM_TYPES:
-        errors.append(f"type must be one of {list(ITEM_TYPES)}")
-    title = raw.get("title")
-    if not isinstance(title, str) or not title.strip():
-        errors.append("title must be a non-empty string")
-    if not _is_int(tmdb_id) or tmdb_id <= 0:
-        errors.append("tmdb_id must be a positive integer")
-    year = raw.get("year")
-    if year is not None and not _is_int(year):
-        errors.append("year must be an integer or null")
-    reason = raw.get("reason", "")
-    if not isinstance(reason, str):
-        errors.append("reason must be a string")
-    retain = raw.get("retain", False)
-    if not isinstance(retain, bool):
-        errors.append("retain must be a boolean")
-    if errors:
-        label.update({"reason": "invalid_candidate", "detail": "; ".join(errors)})
-        return None, label
-    return (
-        {
-            "index": index,
-            "type": raw["type"],
-            "title": title.strip(),
-            "year": year,
-            "tmdb_id": tmdb_id,
-            "reason": reason,
-            "retain": retain,
-        },
-        None,
-    )
-
-
-def _is_untouched_hermes_item(item):
+def _is_untouched_ai_picks_item(item):
     """True when the user has not given feedback or requested the title."""
     return item.get("feedback") is None and item.get("request_state") is None
 
 
-def _should_auto_retain_hermes_item(item):
+def _should_auto_retain_ai_picks_item(item):
     """True when omission must not rotate the active item to history.
 
     Only untouched picks (no feedback, no request) are protected. Liked,
     disliked, watched, skipped, and requested actives may rotate when omitted
     so feedbacked titles settle in History.
     """
-    return _is_untouched_hermes_item(item)
+    return _is_untouched_ai_picks_item(item)
 
 
-HERMES_TASTE_CAP = 50
+AI_PICKS_TASTE_CAP = 50
 TRACKED_MEDIA_CACHE_TTL = float(os.environ.get("TRACKED_MEDIA_CACHE_TTL", "60"))
 _tracked_media_cache = {"expires": 0.0, "ids": [], "errors": [], "has_success": False}
 _tracked_media_cache_lock = threading.Lock()
@@ -973,10 +895,10 @@ def _safe_arr_error(error):
     return "arr: unavailable"
 
 
-def _hermes_required_retain(
+def _ai_picks_required_retain(
     items, *, excluded_tracked=None, excluded_library=None, excluded_watched=None
 ):
-    """Complete generation candidates Hermes must keep."""
+    """Complete generation candidates AI Picks must keep."""
     excluded = (
         set(excluded_tracked or ())
         | set(excluded_library or ())
@@ -986,9 +908,9 @@ def _hermes_required_retain(
     for item in items:
         if not item.get("active"):
             continue
-        if not _should_auto_retain_hermes_item(item):
+        if not _should_auto_retain_ai_picks_item(item):
             continue
-        identity = item.get("identity") or _hermes_identity(item)
+        identity = item.get("identity") or _ai_picks_identity(item)
         if identity and identity not in excluded:
             retain[identity] = {
                 "type": item["type"],
@@ -1001,16 +923,16 @@ def _hermes_required_retain(
     return [retain[identity] for identity in sorted(retain)]
 
 
-def _hermes_taste_entry(item):
+def _ai_picks_taste_entry(item):
     return {
-        "identity": item.get("identity") or _hermes_identity(item),
+        "identity": item.get("identity") or _ai_picks_identity(item),
         "title": item.get("title"),
         "type": item.get("type"),
         "year": item.get("year"),
     }
 
 
-def _hermes_taste_summary(items, cap=HERMES_TASTE_CAP):
+def _ai_picks_taste_summary(items, cap=AI_PICKS_TASTE_CAP):
     buckets = {
         "liked": [],
         "disliked": [],
@@ -1021,7 +943,7 @@ def _hermes_taste_summary(items, cap=HERMES_TASTE_CAP):
         feedback = item.get("feedback")
         if feedback not in buckets:
             continue
-        entry = _hermes_taste_entry(item)
+        entry = _ai_picks_taste_entry(item)
         if len(buckets[feedback]) < cap:
             buckets[feedback].append(entry)
         # Liked also counts as watched for History / taste consumers.
@@ -1032,30 +954,9 @@ def _hermes_taste_summary(items, cap=HERMES_TASTE_CAP):
     return buckets
 
 
-def _hermes_exclusion_sets():
-    """Live exclude sets for generation commits (fresh enough via caches)."""
-    tracked, tracked_errors = _get_tracked_media_ids()
-    library_snapshot = _library_exclusion_snapshot()
-    in_library = _in_library_media_ids_from_maps(
-        {"movie": library_snapshot.movie, "tv": library_snapshot.tv}
-    )
-    watched_snapshot = _trakt_watched_snapshot()
-    errors = [_safe_arr_error(error) for error in tracked_errors]
-    if library_snapshot.status == "unavailable":
-        errors.append("jellyfin: unavailable")
-    if watched_snapshot.status == "unavailable":
-        errors.append("trakt_watched: unavailable")
-    watched = (
-        set(watched_snapshot.identities)
-        if watched_snapshot.status != "unavailable"
-        else set()
-    )
-    return set(tracked), set(in_library), watched, errors
-
-
-def _hermes_generation_context(data, snapshot=None, watched_snapshot=None):
-    """Server-built helpers so Hermes need not curl Arr/Jellyfin itself."""
-    items = list(_hermes_items(data))
+def _ai_picks_generation_context(data, snapshot=None, watched_snapshot=None):
+    """Server-built helpers so AI Picks need not curl Arr/Jellyfin itself."""
+    items = list(_ai_picks_items(data))
     tracked, tracked_errors = _get_tracked_media_ids()
     snapshot = snapshot or _library_exclusion_snapshot()
     in_library = _in_library_media_ids_from_maps(
@@ -1077,360 +978,34 @@ def _hermes_generation_context(data, snapshot=None, watched_snapshot=None):
         "in_library_media_ids": sorted(set(in_library)),
         "watched_media_ids": watched,
         "library_exclusion": snapshot.public(),
-        "required_retain": _hermes_required_retain(
+        "required_retain": _ai_picks_required_retain(
             items,
             excluded_tracked=tracked,
             excluded_library=in_library,
             excluded_watched=watched,
         ),
-        "taste": _hermes_taste_summary(items),
+        "taste": _ai_picks_taste_summary(items),
     }
     if errors:
         context["context_errors"] = errors
     return context
 
 
-def handle_discover_hermes_generations(handler):
-    """Commit one Hermes generation: the only writer of recommendation items.
-
-    Candidates with ``retain: true`` keep an already-active item active; any
-    other candidate whose composite identity is already in
-    ``presented_media_ids`` is rejected (never-twice). New candidates already in
-    Sonarr/Radarr or Jellyfin are rejected as ``already_tracked`` /
-    ``already_in_library``. Active items omitted from the batch are rotated
-    to history with all feedback/request fields preserved — **except** untouched
-    actives outside the authoritative library and watched exclusion sets, which
-    are auto-retained so Hermes cannot hide titles the user has not finished
-    with. Excluded, liked, watched, disliked, skipped, and requested actives
-    settle in History.
-    The whole commit
-    — acceptances, rotations, deny-list appends — is one store transaction,
-    and a stale ``base_revision`` aborts with HTTP 409 before any change.
-    """
-    try:
-        body = _read_json_body(handler)
-    except _BodyTooLarge:
-        send_json(handler, 413, {"ok": False, "error": "Request body too large"})
-        return
-    except json.JSONDecodeError:
-        send_json(handler, 400, {"ok": False, "error": "Invalid JSON body"})
-        return
-    if not isinstance(body, dict):
-        send_json(handler, 400, {"ok": False, "error": "Expected a JSON object body"})
-        return
-
-    base_revision = body.get("base_revision")
-    if not _is_int(base_revision):
-        send_json(handler, 400, {"ok": False, "error": "base_revision must be an integer"})
-        return
-    raw_candidates = body.get("candidates")
-    if not isinstance(raw_candidates, list):
-        send_json(handler, 400, {"ok": False, "error": "candidates must be an array"})
-        return
-    if len(raw_candidates) > 100:
-        send_json(
-            handler, 400, {"ok": False, "error": "candidates must not exceed 100 items"}
-        )
-        return
-
-    candidates = []
-    rejected = []
-    batch_seen = set()
-    for index, raw in enumerate(raw_candidates):
-        candidate, rejection = _validate_generation_candidate(raw, index)
-        if rejection is not None:
-            rejected.append(rejection)
-            continue
-        candidate["identity"] = media_identity(candidate["type"], candidate["tmdb_id"])
-        if candidate["identity"] in batch_seen:
-            rejected.append(
-                {
-                    "index": index,
-                    "identity": candidate["identity"],
-                    "tmdb_id": candidate["tmdb_id"],
-                    "reason": "duplicate_in_batch",
-                }
-            )
-            continue
-        batch_seen.add(candidate["identity"])
-        candidates.append(candidate)
-
-    # Preparation phase: resolve posters for the batch BEFORE the locked
-    # commit so the transaction stays short. Successful paths are persisted
-    # on newly accepted items; failures leave poster_path unset and become
-    # eligible for retry after the negative TTL.
-    try:
-        candidate_posters = _resolve_poster_paths(
-            [(c["type"], c["tmdb_id"]) for c in candidates]
-        )
-    except Exception as error:
-        print(
-            "[poster-enrich] generation preparation failed "
-            f"exception={type(error).__name__}",
-            flush=True,
-        )
-        candidate_posters = {}
-
-    try:
-        exclusion_snapshot = _hermes_exclusion_sets()
-    except Exception as error:
-        print(
-            "[hermes-generations] exclusion context failed "
-            f"exception={type(error).__name__}",
-            flush=True,
-        )
-        send_json(
-            handler,
-            502,
-            {"ok": False, "error": "Generation context is temporarily unavailable"},
-        )
-        return
-    tracked_set, in_library_set, watched_set, exclusion_errors = exclusion_snapshot
-    if exclusion_errors:
-        print(
-            f"[hermes-generations] exclusion context degraded: {exclusion_errors}",
-            flush=True,
-        )
-
-    result = {}
-
-    def _apply(doc):
-        current_revision = doc.get("revision", 0)
-        if current_revision != base_revision:
-            raise StaleBaseRevision(current_revision)
-
-        presented = doc.setdefault("presented_media_ids", [])
-        presented_set = set(presented)
-        active_by_identity = {}
-        existing_ids = set()
-        for item in doc.get("items", []):
-            if item.get("source") != "hermes":
-                continue
-            identity = item.get("identity") or _hermes_identity(item)
-            existing_ids.add(identity)
-            if item.get("active"):
-                active_by_identity[identity] = item
-
-        accepted = []
-        retained = []
-        touched = set()
-        now = utc_now()
-        for candidate in candidates:
-            tmdb_id = candidate["tmdb_id"]
-            identity = candidate["identity"]
-            existing = active_by_identity.get(identity)
-            if existing is not None:
-                # An authoritative deny cannot be overridden by an existing
-                # active row, whether or not Hermes included retain=true.
-                # Leave it untouched in this loop so rotation moves it to
-                # History while preserving its metadata.
-                if identity in tracked_set:
-                    rejected.append(
-                        {
-                            "index": candidate["index"],
-                            "identity": identity,
-                            "tmdb_id": tmdb_id,
-                            "reason": "already_tracked",
-                        }
-                    )
-                    continue
-                if identity in in_library_set:
-                    rejected.append(
-                        {
-                            "index": candidate["index"],
-                            "identity": identity,
-                            "tmdb_id": tmdb_id,
-                            "reason": "already_in_library",
-                        }
-                    )
-                    continue
-                if identity in watched_set:
-                    rejected.append(
-                        {
-                            "index": candidate["index"],
-                            "identity": identity,
-                            "tmdb_id": tmdb_id,
-                            "reason": "already_watched",
-                        }
-                    )
-                    continue
-                if not candidate["retain"]:
-                    rejected.append(
-                        {
-                            "index": candidate["index"],
-                            "identity": identity,
-                            "tmdb_id": tmdb_id,
-                            "reason": "already_active",
-                        }
-                    )
-                    # The item was named in the batch: the rejection means
-                    # "no change", not "rotate it out".
-                    touched.add(identity)
-                    continue
-                # Explicit retain: refresh descriptive fields only. Feedback,
-                # request state, timestamps and Jellyseerr identifiers are
-                # preserved untouched.
-                existing["type"] = candidate["type"]
-                existing["title"] = candidate["title"]
-                if candidate["year"] is not None:
-                    existing["year"] = candidate["year"]
-                existing["reason"] = candidate["reason"]
-                retained.append(identity)
-                touched.add(identity)
-            elif identity in presented_set or f"legacy:{tmdb_id}" in presented_set or identity in existing_ids:
-                # Deny-list check, plus a defensive one: store-produced
-                # documents keep both in sync, but a hand-edited file could
-                # hold an inactive item row whose ID is missing from
-                # presented_media_ids — never accept a duplicate Hermes
-                # composite identity. Legacy tombstones conservatively block
-                # both movie:<id> and tv:<id>.
-                rejected.append(
-                    {
-                        "index": candidate["index"],
-                        "identity": identity,
-                        "tmdb_id": tmdb_id,
-                        "reason": "already_presented",
-                    }
-                )
-            elif identity in tracked_set:
-                rejected.append(
-                    {
-                        "index": candidate["index"],
-                        "identity": identity,
-                        "tmdb_id": tmdb_id,
-                        "reason": "already_tracked",
-                    }
-                )
-            elif identity in in_library_set:
-                rejected.append(
-                    {
-                        "index": candidate["index"],
-                        "identity": identity,
-                        "tmdb_id": tmdb_id,
-                        "reason": "already_in_library",
-                    }
-                )
-            elif identity in watched_set:
-                rejected.append(
-                    {
-                        "index": candidate["index"],
-                        "identity": identity,
-                        "tmdb_id": tmdb_id,
-                        "reason": "already_watched",
-                    }
-                )
-            else:
-                item = {
-                    "id": f"hermes-{identity.replace(':', '-')}",
-                    "identity": identity,
-                    "source": "hermes",
-                    "type": candidate["type"],
-                    "title": candidate["title"],
-                    "year": candidate["year"],
-                    "tmdb_id": tmdb_id,
-                    "reason": candidate["reason"],
-                    "active": True,
-                    "feedback": None,
-                    "feedback_at": None,
-                    "request_state": None,
-                    "requested_at": None,
-                    "jellyseerr_request_id": None,
-                    "added_at": now,
-                }
-                kind = "tv" if candidate["type"] == "tv" else "movie"
-                poster_path = candidate_posters.get((kind, tmdb_id))
-                if poster_path:
-                    # Persisted so warm reads need no Jellyseerr call;
-                    # poster_url stays derived, never stored.
-                    item["poster_path"] = poster_path
-                doc.setdefault("items", []).append(item)
-                presented.append(identity)
-                presented_set.add(identity)
-                accepted.append({"identity": identity, "tmdb_id": tmdb_id, "id": item["id"]})
-                touched.add(identity)
-
-        rotated = []
-        for item in doc.get("items", []):
-            if (
-                item.get("source") == "hermes"
-                and item.get("active")
-                and (item.get("identity") or _hermes_identity(item)) not in touched
-            ):
-                identity = item.get("identity") or _hermes_identity(item)
-                # Hard rule: never rotate untouched actives.
-                if (
-                    identity not in tracked_set
-                    and identity not in in_library_set
-                    and identity not in watched_set
-                    and _should_auto_retain_hermes_item(item)
-                ):
-                    retained.append(identity)
-                    continue
-                item["active"] = False
-                rotated.append(identity)
-
-        result.update(accepted=accepted, retained=retained, rotated=rotated)
-
-    try:
-        committed = settings.RECOMMENDATIONS_STORE.update(_apply)
-    except StaleBaseRevision as e:
-        send_json(
-            handler,
-            409,
-            {
-                "ok": False,
-                "error": "stale_base_revision",
-                "current_revision": e.current_revision,
-            },
-        )
-        return
-    except Exception:
-        send_json(handler, 500, {"ok": False, "error": "Generation could not be saved"})
-        return
-
-    try:
-        _clear_generation_request()
-    except Exception as error:
-        print(
-            f"[discover-hermes] generation committed but failed to clear "
-            f"on-demand request exception={type(error).__name__}",
-            flush=True,
-        )
-
-    send_json(
-        handler,
-        200,
-        {
-            "ok": True,
-            "revision": committed.get("revision"),
-            "accepted": result["accepted"],
-            "retained": result["retained"],
-            "rotated": result["rotated"],
-            "rejected": rejected,
-        },
-    )
-
-
-def handle_discover_hermes_sync(handler):
+def handle_discover_ai_picks_request_more(handler):
+    """Queue an on-demand AI Picks generation for the internal worker."""
     if _reject_mutating(handler):
         return
-    try:
-        result = sync_hermes_collection()
-        send_json(handler, 200, result)
-    except Exception:
-        send_json(handler, 502, {"ok": False, "error": "Hermes collection is temporarily unavailable"})
-
-
-def handle_discover_hermes_request_more(handler):
-    """Queue an on-demand Hermes generation for the next agent run."""
-    if _reject_mutating(handler):
+    if not settings.AI_ENABLED:
+        send_json(handler, 409, {"ok": False, "error": "AI generation is disabled"})
         return
     try:
-        result = _request_hermes_generation()
+        result = _generation_coordinator().queue(
+            "on_demand", settings.AI_PICKS_ON_DEMAND_COUNT
+        )
     except Exception:
         send_json(handler, 500, {"ok": False, "error": "Generation request could not be queued"})
         return
-    send_json(handler, 200, result)
+    send_json(handler, 200, dict(result, ok=True))
 
 
 
@@ -1607,23 +1182,23 @@ def handle_discover_request(handler):
         send_json(handler, 400, {"ok": False, "error": "mediaType and mediaId required"})
         return
 
-    hermes_id = body.get("hermesId")
-    if hermes_id:
+    ai_pick_id = body.get("aiPickId")
+    if ai_pick_id:
         try:
             current = settings.RECOMMENDATIONS_STORE.load()
         except RecommendationError:
             send_json(handler, 500, {"ok": False, "error": "Discover recommendations are temporarily unavailable"})
             return
-        item = _find_hermes_item(current, hermes_id)
+        item = _find_ai_picks_item(current, ai_pick_id)
         if not item:
-            send_json(handler, 404, {"ok": False, "error": "Hermes item not found"})
+            send_json(handler, 404, {"ok": False, "error": "AI Picks item not found"})
             return
         expected_type = "tv" if str(media_type).lower() in ("tv", "series") else "movie"
         if item.get("type") != expected_type or item.get("tmdb_id") != media_id:
             send_json(
                 handler,
                 400,
-                {"ok": False, "error": "Hermes item does not match the requested media"},
+                {"ok": False, "error": "AI Picks item does not match the requested media"},
             )
             return
 
@@ -1639,11 +1214,11 @@ def handle_discover_request(handler):
     arr_id = arr_result.get("arr_id")
     dashboard_state_persisted = True
     reconciliation_queued = False
-    if hermes_id:
+    if ai_pick_id:
         def _apply(doc):
-            item = _find_hermes_item(doc, hermes_id)
+            item = _find_ai_picks_item(doc, ai_pick_id)
             if not item:
-                raise HermesItemNotFound()
+                raise AiPickItemNotFound()
             # Request fields only; feedback is preserved. Store the *arr id in
             # jellyseerr_request_id for durable tracing of the add.
             apply_request(item, request_id=arr_id)
@@ -1654,7 +1229,7 @@ def handle_discover_request(handler):
             dashboard_state_persisted = False
             persistence_error = type(error).__name__
             try:
-                _enqueue_request_reconciliation(hermes_id, arr_id)
+                _enqueue_request_reconciliation(ai_pick_id, arr_id)
                 reconciliation_queued = True
             except Exception as queue_error:
                 reconciliation_queued = False
@@ -1720,3 +1295,139 @@ def handle_discover_request_reconcile(handler):
         send_json(handler, 200, run_reconciliation_cycle())
     except Exception:
         send_json(handler, 500, {"ok": False, "error": "Request reconciliation is temporarily unavailable"})
+
+
+_AI_GENERATION_COORDINATOR = None
+_AI_GENERATION_COORDINATOR_LOCK = threading.Lock()
+
+
+def _candidate_signal(items, signal):
+    result = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        candidate = dict(item)
+        candidate["signals"] = [signal]
+        result.append(candidate)
+    return result
+
+
+def _trakt_candidate_source(media_type):
+    raw = _trakt_get(
+        f"/recommendations/{media_type}?limit=25&ignore_collected=true&ignore_watched=true&extended=full,images"
+    )
+    return _candidate_signal(
+        [_map_trakt_result(item, media_type) for item in raw if item], "trakt"
+    )
+
+
+def _jellyseerr_candidate_source(kind):
+    if not settings.JELLYSEERR_ENABLED or not settings.JELLYSEERR_API_KEY:
+        raise RuntimeError("jellyseerr unavailable")
+    payload = _jellyseerr_get(f"/api/v1/discover/{kind}")
+    raw = payload.get("results") if isinstance(payload, dict) else payload
+    if not isinstance(raw, list):
+        raise RuntimeError("jellyseerr invalid response")
+    return _candidate_signal(
+        [_map_jellyseerr_result(item) for item in raw if item], "jellyseerr"
+    )
+
+
+def _candidate_exclusions(doc):
+    context = _ai_picks_generation_context(doc)
+    return {
+        "tracked": context["tracked_media_ids"],
+        "in_library": context["in_library_media_ids"],
+        "watched": context["watched_media_ids"],
+        "errors": context.get("context_errors", []),
+        "required_retain": [
+            media_identity(item["type"], item["tmdb_id"])
+            for item in context["required_retain"]
+        ],
+        "taste": context["taste"],
+    }
+
+
+def effective_ai_picks_active_count(doc):
+    """Count active picks after authoritative tracked/library/watched exclusions."""
+    context = _ai_picks_generation_context(doc)
+    if context.get("context_errors"):
+        raise RuntimeError("authoritative exclusion snapshot unavailable")
+    denied = set(context["tracked_media_ids"])
+    denied.update(context["in_library_media_ids"])
+    denied.update(context["watched_media_ids"])
+    return sum(
+        1
+        for item in _ai_picks_items(doc)
+        if item.get("active") and _ai_picks_identity(item) not in denied
+    )
+
+
+def _build_ai_candidate_snapshot(doc):
+    return build_candidate_snapshot(
+        doc,
+        sources=(
+            lambda: _trakt_candidate_source("movies"),
+            lambda: _trakt_candidate_source("shows"),
+            lambda: _jellyseerr_candidate_source("movies"),
+            lambda: _jellyseerr_candidate_source("tv"),
+        ),
+        exclusions=_candidate_exclusions,
+        cap=100,
+    )
+
+
+def _generation_coordinator():
+    global _AI_GENERATION_COORDINATOR
+    with _AI_GENERATION_COORDINATOR_LOCK:
+        if _AI_GENERATION_COORDINATOR is None:
+            _AI_GENERATION_COORDINATOR = AiGenerationCoordinator(
+                settings.RECOMMENDATIONS_STORE,
+                _build_ai_candidate_snapshot,
+                lease_seconds=settings.AI_PICKS_LEASE_SECONDS,
+            )
+        return _AI_GENERATION_COORDINATOR
+
+
+def _read_worker_body(handler):
+    try:
+        body = _read_json_body(handler)
+    except _BodyTooLarge:
+        send_json(handler, 413, {"ok": False, "error": "Request body too large"})
+        return None
+    except json.JSONDecodeError:
+        send_json(handler, 400, {"ok": False, "error": "Invalid JSON body"})
+        return None
+    if not isinstance(body, dict):
+        send_json(handler, 400, {"ok": False, "error": "Expected a JSON object body"})
+        return None
+    return body
+
+
+def handle_ai_picks_job_claim(handler):
+    if not settings.AI_ENABLED:
+        send_json(handler, 200, {"ok": True, "job": None})
+        return
+    coordinator = _generation_coordinator()
+    coordinator.expire_stale()
+    send_json(handler, 200, {"ok": True, "job": coordinator.claim()})
+
+
+def handle_ai_picks_job_complete(handler, job_id):
+    body = _read_worker_body(handler)
+    if body is None:
+        return
+    lease = handler.headers.get("X-AI-Lease-Token") or body.get("lease_token")
+    result = _generation_coordinator().complete(job_id, lease, body.get("picks"))
+    if result.get("ok"):
+        result["collection"] = _sync_ai_picks_collection_best_effort()
+    send_json(handler, 200 if result.get("ok") else 409, result)
+
+
+def handle_ai_picks_job_fail(handler, job_id):
+    body = _read_worker_body(handler)
+    if body is None:
+        return
+    lease = handler.headers.get("X-AI-Lease-Token") or body.get("lease_token")
+    result = _generation_coordinator().fail(job_id, lease, body.get("code"))
+    send_json(handler, 200 if result.get("ok") else 409, result)

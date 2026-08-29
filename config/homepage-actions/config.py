@@ -36,7 +36,15 @@ TRAKT_CLIENT_SECRET = os.environ.get("TRAKT_CLIENT_SECRET", "")
 TRAKT_TOKEN_PATH = os.environ.get("TRAKT_TOKEN_PATH", "/state/trakt-token.json")
 TRAKT_WATCHED_PATH = os.environ.get("TRAKT_WATCHED_PATH", "/state/trakt-watched.json")
 
-HERMES_COLLECTION_NAME = os.environ.get("HERMES_COLLECTION_NAME", "Hermes Picks")
+AI_PICKS_COLLECTION_NAME = os.environ.get("AI_PICKS_COLLECTION_NAME", "AI Picks")
+LEGACY_HERMES_COLLECTION_NAME = "Hermes Picks"
+AI_ENABLED = os.environ.get("AI_ENABLED", "false").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+AI_PICKS_TARGET_ACTIVE = int(os.environ.get("AI_PICKS_TARGET_ACTIVE", "20"))
+AI_PICKS_ON_DEMAND_COUNT = int(os.environ.get("AI_PICKS_ON_DEMAND_COUNT", "10"))
+AI_PICKS_LEASE_SECONDS = int(os.environ.get("AI_PICKS_LEASE_SECONDS", "300"))
+AI_PICKS_SCHEDULE_HOUR = int(os.environ.get("AI_PICKS_SCHEDULE_HOUR", "10"))
 
 _cors_raw = os.environ.get("CORS_ORIGINS") or os.environ.get(
     "CORS_ORIGIN", "http://localhost:3000,http://localhost:4200"
@@ -51,18 +59,18 @@ RECOMMENDATIONS_PATH = os.environ.get(
 )
 RECOMMENDATIONS_STORE = RecommendationStore(RECOMMENDATIONS_PATH)
 RECONCILIATION_PATH = os.environ.get(
-    "HERMES_REQUEST_RECONCILIATION_PATH",
+    "AI_PICKS_REQUEST_RECONCILIATION_PATH",
     os.path.join(os.path.dirname(RECOMMENDATIONS_PATH), "request-reconciliation.json"),
 )
 GENERATION_REQUEST_PATH = os.environ.get(
-    "HERMES_GENERATION_REQUEST_PATH",
+    "AI_PICKS_LEGACY_GENERATION_REQUEST_PATH",
     os.path.join(os.path.dirname(RECOMMENDATIONS_PATH), "generation-request.json"),
 )
 # Automatic retries: one startup attempt, then a bounded periodic cycle.
-# Override with HERMES_RECONCILE_INTERVAL_SECONDS (seconds). Manual recovery
+# Override with AI_PICKS_RECONCILE_INTERVAL_SECONDS (seconds). Manual recovery
 # remains available at POST /discover/request/reconcile.
 RECONCILE_INTERVAL_SECONDS = float(
-    os.environ.get("HERMES_RECONCILE_INTERVAL_SECONDS", "30")
+    os.environ.get("AI_PICKS_RECONCILE_INTERVAL_SECONDS", "30")
 )
 _reconciliation_lock = threading.RLock()
 _generation_request_lock = threading.RLock()

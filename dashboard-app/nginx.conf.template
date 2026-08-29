@@ -7,14 +7,6 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    location = /api/discover/hermes/generations {
-        return 404;
-    }
-
-    location = /api/discover/hermes/sync {
-        return 404;
-    }
-
     location ^~ /api/internal/ {
         return 404;
     }

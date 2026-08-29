@@ -22,6 +22,7 @@ LIVE_V1_PATH = os.path.join(
 )
 SCHEMA_PATH = os.path.join(REPO_ROOT, "config", "recommendations", "schema-v2.json")
 SCHEMA_V3_PATH = os.path.join(REPO_ROOT, "config", "recommendations", "schema-v3.json")
+SCHEMA_V4_PATH = os.path.join(REPO_ROOT, "config", "recommendations", "schema-v4.json")
 EXAMPLE_PATH = os.path.join(
     REPO_ROOT, "config", "recommendations", "recommendations.example.json"
 )
@@ -81,6 +82,87 @@ class StoreTestCase(unittest.TestCase):
 
 
 class MigrationTests(StoreTestCase):
+    def test_v3_to_v4_preserves_user_state_and_renames_ai_pick_identity(self):
+        event = {
+            "event_id": "event-1",
+            "identity": "movie:42",
+            "watched_at": "2026-08-01T12:00:00Z",
+            "status": "pending",
+            "attempts": 1,
+            "next_attempt_at": "2026-08-01T12:05:00Z",
+            "error": None,
+            "completed_at": None,
+            "trakt_history_ids": [],
+            "last_post_status": None,
+        }
+        v3 = {
+            "version": 3,
+            "revision": 9,
+            "updated_at": "2026-08-01T12:00:00Z",
+            "presented_media_ids": ["movie:42", "legacy:77"],
+            "items": [
+                {
+                    "id": "hermes-movie-42",
+                    "identity": "movie:42",
+                    "source": "hermes",
+                    "type": "movie",
+                    "title": "Fixture",
+                    "year": 2024,
+                    "tmdb_id": 42,
+                    "reason": "Because it fits.",
+                    "active": False,
+                    "feedback": "watched",
+                    "feedback_at": "2026-08-01T12:00:00Z",
+                    "request_state": "requested",
+                    "requested_at": "2026-08-01T11:00:00Z",
+                    "jellyseerr_request_id": 123,
+                    "added_at": "2026-07-01T00:00:00Z",
+                    "trakt_history_event": event,
+                }
+            ],
+        }
+
+        migrated = rs.migrate_to_v4(v3)
+
+        self.assertTrue(rs.validate_v4(migrated))
+        self.assertEqual(migrated["version"], 4)
+        self.assertEqual(migrated["revision"], 9)
+        self.assertEqual(migrated["presented_media_ids"], ["movie:42", "legacy:77"])
+        self.assertIsNone(migrated["generation"])
+        item = migrated["items"][0]
+        self.assertEqual(item["id"], "ai-movie-42")
+        self.assertEqual(item["source"], "ai")
+        self.assertEqual(item["feedback"], "watched")
+        self.assertEqual(item["request_state"], "requested")
+        self.assertEqual(item["jellyseerr_request_id"], 123)
+        self.assertEqual(item["trakt_history_event"], event)
+        self.assertEqual(v3["items"][0]["id"], "hermes-movie-42")
+
+    def test_ensure_current_persists_v4_and_non_overwriting_v3_backup(self):
+        v3 = {
+            "version": 3,
+            "revision": 0,
+            "updated_at": "",
+            "presented_media_ids": [],
+            "items": [],
+        }
+        self.write_json(v3)
+        original = self.read_raw()
+
+        migrated = self.store.ensure_current()
+
+        self.assertEqual(migrated["version"], 4)
+        self.assertEqual(self.read_json()["version"], 4)
+        backup_path = f"{self.path}.v3.bak"
+        with open(backup_path, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), original)
+
+        with open(backup_path, "w", encoding="utf-8") as fh:
+            fh.write("keep-existing-backup")
+        self.store.ensure_current()
+        with open(backup_path, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "keep-existing-backup")
+
     def test_live_copy_loads_valid_v2_or_v3_or_rejects_legacy(self):
         if not os.path.isfile(LIVE_V1_PATH):
             self.skipTest("live recommendations.json not present")
@@ -187,7 +269,7 @@ class MigrationTests(StoreTestCase):
         # Migration is pure and never discards or rewrites v2 input.
         self.assertEqual(v2, before)
 
-    def test_v2_load_persists_as_v3_only_after_successful_mutation(self):
+    def test_v2_load_persists_as_v4_only_after_successful_mutation(self):
         v2 = {
             "version": 2,
             "revision": 0,
@@ -219,9 +301,9 @@ class MigrationTests(StoreTestCase):
         self.assertEqual(self.read_json()["version"], 2)
         self.store.update(lambda doc: None)
         saved = self.read_json()
-        self.assertEqual(saved["version"], 3)
+        self.assertEqual(saved["version"], 4)
         self.assertEqual(saved["revision"], 1)
-        self.assertTrue(rs.validate_v3(saved))
+        self.assertTrue(rs.validate_v4(saved))
 
     def test_v2_numeric_tombstone_blocks_both_composite_types(self):
         v2 = {
@@ -317,7 +399,7 @@ class TransactionTests(StoreTestCase):
                 copy_item(doc["items"][0], tmdb_id=43)
             ),
             "duplicate current tmdb identity": lambda doc: doc["items"].append(
-                copy_item(doc["items"][0], id="hermes-copy")
+                copy_item(doc["items"][0], id="ai-copy")
             ),
             "duplicate presented identity": lambda doc: doc["presented_media_ids"].append("movie:42"),
             "current identity absent from presented": lambda doc: doc[
@@ -339,7 +421,7 @@ class TransactionTests(StoreTestCase):
         before = self.read_raw()
 
         def mutate(doc):
-            item = copy_item(doc["items"][0], id="hermes-copy")
+            item = copy_item(doc["items"][0], id="ai-copy")
             doc["items"].append(item)
 
         with self.assertRaises(rs.RecommendationValidationError):
@@ -391,11 +473,11 @@ class TransactionTests(StoreTestCase):
         self.assertEqual(item["feedback"], "liked")
         self.assertFalse(item["active"])
 
-    def test_missing_file_loads_empty_v2_default(self):
+    def test_missing_file_loads_empty_v4_default(self):
         doc = self.store.load()
-        self.assertEqual(doc["version"], 3)
+        self.assertEqual(doc["version"], 4)
         self.assertEqual(doc["items"], [])
-        self.assertTrue(rs.validate_v3(doc))
+        self.assertTrue(rs.validate_v4(doc))
 
     def test_concurrent_updates_commit_serially_without_corruption(self):
         import threading
@@ -423,15 +505,15 @@ class TransactionTests(StoreTestCase):
         doc = self.store.load()
         self.assertEqual(doc["revision"], 20)
         self.assertEqual(sorted(doc["presented_media_ids"]), ["movie:1", "movie:2", "movie:3", "movie:4"])
-        self.assertTrue(rs.validate_v3(doc))
+        self.assertTrue(rs.validate_v4(doc))
         # The file on disk is one well-formed JSON document.
         self.assertEqual(self.read_json()["revision"], 20)
 
     def _item(self):
         return {
-            "id": "hermes-movie-42",
+            "id": "ai-movie-42",
             "identity": "movie:42",
-            "source": "hermes",
+            "source": "ai",
             "type": "movie",
             "title": "Fixture",
             "year": 2024,
@@ -489,7 +571,14 @@ class ValidatorTests(unittest.TestCase):
             self.skipTest("recommendations.example.json not present")
         with open(EXAMPLE_PATH, encoding="utf-8") as fh:
             example = json.load(fh)
-        self.assertTrue(rs.validate_v3(example))
+        self.assertTrue(rs.validate_v4(example))
+
+    def test_v4_schema_file_matches_ai_pick_contract(self):
+        with open(SCHEMA_V4_PATH, encoding="utf-8") as fh:
+            schema = json.load(fh)
+        self.assertEqual(schema["properties"]["version"]["const"], 4)
+        self.assertEqual(schema["properties"]["items"]["items"]["properties"]["source"]["const"], "ai")
+        self.assertIn("generation", schema["required"])
 
     def test_v3_schema_file_declares_unique_composite_history_and_identity(self):
         with open(SCHEMA_V3_PATH, encoding="utf-8") as fh:
@@ -530,6 +619,22 @@ class ValidatorTests(unittest.TestCase):
         }
         with self.assertRaises(rs.RecommendationValidationError):
             rs.validate_v3(doc)
+
+    def test_v4_rejects_malformed_private_candidate_snapshot(self):
+        doc = rs.RecommendationStore("unused").default_document()
+        doc["generation"] = {
+            "id": "job", "status": "running", "trigger": "on_demand",
+            "requested_at": "2026-08-29T10:00:00Z", "started_at": "2026-08-29T10:00:00Z",
+            "finished_at": None, "desired_count": 10, "attempt": 1,
+            "lease_expires_at": "2026-08-29T10:05:00Z", "lease_token": "lease",
+            "base_revision": 1,
+            "candidates": [{"identity": "movie:42", "type": "tv", "tmdb_id": 42, "title": "Mismatch"}],
+            "taste": {}, "required_retain": ["movie:42"], "error_code": None,
+            "counts": None,
+        }
+
+        with self.assertRaises(rs.RecommendationValidationError):
+            rs.validate_v4(doc)
 
     def test_invalid_documents_raise(self):
         base = {

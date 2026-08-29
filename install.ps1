@@ -235,10 +235,13 @@ function Invoke-Stack {
   Write-Host @"
 
 Stack is up. Remaining manual steps (one-time):
-  1. Optional profiles: subtitles enables Bazarr; requests enables Jellyseerr.
+  1. Optional profiles: subtitles enables Bazarr; requests enables Jellyseerr;
+     ai enables the model-agnostic AI Picks worker.
      Enable them before opening those services, for example:
        docker compose --profile subtitles --profile requests up -d
      Set BAZARR_ENABLED=true / JELLYSEERR_ENABLED=true only after their API keys are configured.
+     For AI Picks, also set AI_ENABLED=true, AI_PROVIDER, AI_MODEL, and the selected
+     provider credential before running docker compose --profile ai up -d --build.
   2. Open each enabled service and copy its API key into .env:
        Jellyfin    http://localhost:8096   (Dashboard > API Keys)
        Radarr      http://127.0.0.1:7878   (Settings > General)

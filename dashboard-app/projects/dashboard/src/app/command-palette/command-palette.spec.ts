@@ -230,6 +230,54 @@ describe('CommandPalette', () => {
     opened.mockRestore();
   });
 
+  it('keeps linkless available and tracked results disabled on Enter', async () => {
+    vi.useFakeTimers();
+    const opened = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const openChange = vi.fn();
+    fixture.componentInstance.openChange.subscribe(openChange);
+    searchMedia.mockResolvedValue(searchResult([
+      mediaItem({
+        identity: 'movie:16',
+        tmdbId: 16,
+        title: 'Demo Available Linkless',
+        status: 'available',
+        service: 'jellyfin',
+        serviceHref: null,
+        jellyfinId: undefined,
+      }),
+      mediaItem({
+        identity: 'movie:17',
+        tmdbId: 17,
+        title: 'Demo Tracked Linkless',
+        status: 'tracked',
+        service: 'radarr',
+        serviceHref: null,
+        monitored: true,
+      }),
+    ]));
+    fixture.componentRef.setInput('open', true);
+    fixture.detectChanges();
+
+    enterQuery('demo');
+    await vi.advanceTimersByTimeAsync(250);
+    fixture.detectChanges();
+
+    expect(option('Demo Available Linkless').getAttribute('aria-disabled')).toBe('true');
+    expect(option('Demo Available Linkless').textContent).toContain('Jellyfin link unavailable');
+    expect(option('Demo Tracked Linkless').getAttribute('aria-disabled')).toBe('true');
+    expect(option('Demo Tracked Linkless').textContent).toContain('Radarr link unavailable');
+
+    const input = fixtureHost(fixture).querySelector('input') as HTMLInputElement;
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(opened).not.toHaveBeenCalled();
+    expect(router.url).toBe('/');
+    expect(openChange).not.toHaveBeenCalled();
+    opened.mockRestore();
+  });
+
   it.each([
     ['disabled', true, 'Catalog search is disabled. Showing local library matches.'],
     ['unavailable', false, 'Catalog search is temporarily unavailable. Showing local library matches.'],

@@ -263,7 +263,11 @@ export class CommandPalette {
           this.jellyfinBases,
         )
       : item.serviceHref;
-    const disabled = item.status === 'requested' || item.status === 'processing' || item.status === 'unknown';
+    const linkRequired = item.status === 'available' || item.status === 'tracked';
+    const disabled = item.status === 'requested' ||
+      item.status === 'processing' ||
+      item.status === 'unknown' ||
+      (linkRequired && !href);
     const requestable = item.status === 'missing';
     return {
       id: `media-${item.identity}`,
@@ -272,7 +276,7 @@ export class CommandPalette {
       meta: [
         item.year,
         item.type === 'tv' ? 'TV' : 'Movie',
-        lifecycleDescription(item),
+        lifecycleDescription(item, href),
       ].filter(Boolean).join(' · '),
       disabled,
       closeOnRun: !requestable,
@@ -435,16 +439,19 @@ export class CommandPalette {
   }
 }
 
-function lifecycleDescription(item: MediaSearchItem): string {
+function lifecycleDescription(item: MediaSearchItem, href: string | null): string {
   switch (item.status) {
     case 'available':
-      return 'Available in Jellyfin';
+      return href ? 'Available in Jellyfin' : 'Jellyfin link unavailable';
     case 'requested':
       return 'Request submitted';
     case 'processing':
       return 'Acquisition in progress';
     case 'tracked':
-      return item.service === 'sonarr' ? 'Tracked in Sonarr' : 'Tracked in Radarr';
+      if (item.service === 'sonarr') {
+        return href ? 'Tracked in Sonarr' : 'Sonarr link unavailable';
+      }
+      return href ? 'Tracked in Radarr' : 'Radarr link unavailable';
     case 'missing':
       return 'Request this title';
     default:

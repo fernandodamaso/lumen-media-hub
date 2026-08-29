@@ -74,7 +74,7 @@ class MediaSearchApiTests(unittest.TestCase):
         } for _status, payload in responses))
         upstream.assert_not_called()
 
-    def test_search_encodes_query_filters_people_and_resolves_typed_statuses(self):
+    def test_search_filters_people_and_resolves_typed_statuses(self):
         raw = [
             {
                 "mediaType": "movie",
@@ -124,7 +124,7 @@ class MediaSearchApiTests(unittest.TestCase):
 
         with mock.patch.object(
             media, "_jellyseerr_get", return_value={"results": raw}
-        ) as upstream, mock.patch.object(
+        ), mock.patch.object(
             media, "get_library_exclusion_snapshot", return_value=library
         ), mock.patch.object(
             media, "get_arr_tracking_snapshot", return_value=arr
@@ -147,7 +147,6 @@ class MediaSearchApiTests(unittest.TestCase):
                 "sonarr": "fresh",
             },
         )
-        upstream.assert_called_once_with("/api/v1/search?query=alien+world&page=1")
         self.assertEqual(
             [(item["identity"], item["status"]) for item in payload["items"]],
             [
@@ -172,7 +171,27 @@ class MediaSearchApiTests(unittest.TestCase):
         self.assertEqual(tracked["service"], "radarr")
         self.assertTrue(tracked["monitored"])
 
-    def test_configured_upstream_failure_is_sanitized_unavailable(self):
+    def test_search_percent_encodes_multiword_query_for_jellyseerr(self):
+        library = media_state.LibraryExclusionSnapshot.from_maps(
+            {}, {}, status="fresh", last_successful_refresh_at=None
+        )
+        arr = media_state.ArrTrackingSnapshot.from_maps(
+            movie={}, tv={}, sources={"radarr": "fresh", "sonarr": "fresh"}
+        )
+        with mock.patch.object(
+            media, "_jellyseerr_get", return_value={"results": []}
+        ) as upstream, mock.patch.object(
+            media, "get_library_exclusion_snapshot", return_value=library
+        ), mock.patch.object(media, "get_arr_tracking_snapshot", return_value=arr):
+            status, payload = _HandlerHarness(
+                "/media/search?q=The%20Bear"
+            ).get()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["availability"], "available")
+        upstream.assert_called_once_with("/api/v1/search?query=The%20Bear&page=1")
+
+    def test_configured_upstream_failure_returns_200_sanitized_unavailable(self):
         with mock.patch.object(
             media,
             "_jellyseerr_get",
@@ -182,7 +201,7 @@ class MediaSearchApiTests(unittest.TestCase):
         ):
             status, payload = _HandlerHarness("/media/search?q=alien").get()
 
-        self.assertEqual(status, 502)
+        self.assertEqual(status, 200)
         self.assertEqual(
             payload,
             {

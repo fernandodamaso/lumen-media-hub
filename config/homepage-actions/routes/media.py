@@ -18,10 +18,10 @@ from media_state import (
 _TMDB_ID_RE = re.compile(r"^[1-9][0-9]*$")
 
 
-def _search_error(handler, status=502):
+def _search_error(handler):
     send_json(
         handler,
-        status,
+        200,
         {
             "ok": False,
             "availability": "unavailable",
@@ -164,7 +164,8 @@ def handle_media_search(handler, query):
         return
 
     path = "/api/v1/search?" + urllib.parse.urlencode(
-        {"query": search_query, "page": 1}
+        {"query": search_query, "page": 1},
+        quote_via=urllib.parse.quote,
     )
     try:
         payload = _jellyseerr_get(path)

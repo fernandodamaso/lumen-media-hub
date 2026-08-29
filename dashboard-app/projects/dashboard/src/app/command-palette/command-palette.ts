@@ -28,7 +28,7 @@ import { StorageFacade } from '../storage/storage.facade';
 import { ActivityFacade } from '../right-rail/activity.facade';
 import { refreshDashboardData } from '../dashboard/dashboard-refresh';
 import { TrendingFacade } from '../dashboard/trending.facade';
-import { MmDialog } from '@app/ui';
+import { MmDialog, MmStatus, MmStatusTone } from '@app/ui';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 import { MediaSearchItem } from '../media-request/media-request.models';
 import {
@@ -42,6 +42,10 @@ export type CommandPaletteItem = {
   group: 'Routes' | 'Your Library' | 'Catalog' | 'Actions';
   title: string;
   meta: string;
+  posterUrl?: string | null;
+  badgeLabel?: string;
+  badgeTone?: MmStatusTone;
+  activeBadgeLabel?: string;
   disabled?: boolean;
   closeOnRun?: boolean;
   run: () => void | Promise<void>;
@@ -53,7 +57,7 @@ const REMOTE_SEARCH_DEBOUNCE_MS = 250;
 
 @Component({
   selector: 'mm-command-palette',
-  imports: [MmDialog, MediaRequestDialog],
+  imports: [MmDialog, MmStatus, MediaRequestDialog],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './command-palette.html',
   styleUrl: './command-palette.scss',
@@ -248,6 +252,8 @@ export class CommandPalette {
       group: 'Your Library',
       title: item.title,
       meta: item.meta || item.kind,
+      badgeLabel: 'Available',
+      badgeTone: 'green',
       run: () => {
         const href = item.href ?? resolveJellyfinItemLink(item, this.jellyfinBases);
         if (href) window.open(href, '_blank', 'noreferrer');
@@ -269,14 +275,18 @@ export class CommandPalette {
       item.status === 'unknown' ||
       (linkRequired && !href);
     const requestable = item.status === 'missing';
+    const badge = lifecycleBadge(item, href);
     return {
       id: `media-${item.identity}`,
       group: item.status === 'available' ? 'Your Library' : 'Catalog',
       title: item.title,
+      posterUrl: item.posterUrl,
+      badgeLabel: badge.label,
+      badgeTone: badge.tone,
+      activeBadgeLabel: requestable ? 'Request this title' : undefined,
       meta: [
         item.year,
         item.type === 'tv' ? 'TV' : 'Movie',
-        lifecycleDescription(item, href),
       ].filter(Boolean).join(' · '),
       disabled,
       closeOnRun: !requestable,
@@ -359,6 +369,18 @@ export class CommandPalette {
     return `command-palette-option-${index}`;
   }
 
+  badgeLabel(item: CommandPaletteItem, index: number): string {
+    if (item.activeBadgeLabel && this.activeIndex() === index) return item.activeBadgeLabel;
+    return item.badgeLabel ?? item.group;
+  }
+
+  badgeTone(item: CommandPaletteItem): MmStatusTone {
+    if (item.badgeTone) return item.badgeTone;
+    if (item.group === 'Routes') return 'violet';
+    if (item.group === 'Actions') return 'gold';
+    return 'neutral';
+  }
+
   async selectItem(item: CommandPaletteItem): Promise<void> {
     if (item.disabled) return;
     if (item.closeOnRun !== false) this.setOpen(false);
@@ -439,23 +461,32 @@ export class CommandPalette {
   }
 }
 
-function lifecycleDescription(item: MediaSearchItem, href: string | null): string {
+function lifecycleBadge(
+  item: MediaSearchItem,
+  href: string | null,
+): { label: string; tone: MmStatusTone } {
   switch (item.status) {
     case 'available':
-      return href ? 'Available in Jellyfin' : 'Jellyfin link unavailable';
+      return href
+        ? { label: 'Available', tone: 'green' }
+        : { label: 'Jellyfin link unavailable', tone: 'neutral' };
     case 'requested':
-      return 'Request submitted';
+      return { label: 'Request submitted', tone: 'info' };
     case 'processing':
-      return 'Acquisition in progress';
+      return { label: 'Acquisition in progress', tone: 'amber' };
     case 'tracked':
       if (item.service === 'sonarr') {
-        return href ? 'Tracked in Sonarr' : 'Sonarr link unavailable';
+        return href
+          ? { label: 'Tracked in Sonarr', tone: 'info' }
+          : { label: 'Sonarr link unavailable', tone: 'neutral' };
       }
-      return href ? 'Tracked in Radarr' : 'Radarr link unavailable';
+      return href
+        ? { label: 'Tracked in Radarr', tone: 'info' }
+        : { label: 'Radarr link unavailable', tone: 'neutral' };
     case 'missing':
-      return 'Request this title';
+      return { label: 'Not available', tone: 'amber' };
     default:
-      return 'Status unavailable';
+      return { label: 'Status unavailable', tone: 'neutral' };
   }
 }
 

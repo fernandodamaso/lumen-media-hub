@@ -809,6 +809,8 @@ const DEMO_TRAKT: Record<TraktDiscoverType, MediaStackExternalDiscoverItemDto[]>
   ],
 };
 
+const DEMO_MEDIA_POSTER_URL = '/mock-media-poster.svg';
+
 const DEMO_MEDIA_SEARCH_ITEMS: MediaSearchItem[] = [
   {
     identity: 'movie:501001',
@@ -817,7 +819,7 @@ const DEMO_MEDIA_SEARCH_ITEMS: MediaSearchItem[] = [
     title: 'Demo Available',
     year: 2024,
     overview: 'A playable Demo title.',
-    posterUrl: null,
+    posterUrl: DEMO_MEDIA_POSTER_URL,
     status: 'available',
     service: 'jellyfin',
     serviceHref: 'http://localhost:8096/web/index.html#!/details?id=jf-demo-available',
@@ -832,7 +834,7 @@ const DEMO_MEDIA_SEARCH_ITEMS: MediaSearchItem[] = [
     title: 'Demo Requested',
     year: 2025,
     overview: 'A requested Demo title.',
-    posterUrl: null,
+    posterUrl: DEMO_MEDIA_POSTER_URL,
     status: 'requested',
     service: null,
     serviceHref: null,
@@ -846,7 +848,7 @@ const DEMO_MEDIA_SEARCH_ITEMS: MediaSearchItem[] = [
     title: 'Demo Processing',
     year: 2025,
     overview: 'A processing Demo series.',
-    posterUrl: null,
+    posterUrl: DEMO_MEDIA_POSTER_URL,
     status: 'processing',
     service: null,
     serviceHref: null,
@@ -860,7 +862,7 @@ const DEMO_MEDIA_SEARCH_ITEMS: MediaSearchItem[] = [
     title: 'Demo Tracked',
     year: 2023,
     overview: 'A tracked Demo title.',
-    posterUrl: null,
+    posterUrl: DEMO_MEDIA_POSTER_URL,
     status: 'tracked',
     service: 'radarr',
     serviceHref: 'http://localhost:7878/movie/demo-tracked',
@@ -874,7 +876,7 @@ const DEMO_MEDIA_SEARCH_ITEMS: MediaSearchItem[] = [
     title: 'Demo Missing',
     year: 2024,
     overview: 'A requestable Demo series.',
-    posterUrl: null,
+    posterUrl: DEMO_MEDIA_POSTER_URL,
     status: 'missing',
     service: null,
     serviceHref: null,
@@ -888,7 +890,7 @@ const DEMO_MEDIA_SEARCH_ITEMS: MediaSearchItem[] = [
     title: 'Demo Unknown',
     year: null,
     overview: 'A Demo title with unavailable state.',
-    posterUrl: null,
+    posterUrl: DEMO_MEDIA_POSTER_URL,
     status: 'unknown',
     service: null,
     serviceHref: null,

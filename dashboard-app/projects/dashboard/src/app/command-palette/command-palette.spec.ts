@@ -169,6 +169,70 @@ describe('CommandPalette', () => {
     expect(searchMedia).not.toHaveBeenCalled();
   });
 
+  it('renders the returned poster only for authoritative media rows', async () => {
+    vi.useFakeTimers();
+    searchMedia.mockResolvedValue(searchResult([
+      mediaItem({
+        identity: 'tv:33',
+        type: 'tv',
+        tmdbId: 33,
+        title: 'Discover Skeleton',
+        posterUrl: 'https://images.example/skeleton.jpg',
+      }),
+    ]));
+    fixture.componentRef.setInput('open', true);
+    fixture.detectChanges();
+
+    enterQuery('di');
+    await vi.advanceTimersByTimeAsync(250);
+    fixture.detectChanges();
+
+    const mediaOption = option('Discover Skeleton');
+    const poster = mediaOption.querySelector<HTMLImageElement>('.palette__item-poster img');
+    expect(mediaOption.classList.contains('palette__item--media')).toBe(true);
+    expect(poster?.getAttribute('src')).toBe('https://images.example/skeleton.jpg');
+    expect(poster?.getAttribute('alt')).toBe('');
+    expect(option('Discover').querySelector('img')).toBeNull();
+  });
+
+  it('uses status badges and reveals the request action for an active missing title', async () => {
+    vi.useFakeTimers();
+    searchMedia.mockResolvedValue(searchResult([
+      mediaItem({
+        identity: 'movie:34',
+        tmdbId: 34,
+        title: 'Demo Available',
+        status: 'available',
+        service: 'jellyfin',
+        serviceHref: 'https://jellyfin.example/title/34',
+        jellyfinId: 'jf-34',
+      }),
+      mediaItem({ identity: 'movie:35', tmdbId: 35, title: 'Demo Missing' }),
+    ]));
+    fixture.componentRef.setInput('open', true);
+    fixture.detectChanges();
+
+    expect(statusBadge('Discover').textContent).toContain('Routes');
+    expect(statusBadge('Discover').classList).toContain('mm-status--violet');
+    expect(statusBadge('Refresh all').textContent).toContain('Actions');
+    expect(statusBadge('Refresh all').classList).toContain('mm-status--gold');
+
+    enterQuery('demo');
+    await vi.advanceTimersByTimeAsync(250);
+    fixture.detectChanges();
+
+    expect(statusBadge('Demo Available').textContent).toContain('Available');
+    expect(statusBadge('Demo Available').classList).toContain('mm-status--green');
+    expect(statusBadge('Demo Missing').textContent).toContain('Not available');
+    expect(statusBadge('Demo Missing').classList).toContain('mm-status--amber');
+
+    option('Demo Missing').dispatchEvent(new MouseEvent('mouseenter'));
+    fixture.detectChanges();
+
+    expect(statusBadge('Demo Missing').textContent).toContain('Request this title');
+    expect(statusBadge('Demo Missing').classList).toContain('mm-status--amber');
+  });
+
   it('groups authoritative lifecycle results and routes only actionable states', async () => {
     vi.useFakeTimers();
     const opened = vi.spyOn(window, 'open').mockImplementation(() => null);
@@ -483,7 +547,7 @@ describe('CommandPalette', () => {
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
     const libraryButtons = [...fixtureHost(fixture).querySelectorAll('.palette__item')].filter((node) =>
-      node.textContent.includes('Library'),
+      node.textContent.includes('Moonrise'),
     );
     expect(libraryButtons).toHaveLength(40);
     expect(fixtureHost(fixture).textContent).toContain('Moonrise 0');
@@ -543,6 +607,12 @@ describe('CommandPalette', () => {
       .find((candidate) => candidate.textContent.includes(title));
     if (!match) throw new Error(`Option not found: ${title}`);
     return match;
+  }
+
+  function statusBadge(title: string): HTMLElement {
+    const badge = option(title).querySelector<HTMLElement>('.mm-status');
+    if (!badge) throw new Error(`Status badge not found: ${title}`);
+    return badge;
   }
 });
 

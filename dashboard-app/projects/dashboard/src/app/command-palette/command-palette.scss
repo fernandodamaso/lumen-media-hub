@@ -78,6 +78,33 @@ mm-dialog.palette-dialog {
   cursor: pointer;
 }
 
+.palette__item--media {
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-areas:
+    'poster title kind'
+    'poster meta kind';
+  min-height: 76px;
+  align-content: center;
+}
+
+.palette__item-poster {
+  grid-area: poster;
+  width: 40px;
+  height: 60px;
+  overflow: hidden;
+  align-self: center;
+  border-radius: 6px;
+  background: var(--mm-component-control-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mm-component-border) 72%, transparent);
+}
+
+.palette__item-poster img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .palette__item.is-active,
 .palette__item:hover {
   background: color-mix(in srgb, var(--mm-component-accent) 13%, transparent);
@@ -103,9 +130,7 @@ mm-dialog.palette-dialog {
 
 .palette__item-kind {
   grid-area: kind;
-  align-self: center;
-  color: var(--mm-component-text-muted);
-  font-size: 11px;
+  place-self: center end;
 }
 
 .palette__empty {

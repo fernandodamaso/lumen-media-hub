@@ -192,6 +192,7 @@ describe('MockMediaStackApi', () => {
       service: 'radarr',
       monitored: true,
     });
+    expect(result.items.every((item) => item.posterUrl === '/mock-media-poster.svg')).toBe(true);
   });
 
   it.each([

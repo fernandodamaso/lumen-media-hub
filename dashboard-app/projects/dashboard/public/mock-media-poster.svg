@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 342 513" role="img" aria-labelledby="title description">
+  <title id="title">Demo media poster</title>
+  <desc id="description">Abstract gold eclipse above a distant horizon.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#17223b"/>
+      <stop offset="0.55" stop-color="#111827"/>
+      <stop offset="1" stop-color="#05070d"/>
+    </linearGradient>
+    <radialGradient id="halo">
+      <stop offset="0.55" stop-color="#f5c451" stop-opacity="0"/>
+      <stop offset="0.72" stop-color="#f5c451" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#e6922e" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="horizon" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#1f9bb3" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#07111d" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="342" height="513" fill="url(#sky)"/>
+  <circle cx="171" cy="204" r="116" fill="url(#halo)"/>
+  <circle cx="171" cy="204" r="76" fill="#080b13"/>
+  <path d="M0 324L70 292l38 19 50-42 44 29 63-55 77 54v216H0z" fill="#090d16"/>
+  <path d="M0 322c66-24 121-25 171-7 52 19 108 19 171-4v74H0z" fill="url(#horizon)" opacity="0.78"/>
+  <g fill="#f8fafc" font-family="Arial, sans-serif" text-anchor="middle">
+    <text x="171" y="420" font-size="34" font-weight="700" letter-spacing="8">LUMEN</text>
+    <text x="171" y="449" font-size="12" font-weight="700" letter-spacing="5" fill="#f5c451">DEMO TITLE</text>
+  </g>
+</svg>

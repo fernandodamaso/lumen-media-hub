@@ -1,16 +1,13 @@
 """Discover / Hermes route handlers."""
 import json
-import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 
 import config as settings
-from clients.arr import _add_to_arr_unmonitored, _arr_get
+from clients.arr import _add_to_arr_unmonitored
 from clients.jellyfin import (
-    JELLYFIN_PAGE_SIZE,
     _jellyfin_image_url,
     _jellyfin_item_is_playable,
     _jellyfin_items_path,
@@ -19,6 +16,8 @@ from clients.jellyfin import (
 )
 from clients.jellyseerr import _jellyseerr_get, _trakt_get, _trakt_get_page
 from clients.trakt import TraktAuthError
+import media_state
+from media_state import LibraryExclusionSnapshot
 from trakt_history import TraktWatchedService, WatchedSnapshot, WatchedSnapshotStore
 from http_support import (
     _BodyTooLarge,
@@ -77,74 +76,16 @@ _HERMES_PUBLIC_ITEM_FIELDS = frozenset(
 )
 
 
-@dataclass(frozen=True)
-class LibraryExclusionSnapshot:
-    """Last known playable Jellyfin identities used by all Discover sources."""
-
-    movie: dict
-    tv: dict
-    status: str
-    last_successful_refresh_at: str | None
-
-    @classmethod
-    def from_maps(cls, movie, tv, *, status, last_successful_refresh_at):
-        return cls(dict(movie or {}), dict(tv or {}), status, last_successful_refresh_at)
-
-    @property
-    def identities(self):
-        return {
-            f"movie:{normalized}"
-            for tmdb_id in self.movie
-            for normalized in [_normalize_tmdb_id(tmdb_id)]
-            if normalized
-        } | {
-            f"tv:{normalized}"
-            for tmdb_id in self.tv
-            for normalized in [_normalize_tmdb_id(tmdb_id)]
-            if normalized
-        }
-
-    def contains(self, item_type, tmdb_id):
-        kind = "tv" if item_type == "tv" else "movie"
-        normalized = _normalize_tmdb_id(tmdb_id)
-        return bool(normalized and normalized in self._map(kind))
-
-    def jellyfin_id(self, item_type, tmdb_id):
-        kind = "tv" if item_type == "tv" else "movie"
-        normalized = _normalize_tmdb_id(tmdb_id)
-        return self._map(kind).get(normalized) if normalized else None
-
-    def _map(self, kind):
-        return self.tv if kind == "tv" else self.movie
-
-    def public(self):
-        return {
-            "status": self.status,
-            "last_successful_refresh_at": self.last_successful_refresh_at,
-        }
-
-
-_TMDB_LIBRARY_CACHE = {
-    "expires": 0.0,
-    "movie": {},
-    "tv": {},
-    "status": "unavailable",
-    "last_successful_refresh_at": None,
-}
-_TMDB_LIBRARY_CACHE_TTL = 90.0
-_TMDB_LIBRARY_CACHE_LOCK = threading.Lock()
+_TMDB_LIBRARY_CACHE = media_state._TMDB_LIBRARY_CACHE
+_TMDB_LIBRARY_CACHE_TTL = media_state.TMDB_LIBRARY_CACHE_TTL
+_TMDB_LIBRARY_CACHE_LOCK = media_state._TMDB_LIBRARY_CACHE_LOCK
 _TRAKT_WATCHED_SERVICE = None
 _TRAKT_WATCHED_SERVICE_LOCK = threading.Lock()
 
 
 def invalidate_discover_library_caches():
     """Expire library exclusion caches without discarding the last-good snapshot."""
-    with _TMDB_LIBRARY_CACHE_LOCK:
-        _TMDB_LIBRARY_CACHE["expires"] = 0.0
-        if _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None:
-            _TMDB_LIBRARY_CACHE["status"] = "stale"
-    with _tracked_media_cache_lock:
-        _tracked_media_cache["expires"] = 0.0
+    media_state.invalidate_media_state_caches()
 
 
 def _trakt_watched_snapshot(*, force=False):
@@ -169,93 +110,22 @@ def _filter_watched_items(items, snapshot):
     return [item for item in items if not snapshot.contains(item.get("type"), item.get("tmdb_id"))]
 
 
-def _provider_tmdb_id(raw):
-    providers = raw.get("ProviderIds") or {}
-    value = providers.get("Tmdb") or providers.get("tmdb")
-    return _normalize_tmdb_id(value)
-
-
-def _fetch_tmdb_map_for_type(item_type):
-    mapping = {}
-    start = 0
-    while True:
-        data = jellyfin_get(
-            _jellyfin_items_path(),
-            {
-                "Recursive": "true",
-                "IncludeItemTypes": item_type,
-                "StartIndex": str(start),
-                "Limit": str(JELLYFIN_PAGE_SIZE),
-                "Fields": "Path,IsPlaceHolder,ProviderIds",
-            },
-        )
-        batch = data.get("Items", [])
-        for raw in batch:
-            if not _jellyfin_item_is_playable(raw, item_type):
-                continue
-            tmdb_id = _provider_tmdb_id(raw)
-            jf_id = raw.get("Id")
-            if tmdb_id and jf_id and tmdb_id not in mapping:
-                mapping[tmdb_id] = jf_id
-        total = data.get("TotalRecordCount", start + len(batch))
-        start += len(batch)
-        if not batch or start >= total:
-            break
-    return mapping
+_provider_tmdb_id = media_state._provider_tmdb_id
+_fetch_tmdb_map_for_type = media_state._fetch_tmdb_map_for_type
 
 
 def _tmdb_library_maps():
-    if not settings.JELLYFIN_API_KEY:
-        with _TMDB_LIBRARY_CACHE_LOCK:
-            has_last_good = _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None
-            if has_last_good:
-                _TMDB_LIBRARY_CACHE["status"] = "stale"
-                return {
-                    "movie": _TMDB_LIBRARY_CACHE["movie"],
-                    "tv": _TMDB_LIBRARY_CACHE["tv"],
-                }
-            _TMDB_LIBRARY_CACHE["status"] = "unavailable"
-            return {"movie": {}, "tv": {}}
-    now = time.time()
-    with _TMDB_LIBRARY_CACHE_LOCK:
-        if now < _TMDB_LIBRARY_CACHE["expires"]:
-            return {
-                "movie": _TMDB_LIBRARY_CACHE["movie"],
-                "tv": _TMDB_LIBRARY_CACHE["tv"],
-            }
-        previous_movie_map = _TMDB_LIBRARY_CACHE["movie"]
-        previous_tv_map = _TMDB_LIBRARY_CACHE["tv"]
-        try:
-            refreshed_movie_map = _fetch_tmdb_map_for_type("Movie")
-            refreshed_tv_map = _fetch_tmdb_map_for_type("Series")
-            _TMDB_LIBRARY_CACHE["movie"] = refreshed_movie_map
-            _TMDB_LIBRARY_CACHE["tv"] = refreshed_tv_map
-            _TMDB_LIBRARY_CACHE["expires"] = now + _TMDB_LIBRARY_CACHE_TTL
-            _TMDB_LIBRARY_CACHE["status"] = "fresh"
-            _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] = datetime.now(
-                timezone.utc
-            ).isoformat(timespec="seconds")
-        except Exception:
-            _TMDB_LIBRARY_CACHE["status"] = (
-                "stale"
-                if _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None
-                else "unavailable"
-            )
-            return {"movie": previous_movie_map, "tv": previous_tv_map}
-        return {"movie": refreshed_movie_map, "tv": refreshed_tv_map}
+    return media_state.get_tmdb_library_maps(
+        fetch=_fetch_tmdb_map_for_type,
+        now_fn=time.time,
+    )
 
 
 def _library_exclusion_snapshot():
     """Return the cached library exclusion set and its refresh health."""
-    maps = _tmdb_library_maps()
-    with _TMDB_LIBRARY_CACHE_LOCK:
-        status = _TMDB_LIBRARY_CACHE["status"]
-        refreshed_at = _TMDB_LIBRARY_CACHE["last_successful_refresh_at"]
-    return LibraryExclusionSnapshot.from_maps(
-        maps.get("movie"),
-        maps.get("tv"),
-        status=status,
-        last_successful_refresh_at=refreshed_at,
+    return media_state.get_library_exclusion_snapshot(
+        fetch=_fetch_tmdb_map_for_type,
+        now_fn=time.time,
     )
 
 
@@ -884,64 +754,21 @@ def _should_auto_retain_hermes_item(item):
 
 
 HERMES_TASTE_CAP = 50
-TRACKED_MEDIA_CACHE_TTL = float(os.environ.get("TRACKED_MEDIA_CACHE_TTL", "60"))
-_tracked_media_cache = {"expires": 0.0, "ids": [], "errors": [], "has_success": False}
-_tracked_media_cache_lock = threading.Lock()
+TRACKED_MEDIA_CACHE_TTL = media_state.TRACKED_MEDIA_CACHE_TTL
+_tracked_media_cache = media_state._tracked_media_cache
+_tracked_media_cache_lock = media_state._tracked_media_cache_lock
 
 
 def _build_tracked_media_ids():
-    """Return sorted movie:/tv: identities currently in Radarr/Sonarr."""
-    ids = set()
-    errors = []
-    if settings.RADARR_API_KEY:
-        try:
-            for movie in _arr_get(settings.RADARR_URL, settings.RADARR_API_KEY, "/api/v3/movie"):
-                tmdb_id = _normalize_tmdb_id(movie.get("tmdbId"))
-                if tmdb_id:
-                    ids.add(f"movie:{tmdb_id}")
-        except Exception:
-            errors.append("radarr: unavailable")
-    if settings.SONARR_API_KEY:
-        try:
-            for series in _arr_get(settings.SONARR_URL, settings.SONARR_API_KEY, "/api/v3/series"):
-                tmdb_id = _normalize_tmdb_id(series.get("tmdbId"))
-                if tmdb_id:
-                    ids.add(f"tv:{tmdb_id}")
-        except Exception:
-            errors.append("sonarr: unavailable")
-    return sorted(ids), errors
+    return media_state.build_tracked_media_ids()
 
 
 def _get_tracked_media_ids():
-    """Cached Arr tracked identities; preserve a complete stale set on errors."""
-    now = time.monotonic()
-    with _tracked_media_cache_lock:
-        if now < _tracked_media_cache["expires"]:
-            return list(_tracked_media_cache["ids"]), list(_tracked_media_cache["errors"])
-    ids, errors = _build_tracked_media_ids()
-    errors = [_safe_arr_error(error) for error in errors]
-    with _tracked_media_cache_lock:
-        if errors:
-            # A partial Arr response must never replace a complete deny set.
-            # Before the first complete refresh, retain the existing soft-fail
-            # behavior and expose whatever provider data was available.
-            result = (
-                list(_tracked_media_cache["ids"])
-                if _tracked_media_cache["has_success"]
-                else list(ids)
-            )
-            if not _tracked_media_cache["has_success"]:
-                _tracked_media_cache["ids"] = list(ids)
-        else:
-            result = list(ids)
-            _tracked_media_cache["ids"] = list(ids)
-            _tracked_media_cache["has_success"] = True
-        _tracked_media_cache["errors"] = list(errors)
-        # Cache successes longer; on errors keep a short retry window so a
-        # failed provider does not prevent recovery for the full cache TTL.
-        ttl = TRACKED_MEDIA_CACHE_TTL if not errors else min(TRACKED_MEDIA_CACHE_TTL, 15.0)
-        _tracked_media_cache["expires"] = time.monotonic() + ttl
-        return result, errors
+    return media_state.get_tracked_media_ids(
+        build=_build_tracked_media_ids,
+        ttl=TRACKED_MEDIA_CACHE_TTL,
+        now_fn=time.monotonic,
+    )
 
 
 def _in_library_media_ids_from_maps(maps):
@@ -966,11 +793,7 @@ def _get_in_library_media_ids():
 
 
 def _safe_arr_error(error):
-    value = str(error)
-    for provider in ("radarr", "sonarr"):
-        if value.startswith(f"{provider}:"):
-            return f"{provider}: unavailable"
-    return "arr: unavailable"
+    return media_state.safe_arr_error(error)
 
 
 def _hermes_required_retain(

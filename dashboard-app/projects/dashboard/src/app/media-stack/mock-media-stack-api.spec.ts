@@ -194,6 +194,45 @@ describe('MockMediaStackApi', () => {
     });
   });
 
+  it.each([
+    [
+      'media search',
+      (api: MockMediaStackApi, signal: AbortSignal): Promise<unknown> =>
+        api.searchMedia('demo', signal),
+    ],
+    [
+      'TV seasons',
+      (api: MockMediaStackApi, signal: AbortSignal): Promise<unknown> =>
+        api.getTvSeasons(501005, signal),
+    ],
+  ])('rejects an in-flight %s read promptly when aborted', async (_label, read) => {
+    vi.useFakeTimers();
+    try {
+      const api = createApi();
+      api.latencyMs = 500;
+      const controller = new AbortController();
+      let outcome = 'pending';
+      const pending = read(api, controller.signal).then(
+        () => {
+          outcome = 'resolved';
+        },
+        (error: unknown) => {
+          outcome = error instanceof DOMException ? error.name : 'unexpected error';
+        },
+      );
+
+      controller.abort();
+      await Promise.resolve();
+
+      expect(outcome).toBe('AbortError');
+      expect(vi.getTimerCount()).toBe(0);
+      await pending;
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it('provides disabled and unavailable media-search scenarios', async () => {
     const api = createApi();
     await expect(api.searchMedia('disabled')).resolves.toEqual({

@@ -956,7 +956,7 @@ export class MockMediaStackApi implements MediaStackApi {
         sources: { jellyseerr: 'disabled' },
         items: [],
         error: undefined,
-      });
+      }, signal);
     }
     if (normalized === 'unavailable') {
       return this.withLatency({
@@ -965,7 +965,7 @@ export class MockMediaStackApi implements MediaStackApi {
         sources: { jellyseerr: 'unavailable' },
         items: [],
         error: 'Media search is temporarily unavailable',
-      });
+      }, signal);
     }
 
     const items = DEMO_MEDIA_SEARCH_ITEMS.filter((item) =>
@@ -993,7 +993,7 @@ export class MockMediaStackApi implements MediaStackApi {
       },
       items,
       error: undefined,
-    });
+    }, signal);
   }
 
   getTvSeasons(tmdbId: number, signal?: AbortSignal): Promise<TvSeasonCollection> {
@@ -1005,20 +1005,27 @@ export class MockMediaStackApi implements MediaStackApi {
     return this.withLatency({
       ...collection,
       seasons: collection.seasons.map((season) => ({ ...season })),
-    });
+    }, signal);
   }
 
-  protected withLatency<T>(value: T): Promise<T> {
+  protected withLatency<T>(value: T, signal?: AbortSignal): Promise<T> {
     if (this.latencyMs <= 0) {
       return Promise.resolve(value);
     }
     // Jitter is intentional for staggered demo skeleton reveals (not security-sensitive).
     // eslint-disable-next-line sonarjs/pseudo-random -- demo UI timing only
     const delay = this.latencyMs * (0.6 + Math.random() * 0.8);
-    return new Promise((resolve) => {
-      setTimeout(() => {
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timeout);
+        signal?.removeEventListener('abort', onAbort);
+        reject(new DOMException('The operation was aborted.', 'AbortError'));
+      };
+      const timeout = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
         resolve(value);
       }, delay);
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
   }
 

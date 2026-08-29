@@ -99,7 +99,6 @@ class TraktClientTests(unittest.TestCase):
             "dashboard-app/docs/architecture.md",
             "dashboard-app/docs/trakt-renewable-oauth-design.md",
             "config/recommendations/README.md",
-            "config/recommendations/HERMES_DISCOVER_PROMPT.md",
         )
         for relative_path in tracked_paths:
             content = (Path(REPO_ROOT) / relative_path).read_text(encoding="utf-8")
@@ -134,6 +133,7 @@ class TraktClientTests(unittest.TestCase):
         refresh_call = next(call for call in self.calls if call[1].endswith("/oauth/token"))
         self.assertEqual(refresh_call[1], "https://auth.trakt.tv/oauth/token")
         self.assertEqual(refresh_call[2]["Content-Type"], "application/json")
+        self.assertEqual(refresh_call[2]["User-Agent"], "media-stack-dashboard/1.0")
         self.assertEqual(json.loads(refresh_call[3].decode("utf-8"))["grant_type"], "refresh_token")
         self.assertEqual(TraktTokenStore(self.path).load().access_token, "access-new")
 
@@ -380,9 +380,11 @@ class TraktDeviceAuthorizationTests(unittest.TestCase):
         self.assertEqual(sleeps, [1, 1, 6])
         self.assertEqual(calls[0][1], "https://auth.trakt.tv/oauth/device/code")
         self.assertEqual(calls[0][2]["Content-Type"], "application/json")
+        self.assertEqual(calls[0][2]["User-Agent"], "media-stack-dashboard/1.0")
         self.assertEqual(json.loads(calls[0][3].decode("utf-8"))["client_id"], "client-id")
         self.assertEqual(calls[-1][1], "https://auth.trakt.tv/oauth/device/token")
         self.assertEqual(calls[-1][2]["Content-Type"], "application/json")
+        self.assertEqual(calls[-1][2]["User-Agent"], "media-stack-dashboard/1.0")
         self.assertTrue(any("ABCD" in message for message in self.output))
         self.assertFalse(any("access-new" in message or "refresh-new" in message for message in self.output))
 

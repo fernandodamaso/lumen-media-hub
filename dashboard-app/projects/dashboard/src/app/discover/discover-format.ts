@@ -5,7 +5,7 @@ import {
   DiscoverRequestPayload,
   ExternalDiscover,
   ExternalDiscoverItem,
-  HermesDiscover,
+  AiPicksDiscover,
   TraktHistorySyncState,
   TraktHistorySyncStatus,
 } from './discover.models';
@@ -15,7 +15,7 @@ import {
   MediaStackDiscoverRequestPayloadDto,
   MediaStackExternalDiscoverDto,
   MediaStackExternalDiscoverItemDto,
-  MediaStackHermesDiscoverDto,
+  MediaStackAiPicksDiscoverDto,
 } from '../media-stack/wire/discover';
 
 export type DiscoverHistoryFilter = 'all' | DiscoverFeedback | 'requested';
@@ -33,7 +33,7 @@ export type DiscoverCardItem = {
   year?: number | null;
   type: 'movie' | 'tv';
   tmdbId: number;
-  hermesId?: string;
+  aiPickId?: string;
   reason?: string;
   overview?: string;
   feedback: DiscoverFeedback | null;
@@ -46,14 +46,14 @@ export type DiscoverCardItem = {
   rating?: number | null;
 };
 
-export function toHermesCardItem(item: DiscoverItem): DiscoverCardItem {
+export function toAiPickCardItem(item: DiscoverItem): DiscoverCardItem {
   return {
     id: item.id,
     title: item.title,
     year: item.year,
     type: item.type,
     tmdbId: item.tmdb_id,
-    hermesId: item.id,
+    aiPickId: item.id,
     reason: item.reason,
     feedback: item.feedback,
     requestState: item.request_state,
@@ -139,8 +139,8 @@ export function matchesHistoryFilter(item: DiscoverItem, filter: DiscoverHistory
   return item.feedback === filter;
 }
 
-/** Active Hermes browse excludes any title that already has feedback (liked leaves the queue). */
-export function isHermesActiveItem(
+/** Active AI Picks browse excludes any title that already has feedback (liked leaves the queue). */
+export function isAiPickActiveItem(
   item: Pick<DiscoverItem, 'active' | 'feedback' | 'excluded_reason' | 'watched_on_trakt'>,
 ): boolean {
   return item.active && item.feedback == null && item.excluded_reason !== 'in_library' && item.excluded_reason !== 'watched_on_trakt' && item.watched_on_trakt !== true;
@@ -246,11 +246,23 @@ const mapExternalDiscoverItem = (dto: MediaStackExternalDiscoverItemDto): Extern
   ...dto,
 });
 
-export const mapHermesDiscover = (dto: MediaStackHermesDiscoverDto): HermesDiscover => ({
+export const mapAiPicksDiscover = (dto: MediaStackAiPicksDiscoverDto): AiPicksDiscover => ({
   ok: dto.ok,
   items: (dto.items ?? []).map(mapDiscoverItem),
   pending_request_sync: dto.pending_request_sync,
-  generation_request: dto.generation_request,
+  generation_enabled: dto.generation_enabled === true,
+  generation: dto.generation ? {
+    id: dto.generation.id,
+    status: dto.generation.status,
+    trigger: dto.generation.trigger,
+    requested_at: dto.generation.requested_at,
+    started_at: dto.generation.started_at,
+    finished_at: dto.generation.finished_at,
+    desired_count: dto.generation.desired_count,
+    attempt: dto.generation.attempt,
+    error_code: dto.generation.error_code,
+    counts: dto.generation.counts,
+  } : null,
   library_exclusion: dto.library_exclusion,
   watched_exclusion: dto.watched_exclusion,
   error: dto.error,

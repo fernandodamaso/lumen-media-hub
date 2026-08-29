@@ -2,21 +2,21 @@ import { DiscoverItem } from './discover.models';
 import {
   discoverPosterFallback,
   isDiscoverFeedbackPressed,
-  isHermesActiveItem,
+  isAiPickActiveItem,
   isWatchedFeedbackDisabled,
   matchesDiscoverSearch,
   matchesHistoryFilter,
   resolveRequestAction,
   toExternalCardItem,
-  toHermesCardItem,
+  toAiPickCardItem,
   traktHistorySyncLabel,
 } from './discover-format';
-import { mapHermesDiscover } from './discover-format';
+import { mapAiPicksDiscover } from './discover-format';
 
-function hermesItem(overrides: Partial<DiscoverItem> = {}): DiscoverItem {
+function aiPickItem(overrides: Partial<DiscoverItem> = {}): DiscoverItem {
   return {
     id: 'item-1',
-    source: 'hermes',
+    source: 'ai',
     type: 'movie',
     title: 'Signal Drift',
     year: 2024,
@@ -34,12 +34,12 @@ function hermesItem(overrides: Partial<DiscoverItem> = {}): DiscoverItem {
 }
 
 describe('discover-format', () => {
-  it('whitelists Hermes item fields and drops backend-only metadata', () => {
-    const mapped = mapHermesDiscover({
+  it('whitelists AI Picks item fields and drops backend-only metadata', () => {
+    const mapped = mapAiPicksDiscover({
       ok: true,
       items: [{
         id: 'item-1',
-        source: 'hermes',
+        source: 'ai',
         type: 'movie',
         title: 'Signal Drift',
         year: 2024,
@@ -60,7 +60,7 @@ describe('discover-format', () => {
 
     expect(mapped.items[0]).toEqual({
       id: 'item-1',
-      source: 'hermes',
+      source: 'ai',
       type: 'movie',
       title: 'Signal Drift',
       year: 2024,
@@ -110,10 +110,10 @@ describe('discover-format', () => {
   });
 
   it('treats liked as watched for history filtering and requested by request_state', () => {
-    const liked = hermesItem({ feedback: 'liked', active: false });
-    const watched = hermesItem({ id: 'w', feedback: 'watched', active: false });
-    const disliked = hermesItem({ id: 'd', feedback: 'disliked', active: false });
-    const requested = hermesItem({ id: 'r', request_state: 'requested', active: false });
+    const liked = aiPickItem({ feedback: 'liked', active: false });
+    const watched = aiPickItem({ id: 'w', feedback: 'watched', active: false });
+    const disliked = aiPickItem({ id: 'd', feedback: 'disliked', active: false });
+    const requested = aiPickItem({ id: 'r', request_state: 'requested', active: false });
 
     expect(matchesHistoryFilter(liked, 'watched')).toBe(true);
     expect(matchesHistoryFilter(watched, 'watched')).toBe(true);
@@ -124,10 +124,10 @@ describe('discover-format', () => {
     expect(matchesHistoryFilter(liked, 'all')).toBe(true);
   });
 
-  it('removes feedbacked titles from the Active Hermes queue', () => {
-    expect(isHermesActiveItem(hermesItem({ active: true, feedback: null }))).toBe(true);
-    expect(isHermesActiveItem(hermesItem({ active: true, feedback: 'liked' }))).toBe(false);
-    expect(isHermesActiveItem(hermesItem({ active: false, feedback: null }))).toBe(false);
+  it('removes feedbacked titles from the Active AI Picks queue', () => {
+    expect(isAiPickActiveItem(aiPickItem({ active: true, feedback: null }))).toBe(true);
+    expect(isAiPickActiveItem(aiPickItem({ active: true, feedback: 'liked' }))).toBe(false);
+    expect(isAiPickActiveItem(aiPickItem({ active: false, feedback: null }))).toBe(false);
   });
 
   it('treats liked as pressed for both liked and watched controls', () => {
@@ -138,7 +138,7 @@ describe('discover-format', () => {
     expect(isDiscoverFeedbackPressed('watched', 'liked')).toBe(false);
   });
 
-  it('maps Trakt sync status labels for Hermes history badges', () => {
+  it('maps Trakt sync status labels for AI Picks history badges', () => {
     expect(traktHistorySyncLabel('pending')).toBe('Pending Trakt sync');
     expect(traktHistorySyncLabel('synced')).toBe('Watched on Trakt');
     expect(traktHistorySyncLabel('reconnect_required')).toBe('Trakt reconnect required');
@@ -177,9 +177,9 @@ describe('discover-format', () => {
     expect(matchesDiscoverSearch(item, 'no match')).toBe(false);
   });
 
-  it('maps hermes and external DTOs into card items', () => {
-    expect(toHermesCardItem(hermesItem({ in_library: true }))).toMatchObject({
-      hermesId: 'item-1',
+  it('maps aiPicks and external DTOs into card items', () => {
+    expect(toAiPickCardItem(aiPickItem({ in_library: true }))).toMatchObject({
+      aiPickId: 'item-1',
       tmdbId: 101001,
       inLibrary: true,
     });
@@ -199,22 +199,22 @@ describe('discover-format', () => {
     ).toBe('requested');
   });
 
-  it('keeps an in-library Hermes item out of Active while preserving it for History', () => {
-    const item = hermesItem({ active: true, excluded_reason: 'in_library', in_library: true });
-    expect(isHermesActiveItem(item)).toBe(false);
-    expect(toHermesCardItem(item)).toMatchObject({ inLibrary: true, excludedReason: 'in_library' });
+  it('keeps an in-library AI Picks item out of Active while preserving it for History', () => {
+    const item = aiPickItem({ active: true, excluded_reason: 'in_library', in_library: true });
+    expect(isAiPickActiveItem(item)).toBe(false);
+    expect(toAiPickCardItem(item)).toMatchObject({ inLibrary: true, excludedReason: 'in_library' });
   });
 
   it('derives the In library badge from the exclusion reason', () => {
-    const item = hermesItem({ in_library: false, excluded_reason: 'in_library' });
-    expect(toHermesCardItem(item).inLibrary).toBe(true);
+    const item = aiPickItem({ in_library: false, excluded_reason: 'in_library' });
+    expect(toAiPickCardItem(item).inLibrary).toBe(true);
   });
 
-  it('keeps a Trakt-watched Hermes item out of Active and in the Watched History filter', () => {
-    const item = hermesItem({ active: true, excluded_reason: 'watched_on_trakt', watched_on_trakt: true });
-    expect(isHermesActiveItem(item)).toBe(false);
+  it('keeps a Trakt-watched AI Picks item out of Active and in the Watched History filter', () => {
+    const item = aiPickItem({ active: true, excluded_reason: 'watched_on_trakt', watched_on_trakt: true });
+    expect(isAiPickActiveItem(item)).toBe(false);
     expect(matchesHistoryFilter(item, 'watched')).toBe(true);
-    expect(toHermesCardItem(item)).toMatchObject({
+    expect(toAiPickCardItem(item)).toMatchObject({
       watchedOnTrakt: true,
       excludedReason: 'watched_on_trakt',
       inLibrary: false,
@@ -222,10 +222,10 @@ describe('discover-format', () => {
   });
 
   it('keeps library precedence while retaining Watched filter eligibility', () => {
-    const item = hermesItem({ active: true, excluded_reason: 'in_library', in_library: true, watched_on_trakt: true });
-    expect(isHermesActiveItem(item)).toBe(false);
+    const item = aiPickItem({ active: true, excluded_reason: 'in_library', in_library: true, watched_on_trakt: true });
+    expect(isAiPickActiveItem(item)).toBe(false);
     expect(matchesHistoryFilter(item, 'watched')).toBe(true);
-    expect(toHermesCardItem(item)).toMatchObject({
+    expect(toAiPickCardItem(item)).toMatchObject({
       watchedOnTrakt: true,
       excludedReason: 'in_library',
       inLibrary: true,

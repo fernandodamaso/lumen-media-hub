@@ -4,12 +4,12 @@ import { ScheduledPollController } from '../media-stack/scheduled-poll';
 import {
   DiscoverCardItem,
   DiscoverHistoryFilter,
-  isHermesActiveItem,
+  isAiPickActiveItem,
   matchesHistoryFilter,
   mediaIdentityKey,
   resolveRequestAction,
   toExternalCardItem,
-  toHermesCardItem,
+  toAiPickCardItem,
 } from './discover-format';
 import {
   DiscoverFeedback,
@@ -17,18 +17,18 @@ import {
   DiscoverSourceTab,
   ExternalDiscoverAvailability,
   ExternalDiscoverItem,
-  HermesDiscover,
+  AiPicksDiscover,
   JellyseerrDiscoverKind,
   LibraryExclusionState,
-  SubmitHermesFeedbackOptions,
+  SubmitAiPickFeedbackOptions,
   TraktDiscoverType,
   WatchedExclusionState,
 } from './discover.models';
 
 export type DiscoverStatus = 'loading' | 'ready' | 'empty' | 'disabled' | 'error';
-export type HermesView = 'active' | 'history';
+export type AiPicksView = 'active' | 'history';
 
-const HERMES_POLL_MS = 30_000;
+const AI_PICKS_POLL_MS = 30_000;
 const EXTERNAL_POLL_MS = 60_000;
 const LOAD_ERROR = 'Discover is temporarily unavailable. Try again.';
 const REFRESH_NOTICE = 'Could not refresh. Showing last loaded results.';
@@ -55,8 +55,8 @@ export class DiscoverFacade {
   private readonly destroyRef = inject(DestroyRef);
   private readonly poll = new ScheduledPollController();
 
-  private readonly _tab = signal<DiscoverSourceTab>('hermes');
-  private readonly _hermesView = signal<HermesView>('active');
+  private readonly _tab = signal<DiscoverSourceTab>('ai-picks');
+  private readonly _aiPicksView = signal<AiPicksView>('active');
   private readonly _historyFilter = signal<DiscoverHistoryFilter>('all');
   private readonly _jellyseerrKind = signal<JellyseerrDiscoverKind>('trending');
   private readonly _traktType = signal<TraktDiscoverType>('movies');
@@ -64,11 +64,13 @@ export class DiscoverFacade {
   private readonly _status = signal<DiscoverStatus>('loading');
   private readonly _error = signal('');
   private readonly _mutationNotice = signal<NoticeState | null>(null);
+  private readonly _generationNotice = signal<NoticeState | null>(null);
   private readonly _browseNotice = signal<NoticeState | null>(null);
   private readonly _exclusionNotice = signal('');
 
-  private readonly _hermesItems = signal<DiscoverItem[]>([]);
+  private readonly _aiPickItems = signal<DiscoverItem[]>([]);
   private readonly _generationPending = signal(false);
+  private readonly _generationEnabled = signal(false);
   private readonly _jellyseerrCache = signal<Partial<Record<JellyseerrDiscoverKind, ExternalBrowseCacheEntry>>>({});
   private readonly _traktCache = signal<Partial<Record<TraktDiscoverType, ExternalBrowseCacheEntry>>>({});
 
@@ -78,10 +80,7 @@ export class DiscoverFacade {
   private readonly _requestSyncFailedKeys = signal<ReadonlySet<string>>(new Set());
   private readonly _requestedKeys = signal<ReadonlySet<string>>(new Set());
 
-  /** True after a local request-more until the API has reported generation_request at least once. */
-  private generationObserved = false;
-
-  private hermesRequestId = 0;
+  private aiPicksRequestId = 0;
   private readonly jellyseerrGeneration: Record<JellyseerrDiscoverKind, number> = {
     trending: 0,
     movies: 0,
@@ -100,11 +99,11 @@ export class DiscoverFacade {
     movies: 0,
     shows: 0,
   };
-  /** True after at least one successful Hermes payload (including empty). */
-  private hermesLoaded = false;
+  /** True after at least one successful AI Picks payload (including empty). */
+  private aiPicksLoaded = false;
 
   readonly tab = this._tab.asReadonly();
-  readonly hermesView = this._hermesView.asReadonly();
+  readonly aiPicksView = this._aiPicksView.asReadonly();
   readonly historyFilter = this._historyFilter.asReadonly();
   readonly jellyseerrKind = this._jellyseerrKind.asReadonly();
   readonly traktType = this._traktType.asReadonly();
@@ -113,6 +112,7 @@ export class DiscoverFacade {
   readonly notice = computed(() => {
     return [
       this._mutationNotice()?.text,
+      this._tab() === 'ai-picks' ? this._generationNotice()?.text : undefined,
       this._browseNotice()?.text,
       this._exclusionNotice(),
     ].filter((notice): notice is string => Boolean(notice)).join(' ');
@@ -120,6 +120,7 @@ export class DiscoverFacade {
   readonly noticeTone = computed(() => {
     const tones = [
       this._mutationNotice()?.tone,
+      this._tab() === 'ai-picks' ? this._generationNotice()?.tone : undefined,
       this._browseNotice()?.tone,
       this._exclusionNotice() ? 'warning' as const : undefined,
     ].filter((tone): tone is NoticeState['tone'] => Boolean(tone));
@@ -131,19 +132,20 @@ export class DiscoverFacade {
   readonly busyItemId = this._busyItemId.asReadonly();
   readonly requestingMore = this._requestingMore.asReadonly();
   readonly generationPending = this._generationPending.asReadonly();
+  readonly generationEnabled = this._generationEnabled.asReadonly();
   readonly requestSyncFailedIds = this._requestSyncFailedIds.asReadonly();
 
   readonly visibleItems = computed<DiscoverCardItem[]>(() => {
     const tab = this._tab();
     const requestedKeys = this._requestedKeys();
-    if (tab === 'hermes') {
-      const view = this._hermesView();
+    if (tab === 'ai-picks') {
+      const view = this._aiPicksView();
       const filter = this._historyFilter();
-      return this._hermesItems()
-        .filter((item) => (view === 'active' ? isHermesActiveItem(item) : !isHermesActiveItem(item)))
+      return this._aiPickItems()
+        .filter((item) => (view === 'active' ? isAiPickActiveItem(item) : !isAiPickActiveItem(item)))
         .filter((item) => (view === 'history' ? matchesHistoryFilter(item, filter) : true))
         .map((item) => {
-          const card = toHermesCardItem(item);
+          const card = toAiPickCardItem(item);
           if (card.requestState === 'requested') return card;
           if (requestedKeys.has(mediaIdentityKey(card.type, card.tmdbId))) {
             return { ...card, requestState: 'requested' as const };
@@ -177,8 +179,8 @@ export class DiscoverFacade {
     this.restartPolling();
   }
 
-  setHermesView(view: HermesView): void {
-    this._hermesView.set(view);
+  setAiPicksView(view: AiPicksView): void {
+    this._aiPicksView.set(view);
     this.syncVisibleStatus();
   }
 
@@ -202,13 +204,13 @@ export class DiscoverFacade {
   async submitFeedback(
     id: string,
     feedback: DiscoverFeedback,
-    options?: SubmitHermesFeedbackOptions,
+    options?: SubmitAiPickFeedbackOptions,
   ): Promise<void> {
     if (this._busyItemId()) return;
     this._busyItemId.set(id);
     this.clearMutationNotice();
     try {
-      const result = await this.api.submitHermesFeedback(id, feedback, options);
+      const result = await this.api.submitAiPickFeedback(id, feedback, options);
       if (!result.ok) {
         if (result.code === 'confirmation_required') {
           this.setMutationNotice('Confirm marking all aired episodes watched on Trakt.', 'warning');
@@ -218,8 +220,8 @@ export class DiscoverFacade {
         return;
       }
       this.setMutationNotice(result.message ?? 'Feedback saved.', 'success');
-      this.hermesRequestId++;
-      this._hermesItems.update((items) =>
+      this.aiPicksRequestId++;
+      this._aiPickItems.update((items) =>
         items.map((item) =>
           item.id === id
             ? {
@@ -234,7 +236,7 @@ export class DiscoverFacade {
         ),
       );
       this.syncVisibleStatus();
-      await this.loadHermes();
+      await this.loadAiPicks();
     } catch {
       this.setMutationNotice('Could not save feedback. Try again.', 'danger');
     } finally {
@@ -252,7 +254,7 @@ export class DiscoverFacade {
       const result = await this.api.requestMedia({
         mediaType: item.type,
         mediaId: item.tmdbId,
-        hermesId: item.hermesId,
+        aiPickId: item.aiPickId,
       });
       if (!result.ok) {
         this.setMutationNotice(result.error ?? 'Could not request media.', 'danger');
@@ -265,8 +267,8 @@ export class DiscoverFacade {
         this.markRequested(item.type, item.tmdbId);
         this.setMutationNotice(result.message ?? 'Requested.', 'success');
       }
-      if (this._tab() === 'hermes') {
-        await this.loadHermes();
+      if (this._tab() === 'ai-picks') {
+        await this.loadAiPicks();
       }
     } catch {
       this.setMutationNotice('Could not request media. Try again.', 'danger');
@@ -276,23 +278,22 @@ export class DiscoverFacade {
   }
 
   async requestMore(): Promise<void> {
-    if (this._requestingMore() || this._generationPending()) return;
+    if (!this._generationEnabled() || this._requestingMore() || this._generationPending()) return;
     this._requestingMore.set(true);
     this.clearMutationNotice();
     try {
-      const result = await this.api.requestHermesMore();
+      const result = await this.api.requestMoreAiPicks();
       if (!result.ok) {
         this.setMutationNotice(result.error ?? 'Could not queue more recommendations.', 'danger');
         return;
       }
       this._generationPending.set(true);
-      this.generationObserved = false;
       if (result.already_pending) {
         this.setMutationNotice(result.message ?? 'A recommendation refresh is already pending.', 'info');
       } else {
         this.setMutationNotice(result.message ?? 'More recommendations queued.', 'success');
       }
-      await this.loadHermes();
+      await this.loadAiPicks();
     } catch {
       this.setMutationNotice('Could not queue more recommendations. Try again.', 'danger');
     } finally {
@@ -312,8 +313,8 @@ export class DiscoverFacade {
 
   private async refreshCurrentTab(signal?: AbortSignal): Promise<void> {
     const tab = this._tab();
-    if (tab === 'hermes') {
-      await this.loadHermes(signal);
+    if (tab === 'ai-picks') {
+      await this.loadAiPicks(signal);
       return;
     }
     if (tab === 'jellyseerr') {
@@ -325,7 +326,7 @@ export class DiscoverFacade {
 
   private restartPolling(): void {
     this.poll.stop();
-    const interval = this._tab() === 'hermes' ? HERMES_POLL_MS : EXTERNAL_POLL_MS;
+    const interval = this._tab() === 'ai-picks' ? AI_PICKS_POLL_MS : EXTERNAL_POLL_MS;
     this.poll.start(interval, (initial) => {
       if (initial) return;
       void this.poll.run(
@@ -343,45 +344,45 @@ export class DiscoverFacade {
   private stopPolling(invalidateInFlight = true): void {
     this.poll.stop();
     if (invalidateInFlight) {
-      this.hermesRequestId++;
+      this.aiPicksRequestId++;
     }
   }
 
   private isBrowseInitialForCurrentTab(): boolean {
     const tab = this._tab();
-    if (tab === 'hermes') return !this.hermesLoaded;
+    if (tab === 'ai-picks') return !this.aiPicksLoaded;
     if (tab === 'jellyseerr') return !this._jellyseerrCache()[this._jellyseerrKind()];
     return !this._traktCache()[this._traktType()];
   }
 
-  private async loadHermes(signal?: AbortSignal): Promise<void> {
-    const requestId = ++this.hermesRequestId;
-    const isInitial = !this.hermesLoaded;
-    if (isInitial && this._tab() === 'hermes') {
+  private async loadAiPicks(signal?: AbortSignal): Promise<void> {
+    const requestId = ++this.aiPicksRequestId;
+    const isInitial = !this.aiPicksLoaded;
+    if (isInitial && this._tab() === 'ai-picks') {
       this._status.set('loading');
     }
     try {
-      const response = await this.api.listHermesRecommendations(signal);
+      const response = await this.api.listAiPicks(signal);
       if (!response.ok) {
         // Failures only apply when still current — a stale failure must not clobber newer work.
-        if (!this.isCurrentHermesRequest(requestId)) return;
+        if (!this.isCurrentAiPicksRequest(requestId)) return;
         this.applyBrowseFailure(isInitial, LOAD_ERROR, undefined, true);
         return;
       }
-      if (!this.isCurrentHermesRequest(requestId)) return;
-      this.applyHermesPayload(response);
-      this.hermesLoaded = true;
-      if (this._tab() !== 'hermes') return;
-      this.commitBrowseSuccessCount(this.visibleItems().length, requestId, this.hermesRequestId);
+      if (!this.isCurrentAiPicksRequest(requestId)) return;
+      this.applyAiPicksPayload(response);
+      this.aiPicksLoaded = true;
+      if (this._tab() !== 'ai-picks') return;
+      this.commitBrowseSuccessCount(this.visibleItems().length, requestId, this.aiPicksRequestId);
     } catch {
       if (signal?.aborted) return;
-      if (!this.isCurrentHermesRequest(requestId)) return;
+      if (!this.isCurrentAiPicksRequest(requestId)) return;
       this.applyBrowseFailure(isInitial, LOAD_ERROR, undefined, true);
     }
   }
 
-  private isCurrentHermesRequest(requestId: number): boolean {
-    return requestId === this.hermesRequestId && this._tab() === 'hermes';
+  private isCurrentAiPicksRequest(requestId: number): boolean {
+    return requestId === this.aiPicksRequestId && this._tab() === 'ai-picks';
   }
 
   private async loadJellyseerr(kind: JellyseerrDiscoverKind, signal?: AbortSignal): Promise<void> {
@@ -513,7 +514,7 @@ export class DiscoverFacade {
   private applyExclusionNotice(library?: LibraryExclusionState, watched?: WatchedExclusionState): void {
     const tab = this._tab();
     let source = 'Trakt';
-    if (tab === 'hermes') source = 'Hermes';
+    if (tab === 'ai-picks') source = 'AI Picks';
     else if (tab === 'jellyseerr') source = 'Jellyseerr';
     const notices: string[] = [];
     if (library?.status === 'stale') {
@@ -593,15 +594,25 @@ export class DiscoverFacade {
     this._exclusionNotice.set('');
   }
 
-  private applyHermesPayload(response: HermesDiscover): void {
-    this._hermesItems.set(response.items);
-    if (this._tab() === 'hermes') {
+  private applyAiPicksPayload(response: AiPicksDiscover): void {
+    this._aiPickItems.set(response.items);
+    this._generationEnabled.set(response.generation_enabled === true);
+    if (this._tab() === 'ai-picks') {
       this.applyExclusionNotice(response.library_exclusion, response.watched_exclusion);
     }
-    this.seedRequestedFromHermes(response.items);
+    this.seedRequestedFromAiPicks(response.items);
     this.applyPendingRequestSync(response.items, response.pending_request_sync);
     this.reconcileSyncFailed(response.items);
-    this.applyGenerationPending(Boolean(response.generation_request));
+    const generation = response.generation;
+    this._generationPending.set(generation?.status === 'queued' || generation?.status === 'running');
+    if (generation?.status === 'failed') {
+      this._generationNotice.set({
+        text: `AI generation failed (${generation.error_code ?? 'provider_failure'}). Existing picks are unchanged.`,
+        tone: 'warning',
+      });
+    } else {
+      this._generationNotice.set(null);
+    }
   }
 
   private setMutationNotice(text: string, tone: NoticeState['tone']): void {
@@ -629,24 +640,12 @@ export class DiscoverFacade {
     }
   }
 
-  private applyGenerationPending(apiPending: boolean): void {
-    if (apiPending) {
-      this._generationPending.set(true);
-      this.generationObserved = true;
-      return;
-    }
-    if (!this._generationPending() || this.generationObserved) {
-      this._generationPending.set(false);
-      this.generationObserved = false;
-    }
-  }
-
   private syncVisibleStatus(): void {
     if (this._status() === 'loading' || this._status() === 'error') return;
     this._status.set(this.visibleItems().length ? 'ready' : 'empty');
   }
 
-  private seedRequestedFromHermes(items: DiscoverItem[]): void {
+  private seedRequestedFromAiPicks(items: DiscoverItem[]): void {
     const keys = items
       .filter((item) => item.request_state === 'requested' && item.tmdb_id)
       .map((item) => mediaIdentityKey(item.type, item.tmdb_id));

@@ -245,13 +245,13 @@ class MockApi implements MediaStackApi {
       availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const },
     });
   }
-  listHermesRecommendations() {
-    return Promise.resolve({ ok: true, items: [], pending_request_sync: [], generation_request: null });
+  listAiPicks() {
+    return Promise.resolve({ ok: true, items: [], pending_request_sync: [] });
   }
-  submitHermesFeedback() {
+  submitAiPickFeedback() {
     return Promise.resolve({ ok: true });
   }
-  requestHermesMore() {
+  requestMoreAiPicks() {
     return Promise.resolve({ ok: true });
   }
   listJellyseerrDiscover() {

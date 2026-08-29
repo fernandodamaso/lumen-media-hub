@@ -473,13 +473,13 @@ class MockApi implements MediaStackApi {
       availability: { services: 'empty' as const, preview: 'empty' as const, problems: 'empty' as const },
     });
   }
-  listHermesRecommendations() {
+  listAiPicks() {
     return Promise.resolve({ ok: true, items: [] });
   }
-  submitHermesFeedback() {
+  submitAiPickFeedback() {
     return Promise.resolve({ ok: true });
   }
-  requestHermesMore() {
+  requestMoreAiPicks() {
     return Promise.resolve({ ok: true });
   }
   listJellyseerrDiscover() {

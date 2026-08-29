@@ -11,20 +11,24 @@ import {
   mapLiveRecentlyAvailableItem,
   mapLiveSystemResourcesDisk,
   mapLiveTorrent,
-  requireHermesDiscoverPayload,
+  requireAiPicksDiscoverPayload,
   requireExternalDiscoverPayload,
 } from './live-api.mappers';
 
 describe('live-api.mappers', () => {
   it('requires and validates library exclusion freshness for every Discover source', () => {
-    for (const resource of ['Hermes', 'Jellyseerr', 'Trakt'] as const) {
+    for (const resource of ['AI Picks', 'Jellyseerr', 'Trakt'] as const) {
       expect(() => {
         const payload: Record<string, unknown> = {
           items: [],
           library_exclusion: { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' },
           watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
         };
-        if (resource === 'Hermes') requireHermesDiscoverPayload(payload);
+        if (resource === 'AI Picks') {
+          payload['generation_enabled'] = true;
+          payload['generation'] = null;
+          requireAiPicksDiscoverPayload(payload);
+        }
         else requireExternalDiscoverPayload(payload, resource);
       }).not.toThrow();
     }
@@ -101,14 +105,18 @@ describe('live-api.mappers', () => {
     }).toThrow(/watched_exclusion is required/);
   });
 
-  it('requires library freshness on successful Hermes and Trakt envelopes', () => {
-    for (const resource of ['Hermes', 'Trakt'] as const) {
+  it('requires library freshness on successful AI Picks and Trakt envelopes', () => {
+    for (const resource of ['AI Picks', 'Trakt'] as const) {
       expect(() => {
         const payload: Record<string, unknown> = {
           items: [],
           watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
         };
-        if (resource === 'Hermes') requireHermesDiscoverPayload(payload);
+        if (resource === 'AI Picks') {
+          payload['generation_enabled'] = true;
+          payload['generation'] = null;
+          requireAiPicksDiscoverPayload(payload);
+        }
         else requireExternalDiscoverPayload(payload, resource);
       }).toThrow(/library_exclusion is required/);
 
@@ -118,7 +126,11 @@ describe('live-api.mappers', () => {
           library_exclusion: null,
           watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
         };
-        if (resource === 'Hermes') requireHermesDiscoverPayload(payload);
+        if (resource === 'AI Picks') {
+          payload['generation_enabled'] = true;
+          payload['generation'] = null;
+          requireAiPicksDiscoverPayload(payload);
+        }
         else requireExternalDiscoverPayload(payload, resource);
       }).toThrow(/library_exclusion is required/);
     }
@@ -721,7 +733,7 @@ describe('live-api.mappers', () => {
           id: 'sonarr:48211',
           source: 'sonarr',
           kind: 'grabbed',
-          title: 'The Shōgun Court',
+          title: 'The ShÅgun Court',
           subtitle: 'S01E07 · 1080p WEB-DL',
           timestamp: '2026-07-30T00:18:41Z',
           href: 'http://localhost:8989/series/the-shogun-court',
@@ -737,7 +749,7 @@ describe('live-api.mappers', () => {
           id: 'sonarr:48211',
           source: 'sonarr',
           kind: 'grabbed',
-          title: 'The Shōgun Court',
+          title: 'The ShÅgun Court',
           subtitle: 'S01E07 · 1080p WEB-DL',
           timestamp: '2026-07-30T00:18:41Z',
           href: 'http://localhost:8989/series/the-shogun-court',
@@ -1277,17 +1289,17 @@ describe('HttpMediaStackApi', () => {
   });
 
   it('keeps discover feedback PATCH separate from requestMedia POST', async () => {
-    const feedback = api.submitHermesFeedback('rec-1', 'liked', { notes: 'great' });
-    const feedbackReq = http.expectOne('/api/discover/hermes/rec-1');
+    const feedback = api.submitAiPickFeedback('rec-1', 'liked', { notes: 'great' });
+    const feedbackReq = http.expectOne('/api/discover/ai-picks/rec-1');
     expect(feedbackReq.request.method).toBe('PATCH');
     expect(feedbackReq.request.body).toEqual({ status: 'liked', notes: 'great' });
     feedbackReq.flush({ ok: true });
     await expect(feedback).resolves.toMatchObject({ ok: true });
 
-    const request = api.requestMedia({ mediaType: 'movie', mediaId: 42, hermesId: 'rec-1' });
+    const request = api.requestMedia({ mediaType: 'movie', mediaId: 42, aiPickId: 'rec-1' });
     const requestReq = http.expectOne('/api/discover/request');
     expect(requestReq.request.method).toBe('POST');
-    expect(requestReq.request.body).toEqual({ mediaType: 'movie', mediaId: 42, hermesId: 'rec-1' });
+    expect(requestReq.request.body).toEqual({ mediaType: 'movie', mediaId: 42, aiPickId: 'rec-1' });
     requestReq.flush({ ok: true, jellyseerr_request_id: 9 });
     await expect(request).resolves.toMatchObject({ ok: true, jellyseerr_request_id: 9 });
   });
@@ -1357,8 +1369,8 @@ describe('HttpMediaStackApi', () => {
   });
 
   it('maps HTTP 400 confirmation_required to a soft discover action', async () => {
-    const feedback = api.submitHermesFeedback('rec-tv', 'watched');
-    const feedbackReq = http.expectOne('/api/discover/hermes/rec-tv');
+    const feedback = api.submitAiPickFeedback('rec-tv', 'watched');
+    const feedbackReq = http.expectOne('/api/discover/ai-picks/rec-tv');
     feedbackReq.flush(
       { ok: false, code: 'confirmation_required', error: 'Confirmation required' },
       { status: 400, statusText: 'Bad Request' },
@@ -1370,14 +1382,16 @@ describe('HttpMediaStackApi', () => {
   });
 
   it('loads discover sources and request-more', async () => {
-    const hermes = api.listHermesRecommendations();
-    http.expectOne('/api/discover/hermes').flush({
+    const aiPicks = api.listAiPicks();
+    http.expectOne('/api/discover/ai-picks').flush({
       ok: true,
       items: [],
+      generation_enabled: true,
+      generation: null,
       library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     });
-    await expect(hermes).resolves.toMatchObject({ ok: true, items: [] });
+    await expect(aiPicks).resolves.toMatchObject({ ok: true, items: [] });
 
     const jelly = api.listJellyseerrDiscover('trending');
     http.expectOne('/api/discover/jellyseerr?kind=trending').flush({ ok: true, enabled: false, items: [] });
@@ -1387,13 +1401,15 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/discover/trakt?type=movies').flush({
       ok: true,
       items: [],
+      generation_enabled: true,
+      generation: null,
       library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     });
     await expect(trakt).resolves.toMatchObject({ ok: true });
 
-    const more = api.requestHermesMore();
-    const moreReq = http.expectOne('/api/discover/hermes/request-more');
+    const more = api.requestMoreAiPicks();
+    const moreReq = http.expectOne('/api/discover/ai-picks/request-more');
     expect(moreReq.request.method).toBe('POST');
     moreReq.flush({ ok: true, queued: true });
     await expect(more).resolves.toMatchObject({ ok: true, queued: true });
@@ -1444,21 +1460,21 @@ describe('HttpMediaStackApi', () => {
   });
 
   it('returns soft ok:false envelopes for discover actions and cron logs', async () => {
-    const feedback = api.submitHermesFeedback('missing', 'liked');
-    http.expectOne('/api/discover/hermes/missing').flush({ ok: false, error: 'Recommendation not found' });
+    const feedback = api.submitAiPickFeedback('missing', 'liked');
+    http.expectOne('/api/discover/ai-picks/missing').flush({ ok: false, error: 'Recommendation not found' });
     await expect(feedback).resolves.toEqual({ ok: false, error: 'Recommendation not found' });
 
     const request = api.requestMedia({ mediaType: 'movie', mediaId: 1 });
     http.expectOne('/api/discover/request').flush({ ok: false, error: 'Cannot request' });
     await expect(request).resolves.toEqual({ ok: false, error: 'Cannot request' });
 
-    const more = api.requestHermesMore();
-    http.expectOne('/api/discover/hermes/request-more').flush({ ok: false, error: 'queue full' });
+    const more = api.requestMoreAiPicks();
+    http.expectOne('/api/discover/ai-picks/request-more').flush({ ok: false, error: 'queue full' });
     await expect(more).resolves.toEqual({ ok: false, error: 'queue full' });
 
-    const hermes = api.listHermesRecommendations();
-    http.expectOne('/api/discover/hermes').flush({ ok: false, error: 'hermes down', items: [] });
-    await expect(hermes).resolves.toMatchObject({ ok: false, error: 'hermes down' });
+    const aiPicks = api.listAiPicks();
+    http.expectOne('/api/discover/ai-picks').flush({ ok: false, error: 'aiPicks down', items: [] });
+    await expect(aiPicks).resolves.toMatchObject({ ok: false, error: 'aiPicks down' });
 
     const logs = api.listCronLogs();
     http.expectOne('/api/cron/logs').flush({ ok: false, error: 'no logs', logs: [] });
@@ -1535,14 +1551,14 @@ describe('HttpMediaStackApi', () => {
   });
 
   it('rejects null mutation responses instead of inventing success', async () => {
-    const pending = api.requestHermesMore();
-    http.expectOne('/api/discover/hermes/request-more').flush(null);
+    const pending = api.requestMoreAiPicks();
+    http.expectOne('/api/discover/ai-picks/request-more').flush(null);
     await expect(pending).rejects.toThrow(/Malformed response/);
   });
 
   it('rejects discover actions missing a boolean ok field', async () => {
-    const pending = api.submitHermesFeedback('rec-1', 'liked');
-    http.expectOne('/api/discover/hermes/rec-1').flush({ error: 'nope' });
+    const pending = api.submitAiPickFeedback('rec-1', 'liked');
+    http.expectOne('/api/discover/ai-picks/rec-1').flush({ error: 'nope' });
     await expect(pending).rejects.toThrow(/Malformed response/);
   });
 
@@ -1555,8 +1571,8 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/cron/logs').flush('oops');
     await expect(stringLogs).rejects.toThrow(/Malformed response/);
 
-    const missingOk = api.listHermesRecommendations();
-    http.expectOne('/api/discover/hermes').flush({ items: [] });
+    const missingOk = api.listAiPicks();
+    http.expectOne('/api/discover/ai-picks').flush({ items: [] });
     await expect(missingOk).rejects.toThrow(/Malformed response/);
   });
 
@@ -1565,9 +1581,9 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/cron/logs').flush({ ok: true, logs: 'nope' });
     await expect(badLogs).rejects.toThrow(/Malformed cron logs/);
 
-    const badHermes = api.listHermesRecommendations();
-    http.expectOne('/api/discover/hermes').flush({ ok: true, items: {} });
-    await expect(badHermes).rejects.toThrow(/Malformed Hermes/);
+    const badAiPicks = api.listAiPicks();
+    http.expectOne('/api/discover/ai-picks').flush({ ok: true, items: {} });
+    await expect(badAiPicks).rejects.toThrow(/Malformed AI Picks/);
   });
 
   it('rejects void mutations with null or invalid envelopes', async () => {
@@ -1591,9 +1607,9 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/cron/logs').flush({ ok: true });
     await expect(missingLogs).rejects.toThrow(/Malformed cron logs/);
 
-    const missingItems = api.listHermesRecommendations();
-    http.expectOne('/api/discover/hermes').flush({ ok: true });
-    await expect(missingItems).rejects.toThrow(/Malformed Hermes/);
+    const missingItems = api.listAiPicks();
+    http.expectOne('/api/discover/ai-picks').flush({ ok: true });
+    await expect(missingItems).rejects.toThrow(/Malformed AI Picks/);
   });
 
   it('preserves ok:false soft envelopes without success-only payload fields', async () => {
@@ -1601,9 +1617,9 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/cron/logs').flush({ ok: false, error: 'no logs' });
     await expect(logs).resolves.toMatchObject({ ok: false, error: 'no logs' });
 
-    const hermes = api.listHermesRecommendations();
-    http.expectOne('/api/discover/hermes').flush({ ok: false, error: 'hermes down' });
-    await expect(hermes).resolves.toMatchObject({ ok: false, error: 'hermes down' });
+    const aiPicks = api.listAiPicks();
+    http.expectOne('/api/discover/ai-picks').flush({ ok: false, error: 'aiPicks down' });
+    await expect(aiPicks).resolves.toMatchObject({ ok: false, error: 'aiPicks down' });
   });
 
   it('accepts valid empty arrays in ok:true soft envelopes', async () => {
@@ -1611,42 +1627,44 @@ describe('HttpMediaStackApi', () => {
     http.expectOne('/api/cron/logs').flush({ ok: true, generatedAt: '2026-07-13T12:00:00Z', logs: [] });
     await expect(logs).resolves.toMatchObject({ ok: true, currentRuns: [] });
 
-    const hermes = api.listHermesRecommendations();
-    http.expectOne('/api/discover/hermes').flush({
+    const aiPicks = api.listAiPicks();
+    http.expectOne('/api/discover/ai-picks').flush({
       ok: true,
       items: [],
+      generation_enabled: true,
+      generation: null,
       library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     });
-    await expect(hermes).resolves.toMatchObject({
+    await expect(aiPicks).resolves.toMatchObject({
       ok: true,
       items: [],
       watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     });
   });
 
-  it('requires valid watched exclusion state on successful Hermes envelopes', async () => {
+  it('requires valid watched exclusion state on successful AI Picks envelopes', async () => {
     for (const payload of [
-      { ok: true, items: [], library_exclusion: { status: 'fresh', last_successful_refresh_at: null } },
-      { ok: true, items: [], library_exclusion: { status: 'fresh', last_successful_refresh_at: null }, watched_exclusion: null },
-      { ok: true, items: [], library_exclusion: { status: 'fresh', last_successful_refresh_at: null }, watched_exclusion: { status: 'broken', last_successful_refresh_at: null } },
+      { ok: true, items: [], generation_enabled: true, generation: null, library_exclusion: { status: 'fresh', last_successful_refresh_at: null } },
+      { ok: true, items: [], generation_enabled: true, generation: null, library_exclusion: { status: 'fresh', last_successful_refresh_at: null }, watched_exclusion: null },
+      { ok: true, items: [], generation_enabled: true, generation: null, library_exclusion: { status: 'fresh', last_successful_refresh_at: null }, watched_exclusion: { status: 'broken', last_successful_refresh_at: null } },
     ]) {
-      const pending = api.listHermesRecommendations();
-      http.expectOne('/api/discover/hermes').flush(payload);
+      const pending = api.listAiPicks();
+      http.expectOne('/api/discover/ai-picks').flush(payload);
       await expect(pending).rejects.toThrow(/watched_exclusion/);
     }
   });
 
   it('rejects discover members missing required identity fields', async () => {
-    const missingTitle = api.listHermesRecommendations();
-    http.expectOne('/api/discover/hermes').flush({
+    const missingTitle = api.listAiPicks();
+    http.expectOne('/api/discover/ai-picks').flush({
       ok: true,
       library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       items: [
         {
-          id: 'hermes-1',
-          source: 'hermes',
+          id: 'ai-1',
+          source: 'ai',
           type: 'movie',
           tmdb_id: 101,
           active: true,
@@ -1674,14 +1692,14 @@ describe('HttpMediaStackApi', () => {
     await expect(badType).rejects.toThrow(/missing type/);
   });
 
-  it('maps valid Hermes members including history fields', async () => {
-    const pending = api.listHermesRecommendations();
-    http.expectOne('/api/discover/hermes').flush({
+  it('maps valid AI Picks members including history fields', async () => {
+    const pending = api.listAiPicks();
+    http.expectOne('/api/discover/ai-picks').flush({
       ok: true,
       items: [
         {
-          id: 'hermes-1',
-          source: 'hermes',
+          id: 'ai-1',
+          source: 'ai',
           type: 'movie',
           title: 'Signal Drift',
           tmdb_id: 101001,
@@ -1696,27 +1714,39 @@ describe('HttpMediaStackApi', () => {
           excluded_reason: 'watched_on_trakt',
         },
       ],
-      pending_request_sync: [{ id: 'hermes-1', jellyseerr_request_id: 55 }],
-      generation_request: { requested_at: '2026-07-12T00:00:00Z', status: 'pending' },
+      pending_request_sync: [{ id: 'ai-1', jellyseerr_request_id: 55 }],
+      generation_enabled: true,
+      generation: {
+        id: 'job-1', status: 'queued', trigger: 'on_demand',
+        requested_at: '2026-07-12T00:00:00Z', started_at: null, finished_at: null,
+        desired_count: 10, attempt: 0, error_code: null, counts: null,
+        lease_token: 'must-not-cross-the-adapter',
+        candidates: [{ identity: 'movie:999' }],
+        base_revision: 42,
+      },
       library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       watched_exclusion: { status: 'stale', last_successful_refresh_at: '2026-07-11T12:00:00Z' },
     });
-    await expect(pending).resolves.toMatchObject({
+    const mapped = await pending;
+    expect(mapped).toMatchObject({
       ok: true,
-      items: [expect.objectContaining({ id: 'hermes-1', title: 'Signal Drift' })],
-      pending_request_sync: [{ id: 'hermes-1', jellyseerr_request_id: 55 }],
-      generation_request: { status: 'pending' },
+      items: [expect.objectContaining({ id: 'ai-1', title: 'Signal Drift' })],
+      pending_request_sync: [{ id: 'ai-1', jellyseerr_request_id: 55 }],
+      generation: { status: 'queued' },
       watched_exclusion: { status: 'stale', last_successful_refresh_at: '2026-07-11T12:00:00Z' },
     });
+    expect(mapped.generation).not.toHaveProperty('lease_token');
+    expect(mapped.generation).not.toHaveProperty('candidates');
+    expect(mapped.generation).not.toHaveProperty('base_revision');
   });
 
-  it('rejects invalid Hermes watched projection state', async () => {
-    const pending = api.listHermesRecommendations();
-    http.expectOne('/api/discover/hermes').flush({
+  it('rejects invalid AI Picks watched projection state', async () => {
+    const pending = api.listAiPicks();
+    http.expectOne('/api/discover/ai-picks').flush({
       ok: true,
       items: [{
-        id: 'hermes-1',
-        source: 'hermes',
+        id: 'ai-1',
+        source: 'ai',
         type: 'movie',
         title: 'Signal Drift',
         tmdb_id: 101001,
@@ -1999,7 +2029,7 @@ describe('HttpMediaStackApi', () => {
           id: 'sonarr:48211',
           source: 'sonarr',
           kind: 'grabbed',
-          title: 'The Shōgun Court',
+          title: 'The ShÅgun Court',
           subtitle: 'S01E07 · 1080p WEB-DL',
           timestamp: '2026-07-30T00:18:41Z',
           href: 'http://localhost:8989/series/the-shogun-court',
@@ -2010,7 +2040,7 @@ describe('HttpMediaStackApi', () => {
     expect(feed.ok).toBe(true);
     expect(feed.sources).toEqual({ sonarr: 'ok', radarr: 'ok' });
     expect(feed.items).toHaveLength(1);
-    expect(feed.items[0]).toMatchObject({ id: 'sonarr:48211', kind: 'grabbed', title: 'The Shōgun Court' });
+    expect(feed.items[0]).toMatchObject({ id: 'sonarr:48211', kind: 'grabbed', title: 'The ShÅgun Court' });
   });
 
   it('passes a clamped activity limit and keeps per-source error status', async () => {

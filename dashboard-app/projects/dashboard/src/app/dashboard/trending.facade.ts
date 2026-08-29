@@ -24,7 +24,7 @@ const TRENDING_LIMIT = 12;
 /**
  * Slim read-only trending feed for the dashboard rail.
  * Deliberately NOT DiscoverFacade: that facade is page-scoped and owns
- * tabs/filters/Hermes polling the rail must not start.
+ * tabs/filters/AI Picks polling the rail must not start.
  */
 @Injectable({ providedIn: 'root' })
 export class TrendingFacade {

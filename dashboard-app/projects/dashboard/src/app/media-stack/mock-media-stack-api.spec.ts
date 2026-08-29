@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 import { summarizeDownloads } from '../downloads/downloads.models';
 import { MediaStackApi } from './media-stack-api';
-import { MockMediaStackApi, MOCK_SYNC_FAILED_HERMES_ID } from './mock-media-stack-api';
+import { MockMediaStackApi, MOCK_SYNC_FAILED_AI_PICK_ID } from './mock-media-stack-api';
 import { formatRemainingLabel, formatRuntimeTicks } from '../dashboard/dashboard-hero/hero.facade';
 
 function createApi(): MockMediaStackApi {
@@ -131,16 +131,16 @@ describe('MockMediaStackApi', () => {
     expect(library.movies['dune']).toBe('dune-2021');
   });
 
-  it('isolates discover fixtures across Hermes and external filters', async () => {
+  it('isolates discover fixtures across AI Picks and external filters', async () => {
     const api = createApi();
-    const hermes = await api.listHermesRecommendations();
-    expect(hermes.ok).toBe(true);
-    expect(hermes.items.some((item) => item.id === 'hermes-eligible' && item.active)).toBe(true);
-    expect(hermes.items.some((item) => item.id === 'hermes-in-library' && item.in_library)).toBe(true);
-    expect(hermes.items.some((item) => item.id === 'hermes-requested' && item.request_state === 'requested')).toBe(true);
-    expect(hermes.items.some((item) => item.id === 'hermes-no-tmdb' && item.tmdb_id === 0)).toBe(true);
-    expect(hermes.items.some((item) => item.id === MOCK_SYNC_FAILED_HERMES_ID)).toBe(true);
-    expect(hermes.items.some((item) => !item.active && item.feedback === 'liked')).toBe(true);
+    const aiPicks = await api.listAiPicks();
+    expect(aiPicks.ok).toBe(true);
+    expect(aiPicks.items.some((item) => item.id === 'ai-eligible' && item.active)).toBe(true);
+    expect(aiPicks.items.some((item) => item.id === 'ai-in-library' && item.in_library)).toBe(true);
+    expect(aiPicks.items.some((item) => item.id === 'ai-requested' && item.request_state === 'requested')).toBe(true);
+    expect(aiPicks.items.some((item) => item.id === 'ai-no-tmdb' && item.tmdb_id === 0)).toBe(true);
+    expect(aiPicks.items.some((item) => item.id === MOCK_SYNC_FAILED_AI_PICK_ID)).toBe(true);
+    expect(aiPicks.items.some((item) => !item.active && item.feedback === 'liked')).toBe(true);
 
     const jellyseerrTrending = await api.listJellyseerrDiscover('trending');
     const jellyseerrMovies = await api.listJellyseerrDiscover('movies');
@@ -160,19 +160,19 @@ describe('MockMediaStackApi', () => {
 
   it('keeps feedback mutation isolated from request fields', async () => {
     const api = createApi();
-    const before = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible');
-    if (!before) throw new Error('hermes-eligible missing before feedback');
+    const before = (await api.listAiPicks()).items.find((item) => item.id === 'ai-eligible');
+    if (!before) throw new Error('ai-eligible missing before feedback');
     const requestSnapshot = {
       request_state: before.request_state,
       requested_at: before.requested_at,
       jellyseerr_request_id: before.jellyseerr_request_id,
     };
 
-    const result = await api.submitHermesFeedback('hermes-eligible', 'liked');
+    const result = await api.submitAiPickFeedback('ai-eligible', 'liked');
     expect(result.ok).toBe(true);
 
-    const after = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible');
-    if (!after) throw new Error('hermes-eligible missing after feedback');
+    const after = (await api.listAiPicks()).items.find((item) => item.id === 'ai-eligible');
+    if (!after) throw new Error('ai-eligible missing after feedback');
     expect(after.feedback).toBe('liked');
     expect(after.feedback_at).toBeTruthy();
     expect(after.active).toBe(false);
@@ -183,16 +183,16 @@ describe('MockMediaStackApi', () => {
 
   it('requestMedia updates request fields without touching feedback', async () => {
     const api = createApi();
-    const before = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible');
-    if (!before) throw new Error('hermes-eligible missing before request');
+    const before = (await api.listAiPicks()).items.find((item) => item.id === 'ai-eligible');
+    if (!before) throw new Error('ai-eligible missing before request');
     expect(before.feedback).toBeNull();
 
-    const result = await api.requestMedia({ mediaType: 'movie', mediaId: 101001, hermesId: 'hermes-eligible' });
+    const result = await api.requestMedia({ mediaType: 'movie', mediaId: 101001, aiPickId: 'ai-eligible' });
     expect(result.ok).toBe(true);
     expect(result.dashboard_state_persisted).toBe(true);
 
-    const after = (await api.listHermesRecommendations()).items.find((item) => item.id === 'hermes-eligible');
-    if (!after) throw new Error('hermes-eligible missing after request');
+    const after = (await api.listAiPicks()).items.find((item) => item.id === 'ai-eligible');
+    if (!after) throw new Error('ai-eligible missing after request');
     expect(after.request_state).toBe('requested');
     expect(after.requested_at).toBeTruthy();
     expect(after.jellyseerr_request_id).toBeTruthy();
@@ -202,25 +202,25 @@ describe('MockMediaStackApi', () => {
 
   it('simulates sync-failed partial success without writing request_state', async () => {
     const api = createApi();
-    const result = await api.requestMedia({ mediaType: 'tv', mediaId: 101005, hermesId: MOCK_SYNC_FAILED_HERMES_ID });
+    const result = await api.requestMedia({ mediaType: 'tv', mediaId: 101005, aiPickId: MOCK_SYNC_FAILED_AI_PICK_ID });
     expect(result.ok).toBe(true);
     expect(result.dashboard_state_persisted).toBe(false);
     expect(result.partial_success).toBe(true);
 
-    const after = (await api.listHermesRecommendations()).items.find((item) => item.id === MOCK_SYNC_FAILED_HERMES_ID);
-    if (!after) throw new Error('sync-failed hermes item missing');
+    const after = (await api.listAiPicks()).items.find((item) => item.id === MOCK_SYNC_FAILED_AI_PICK_ID);
+    if (!after) throw new Error('sync-failed aiPicks item missing');
     expect(after.request_state).toBeNull();
     expect(after.jellyseerr_request_id).toBeTruthy();
   });
 
-  it('requestHermesMore queues once then reports already_pending', async () => {
+  it('requestMoreAiPicks queues once then reports already_pending', async () => {
     const api = createApi();
-    const first = await api.requestHermesMore();
+    const first = await api.requestMoreAiPicks();
     expect(first).toMatchObject({ ok: true, queued: true, already_pending: false });
-    const second = await api.requestHermesMore();
+    const second = await api.requestMoreAiPicks();
     expect(second).toMatchObject({ ok: true, queued: false, already_pending: true });
-    const hermes = await api.listHermesRecommendations();
-    expect(hermes.generation_request?.status).toBe('pending');
+    const aiPicks = await api.listAiPicks();
+    expect(aiPicks.generation?.status).toBe('queued');
   });
 
   it('dedupes external requests by TMDB id and media type', async () => {

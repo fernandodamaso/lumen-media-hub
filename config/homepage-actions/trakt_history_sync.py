@@ -1,4 +1,4 @@
-"""Discover Hermes watched feedback -> Trakt history delivery."""
+"""Discover AI Picks watched feedback -> Trakt history delivery."""
 
 import threading
 import time
@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 from clients.trakt import TraktAuthError, TraktHttpError
 from recommendations_store import apply_feedback, media_identity, utc_now
-from shared import _find_hermes_item
+from shared import _find_ai_picks_item
 from trakt_history import _header, _response_parts
 
 TRAKT_HISTORY_SYNC_STATUSES = frozenset(
@@ -330,12 +330,12 @@ class TraktHistorySyncService:
         if _rate_limit_active(self.clock):
             return {"status": "pending"}
         doc = self.store.load()
-        item = _find_hermes_item(doc, item_id)
+        item = _find_ai_picks_item(doc, item_id)
         if not item:
             return None
         if item.get("feedback") != "watched":
             def _clear_non_watched(store_doc):
-                stale = _find_hermes_item(store_doc, item_id)
+                stale = _find_ai_picks_item(store_doc, item_id)
                 if stale:
                     cancel_pending_trakt_history_event(stale)
 
@@ -459,7 +459,7 @@ class TraktHistorySyncService:
         def _apply(doc):
             proposed = _iso_after_seconds(self.clock, delay_seconds)
             for item_id in item_ids:
-                item = _find_hermes_item(doc, item_id)
+                item = _find_ai_picks_item(doc, item_id)
                 if not item:
                     continue
                 event = item.get("trakt_history_event")
@@ -502,19 +502,19 @@ class TraktHistorySyncService:
 
     def _persist_event(self, item_id, mutator):
         def _apply(doc):
-            item = _find_hermes_item(doc, item_id)
+            item = _find_ai_picks_item(doc, item_id)
             if not item:
-                raise HermesSyncItemNotFound()
+                raise AiPickSyncItemNotFound()
             event = item.get("trakt_history_event")
             if not isinstance(event, dict):
-                raise HermesSyncItemNotFound()
+                raise AiPickSyncItemNotFound()
             mutator(event)
 
         self.store.update(_apply)
 
     def _load_event(self, item_id):
         doc = self.store.load()
-        item = _find_hermes_item(doc, item_id)
+        item = _find_ai_picks_item(doc, item_id)
         if not item:
             return None
         return item.get("trakt_history_event")
@@ -551,7 +551,7 @@ class TraktHistorySyncService:
         return summary
 
 
-class HermesSyncItemNotFound(Exception):
+class AiPickSyncItemNotFound(Exception):
     """Raised when a Trakt sync mutation targets a missing item."""
 
 

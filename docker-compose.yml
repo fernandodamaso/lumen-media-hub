@@ -243,6 +243,7 @@ services:
     ports:
       - "127.0.0.1:8085:8085"
     environment:
+      - TZ=${TZ}
       - QBT_URL=http://qbittorrent:${QBITTORRENT_WEBUI_PORT}
       - QBT_USERNAME=admin
       - QBT_PASSWORD=${QBT_PASSWORD:?QBT_PASSWORD must be set}
@@ -271,6 +272,12 @@ services:
       - TRAKT_TOKEN_PATH=${TRAKT_TOKEN_PATH:-/state/trakt-token.json}
       - TRAKT_WATCHED_PATH=${TRAKT_WATCHED_PATH:-/state/trakt-watched.json}
       - RECOMMENDATIONS_PATH=/recommendations/recommendations.json
+      - AI_ENABLED=${AI_ENABLED:-false}
+      - AI_PICKS_TARGET_ACTIVE=${AI_PICKS_TARGET_ACTIVE:-20}
+      - AI_PICKS_ON_DEMAND_COUNT=${AI_PICKS_ON_DEMAND_COUNT:-10}
+      - AI_PICKS_LEASE_SECONDS=${AI_PICKS_LEASE_SECONDS:-300}
+      - AI_PICKS_SCHEDULE_HOUR=${AI_PICKS_SCHEDULE_HOUR:-10}
+      - AI_PICKS_COLLECTION_NAME=${AI_PICKS_COLLECTION_NAME:-AI Picks}
       - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:4200,http://127.0.0.1:4200
       - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
       - PORT=8085
@@ -288,6 +295,43 @@ services:
     command: python main.py
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ai-recommendations:
+    profiles: ["ai"]
+    build:
+      context: ./config/ai-recommendations
+    image: media-ai-recommendations:local
+    container_name: ai-recommendations
+    restart: unless-stopped
+    networks:
+      - media-net
+    environment:
+      - PORT=8090
+      - HOMEPAGE_ACTIONS_URL=http://homepage-actions:8085
+      - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
+      - AI_PROVIDER=${AI_PROVIDER:-}
+      - AI_MODEL=${AI_MODEL:-}
+      - AI_POLL_INTERVAL_MS=${AI_POLL_INTERVAL_MS:-2000}
+      - AI_MODEL_TIMEOUT_MS=${AI_MODEL_TIMEOUT_MS:-60000}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_GENERATIVE_AI_API_KEY=${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      - AI_COMPATIBLE_BASE_URL=${AI_COMPATIBLE_BASE_URL:-}
+      - AI_COMPATIBLE_API_KEY=${AI_COMPATIBLE_API_KEY:-}
+      - AI_COMPATIBLE_SUPPORTS_STRUCTURED_OUTPUTS=${AI_COMPATIBLE_SUPPORTS_STRUCTURED_OUTPUTS:-false}
+    depends_on:
+      - homepage-actions
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     logging:
       driver: json-file
       options:

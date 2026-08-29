@@ -1,7 +1,7 @@
 <section class="page-intro">
   <p class="eyebrow">Workspace</p>
   <h1>Discover</h1>
-  <p class="lede">Browse Hermes, Jellyseerr, and Trakt recommendations. Request eligible titles.</p>
+  <p class="lede">Browse AI Picks, Jellyseerr, and Trakt recommendations. Request eligible titles.</p>
 </section>
 
 <section class="discover-controls" aria-label="Discover controls">
@@ -13,13 +13,13 @@
       size="md"
       (valueChange)="setTab($event)"
     />
-    @if (facade.tab() === 'hermes') {
+    @if (facade.tab() === 'ai-picks') {
       <div class="toolbar-actions">
         <mm-button
-          label="Request more"
+          [label]="facade.generationPending() ? 'Generating picks…' : 'Generate more picks'"
           icon="plus"
           variant="quiet"
-          [disabled]="facade.requestingMore() || facade.generationPending()"
+          [disabled]="!facade.generationEnabled() || facade.requestingMore() || facade.generationPending()"
           [busy]="facade.requestingMore()"
           (click)="requestMore()"
         />
@@ -28,16 +28,16 @@
   </div>
 
   <div class="discover-controls__secondary">
-    @if (facade.tab() === 'hermes') {
-      <div class="filters" aria-label="Hermes filters">
+    @if (facade.tab() === 'ai-picks') {
+      <div class="filters" aria-label="AI Picks filters">
         <mm-segmented-control
-          [options]="hermesViews.map(toOption)"
-          [value]="facade.hermesView()"
-          label="Hermes view"
+          [options]="aiPicksViews.map(toOption)"
+          [value]="facade.aiPicksView()"
+          label="AI Picks view"
           size="sm"
-          (valueChange)="setHermesView($event)"
+          (valueChange)="setAiPicksView($event)"
         />
-        @if (facade.hermesView() === 'history') {
+        @if (facade.aiPicksView() === 'history') {
           <mm-segmented-control
             [options]="historyFilters.map(toOption)"
             [value]="facade.historyFilter()"
@@ -146,8 +146,8 @@
       @for (item of displayedItems(); track item.id) {
         <mm-discover-card
           [item]="item"
-          [showFeedback]="facade.tab() === 'hermes'"
-          [showSummary]="facade.tab() !== 'hermes' || facade.hermesView() !== 'history'"
+          [showFeedback]="facade.tab() === 'ai-picks'"
+          [showSummary]="facade.tab() !== 'ai-picks' || facade.aiPicksView() !== 'history'"
           [syncFailed]="facade.isSyncFailed(item)"
           [busy]="facade.busyItemId() === item.id"
           (feedback)="onFeedback(item.id, $event)"

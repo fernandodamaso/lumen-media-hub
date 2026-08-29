@@ -1,0 +1,28 @@
+{
+  "name": "ai-recommendations",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.45",
+    "@ai-sdk/google": "^4.0.57",
+    "@ai-sdk/openai": "^4.0.51",
+    "@ai-sdk/openai-compatible": "^3.0.40",
+    "ai": "^7.0.84",
+    "zod": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}

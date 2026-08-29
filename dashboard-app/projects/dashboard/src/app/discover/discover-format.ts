@@ -17,6 +17,10 @@ import {
   MediaStackExternalDiscoverItemDto,
   MediaStackHermesDiscoverDto,
 } from '../media-stack/wire/discover';
+import {
+  MediaLifecycleService,
+  MediaLifecycleStatus,
+} from '../media-request/media-request.models';
 
 export type DiscoverHistoryFilter = 'all' | DiscoverFeedback | 'requested';
 
@@ -44,6 +48,11 @@ export type DiscoverCardItem = {
   traktHistorySync?: TraktHistorySyncState | null;
   posterUrl?: string | null;
   rating?: number | null;
+  mediaStatus?: MediaLifecycleStatus;
+  service?: MediaLifecycleService;
+  serviceHref?: string | null;
+  requestId?: number | null;
+  monitored?: boolean | null;
 };
 
 export function toHermesCardItem(item: DiscoverItem): DiscoverCardItem {
@@ -63,6 +72,11 @@ export function toHermesCardItem(item: DiscoverItem): DiscoverCardItem {
     traktHistorySync: item.trakt_history_sync ?? null,
     posterUrl: item.poster_url,
     rating: item.rating,
+    mediaStatus: item.media_status ?? 'unknown',
+    service: item.service ?? null,
+    serviceHref: item.service_href ?? null,
+    requestId: item.request_id ?? null,
+    monitored: item.monitored ?? null,
   };
 }
 
@@ -89,6 +103,11 @@ export function toExternalCardItem(
     watchedOnTrakt: false,
     posterUrl: item.poster_url,
     rating: item.rating,
+    mediaStatus: item.media_status ?? 'unknown',
+    service: item.service ?? null,
+    serviceHref: item.service_href ?? null,
+    requestId: item.request_id ?? null,
+    monitored: item.monitored ?? null,
   };
 }
 
@@ -240,10 +259,20 @@ const mapDiscoverItem = (dto: MediaStackDiscoverItemDto): DiscoverItem => ({
   notes: dto.notes,
   rating: dto.rating,
   trakt_history_sync: dto.trakt_history_sync ?? null,
+  media_status: dto.media_status ?? 'unknown',
+  service: dto.service ?? null,
+  service_href: dto.service_href ?? null,
+  request_id: dto.request_id ?? null,
+  monitored: dto.monitored ?? null,
 });
 
 const mapExternalDiscoverItem = (dto: MediaStackExternalDiscoverItemDto): ExternalDiscoverItem => ({
   ...dto,
+  media_status: dto.media_status ?? 'unknown',
+  service: dto.service ?? null,
+  service_href: dto.service_href ?? null,
+  request_id: dto.request_id ?? null,
+  monitored: dto.monitored ?? null,
 });
 
 export const mapHermesDiscover = (dto: MediaStackHermesDiscoverDto): HermesDiscover => ({
@@ -277,7 +306,12 @@ export const mapDiscoverAction = (dto: MediaStackDiscoverActionDto): DiscoverAct
 
 export const toDiscoverRequestPayloadDto = (
   payload: DiscoverRequestPayload,
-): MediaStackDiscoverRequestPayloadDto => ({ ...payload });
+): MediaStackDiscoverRequestPayloadDto => ({
+  ...payload,
+  ...(Array.isArray(payload.seasons)
+    ? { seasons: [...payload.seasons].sort((left, right) => left - right) }
+    : {}),
+});
 
 export function formatDiscoverMeta(item: Pick<DiscoverCardItem, 'year' | 'type' | 'rating'>): string {
   const parts = [item.year ? String(item.year) : null, item.type === 'tv' ? 'TV' : 'Movie', item.rating != null ? `${item.rating.toFixed(1)}★` : null].filter(

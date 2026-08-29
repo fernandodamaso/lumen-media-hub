@@ -20,6 +20,11 @@ import { mapActivityFeed } from '../activity/activity-format';
 import { AutomationSummary, QueueHygieneRunResult } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
+import {
+  MediaSearchItem,
+  MediaSearchResult,
+  TvSeasonCollection,
+} from '../media-request/media-request.models';
 import { MediaStackApi } from './media-stack-api';
 import { mapArrLibrary, mapCalendarEvent } from '../calendar/calendar-format';
 import { mapAutomationSummary } from '../automation/automation-format';
@@ -804,6 +809,106 @@ const DEMO_TRAKT: Record<TraktDiscoverType, MediaStackExternalDiscoverItemDto[]>
   ],
 };
 
+const DEMO_MEDIA_SEARCH_ITEMS: MediaSearchItem[] = [
+  {
+    identity: 'movie:501001',
+    type: 'movie',
+    tmdbId: 501001,
+    title: 'Demo Available',
+    year: 2024,
+    overview: 'A playable Demo title.',
+    posterUrl: null,
+    status: 'available',
+    service: 'jellyfin',
+    serviceHref: 'http://localhost:8096/web/index.html#!/details?id=jf-demo-available',
+    requestId: null,
+    monitored: null,
+    jellyfinId: 'jf-demo-available',
+  },
+  {
+    identity: 'movie:501002',
+    type: 'movie',
+    tmdbId: 501002,
+    title: 'Demo Requested',
+    year: 2025,
+    overview: 'A requested Demo title.',
+    posterUrl: null,
+    status: 'requested',
+    service: null,
+    serviceHref: null,
+    requestId: 9201,
+    monitored: null,
+  },
+  {
+    identity: 'tv:501003',
+    type: 'tv',
+    tmdbId: 501003,
+    title: 'Demo Processing',
+    year: 2025,
+    overview: 'A processing Demo series.',
+    posterUrl: null,
+    status: 'processing',
+    service: null,
+    serviceHref: null,
+    requestId: 9202,
+    monitored: null,
+  },
+  {
+    identity: 'movie:501004',
+    type: 'movie',
+    tmdbId: 501004,
+    title: 'Demo Tracked',
+    year: 2023,
+    overview: 'A tracked Demo title.',
+    posterUrl: null,
+    status: 'tracked',
+    service: 'radarr',
+    serviceHref: 'http://localhost:7878/movie/demo-tracked',
+    requestId: null,
+    monitored: true,
+  },
+  {
+    identity: 'tv:501005',
+    type: 'tv',
+    tmdbId: 501005,
+    title: 'Demo Missing',
+    year: 2024,
+    overview: 'A requestable Demo series.',
+    posterUrl: null,
+    status: 'missing',
+    service: null,
+    serviceHref: null,
+    requestId: null,
+    monitored: null,
+  },
+  {
+    identity: 'movie:501006',
+    type: 'movie',
+    tmdbId: 501006,
+    title: 'Demo Unknown',
+    year: null,
+    overview: 'A Demo title with unavailable state.',
+    posterUrl: null,
+    status: 'unknown',
+    service: null,
+    serviceHref: null,
+    requestId: null,
+    monitored: null,
+  },
+];
+
+const DEMO_TV_SEASONS: Partial<Record<number, TvSeasonCollection>> = {
+  501005: {
+    tmdbId: 501005,
+    title: 'Demo Missing',
+    seasons: [
+      { seasonNumber: 0, name: 'Specials', episodeCount: 2, airDate: null },
+      { seasonNumber: 1, name: 'Season 1', episodeCount: 8, airDate: '2024-03-01' },
+      { seasonNumber: 2, name: 'Season 2', episodeCount: 10, airDate: '2025-04-11' },
+    ],
+  },
+};
+
 /** Fixture id that simulates dashboard_state_persisted: false on request. */
 export const MOCK_SYNC_FAILED_HERMES_ID = 'hermes-sync-failed';
 
@@ -820,6 +925,10 @@ export class MockMediaStackApi implements MediaStackApi {
   private hermesMoreRequestedAt: string | null = null;
   private nextJellyseerrRequestId = 9100;
   private requestedKeys = new Set<string>();
+  private mediaRequestIds = new Map<string, number>([
+    ['movie:501002', 9201],
+    ['tv:501003', 9202],
+  ]);
   private libraryItems = DEMO_LIBRARY_ITEMS.map((item) => ({ ...item }));
   private watchNextItems = DEMO_WATCH_NEXT.map((item) => ({ ...item }));
   private automationScenario: AutomationScenario = 'default';
@@ -834,6 +943,71 @@ export class MockMediaStackApi implements MediaStackApi {
    */
   latencyMs = 0;
 
+  searchMedia(query: string, signal?: AbortSignal): Promise<MediaSearchResult> {
+    this.throwIfAborted(signal);
+    const normalized = query.trim().toLowerCase();
+    if (normalized.length < 2 || normalized.length > 100) {
+      return Promise.reject(new Error('Search query must contain 2 to 100 characters'));
+    }
+    if (normalized === 'disabled') {
+      return this.withLatency({
+        ok: true,
+        availability: 'disabled',
+        sources: { jellyseerr: 'disabled' },
+        items: [],
+        error: undefined,
+      });
+    }
+    if (normalized === 'unavailable') {
+      return this.withLatency({
+        ok: false,
+        availability: 'unavailable',
+        sources: { jellyseerr: 'unavailable' },
+        items: [],
+        error: 'Media search is temporarily unavailable',
+      });
+    }
+
+    const items = DEMO_MEDIA_SEARCH_ITEMS.filter((item) =>
+      `${item.title} ${item.overview}`.toLowerCase().includes(normalized),
+    ).map((item) => {
+      const requestId = this.mediaRequestIds.get(item.identity);
+      if (!requestId || item.status === 'processing') return { ...item };
+      return {
+        ...item,
+        status: 'requested' as const,
+        service: null,
+        serviceHref: null,
+        requestId,
+        monitored: null,
+      };
+    });
+    return this.withLatency({
+      ok: true,
+      availability: 'available',
+      sources: {
+        jellyseerr: 'fresh',
+        jellyfin: 'fresh',
+        radarr: 'fresh',
+        sonarr: 'fresh',
+      },
+      items,
+      error: undefined,
+    });
+  }
+
+  getTvSeasons(tmdbId: number, signal?: AbortSignal): Promise<TvSeasonCollection> {
+    this.throwIfAborted(signal);
+    const collection = DEMO_TV_SEASONS[tmdbId];
+    if (!collection) {
+      return Promise.reject(new Error('TV seasons are temporarily unavailable'));
+    }
+    return this.withLatency({
+      ...collection,
+      seasons: collection.seasons.map((season) => ({ ...season })),
+    });
+  }
+
   protected withLatency<T>(value: T): Promise<T> {
     if (this.latencyMs <= 0) {
       return Promise.resolve(value);
@@ -846,6 +1020,12 @@ export class MockMediaStackApi implements MediaStackApi {
         resolve(value);
       }, delay);
     });
+  }
+
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (signal?.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    }
   }
 
   setAutomationScenario(scenario: AutomationScenario): void {
@@ -1094,7 +1274,7 @@ export class MockMediaStackApi implements MediaStackApi {
     return this.withLatency(
       mapHermesDiscover({
         ok: true,
-        items: this.hermesItems.map((item) => ({ ...item })),
+        items: this.hermesItems.map((item) => ({ ...item, ...this.demoLifecycle(item) })),
         pending_request_sync,
         generation_request: this.hermesMorePending && this.hermesMoreRequestedAt
           ? { requested_at: this.hermesMoreRequestedAt, status: 'pending' }
@@ -1171,7 +1351,7 @@ export class MockMediaStackApi implements MediaStackApi {
     return this.withLatency(
       mapExternalDiscover({
         ok: true,
-        items: DEMO_JELLYSEERR[kind].map((item) => ({ ...item })),
+        items: DEMO_JELLYSEERR[kind].map((item) => ({ ...item, ...this.demoLifecycle(item) })),
       }),
     );
   }
@@ -1180,7 +1360,7 @@ export class MockMediaStackApi implements MediaStackApi {
     return this.withLatency(
       mapExternalDiscover({
         ok: true,
-        items: DEMO_TRAKT[type].map((item) => ({ ...item })),
+        items: DEMO_TRAKT[type].map((item) => ({ ...item, ...this.demoLifecycle(item) })),
       }),
     );
   }
@@ -1197,13 +1377,23 @@ export class MockMediaStackApi implements MediaStackApi {
           (item) => item.tmdb_id === payload.mediaId && item.type === payload.mediaType,
         );
 
-    if (hermesItem?.request_state === 'requested' || this.requestedKeys.has(identityKey)) {
+    const existingRequestId =
+      this.mediaRequestIds.get(identityKey) ?? hermesItem?.jellyseerr_request_id ?? null;
+    if (
+      hermesItem?.request_state === 'requested' ||
+      this.requestedKeys.has(identityKey) ||
+      existingRequestId
+    ) {
       return Promise.resolve(
         mapDiscoverAction({
           ok: true,
-          message: 'Already requested',
-          jellyseerr_request_id: hermesItem?.jellyseerr_request_id ?? null,
+          partial_success: false,
+          message: 'This title is already requested in Jellyseerr.',
+          jellyseerr_request_id: existingRequestId,
+          request_status: 'requested',
+          already_requested: true,
           dashboard_state_persisted: true,
+          reconciliation_queued: false,
         }),
       );
     }
@@ -1221,9 +1411,11 @@ export class MockMediaStackApi implements MediaStackApi {
             ok: true,
             partial_success: true,
             jellyseerr_request_id: requestId,
+            request_status: 'requested',
+            already_requested: false,
             dashboard_state_persisted: false,
             reconciliation_queued: true,
-            message: 'Added to Sonarr/Radarr; dashboard synchronization failed.',
+            message: 'Jellyseerr accepted the request; dashboard synchronization failed.',
             requested_at: requestedAt,
           }),
         );
@@ -1234,16 +1426,63 @@ export class MockMediaStackApi implements MediaStackApi {
     }
 
     this.requestedKeys.add(identityKey);
+    this.mediaRequestIds.set(identityKey, requestId);
 
     return Promise.resolve(
       mapDiscoverAction({
         ok: true,
+        partial_success: false,
         jellyseerr_request_id: requestId,
+        request_status: 'requested',
+        already_requested: false,
         dashboard_state_persisted: true,
-        message: 'Requested',
+        reconciliation_queued: false,
+        message: 'Request submitted to Jellyseerr.',
         requested_at: requestedAt,
       }),
     );
+  }
+
+  private demoLifecycle(item: {
+    type: 'movie' | 'tv';
+    tmdb_id: number;
+    in_library?: boolean;
+    request_state?: 'requested' | null;
+    jellyseerr_request_id?: number | null;
+  }): {
+    media_status: 'available' | 'requested' | 'missing';
+    service: 'jellyfin' | null;
+    service_href: string | null;
+    request_id: number | null;
+    monitored: null;
+  } {
+    if (item.in_library) {
+      return {
+        media_status: 'available',
+        service: 'jellyfin',
+        service_href: null,
+        request_id: null,
+        monitored: null,
+      };
+    }
+    const identity = `${item.type}:${item.tmdb_id}`;
+    const requestId = this.mediaRequestIds.get(identity) ?? item.jellyseerr_request_id ?? null;
+    if (item.request_state === 'requested' || requestId) {
+      return {
+        media_status: 'requested',
+        service: null,
+        service_href: null,
+        request_id: requestId,
+        monitored: null,
+      };
+    }
+    return {
+      media_status: 'missing',
+      service: null,
+      service_href: null,
+      request_id: null,
+      monitored: null,
+    };
   }
 
   /** Test helper: clear generation pending so request-more can queue again. */

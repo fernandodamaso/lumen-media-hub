@@ -65,6 +65,7 @@ describe('discover-format', () => {
       title: 'Signal Drift',
       year: 2024,
       tmdb_id: 101001,
+      reason: undefined,
       active: true,
       feedback: null,
       feedback_at: null,
@@ -72,8 +73,20 @@ describe('discover-format', () => {
       requested_at: null,
       jellyseerr_request_id: null,
       in_library: false,
+      excluded_reason: undefined,
+      watched_on_trakt: undefined,
+      jellyfin_id: undefined,
+      poster_path: undefined,
+      poster_url: undefined,
       added_at: '2026-07-10T12:00:00Z',
+      notes: undefined,
+      rating: undefined,
       trakt_history_sync: null,
+      media_status: 'unknown',
+      service: null,
+      service_href: null,
+      request_id: null,
+      monitored: null,
     });
     expect(mapped.items[0]).not.toHaveProperty('token');
     expect(mapped.items[0]).not.toHaveProperty('watched_at');

@@ -26,8 +26,11 @@ import { ActivityFeed } from '../activity/activity.models';
 import { AutomationSummary, QueueHygieneRunResult } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
+import { MediaSearchResult, TvSeasonCollection } from '../media-request/media-request.models';
 
 export interface MediaStackApi {
+  searchMedia(query: string, signal?: AbortSignal): Promise<MediaSearchResult>;
+  getTvSeasons(tmdbId: number, signal?: AbortSignal): Promise<TvSeasonCollection>;
   listTorrents(signal?: AbortSignal): Promise<DownloadTorrent[]>;
   pauseAll(): Promise<void>;
   resumeAll(): Promise<void>;

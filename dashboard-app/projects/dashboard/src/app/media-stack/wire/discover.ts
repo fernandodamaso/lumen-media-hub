@@ -42,6 +42,11 @@ export interface MediaStackDiscoverItemDto {
   notes?: string;
   rating?: number | null;
   trakt_history_sync?: MediaStackTraktHistorySyncDto | null;
+  media_status?: 'available' | 'requested' | 'processing' | 'tracked' | 'missing' | 'unknown';
+  service?: 'jellyfin' | 'radarr' | 'sonarr' | null;
+  service_href?: string | null;
+  request_id?: number | null;
+  monitored?: boolean | null;
 }
 
 export interface MediaStackExternalDiscoverItemDto {
@@ -55,6 +60,11 @@ export interface MediaStackExternalDiscoverItemDto {
   overview?: string;
   poster_url?: string | null;
   rating?: number | null;
+  media_status?: 'available' | 'requested' | 'processing' | 'tracked' | 'missing' | 'unknown';
+  service?: 'jellyfin' | 'radarr' | 'sonarr' | null;
+  service_href?: string | null;
+  request_id?: number | null;
+  monitored?: boolean | null;
 }
 
 export interface MediaStackHermesDiscoverDto {
@@ -87,6 +97,8 @@ export interface MediaStackDiscoverActionDto {
   jellyseerr_request_id?: number | null;
   dashboard_state_persisted?: boolean;
   reconciliation_queued?: boolean;
+  request_status?: 'requested' | 'processing';
+  already_requested?: boolean;
   queued?: boolean;
   already_pending?: boolean;
   requested_at?: string;
@@ -98,4 +110,5 @@ export interface MediaStackDiscoverRequestPayloadDto {
   mediaId: number;
   hermesId?: string;
   is4k?: boolean;
+  seasons?: number[] | 'all';
 }

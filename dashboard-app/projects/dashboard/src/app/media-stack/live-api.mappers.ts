@@ -1236,6 +1236,10 @@ function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDisco
     `Malformed Hermes response: member ${index} is missing title`,
   );
   const tmdbId = requireFiniteNumberField(raw, 'tmdb_id', index, 'Hermes');
+  if (!Number.isInteger(tmdbId) || tmdbId <= 0) {
+    throw new Error(`Malformed Hermes response: member ${index} has invalid tmdb_id`);
+  }
+  const lifecycle = requireDiscoverLifecycle(raw, index, 'Hermes', type);
   const active = raw['active'];
   if (typeof active !== 'boolean') {
     throw new Error(`Malformed Hermes response: member ${index} is missing active`);
@@ -1294,6 +1298,7 @@ function requireLiveHermesDiscoverItem(raw: unknown, index = 0): MediaStackDisco
     notes: notes ?? undefined,
     rating,
     trakt_history_sync: traktHistorySync,
+    ...lifecycle,
   };
 }
 
@@ -1315,6 +1320,10 @@ function requireLiveExternalDiscoverItem(
     `Malformed ${resource} response: member ${index} is missing title`,
   );
   const tmdbId = requireFiniteNumberField(raw, 'tmdb_id', index, resource);
+  if (!Number.isInteger(tmdbId) || tmdbId <= 0) {
+    throw new Error(`Malformed ${resource} response: member ${index} has invalid tmdb_id`);
+  }
+  const lifecycle = requireDiscoverLifecycle(raw, index, resource, type);
 
   const id = optionalNullableString(raw, 'id', index, resource) ?? undefined;
   const source = optionalNullableString(raw, 'source', index, resource) ?? undefined;
@@ -1335,7 +1344,156 @@ function requireLiveExternalDiscoverItem(
     overview,
     poster_url: posterUrl,
     rating,
+    ...lifecycle,
   };
+}
+
+function requireDiscoverLifecycle(
+  raw: Record<string, unknown>,
+  index: number,
+  resource: string,
+  type: MediaStackDiscoverMediaTypeDto,
+): {
+  media_status: 'available' | 'requested' | 'processing' | 'tracked' | 'missing' | 'unknown';
+  service: 'jellyfin' | 'radarr' | 'sonarr' | null;
+  service_href: string | null;
+  request_id: number | null;
+  monitored: boolean | null;
+} {
+  const malformed = () => discoverLifecycleError(resource, index);
+  const status = requireDiscoverLifecycleStatus(raw['media_status'], malformed);
+  const service = requireDiscoverLifecycleService(raw['service'], malformed);
+  const href = requireDiscoverLifecycleHref(raw['service_href'], malformed);
+  const requestId = requireDiscoverLifecycleRequestId(raw['request_id'], malformed);
+  const monitored = requireDiscoverLifecycleMonitored(raw['monitored'], malformed);
+  requireDiscoverLifecycleConsistency(
+    { status, service, href, requestId, monitored, type },
+    malformed,
+  );
+
+  return {
+    media_status: status,
+    service,
+    service_href: href,
+    request_id: requestId,
+    monitored,
+  };
+}
+
+type DiscoverLifecycleStatus =
+  | 'available'
+  | 'requested'
+  | 'processing'
+  | 'tracked'
+  | 'missing'
+  | 'unknown';
+type DiscoverLifecycleService = 'jellyfin' | 'radarr' | 'sonarr' | null;
+
+function discoverLifecycleError(resource: string, index: number): never {
+  throw new Error(`Malformed ${resource} response: member ${index} has invalid lifecycle`);
+}
+
+function requireDiscoverLifecycleStatus(
+  value: unknown,
+  malformed: () => never,
+): DiscoverLifecycleStatus {
+  if (
+    value === 'available' ||
+    value === 'requested' ||
+    value === 'processing' ||
+    value === 'tracked' ||
+    value === 'missing' ||
+    value === 'unknown'
+  ) {
+    return value;
+  }
+  return malformed();
+}
+
+function requireDiscoverLifecycleService(
+  value: unknown,
+  malformed: () => never,
+): DiscoverLifecycleService {
+  if (value === null || value === 'jellyfin' || value === 'radarr' || value === 'sonarr') {
+    return value;
+  }
+  return malformed();
+}
+
+function requireDiscoverLifecycleHref(value: unknown, malformed: () => never): string | null {
+  if (value === null) return null;
+  return isSafeHttpLink(value) ? value : malformed();
+}
+
+function requireDiscoverLifecycleRequestId(
+  value: unknown,
+  malformed: () => never,
+): number | null {
+  if (value === null) return null;
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) return value;
+  return malformed();
+}
+
+function requireDiscoverLifecycleMonitored(
+  value: unknown,
+  malformed: () => never,
+): boolean | null {
+  if (value === null || typeof value === 'boolean') return value;
+  return malformed();
+}
+
+function requireDiscoverLifecycleConsistency(
+  value: {
+    status: DiscoverLifecycleStatus;
+    service: DiscoverLifecycleService;
+    href: string | null;
+    requestId: number | null;
+    monitored: boolean | null;
+    type: MediaStackDiscoverMediaTypeDto;
+  },
+  malformed: () => never,
+): void {
+  if (value.status === 'available') {
+    if (value.service !== 'jellyfin' || value.requestId !== null || value.monitored !== null) {
+      malformed();
+    }
+    return;
+  }
+  if (value.status === 'tracked') {
+    const expectedService = value.type === 'movie' ? 'radarr' : 'sonarr';
+    if (
+      value.service !== expectedService ||
+      typeof value.monitored !== 'boolean' ||
+      value.requestId !== null
+    ) {
+      malformed();
+    }
+    return;
+  }
+  if (value.service !== null || value.href !== null || value.monitored !== null) malformed();
+  if (
+    value.status !== 'requested' &&
+    value.status !== 'processing' &&
+    value.requestId !== null
+  ) {
+    malformed();
+  }
+}
+
+function isSafeHttpLink(value: unknown): value is string {
+  if (typeof value !== 'string' || !value.trim() || /[\u0000-\u001f\u007f]/.test(value)) {
+    return false;
+  }
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      !url.username &&
+      !url.password
+    );
+  } catch {
+    return false;
+  }
 }
 
 function requireTraktHistorySync(

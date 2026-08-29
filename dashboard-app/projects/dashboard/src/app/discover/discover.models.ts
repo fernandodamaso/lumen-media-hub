@@ -1,3 +1,5 @@
+import { MediaLifecycleService, MediaLifecycleStatus } from '../media-request/media-request.models';
+
 export type DiscoverFeedback = 'liked' | 'disliked' | 'watched' | 'skipped';
 export type TraktHistorySyncStatus = 'pending' | 'synced' | 'reconnect_required' | 'failed';
 type DiscoverMediaType = 'movie' | 'tv';
@@ -15,7 +17,15 @@ export interface TraktHistorySyncState {
   status: TraktHistorySyncStatus;
 }
 
-export interface DiscoverItem {
+interface DiscoverLifecycleState {
+  media_status?: MediaLifecycleStatus;
+  service?: MediaLifecycleService;
+  service_href?: string | null;
+  request_id?: number | null;
+  monitored?: boolean | null;
+}
+
+export interface DiscoverItem extends DiscoverLifecycleState {
   id: string;
   source: string;
   type: DiscoverMediaType;
@@ -41,7 +51,7 @@ export interface DiscoverItem {
   trakt_history_sync?: TraktHistorySyncState | null;
 }
 
-export interface ExternalDiscoverItem {
+export interface ExternalDiscoverItem extends DiscoverLifecycleState {
   id?: string;
   source?: string;
   type: DiscoverMediaType;
@@ -91,6 +101,8 @@ export interface DiscoverAction {
   jellyseerr_request_id?: number | null;
   dashboard_state_persisted?: boolean;
   reconciliation_queued?: boolean;
+  request_status?: 'requested' | 'processing';
+  already_requested?: boolean;
   queued?: boolean;
   already_pending?: boolean;
   requested_at?: string;
@@ -107,4 +119,5 @@ export interface DiscoverRequestPayload {
   mediaId: number;
   hermesId?: string;
   is4k?: boolean;
+  seasons?: number[] | 'all';
 }

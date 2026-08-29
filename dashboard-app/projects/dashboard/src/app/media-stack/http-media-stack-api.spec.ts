@@ -1276,6 +1276,178 @@ describe('HttpMediaStackApi', () => {
     expect(summary.services.filter((s) => ['sonarr', 'radarr', 'prowlarr', 'bazarr'].includes(s.id)).every((s) => s.status === 'healthy')).toBe(true);
   });
 
+  it('strictly validates authoritative Discover lifecycle fields', () => {
+    const base = {
+      type: 'movie',
+      title: 'Arrival',
+      tmdb_id: 329865,
+      media_status: 'missing',
+      service: null,
+      service_href: null,
+      request_id: null,
+      monitored: null,
+    };
+    const envelope = (item: Record<string, unknown>) => ({
+      items: [item],
+      library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+      watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
+    });
+
+    expect(() => {
+      requireExternalDiscoverPayload(envelope(base), 'Jellyseerr');
+    }).not.toThrow();
+    for (const item of [
+      { ...base, tmdb_id: 0 },
+      { ...base, media_status: 'queued' },
+      { ...base, service: 'radarr' },
+      { ...base, service_href: 'file:///private/state' },
+      {
+        ...base,
+        media_status: 'tracked',
+        service: 'sonarr',
+        service_href: null,
+        monitored: true,
+      },
+    ]) {
+      expect(() => {
+        requireExternalDiscoverPayload(envelope(item), 'Jellyseerr');
+      }).toThrow(/lifecycle|tmdb_id/);
+    }
+  });
+
+  it('searches the exact encoded media URL and maps strict lifecycle state', async () => {
+    const pending = api.searchMedia('alien & arrival');
+    const request = http.expectOne('/api/media/search?q=alien%20%26%20arrival');
+    expect(request.request.method).toBe('GET');
+    request.flush({
+      ok: true,
+      availability: 'available',
+      sources: {
+        jellyseerr: 'fresh',
+        jellyfin: 'fresh',
+        radarr: 'fresh',
+        sonarr: 'fresh',
+      },
+      items: [
+        {
+          identity: 'movie:42',
+          type: 'movie',
+          tmdbId: 42,
+          title: 'Alien',
+          year: 1979,
+          overview: 'A crew encounters something.',
+          posterUrl: 'https://image.tmdb.org/t/p/w342/alien.jpg',
+          status: 'missing',
+          service: null,
+          serviceHref: null,
+        },
+      ],
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      availability: 'available',
+      items: [{ identity: 'movie:42', status: 'missing', requestId: null, monitored: null }],
+    });
+  });
+
+  it('preserves a structured unavailable media-search response', async () => {
+    const pending = api.searchMedia('alien');
+    http.expectOne('/api/media/search?q=alien').flush(
+      {
+        ok: false,
+        availability: 'unavailable',
+        sources: { jellyseerr: 'unavailable' },
+        items: [],
+        error: 'Media search is temporarily unavailable',
+      },
+      { status: 502, statusText: 'Bad Gateway' },
+    );
+
+    await expect(pending).resolves.toMatchObject({
+      ok: false,
+      availability: 'unavailable',
+      items: [],
+    });
+  });
+
+  it('passes AbortSignal cancellation through media search GETs', async () => {
+    const controller = new AbortController();
+    const pending = api.searchMedia('alien', controller.signal);
+    const request = http.expectOne('/api/media/search?q=alien');
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(request.cancelled).toBe(true);
+  });
+
+  it('GETs exact TV seasons, validates the typed ID, and sorts members', async () => {
+    const pending = api.getTvSeasons(42);
+    const request = http.expectOne('/api/media/tv/42/seasons');
+    expect(request.request.method).toBe('GET');
+    request.flush({
+      ok: true,
+      tmdbId: 42,
+      title: 'The Show',
+      seasons: [
+        { seasonNumber: 2, name: 'Season 2', episodeCount: 8, airDate: '2025-01-01' },
+        { seasonNumber: 0, name: 'Specials', episodeCount: 3, airDate: null },
+        { seasonNumber: 1, name: 'Season 1', episodeCount: 10, airDate: '2024-01-01' },
+      ],
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      tmdbId: 42,
+      seasons: [{ seasonNumber: 0 }, { seasonNumber: 1 }, { seasonNumber: 2 }],
+    });
+  });
+
+  it('passes AbortSignal cancellation through TV season GETs', async () => {
+    const controller = new AbortController();
+    const pending = api.getTvSeasons(42, controller.signal);
+    const request = http.expectOne('/api/media/tv/42/seasons');
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(request.cancelled).toBe(true);
+  });
+
+  it('fails safely on malformed media search, season, and request envelopes', async () => {
+    const search = api.searchMedia('alien');
+    http.expectOne('/api/media/search?q=alien').flush({
+      ok: true,
+      availability: 'available',
+      sources: { jellyseerr: 'fresh' },
+      items: [
+        {
+          identity: 'tv:42',
+          type: 'movie',
+          tmdbId: 42,
+          title: 'Alien',
+          year: 1979,
+          overview: '',
+          posterUrl: null,
+          status: 'missing',
+          service: null,
+          serviceHref: null,
+        },
+      ],
+    });
+    await expect(search).rejects.toThrow('Malformed media search response');
+
+    const seasons = api.getTvSeasons(42);
+    http.expectOne('/api/media/tv/42/seasons').flush({
+      ok: true,
+      tmdbId: 7,
+      title: 'Wrong Show',
+      seasons: [],
+    });
+    await expect(seasons).rejects.toThrow('Malformed TV seasons response');
+
+    const action = api.requestMedia({ mediaType: 'movie', mediaId: 42 });
+    http.expectOne('/api/discover/request').flush({ ok: true, jellyseerr_request_id: 9 });
+    await expect(action).rejects.toThrow('Malformed media request response');
+  });
+
   it('keeps discover feedback PATCH separate from requestMedia POST', async () => {
     const feedback = api.submitHermesFeedback('rec-1', 'liked', { notes: 'great' });
     const feedbackReq = http.expectOne('/api/discover/hermes/rec-1');
@@ -1288,8 +1460,40 @@ describe('HttpMediaStackApi', () => {
     const requestReq = http.expectOne('/api/discover/request');
     expect(requestReq.request.method).toBe('POST');
     expect(requestReq.request.body).toEqual({ mediaType: 'movie', mediaId: 42, hermesId: 'rec-1' });
-    requestReq.flush({ ok: true, jellyseerr_request_id: 9 });
-    await expect(request).resolves.toMatchObject({ ok: true, jellyseerr_request_id: 9 });
+    requestReq.flush({
+      ok: true,
+      partial_success: false,
+      jellyseerr_request_id: 9,
+      request_status: 'requested',
+      already_requested: false,
+      dashboard_state_persisted: true,
+      reconciliation_queued: false,
+      message: 'Request submitted to Jellyseerr.',
+    });
+    await expect(request).resolves.toMatchObject({
+      ok: true,
+      jellyseerr_request_id: 9,
+      request_status: 'requested',
+      already_requested: false,
+    });
+  });
+
+  it('POSTs exactly sorted selected TV seasons', async () => {
+    const pending = api.requestMedia({ mediaType: 'tv', mediaId: 42, seasons: [3, 0, 1] });
+    const request = http.expectOne('/api/discover/request');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual({ mediaType: 'tv', mediaId: 42, seasons: [0, 1, 3] });
+    request.flush({
+      ok: true,
+      partial_success: false,
+      jellyseerr_request_id: 10,
+      request_status: 'processing',
+      already_requested: false,
+      dashboard_state_persisted: true,
+      reconciliation_queued: false,
+      message: 'Request submitted to Jellyseerr.',
+    });
+    await expect(pending).resolves.toMatchObject({ request_status: 'processing' });
   });
 
   it('posts queue hygiene mode and strictly maps the run result', async () => {
@@ -1405,7 +1609,19 @@ describe('HttpMediaStackApi', () => {
       .expectOne('/api/discover/trakt?type=shows')
       .flush({
         ok: true,
-        items: [{ type: 'tv', title: 'Severance', tmdb_id: 95396, trakt_slug: 'severance', poster_url: null, rating: null }],
+        items: [{
+          type: 'tv',
+          title: 'Severance',
+          tmdb_id: 95396,
+          trakt_slug: 'severance',
+          poster_url: null,
+          rating: null,
+          media_status: 'missing',
+          service: null,
+          service_href: null,
+          request_id: null,
+          monitored: null,
+        }],
         library_exclusion: { status: 'fresh', last_successful_refresh_at: null },
         watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
       });
@@ -1694,6 +1910,11 @@ describe('HttpMediaStackApi', () => {
           added_at: '2026-07-10T12:00:00Z',
           watched_on_trakt: true,
           excluded_reason: 'watched_on_trakt',
+          media_status: 'missing',
+          service: null,
+          service_href: null,
+          request_id: null,
+          monitored: null,
         },
       ],
       pending_request_sync: [{ id: 'hermes-1', jellyseerr_request_id: 55 }],
@@ -1729,6 +1950,11 @@ describe('HttpMediaStackApi', () => {
         added_at: '2026-07-10T12:00:00Z',
         watched_on_trakt: 'yes',
         excluded_reason: 'watched_on_trakt',
+        media_status: 'missing',
+        service: null,
+        service_href: null,
+        request_id: null,
+        monitored: null,
       }],
     });
     await expect(pending).rejects.toThrow(/watched_on_trakt/);

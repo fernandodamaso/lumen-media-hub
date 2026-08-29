@@ -1,0 +1,61 @@
+<mm-dialog
+  title="Add to library"
+  [opened]="opened()"
+  (openedChange)="setOpened($event)"
+>
+  <section class="media-request" [attr.aria-busy]="busy() || loadingSeasons() ? true : null">
+    <header class="media-request__summary">
+      <p class="media-request__eyebrow">{{ item().type === 'tv' ? 'TV series' : 'Movie' }}</p>
+      <h3>{{ item().title }}</h3>
+      @if (item().year) {
+        <p class="media-request__year">{{ item().year }}</p>
+      }
+    </header>
+
+    @if (item().type === 'movie') {
+      <p class="media-request__confirmation">
+        Add <strong>{{ item().title }}</strong> and start searching for it?
+      </p>
+    } @else if (loadingSeasons()) {
+      <p class="media-request__state" role="status">Loading seasons…</p>
+    } @else if (seasons().length === 0 && !feedback()) {
+      <p class="media-request__state">No seasons are available to request.</p>
+    } @else if (seasons().length > 0) {
+      <fieldset class="media-request__seasons">
+        <legend>Choose seasons</legend>
+        @for (season of seasons(); track season.seasonNumber) {
+          <div class="media-request__season" data-testid="media-request-season">
+            <mm-checkbox
+              [checked]="isSeasonSelected(season.seasonNumber)"
+              [disabled]="busy()"
+              (checkedChange)="setSeasonSelected(season.seasonNumber, $event)"
+            >
+              <span class="media-request__season-copy">
+                <span class="media-request__season-name">{{ season.name }}</span>
+                <span class="media-request__season-meta">
+                  {{ season.episodeCount }} episodes@if (season.airDate) { · {{ season.airDate }}}
+                </span>
+              </span>
+            </mm-checkbox>
+          </div>
+        }
+      </fieldset>
+    }
+
+    @if (feedback()) {
+      <p class="media-request__feedback" role="alert">{{ feedback() }}</p>
+    }
+  </section>
+
+  <div mmDialogFooter class="media-request__actions">
+    <mm-button label="Cancel" variant="quiet" [disabled]="busy()" (click)="close()" />
+    <mm-button
+      data-testid="media-request-submit"
+      label="Add & search"
+      variant="gold"
+      [busy]="busy()"
+      [disabled]="!canSubmit()"
+      (click)="submit()"
+    />
+  </div>
+</mm-dialog>

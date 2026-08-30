@@ -98,7 +98,7 @@ test('command palette traps focus and restores it to the search trigger', async 
   await trigger.click();
   const dialog = page.locator('dialog[aria-label="Command palette"]');
   await expect(dialog).toBeVisible();
-  const search = page.getByRole('searchbox', { name: 'Search commands' });
+  const search = page.getByRole('combobox', { name: 'Search commands' });
   await expect(search).toBeFocused();
 
   const focusables = dialog.locator('input, button, [href], select, textarea, [tabindex]:not([tabindex="-1"])');

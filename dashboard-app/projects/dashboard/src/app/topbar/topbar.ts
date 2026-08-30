@@ -12,8 +12,8 @@ import { MmButton, MmIconButton, MmInput } from '@app/ui';
         class="search-pill"
         kind="search-pill"
         testId="topbar-search"
-        placeholder="Search movies, shows, people…"
-        ariaLabel="Search movies, shows, people"
+        placeholder="Search movies and shows…"
+        ariaLabel="Search movies and shows"
         [shortcutLabel]="shortcutLabel()"
         (activated)="searchOpen.emit()"
       />

@@ -151,7 +151,7 @@
           [syncFailed]="facade.isSyncFailed(item)"
           [busy]="facade.busyItemId() === item.id"
           (feedback)="onFeedback(item.id, $event)"
-          (request)="onRequest(item)"
+          (request)="onRequest(item, $event)"
         />
       }
     </div>
@@ -177,3 +177,11 @@
     <mm-button label="Mark watched" (click)="confirmWatchAllAired()" />
   </div>
 </mm-dialog>
+
+@if (requestDialogItem(); as item) {
+  <mm-media-request-dialog
+    [item]="item"
+    [(opened)]="requestDialogOpen"
+    (completed)="onRequestCompleted($event)"
+  />
+}

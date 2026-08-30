@@ -9,6 +9,7 @@
     "projects/dashboard/src/app/command-palette/**/*.stories.ts",
     "projects/dashboard/src/app/dashboard/**/*.stories.ts",
     "projects/dashboard/src/app/library/**/*.stories.ts",
+    "projects/dashboard/src/app/media-request/**/*.stories.ts",
     "projects/dashboard/src/app/topbar/**/*.stories.ts",
     "projects/dashboard/src/app/right-rail/**/*.stories.ts"
   ]

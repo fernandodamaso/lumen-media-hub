@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://local.media/ai-picks/recommendations.schema-v4.json",
   "title": "AI Picks Recommendations v4",
-  "description": "Versioned contract for config/recommendations/recommendations.json. v4 stores model-agnostic AI Picks and one durable generation job while preserving composite never-twice identities.",
+  "description": "Versioned contract for config/recommendations/recommendations.json. v4 stores model-agnostic AI Picks, one durable generation job, and authoritative request-provider provenance while preserving composite never-twice identities.",
   "type": "object",
   "required": ["version", "revision", "updated_at", "presented_media_ids", "items", "generation"],
   "additionalProperties": true,
@@ -74,7 +74,23 @@
             "rotated": { "type": "integer", "minimum": 0 },
             "rejected": { "type": "integer", "minimum": 0 }
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": ["request_state"],
+              "properties": { "request_state": { "const": "requested" } }
+            },
+            "then": {
+              "properties": {
+                "request_provider": { "enum": ["jellyseerr", "arr_legacy"] }
+              }
+            },
+            "else": {
+              "properties": { "request_provider": { "const": null } }
+            }
+          }
+        ]
       }
     },
     "items": {
@@ -93,6 +109,7 @@
           "feedback",
           "feedback_at",
           "request_state",
+          "request_provider",
           "requested_at",
           "jellyseerr_request_id",
           "added_at"
@@ -119,6 +136,7 @@
           },
           "feedback_at": { "type": ["string", "null"] },
           "request_state": { "enum": [null, "requested"] },
+          "request_provider": { "enum": [null, "jellyseerr", "arr_legacy"] },
           "requested_at": { "type": ["string", "null"] },
           "jellyseerr_request_id": { "type": ["integer", "null"] },
           "poster_path": { "type": ["string", "null"] },

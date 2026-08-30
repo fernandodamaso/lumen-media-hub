@@ -17,6 +17,15 @@ const movie: RequestableMediaItem = {
   aiPickId: 'ai-movie-42',
 };
 
+const secondMovie: RequestableMediaItem = {
+  identity: 'movie:43',
+  type: 'movie',
+  tmdbId: 43,
+  title: 'Contact',
+  year: 1997,
+  posterUrl: null,
+};
+
 const show: RequestableMediaItem = {
   identity: 'tv:77',
   type: 'tv',
@@ -196,6 +205,60 @@ describe('MediaRequestDialog', () => {
         alreadyRequested: false,
       },
     ]);
+  });
+
+  it('keeps a newer dialog open when an older request resolves late', async () => {
+    const pending = Promise.withResolvers<ReturnType<typeof successAction>>();
+    api.requestMedia.mockReturnValueOnce(pending.promise);
+    const completed: MediaRequestCompletion[] = [];
+    const root = await render(movie);
+    fixture.componentInstance.completed.subscribe((event) => completed.push(event));
+
+    root.querySelector<HTMLButtonElement>('[data-testid="media-request-submit"] button')?.click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.busy()).toBe(true);
+    fixture.componentInstance.setOpened(false);
+    expect(fixture.componentInstance.opened()).toBe(true);
+
+    fixture.componentRef.setInput('opened', false);
+    fixture.detectChanges();
+    fixture.componentRef.setInput('item', secondMovie);
+    fixture.componentRef.setInput('opened', true);
+    fixture.detectChanges();
+
+    pending.resolve(successAction());
+    await Promise.resolve();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.item().identity).toBe('movie:43');
+    expect(fixture.componentInstance.opened()).toBe(true);
+    expect(toast.show).not.toHaveBeenCalled();
+    expect(completed).toEqual([]);
+  });
+
+  it('surfaces partial success as a warning and still emits completion', async () => {
+    api.requestMedia.mockResolvedValueOnce({
+      ...successAction(),
+      partial_success: true,
+      dashboard_state_persisted: false,
+      reconciliation_queued: false,
+      message: 'Jellyseerr accepted the request; dashboard synchronization failed.',
+    });
+    const completed: MediaRequestCompletion[] = [];
+    const root = await render(movie);
+    fixture.componentInstance.completed.subscribe((event) => completed.push(event));
+
+    root.querySelector<HTMLButtonElement>('[data-testid="media-request-submit"] button')?.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(toast.show).toHaveBeenCalledWith('Request submitted with a warning', {
+      body: 'Jellyseerr accepted the request; dashboard synchronization failed.',
+      tone: 'gold',
+    });
+    expect(completed).toHaveLength(1);
+    expect(fixture.componentInstance.opened()).toBe(false);
   });
 
   it('keeps the dialog open with sanitized feedback on season-load and request failures', async () => {

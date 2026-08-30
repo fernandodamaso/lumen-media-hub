@@ -588,6 +588,20 @@ describe('CommandPalette', () => {
     expect(openChange).toHaveBeenCalledWith(false);
   });
 
+  it('routes Escape to the open request dialog before closing the palette', () => {
+    const openChange = vi.fn();
+    fixture.componentInstance.openChange.subscribe(openChange);
+    fixture.componentRef.setInput('open', true);
+    fixture.detectChanges();
+    fixture.componentInstance.requestDialogOpen.set(true);
+
+    const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+    fixture.componentInstance.onDocumentKeydown(event);
+
+    expect(openChange).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it('refreshes trending and newly available through the shared refresh path', async () => {
     const refresh = fixture.componentInstance.items().find((item) => item.id === 'action-refresh');
     await refresh?.run();

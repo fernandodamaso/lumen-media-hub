@@ -1,6 +1,7 @@
 import threading
 import time
 import unittest
+from unittest import mock
 
 from clients.jellyseerr import JellyseerrUpstreamError
 from clients import arr as arr_client
@@ -160,7 +161,7 @@ class MediaRequestServiceTests(unittest.TestCase):
                 )
             ],
         )
-        self.assertEqual(state_calls, [("tv", 42, False)])
+        self.assertEqual(state_calls, [("tv", 42, False), ("tv", 42, True)])
         self.assertEqual(invalidations, [("tv", 42)])
         self.assertEqual(
             result,
@@ -191,6 +192,55 @@ class MediaRequestServiceTests(unittest.TestCase):
                     service.request({"mediaType": "movie", "mediaId": 42})
                 self.assertEqual(posts, [])
 
+    def test_cached_missing_is_force_refreshed_before_posting(self):
+        for fresh_state, error_type in (
+            ({"status": "tracked"}, media_requests.MediaRequestConflict),
+            ({"status": "available"}, media_requests.MediaRequestConflict),
+            ({"status": "unknown"}, media_requests.MediaRequestUnavailable),
+        ):
+            with self.subTest(fresh_state=fresh_state):
+                posts = []
+                service, calls, _ = self.service(
+                    states=[{"status": "missing"}, fresh_state],
+                    post=lambda *args: posts.append(args),
+                )
+                with self.assertRaises(error_type):
+                    service.request({"mediaType": "movie", "mediaId": 42})
+                self.assertEqual(calls, [("movie", 42, False), ("movie", 42, True)])
+                self.assertEqual(posts, [])
+
+    def test_force_refresh_is_forwarded_to_every_authoritative_source(self):
+        library = media_requests.media_state.LibraryExclusionSnapshot.from_maps(
+            {}, {}, status="fresh", last_successful_refresh_at=None
+        )
+        arr = media_requests.media_state.ArrTrackingSnapshot.from_maps(
+            movie={},
+            tv={},
+            sources={"radarr": "fresh", "sonarr": "fresh"},
+        )
+        jellyseerr = media_requests.media_state.JellyseerrRequestSnapshot(
+            {}, {"movie:42": "fresh"}
+        )
+        with mock.patch.object(
+            media_requests.media_state,
+            "get_library_exclusion_snapshot",
+            return_value=library,
+        ) as get_library, mock.patch.object(
+            media_requests.media_state,
+            "get_arr_tracking_snapshot",
+            return_value=arr,
+        ) as get_arr, mock.patch.object(
+            media_requests.media_state,
+            "get_jellyseerr_request_snapshot",
+            return_value=jellyseerr,
+        ) as get_jellyseerr:
+            state = media_requests._read_authoritative_state("movie", 42, force=True)
+
+        self.assertEqual(state["status"], "missing")
+        get_library.assert_called_once_with(force=True)
+        get_arr.assert_called_once_with(force=True)
+        get_jellyseerr.assert_called_once_with([("movie", 42)], force=True)
+
     def test_existing_active_request_is_idempotent_only_with_a_real_id(self):
         for status in ("requested", "processing"):
             with self.subTest(status=status):
@@ -218,13 +268,14 @@ class MediaRequestServiceTests(unittest.TestCase):
                 service, calls, invalidations = self.service(
                     states=[
                         {"status": "missing"},
+                        {"status": "missing"},
                         {"status": "requested", "requestId": 901},
                     ],
                     post=lambda *_args, _error=error: (_ for _ in ()).throw(_error),
                 )
                 result = service.request({"mediaType": "movie", "mediaId": 42})
                 self.assertEqual(
-                    calls, [("movie", 42, False), ("movie", 42, True)]
+                    calls, [("movie", 42, False), ("movie", 42, True), ("movie", 42, True)]
                 )
                 self.assertEqual(invalidations, [("movie", 42), ("movie", 42)])
                 self.assertEqual(result["jellyseerr_request_id"], 901)
@@ -238,7 +289,7 @@ class MediaRequestServiceTests(unittest.TestCase):
         ):
             with self.subTest(recovered=recovered):
                 service, _, _ = self.service(
-                    states=[{"status": "missing"}, recovered],
+                    states=[{"status": "missing"}, {"status": "missing"}, recovered],
                     post=lambda *_args: (_ for _ in ()).throw(
                         JellyseerrUpstreamError(status=409, safe_detail=secret)
                     ),
@@ -257,7 +308,7 @@ class MediaRequestServiceTests(unittest.TestCase):
         )
         with self.assertRaises(media_requests.MediaRequestUpstreamFailure):
             service.request({"mediaType": "movie", "mediaId": 42})
-        self.assertEqual(calls, [("movie", 42, False)])
+        self.assertEqual(calls, [("movie", 42, False), ("movie", 42, True)])
 
     def test_hermes_identity_is_validated_before_post_and_persists_jellyseerr(self):
         store = _Store(_ai_pick_item())

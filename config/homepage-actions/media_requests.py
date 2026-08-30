@@ -162,11 +162,11 @@ def _unavailable_arr_snapshot():
 
 def _read_authoritative_state(media_type, media_id, *, force=False):
     try:
-        library = media_state.get_library_exclusion_snapshot()
+        library = media_state.get_library_exclusion_snapshot(force=force)
     except Exception:
         library = _unavailable_library_snapshot()
     try:
-        arr = media_state.get_arr_tracking_snapshot()
+        arr = media_state.get_arr_tracking_snapshot(force=force)
     except Exception:
         arr = _unavailable_arr_snapshot()
     try:
@@ -337,14 +337,30 @@ class MediaRequestService:
             return None
         return status, request_id
 
+    def _requestable_state(self, command, *, force=False):
+        state = self._state(command, force=force)
+        status = state.get("status") if isinstance(state, dict) else "unknown"
+        active = self._confirmed_active(state)
+        if active:
+            return active
+        if status in ("requested", "processing", "unknown"):
+            raise MediaRequestUnavailable(
+                "Media status is temporarily unavailable"
+            )
+        if status in ("available", "tracked"):
+            raise MediaRequestConflict("This title is already managed")
+        if status != "missing":
+            raise MediaRequestUnavailable(
+                "Media status is temporarily unavailable"
+            )
+        return None
+
     def request(self, payload):
         command = validate_request_payload(payload)
         self._validate_hermes(command)
 
         with self._locks.hold(command.identity):
-            state = self._state(command)
-            status = state.get("status") if isinstance(state, dict) else "unknown"
-            active = self._confirmed_active(state)
+            active = self._requestable_state(command)
             if active:
                 return self._result(
                     command,
@@ -352,15 +368,16 @@ class MediaRequestService:
                     request_status=active[0],
                     already_requested=True,
                 )
-            if status in ("requested", "processing", "unknown"):
-                raise MediaRequestUnavailable(
-                    "Media status is temporarily unavailable"
-                )
-            if status in ("available", "tracked"):
-                raise MediaRequestConflict("This title is already managed")
-            if status != "missing":
-                raise MediaRequestUnavailable(
-                    "Media status is temporarily unavailable"
+
+            # Cached positives are safe, but a cached negative must be proven again
+            # immediately before the mutation while this identity lock is held.
+            active = self._requestable_state(command, force=True)
+            if active:
+                return self._result(
+                    command,
+                    request_id=active[1],
+                    request_status=active[0],
+                    already_requested=True,
                 )
 
             post = self._post_request or _jellyseerr_post

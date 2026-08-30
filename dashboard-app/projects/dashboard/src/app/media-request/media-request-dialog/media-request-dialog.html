@@ -1,6 +1,7 @@
 <mm-dialog
   title="Add to library"
   [opened]="opened()"
+  [dismissible]="!busy()"
   (openedChange)="setOpened($event)"
 >
   <section class="media-request" [attr.aria-busy]="busy() || loadingSeasons() ? true : null">

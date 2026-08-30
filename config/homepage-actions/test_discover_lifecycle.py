@@ -58,8 +58,8 @@ class DiscoverLifecycleDecorationTests(unittest.TestCase):
         ), mock.patch.object(
             media_state, "get_arr_tracking_snapshot", return_value=arr
         ), mock.patch.object(
-            media_state,
-            "get_jellyseerr_request_snapshot",
+            discover,
+            "_jellyseerr_active_request_snapshot",
             return_value=jellyseerr,
         ):
             decorated = discover._decorate_discover_lifecycle(items)
@@ -75,6 +75,68 @@ class DiscoverLifecycleDecorationTests(unittest.TestCase):
         self.assertFalse(decorated[2]["monitored"])
         self.assertEqual(decorated[3]["media_status"], "missing")
         self.assertEqual(decorated[4]["media_status"], "unknown")
+
+    def test_active_requests_use_one_bounded_list_lookup_for_a_card_page(self):
+        calls = []
+        identities = [("movie", value) for value in range(1, 26)] + [("tv", 1)]
+
+        def fetch(path):
+            calls.append(path)
+            return {
+                "pageInfo": {"pages": 1},
+                "results": [
+                    {
+                        "id": 90,
+                        "type": "movie",
+                        "status": 1,
+                        "is4k": False,
+                        "media": {"tmdbId": 1},
+                    },
+                    {
+                        "id": 91,
+                        "type": "tv",
+                        "status": 2,
+                        "is4k": False,
+                        "media": {"tmdbId": 1},
+                    },
+                ],
+            }
+
+        snapshot = discover._jellyseerr_active_request_snapshot(identities, fetch=fetch)
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn("take=100", calls[0])
+        self.assertIn("filter=unavailable", calls[0])
+        self.assertEqual(snapshot.get("movie", 1), {"status": "requested", "request_id": 90})
+        self.assertEqual(snapshot.get("tv", 1), {"status": "processing", "request_id": 91})
+        self.assertEqual(snapshot.status("movie", 25), "fresh")
+
+    def test_active_request_lookup_fails_closed_after_the_page_cap(self):
+        calls = []
+
+        def fetch(path):
+            calls.append(path)
+            return {
+                "pageInfo": {"pages": 10},
+                "results": [
+                    {
+                        "id": page * 1000 + offset,
+                        "type": "movie",
+                        "status": 1,
+                        "is4k": False,
+                        "media": {"tmdbId": page * 1000 + offset},
+                    }
+                    for page in [len(calls)]
+                    for offset in range(1, 101)
+                ],
+            }
+
+        snapshot = discover._jellyseerr_active_request_snapshot(
+            [("movie", 999999)], fetch=fetch
+        )
+
+        self.assertEqual(len(calls), discover._JELLYSEERR_ACTIVE_REQUEST_MAX_PAGES)
+        self.assertEqual(snapshot.status("movie", 999999), "unavailable")
 
     def _wire_decorator(self, items, **_kwargs):
         for item in items:

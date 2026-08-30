@@ -312,6 +312,7 @@ export class CommandPalette {
 
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(event: KeyboardEvent): void {
+    if (this.requestDialogOpen()) return;
     const isPaletteShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k';
     if (isPaletteShortcut) {
       event.preventDefault();

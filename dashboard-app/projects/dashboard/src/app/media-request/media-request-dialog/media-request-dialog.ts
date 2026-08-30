@@ -49,6 +49,7 @@ export class MediaRequestDialog {
 
   private seasonRequest: AbortController | null = null;
   private loadGeneration = 0;
+  private submitGeneration = 0;
   private activeOpenIdentity: string | null = null;
 
   constructor() {
@@ -58,6 +59,7 @@ export class MediaRequestDialog {
       if (!opened) {
         this.activeOpenIdentity = null;
         this.cancelSeasonLoad();
+        this.invalidateSubmission();
         return;
       }
       if (this.activeOpenIdentity === item.identity) return;
@@ -69,14 +71,17 @@ export class MediaRequestDialog {
     });
     this.destroyRef.onDestroy(() => {
       this.cancelSeasonLoad();
+      this.invalidateSubmission();
     });
   }
 
   setOpened(opened: boolean): void {
+    if (!opened && this.busy()) return;
     this.opened.set(opened);
   }
 
   close(): void {
+    if (this.busy()) return;
     this.opened.set(false);
   }
 
@@ -95,6 +100,7 @@ export class MediaRequestDialog {
 
   async submit(): Promise<void> {
     if (!this.canSubmit()) return;
+    const generation = ++this.submitGeneration;
     this.busy.set(true);
     this.feedback.set(null);
     const item = this.item();
@@ -106,6 +112,7 @@ export class MediaRequestDialog {
         ...(item.aiPickId ? { aiPickId: item.aiPickId } : {}),
         ...(item.type === 'tv' ? { seasons } : {}),
       });
+      if (!this.isCurrentSubmission(generation, item.identity)) return;
       if (
         !action.ok ||
         !action.jellyseerr_request_id ||
@@ -115,10 +122,12 @@ export class MediaRequestDialog {
         this.feedback.set('This request could not be completed. Try again.');
         return;
       }
+      const partial =
+        action.partial_success === true || action.dashboard_state_persisted === false;
       this.opened.set(false);
-      this.toast.show('Request submitted', {
+      this.toast.show(partial ? 'Request submitted with a warning' : 'Request submitted', {
         body: action.message,
-        tone: 'success',
+        tone: partial ? 'gold' : 'success',
       });
       this.completed.emit({
         identity: item.identity,
@@ -127,17 +136,32 @@ export class MediaRequestDialog {
         alreadyRequested: action.already_requested,
       });
     } catch {
-      this.feedback.set('This request could not be completed. Try again.');
+      if (this.isCurrentSubmission(generation, item.identity)) {
+        this.feedback.set('This request could not be completed. Try again.');
+      }
     } finally {
-      this.busy.set(false);
+      if (generation === this.submitGeneration) this.busy.set(false);
     }
   }
 
   private resetState(): void {
     this.cancelSeasonLoad();
+    this.invalidateSubmission();
     this.seasons.set([]);
     this.selectedSeasonNumbers.set(new Set());
     this.feedback.set(null);
+  }
+
+  private isCurrentSubmission(generation: number, identity: string): boolean {
+    return (
+      generation === this.submitGeneration &&
+      this.opened() &&
+      this.item().identity === identity
+    );
+  }
+
+  private invalidateSubmission(): void {
+    this.submitGeneration += 1;
     this.busy.set(false);
   }
 

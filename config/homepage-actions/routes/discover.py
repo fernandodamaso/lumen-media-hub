@@ -63,6 +63,79 @@ from shared import (
 VALID_FEEDBACK_STATUSES = frozenset({"liked", "disliked", "watched", "skipped"})
 
 
+_JELLYSEERR_ACTIVE_REQUEST_PAGE_SIZE = 100
+_JELLYSEERR_ACTIVE_REQUEST_MAX_PAGES = 3
+
+
+def _jellyseerr_active_request_snapshot(identities, *, fetch=_jellyseerr_get):
+    """Read active request state with a bounded number of list requests."""
+    requested = {
+        identity
+        for item_type, tmdb_id in identities or ()
+        for identity in [media_state._typed_identity(item_type, tmdb_id)]
+        if identity
+    }
+    if not requested:
+        return media_state.JellyseerrRequestSnapshot({}, {})
+
+    states = {}
+    complete = False
+    for page_index in range(_JELLYSEERR_ACTIVE_REQUEST_MAX_PAGES):
+        skip = page_index * _JELLYSEERR_ACTIVE_REQUEST_PAGE_SIZE
+        payload = fetch(
+            "/api/v1/request"
+            f"?take={_JELLYSEERR_ACTIVE_REQUEST_PAGE_SIZE}"
+            f"&skip={skip}&filter=unavailable&sort=modified&sortDirection=desc"
+        )
+        if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+            raise ValueError("invalid Jellyseerr request list")
+        rows = payload["results"]
+        for row in rows:
+            if not isinstance(row, dict) or row.get("is4k") is True:
+                continue
+            media = row.get("media") or {}
+            if not isinstance(media, dict):
+                media = {}
+            identity = media_state._typed_identity(
+                row.get("type") or media.get("mediaType"),
+                media.get("tmdbId") or row.get("tmdbId"),
+            )
+            status = media_state._normalized_request_status(row.get("status"))
+            if identity not in requested or not status:
+                continue
+            candidate = {
+                "status": status,
+                "request_id": media_state._positive_int(row.get("id")),
+            }
+            current = states.get(identity)
+            if current is None or (
+                current.get("status") == "processing" and status == "requested"
+            ):
+                states[identity] = candidate
+
+        if requested.issubset(states):
+            complete = True
+            break
+        page_info = payload.get("pageInfo") or {}
+        if not isinstance(page_info, dict):
+            page_info = {}
+        page_count = media_state._positive_int(page_info.get("pages"))
+        if page_count is not None:
+            if page_index + 1 >= page_count:
+                complete = True
+                break
+        elif len(rows) < _JELLYSEERR_ACTIVE_REQUEST_PAGE_SIZE:
+            complete = True
+            break
+
+    return media_state.JellyseerrRequestSnapshot(
+        states=states,
+        sources={
+            identity: "fresh" if complete or identity in states else "unavailable"
+            for identity in requested
+        },
+    )
+
 def _decorate_discover_lifecycle(items, *, library=None):
     identities = [
         (item.get("type"), item.get("tmdb_id"))
@@ -85,7 +158,7 @@ def _decorate_discover_lifecycle(items, *, library=None):
             sources={"radarr": "unavailable", "sonarr": "unavailable"},
         )
     try:
-        requests = media_state.get_jellyseerr_request_snapshot(identities)
+        requests = _jellyseerr_active_request_snapshot(identities)
     except Exception:
         requests = media_state.JellyseerrRequestSnapshot(
             {},

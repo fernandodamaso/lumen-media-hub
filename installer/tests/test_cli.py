@@ -89,6 +89,15 @@ class CliContractTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(cli.main(["doctor", "--unknown"]), int(ExitCode.INVALID))
 
+    def test_unknown_argument_values_are_not_echoed(self):
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            result = cli.main(["doctor", "--token", "SUPERSECRET"])
+
+        self.assertEqual(result, int(ExitCode.INVALID))
+        self.assertIn("unrecognized arguments", errors.getvalue())
+        self.assertNotIn("SUPERSECRET", errors.getvalue())
+
     def test_launcher_works_from_another_current_directory(self):
         install_sh = WORKTREE_ROOT / "install.sh"
         with tempfile.TemporaryDirectory() as other_cwd:

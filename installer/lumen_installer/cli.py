@@ -33,11 +33,19 @@ PUBLIC_COMMANDS = (
 CommandChoicesAction = argparse._SubParsersAction
 
 
+def _safe_argument_error(message: str) -> str:
+    """Keep invalid-argument diagnostics useful without echoing raw values."""
+
+    if message.startswith("unrecognized arguments:"):
+        return "unrecognized arguments"
+    return message
+
+
 class InstallerArgumentParser(argparse.ArgumentParser):
     """Convert expected argparse failures into typed installer errors."""
 
     def error(self, message: str) -> None:
-        raise InvalidInputError(f"argument error: {message}")
+        raise InvalidInputError(f"argument error: {_safe_argument_error(message)}")
 
     def exit(self, status: int = 0, message: str | None = None) -> None:
         if message:

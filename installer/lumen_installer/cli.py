@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable
 
 from .errors import (
@@ -14,6 +16,7 @@ from .errors import (
     InvalidInputError,
     NotAvailableError,
 )
+from .docker import run_host_doctor
 
 
 PUBLIC_COMMANDS = (
@@ -62,6 +65,40 @@ def _not_available(args: argparse.Namespace) -> None:
     raise NotAvailableError(
         f"command '{args.command}' is not available in this installer phase"
     )
+
+
+_SECRET_FIELD = re.compile(
+    r"(?:password|secret|token|api[_-]?key|private[_-]?key|credential|cookie|account[_-]?id)",
+    re.IGNORECASE,
+)
+
+
+def _redact_report(value: Any) -> Any:
+    """Redact secret-looking fields before a doctor report reaches stdout."""
+
+    if isinstance(value, Mapping):
+        return {
+            str(key): "<redacted>"
+            if _SECRET_FIELD.search(str(key))
+            else _redact_report(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, tuple):
+        return [_redact_report(item) for item in value]
+    if isinstance(value, list):
+        return [_redact_report(item) for item in value]
+    return value
+
+
+def _doctor(args: argparse.Namespace) -> int:
+    report = run_host_doctor(
+        uid=getattr(args, "uid", None),
+        gid=getattr(args, "gid", None),
+        timezone=getattr(args, "timezone", None),
+        image=getattr(args, "image", None),
+    )
+    print(json.dumps(_redact_report(report), sort_keys=True))
+    return int(ExitCode.OK)
 
 
 def _owner_id(value: str) -> int:
@@ -160,6 +197,12 @@ def build_parser() -> InstallerArgumentParser:
             description=descriptions[command],
         )
         _add_shared_options(subparser, suppress_defaults=True)
+        if command == "doctor":
+            subparser.add_argument(
+                "--image",
+                metavar="IMAGE",
+                help="inspect a registry manifest without pulling the image",
+            )
         if command == "update":
             subparser.add_argument(
                 "--rollback",
@@ -173,6 +216,7 @@ def build_parser() -> InstallerArgumentParser:
 COMMAND_HANDLERS: dict[str, Handler] = {
     command: _not_available for command in PUBLIC_COMMANDS
 }
+COMMAND_HANDLERS["doctor"] = _doctor
 
 
 def dispatch(args: argparse.Namespace) -> int | ExitCode | None:

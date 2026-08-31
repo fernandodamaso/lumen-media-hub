@@ -36,6 +36,17 @@ class InvalidInputError(InstallerError):
     exit_code = ExitCode.INVALID
 
 
+class PreflightError(InvalidInputError):
+    """A host or runtime prerequisite cannot be satisfied safely."""
+
+
+class UnsupportedPlatformError(PreflightError):
+    """The host distribution has no approved dependency policy."""
+
+
+UnsupportedDistroError = UnsupportedPlatformError
+
+
 class DriftError(InstallerError):
     """Existing configuration requires an explicit decision."""
 
@@ -64,6 +75,9 @@ __all__ = [
     "HelpRequested",
     "InstallerError",
     "InvalidInputError",
+    "PreflightError",
     "NotAvailableError",
     "PartialError",
+    "UnsupportedDistroError",
+    "UnsupportedPlatformError",
 ]

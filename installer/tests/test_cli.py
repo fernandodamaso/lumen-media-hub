@@ -138,6 +138,60 @@ class CliContractTests(unittest.TestCase):
         self.assertIn("unrecognized arguments", errors.getvalue())
         self.assertNotIn("SUPERSECRET", errors.getvalue())
 
+    def test_doctor_host_portion_prints_redacted_preflight_report_and_maps_failure(self):
+        fake_report = {
+            "status": "ok",
+            "docker_version": (26, 1, 4),
+            "compose_version": (2, 24, 4),
+            "secret": "must-not-appear",
+        }
+        with mock.patch("lumen_installer.cli.run_host_doctor", return_value=fake_report):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result = cli.main(["doctor"])
+
+        self.assertEqual(result, int(ExitCode.OK))
+        self.assertNotIn("must-not-appear", output.getvalue())
+        self.assertIn("compose_version", output.getvalue())
+
+    def test_doctor_preflight_failure_uses_invalid_exit_code(self):
+        with mock.patch(
+            "lumen_installer.cli.run_host_doctor",
+            side_effect=InvalidInputError("Compose 2.24.3 is below required floor"),
+        ):
+            with contextlib.redirect_stderr(io.StringIO()):
+                result = cli.main(["doctor"])
+
+        self.assertEqual(result, int(ExitCode.INVALID))
+
+    def test_doctor_passes_explicit_host_overrides_to_host_preflight(self):
+        with mock.patch(
+            "lumen_installer.cli.run_host_doctor",
+            return_value={"status": "ok"},
+        ) as run_host_doctor:
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = cli.main(
+                    [
+                        "doctor",
+                        "--uid",
+                        "1001",
+                        "--gid",
+                        "1002",
+                        "--timezone",
+                        "UTC",
+                        "--image",
+                        "example/image:latest",
+                    ]
+                )
+
+        self.assertEqual(result, int(ExitCode.OK))
+        run_host_doctor.assert_called_once_with(
+            uid=1001,
+            gid=1002,
+            timezone="UTC",
+            image="example/image:latest",
+        )
+
     def test_launcher_works_from_another_current_directory(self):
         install_sh = WORKTREE_ROOT / "install.sh"
         with tempfile.TemporaryDirectory() as other_cwd:

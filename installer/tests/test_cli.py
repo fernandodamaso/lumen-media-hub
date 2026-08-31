@@ -53,6 +53,46 @@ class CliContractTests(unittest.TestCase):
             "update",
         })
 
+    def test_shared_host_and_answers_options_work_before_or_after_command(self):
+        parser = cli.build_parser()
+
+        before = parser.parse_args(
+            [
+                "--uid",
+                "1001",
+                "--gid",
+                "1002",
+                "--tz",
+                "UTC",
+                "--answers",
+                "answers.json",
+                "--non-interactive",
+                "setup",
+            ]
+        )
+        after = parser.parse_args(
+            [
+                "doctor",
+                "--puid",
+                "01001",
+                "--pgid",
+                "01002",
+                "--timezone",
+                "Europe/Lisbon",
+                "--answers",
+                "answers.json",
+                "--non-interactive",
+            ]
+        )
+
+        self.assertEqual((before.uid, before.gid), (1001, 1002))
+        self.assertEqual(before.timezone, "UTC")
+        self.assertEqual(before.answers, "answers.json")
+        self.assertTrue(before.noninteractive)
+        self.assertEqual((after.uid, after.gid), (1001, 1002))
+        self.assertEqual(after.timezone, "Europe/Lisbon")
+        self.assertTrue(after.noninteractive)
+
     def test_exit_codes_are_stable(self):
         self.assertEqual(int(ExitCode.OK), 0)
         self.assertEqual(int(ExitCode.INVALID), 2)

@@ -8,6 +8,8 @@ from .errors import (
     NotAvailableError,
     PartialError,
 )
+from .answers import Answers, Resolver
+from .platform import HostFacts, detect_host
 
 __all__ = [
     "DriftError",
@@ -16,4 +18,8 @@ __all__ = [
     "InvalidInputError",
     "NotAvailableError",
     "PartialError",
+    "Answers",
+    "HostFacts",
+    "Resolver",
+    "detect_host",
 ]

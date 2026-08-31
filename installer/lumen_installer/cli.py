@@ -64,6 +64,68 @@ def _not_available(args: argparse.Namespace) -> None:
     )
 
 
+def _owner_id(value: str) -> int:
+    candidate = value.strip()
+    try:
+        parsed = int(candidate, 10)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a nonzero integer") from exc
+    if parsed <= 0 or not candidate.isdigit():
+        raise argparse.ArgumentTypeError("must be a nonzero integer")
+    return parsed
+
+
+def _add_shared_options(parser: argparse.ArgumentParser, *, suppress_defaults: bool = False) -> None:
+    """Add options shared by every installer command.
+
+    They are accepted both before and after the command name.  Child parser
+    defaults are suppressed so a value supplied before the command is not
+    overwritten while argparse descends into the subparser.
+    """
+
+    default = argparse.SUPPRESS if suppress_defaults else None
+    parser.add_argument(
+        "--uid",
+        "--puid",
+        dest="uid",
+        type=_owner_id,
+        default=default,
+        metavar="UID",
+        help="numeric owner UID for files and containers",
+    )
+    parser.add_argument(
+        "--gid",
+        "--pgid",
+        dest="gid",
+        type=_owner_id,
+        default=default,
+        metavar="GID",
+        help="numeric owner GID for files and containers",
+    )
+    parser.add_argument(
+        "--timezone",
+        "--tz",
+        dest="timezone",
+        default=default,
+        metavar="ZONE",
+        help="override detected host timezone",
+    )
+    parser.add_argument(
+        "--answers",
+        dest="answers",
+        default=default,
+        metavar="PATH",
+        help="load non-secret answers from a version-1 JSON file",
+    )
+    parser.add_argument(
+        "--non-interactive",
+        dest="noninteractive",
+        action="store_true",
+        default=argparse.SUPPRESS if suppress_defaults else False,
+        help="fail when a required value is missing instead of prompting",
+    )
+
+
 def build_parser() -> InstallerArgumentParser:
     """Build the parser containing the complete public Linux command set."""
 
@@ -71,6 +133,7 @@ def build_parser() -> InstallerArgumentParser:
         prog="lumen_installer",
         description="Lumen Media Hub Linux installer",
     )
+    _add_shared_options(parser)
     subparsers = parser.add_subparsers(
         dest="command",
         metavar="COMMAND",
@@ -96,6 +159,7 @@ def build_parser() -> InstallerArgumentParser:
             help=descriptions[command],
             description=descriptions[command],
         )
+        _add_shared_options(subparser, suppress_defaults=True)
         if command == "update":
             subparser.add_argument(
                 "--rollback",

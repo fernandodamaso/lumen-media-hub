@@ -532,18 +532,40 @@ class ManifestInspection:
         return self.report
 
 
-def _platforms_from_payload(payload: Any) -> set[tuple[str, str, str | None]]:
+def _platforms_from_payload(payload: Any) -> set[tuple[str, str, str | None]] | None:
     found: set[tuple[str, str, str | None]] = set()
+    malformed = False
 
     def visit(value: Any) -> None:
+        nonlocal malformed
         if isinstance(value, Mapping):
-            platform = value.get("platform")
-            if isinstance(platform, Mapping):
-                os_name = str(platform.get("os", "")).lower()
-                architecture = str(platform.get("architecture", "")).lower()
-                variant = platform.get("variant")
-                if os_name == "linux" and architecture:
-                    found.add((os_name, architecture, str(variant) if variant else None))
+            if "platform" in value:
+                platform = value.get("platform")
+                if not isinstance(platform, Mapping):
+                    malformed = True
+                else:
+                    os_value = platform.get("os")
+                    architecture_value = platform.get("architecture")
+                    if (
+                        not isinstance(os_value, str)
+                        or not os_value.strip()
+                        or not isinstance(architecture_value, str)
+                        or not architecture_value.strip()
+                    ):
+                        malformed = True
+                    else:
+                        os_name = os_value.strip().lower()
+                        architecture = architecture_value.strip().lower()
+                        variant_value = platform.get("variant")
+                        if variant_value is not None and (
+                            not isinstance(variant_value, str) or not variant_value.strip()
+                        ):
+                            malformed = True
+                        elif os_name == "linux":
+                            variant = (
+                                variant_value.strip() if isinstance(variant_value, str) else None
+                            )
+                            found.add((os_name, architecture, variant))
             for child in value.values():
                 visit(child)
         elif isinstance(value, list):
@@ -551,7 +573,7 @@ def _platforms_from_payload(payload: Any) -> set[tuple[str, str, str | None]]:
                 visit(child)
 
     visit(payload)
-    return found
+    return None if malformed else found
 
 
 def _decode_manifest(stdout: Any) -> Any:
@@ -596,6 +618,12 @@ def inspect_manifest_architectures(
     if payload is None:
         return ManifestInspection(image=image, status="unknown", error="manifest output was not valid JSON")
     platform_values = _platforms_from_payload(payload)
+    if platform_values is None:
+        return ManifestInspection(
+            image=image,
+            status="unknown",
+            error="manifest platform metadata was malformed",
+        )
     if not platform_values:
         return ManifestInspection(image=image, status="unknown", error="manifest has no Linux platforms")
     platforms = tuple(

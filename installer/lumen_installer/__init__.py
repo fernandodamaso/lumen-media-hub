@@ -15,6 +15,7 @@ from .platform import HostFacts, detect_host
 from .secrets import ensure_actions_token
 from .commands import (
     DEFAULT_TIMEOUT,
+    CommandExecutor,
     CommandError,
     CommandExecutionError,
     CommandResult,
@@ -59,6 +60,7 @@ __all__ = [
     "write_atomic",
     "CommandError",
     "CommandExecutionError",
+    "CommandExecutor",
     "CommandResult",
     "CommandRunner",
     "DEFAULT_TIMEOUT",

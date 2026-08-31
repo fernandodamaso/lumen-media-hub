@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -51,7 +52,37 @@ class CommandRunnerTests(unittest.TestCase):
         result = CommandRunner(executor=delegate).run(["tool"])
 
         self.assertEqual(result.stdout, "ok")
-        delegate.run.assert_called_once_with(["tool"])
+        delegate.run.assert_called_once_with(["tool"], input_text=None, timeout=30.0)
+
+    def test_injected_executor_receives_the_configured_timeout(self):
+        observed = []
+
+        def execute(_argv, *, timeout=None):
+            observed.append(timeout)
+            return subprocess.CompletedProcess(["tool"], 0, stdout="ok", stderr="")
+
+        result = CommandRunner(executor=execute, timeout=0.25).run(["tool"])
+
+        self.assertEqual(result.stdout, "ok")
+        self.assertEqual(observed, [0.25])
+
+    def test_delayed_injected_executor_has_a_typed_redacted_timeout(self):
+        secret = "delayed-secret"
+
+        def delayed(_argv, *, timeout=None):
+            del timeout
+            time.sleep(0.05)
+            return subprocess.CompletedProcess(["tool", secret], 0, stdout=secret, stderr=secret)
+
+        with self.assertRaises(CommandExecutionError) as raised:
+            CommandRunner(executor=delayed, timeout=0.005).run(
+                ["tool", secret], redact=(secret,)
+            )
+
+        self.assertTrue(raised.exception.report["timed_out"])
+        self.assertEqual(raised.exception.report["timeout"], 0.005)
+        self.assertNotIn(secret, str(raised.exception))
+        self.assertNotIn(secret, repr(raised.exception.report))
 
     def test_default_timeout_is_bounded_and_timeout_error_is_typed_and_redacted(self):
         secret = "timeout-secret"
@@ -100,6 +131,19 @@ class CommandRunnerTests(unittest.TestCase):
         with mock.patch("lumen_installer.commands.subprocess.run", return_value=completed):
             with self.assertRaises(CommandExecutionError):
                 CommandRunner().run(["tool"])
+
+    def test_all_falsey_non_text_stream_types_are_typed_failures(self):
+        for field in ("stdout", "stderr"):
+            for value in (0, False, [], {}):
+                with self.subTest(field=field, value=type(value).__name__):
+                    streams = {"stdout": "", "stderr": ""}
+                    streams[field] = value
+                    completed = subprocess.CompletedProcess(["tool"], 0, **streams)
+                    with mock.patch(
+                        "lumen_installer.commands.subprocess.run", return_value=completed
+                    ):
+                        with self.assertRaises(CommandExecutionError):
+                            CommandRunner().run(["tool"])
 
     def test_rejects_string_commands_before_invoking_subprocess(self):
         with mock.patch("lumen_installer.commands.subprocess.run") as run:

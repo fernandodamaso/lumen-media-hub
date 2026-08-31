@@ -10,16 +10,36 @@ from __future__ import annotations
 
 import inspect
 import math
+import queue
 import subprocess
+import threading
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 from .errors import InvalidInputError
 
 
 REDACTED = "<redacted>"
 DEFAULT_TIMEOUT = 30.0
+
+
+class CommandExecutor(Protocol):
+    """Protocol for injected command executors.
+
+    Implementations receive the same bounded timeout used by
+    :class:`CommandRunner`.  The runner still accepts legacy one-argument
+    test seams by inspecting their signature before invocation.
+    """
+
+    def __call__(
+        self,
+        argv: Sequence[str],
+        *,
+        input_text: str | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> Any:
+        ...
 
 
 def _redaction_values(redact: Iterable[Any] | Any) -> tuple[str, ...]:
@@ -177,8 +197,8 @@ def _coerce_completed(argv: Sequence[str], completed: Any, redact: tuple[str, ..
             normalize_stream(completed.stderr, name="stderr"),
             redact,
         )
-    stdout = normalize_stream(getattr(completed, "stdout", "") or "", name="stdout")
-    stderr = normalize_stream(getattr(completed, "stderr", "") or "", name="stderr")
+    stdout = normalize_stream(getattr(completed, "stdout", ""), name="stdout")
+    stderr = normalize_stream(getattr(completed, "stderr", ""), name="stderr")
     return CommandResult(
         tuple(argv),
         int(getattr(completed, "returncode", 0)),
@@ -223,18 +243,73 @@ class CommandRunner:
             raise TypeError(f"unexpected CommandRunner option: {unknown}")
 
     @staticmethod
-    def _invoke_executor(executor: Callable[..., Any], argv: list[str], input_text: str | None) -> Any:
-        if input_text is None:
-            return executor(argv)
+    def _invoke_executor(
+        executor: Callable[..., Any],
+        argv: list[str],
+        input_text: str | None,
+        timeout: float,
+    ) -> Any:
         try:
-            parameters = inspect.signature(executor).parameters.values()
+            parameters = tuple(inspect.signature(executor).parameters.values())
         except (TypeError, ValueError):
-            return executor(argv, input_text=input_text)
-        accepts_keyword = any(
-            parameter.kind is inspect.Parameter.VAR_KEYWORD or parameter.name == "input_text"
-            for parameter in parameters
+            return executor(argv, input_text=input_text, timeout=timeout)
+
+        accepts_kwargs = any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters
         )
-        return executor(argv, input_text=input_text) if accepts_keyword else executor(argv)
+        positional = [argv]
+        keyword: dict[str, Any] = {}
+        for parameter in parameters[1:]:
+            if parameter.kind is inspect.Parameter.POSITIONAL_ONLY:
+                if parameter.name == "input_text":
+                    positional.append(input_text)
+                elif parameter.name == "timeout":
+                    positional.append(timeout)
+                elif parameter.default is inspect.Parameter.empty:
+                    # Let Python produce the usual invocation TypeError for
+                    # unsupported required positional parameters.
+                    return executor(*positional)
+            elif parameter.name == "input_text":
+                keyword[parameter.name] = input_text
+            elif parameter.name == "timeout":
+                keyword[parameter.name] = timeout
+        if accepts_kwargs:
+            keyword.setdefault("input_text", input_text)
+            keyword.setdefault("timeout", timeout)
+        return executor(*positional, **keyword)
+
+    def _run_injected(
+        self,
+        executor: Callable[..., Any],
+        argv: list[str],
+        input_text: str | None,
+    ) -> Any:
+        """Run an injected seam with the same wall-clock bound as subprocesses."""
+
+        result_queue: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
+
+        def invoke() -> None:
+            try:
+                result_queue.put(
+                    (True, self._invoke_executor(executor, argv, input_text, self.timeout))
+                )
+            except BaseException as error:
+                # Preserve KeyboardInterrupt/SystemExit for the caller while
+                # still transporting ordinary executor failures safely.
+                result_queue.put((False, error))
+
+        thread = threading.Thread(target=invoke, daemon=True)
+        thread.start()
+        thread.join(self.timeout)
+        if thread.is_alive():
+            raise subprocess.TimeoutExpired(argv, self.timeout)
+        try:
+            succeeded, value = result_queue.get_nowait()
+        except queue.Empty as error:
+            raise RuntimeError("injected executor returned no result") from error
+        if not succeeded:
+            raise value
+        return value
 
     def run(
         self,
@@ -249,7 +324,7 @@ class CommandRunner:
         secrets = _redaction_values(redact)
         try:
             if self._executor is not None:
-                completed = self._invoke_executor(self._executor, vector, input_text)
+                completed = self._run_injected(self._executor, vector, input_text)
             else:
                 completed = subprocess.run(
                     vector,
@@ -299,6 +374,7 @@ class CommandRunner:
 
 __all__ = [
     "CommandError",
+    "CommandExecutor",
     "CommandExecutionError",
     "CommandResult",
     "CommandRunner",

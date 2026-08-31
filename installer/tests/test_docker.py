@@ -342,6 +342,42 @@ class ManifestInspectionTests(unittest.TestCase):
         self.assertEqual(result.status, "unknown")
         self.assertFalse(result.supported)
 
+    def test_malformed_platform_os_or_architecture_never_claims_support(self):
+        malformed_values = (None, 1, True, "")
+        for field in ("os", "architecture"):
+            for value in malformed_values:
+                with self.subTest(field=field, value=repr(value)):
+                    platform = {"os": "linux", "architecture": "amd64"}
+                    platform[field] = value
+                    runner = mock.Mock()
+                    runner.run.return_value = mock.Mock(
+                        stdout=json.dumps({"manifests": [{"platform": platform}]}),
+                        stderr="",
+                        returncode=0,
+                    )
+
+                    result = inspect_manifest_architectures("image:tag", runner=runner)
+
+                    self.assertEqual(result.status, "unknown")
+                    self.assertFalse(result.supported)
+
+    def test_malformed_platform_does_not_get_hidden_by_a_valid_platform(self):
+        payload = {
+            "manifests": [
+                {"platform": {"os": "linux", "architecture": "amd64"}},
+                {"platform": {"os": "linux", "architecture": 1}},
+            ]
+        }
+        runner = mock.Mock()
+        runner.run.return_value = mock.Mock(
+            stdout=json.dumps(payload), stderr="", returncode=0
+        )
+
+        result = inspect_manifest_architectures("image:tag", runner=runner)
+
+        self.assertEqual(result.status, "unknown")
+        self.assertFalse(result.supported)
+
 
 if __name__ == "__main__":
     unittest.main()

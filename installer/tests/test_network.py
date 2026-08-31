@@ -92,6 +92,60 @@ class NetworkPlanTests(unittest.TestCase):
                 with self.assertRaises(InvalidInputError):
                     plan_network({}, "lan", host, interactive=False)
 
+    def test_lan_public_host_rejects_loopback_localhost_multicast_and_broadcast(self):
+        for host in (
+            "127.0.0.1",
+            "::1",
+            "localhost",
+            "jellyfin.localhost",
+            "224.0.0.1",
+            "255.255.255.255",
+            "192.0.2.255",
+        ):
+            with self.subTest(host=host):
+                with self.assertRaises(InvalidInputError):
+                    plan_network({}, "lan", host, interactive=False)
+
+    def test_local_mode_accepts_loopback_public_host_but_lan_rejects_existing_loopback(self):
+        local = plan_network(
+            {"JELLYFIN_BIND_ADDRESS": "127.0.0.1", "PUBLIC_HOST": "127.0.0.1"},
+            "local",
+            None,
+            interactive=False,
+        )
+        self.assertEqual(local.values["PUBLIC_HOST"], "127.0.0.1")
+
+        with self.assertRaises(InvalidInputError):
+            plan_network(
+                {"JELLYFIN_BIND_ADDRESS": "127.0.0.1", "PUBLIC_HOST": "127.0.0.1"},
+                "lan",
+                None,
+                interactive=False,
+            )
+
+    def test_v1_rejects_ipv6_public_hosts_until_compose_urls_support_brackets(self):
+        with self.assertRaisesRegex(InvalidInputError, "IPv6"):
+            plan_network({}, "lan", "2001:db8::20", interactive=False)
+
+    def test_bind_addresses_are_compose_ip_literals_not_hostnames(self):
+        for key, value in (
+            ("JELLYFIN_BIND_ADDRESS", "media.example.test"),
+            ("MANAGEMENT_BIND_ADDRESS", "localhost"),
+            ("JELLYFIN_BIND_ADDRESS", "2001:db8::20"),
+        ):
+            with self.subTest(key=key, value=value):
+                with self.assertRaises(InvalidInputError):
+                    plan_network({key: value}, None, None, interactive=False)
+
+    def test_legacy_missing_binds_preserve_all_interface_exposure_with_warning(self):
+        plan = plan_network({"ROOT_PATH": "/srv/media"}, None, None, interactive=True)
+
+        self.assertEqual(plan.values["JELLYFIN_BIND_ADDRESS"], "0.0.0.0")
+        self.assertEqual(plan.values["MANAGEMENT_BIND_ADDRESS"], "0.0.0.0")
+        self.assertTrue(any(record["key"] == "MANAGEMENT_BIND_ADDRESS" for record in plan.drift))
+        self.assertIn("management", (plan.warning or "").lower())
+
+
     def test_existing_explicit_values_are_preserved_without_reconciliation(self):
         plan = plan_network(
             {
@@ -126,7 +180,7 @@ class NetworkPlanTests(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("docker"), "Docker is not installed")
 class ComposeNetworkBindingTests(unittest.TestCase):
-    def _compose_config(self, *profiles: str, dev: bool = False) -> dict:
+    def _compose_config(self, *profiles: str, dev: bool = False, gpu: bool = False) -> dict:
         with tempfile.TemporaryDirectory() as temporary:
             env_path = Path(temporary) / ".env"
             env_path.write_text(
@@ -176,6 +230,8 @@ class ComposeNetworkBindingTests(unittest.TestCase):
             ]
             if dev:
                 command.extend(("-f", str(WORKTREE_ROOT / "docker-compose.dev.yml")))
+            if gpu:
+                command.extend(("-f", str(WORKTREE_ROOT / "docker-compose.gpu.yml")))
             for profile in profiles:
                 command.extend(("--profile", profile))
             command.extend(("config", "--format", "json"))
@@ -228,6 +284,65 @@ class ComposeNetworkBindingTests(unittest.TestCase):
         self.assertEqual(dashboard_port["host_ip"], "127.0.0.1")
         self.assertEqual(str(dashboard_port["published"]), "3000")
         self.assertEqual(str(dashboard_port["target"]), "4200")
+
+    def test_gpu_overlay_keeps_all_published_bindings_explicit(self):
+        services = self._compose_config(
+            "subtitles", "requests", "maintenance", "indexer-tools", "ai", gpu=True
+        )
+
+        self.assertEqual(services["jellyfin"]["ports"][0]["host_ip"], "0.0.0.0")
+        self.assertEqual(services["jellyfin"]["deploy"]["resources"]["reservations"]["devices"][0]["driver"], "nvidia")
+        for name, service in services.items():
+            for port in service.get("ports", []):
+                if name == "qbittorrent" and port in service["ports"][1:]:
+                    self.assertNotIn("host_ip", port)
+                elif name == "homepage-actions":
+                    self.assertEqual(port["host_ip"], "127.0.0.1")
+                elif name == "jellyfin":
+                    self.assertEqual(port["host_ip"], "0.0.0.0")
+                else:
+                    self.assertEqual(port["host_ip"], "127.0.0.1")
+
+    def test_combined_dev_gpu_keeps_dashboard_loopback_and_gpu_jellyfin(self):
+        services = self._compose_config(dev=True, gpu=True)
+
+        dashboard_port = services["dashboard"]["ports"][0]
+        self.assertEqual(dashboard_port["host_ip"], "127.0.0.1")
+        self.assertEqual(str(dashboard_port["target"]), "4200")
+        self.assertEqual(services["jellyfin"]["ports"][0]["host_ip"], "0.0.0.0")
+
+
+class WindowsNetworkMigrationSourceTests(unittest.TestCase):
+    def test_windows_existing_env_migration_preserves_legacy_network_before_compose(self):
+        source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
+        merge_start = source.index("function Merge-MissingEnvKeys")
+        merge_end = source.index("function Initialize-EnvFile")
+        merge = source[merge_start:merge_end]
+
+        self.assertIn("JELLYFIN_BIND_ADDRESS", merge)
+        self.assertIn("MANAGEMENT_BIND_ADDRESS", merge)
+        self.assertIn("PUBLIC_HOST", merge)
+        self.assertIn("JELLYFIN_REMOTE_ACCESS", merge)
+        self.assertIn("Write-Warning", merge)
+
+        for function_name in ("Invoke-RedeployDashboard", "Invoke-Stack", "Invoke-StackUp"):
+            function_start = source.index(f"function {function_name}")
+            next_function = source.find("function ", function_start + 1)
+            body = source[function_start:] if next_function < 0 else source[function_start:next_function]
+            self.assertLess(body.index("Initialize-EnvFile"), body.index("docker compose"))
+
+    def test_windows_migration_does_not_overwrite_explicit_network_values(self):
+        source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
+        merge_start = source.index("function Merge-MissingEnvKeys")
+        merge_end = source.index("function Initialize-EnvFile")
+        merge = source[merge_start:merge_end]
+
+        self.assertIn("-not $map.ContainsKey('JELLYFIN_BIND_ADDRESS')", merge)
+        self.assertIn("-not $map.ContainsKey('MANAGEMENT_BIND_ADDRESS')", merge)
+        self.assertIn("-not $map.ContainsKey('PUBLIC_HOST')", merge)
+        self.assertIn("-not $map.ContainsKey('JELLYFIN_REMOTE_ACCESS')", merge)
+        self.assertIn("0.0.0.0", merge)
+        self.assertIn("127.0.0.1", merge)
 
 
 if __name__ == "__main__":

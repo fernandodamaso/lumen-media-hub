@@ -27,12 +27,6 @@ JELLYFIN_REMOTE_ACCESS = "JELLYFIN_REMOTE_ACCESS"
 LOCAL_BIND_ADDRESS = "127.0.0.1"
 LAN_BIND_ADDRESS = "0.0.0.0"
 LOCAL_PUBLIC_HOST = "127.0.0.1"
-_NETWORK_KEYS = (
-    JELLYFIN_BIND_ADDRESS,
-    MANAGEMENT_BIND_ADDRESS,
-    PUBLIC_HOST,
-    JELLYFIN_REMOTE_ACCESS,
-)
 _HOST_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
 
@@ -71,7 +65,12 @@ def _normalise_mode(requested_mode: Any) -> str | None:
     return mode
 
 
-def _validated_host(value: Any, *, field: str = PUBLIC_HOST) -> str:
+def _validated_host(
+    value: Any,
+    *,
+    field: str = PUBLIC_HOST,
+    allow_local: bool = False,
+) -> str:
     if not isinstance(value, str):
         raise InvalidInputError(f"{field} must be a hostname or IP address")
     host = value.strip()
@@ -87,8 +86,22 @@ def _validated_host(value: Any, *, field: str = PUBLIC_HOST) -> str:
     except ValueError:
         address = None
     if address is not None:
-        if address.is_unspecified or address.is_multicast:
-            raise InvalidInputError(f"{field} must not be a wildcard or multicast address")
+        if address.version == 6:
+            raise InvalidInputError(
+                f"{field} IPv6 literals are not supported in v1 public URLs"
+            )
+        if address.is_loopback and not allow_local:
+            raise InvalidInputError(f"{field} must not be a loopback address")
+        # A v1 installer cannot know the user's subnet, so reject the
+        # conventional directed-broadcast suffix as well as limited
+        # broadcast.  It is never a usable destination for a public URL.
+        if (
+            address.is_unspecified
+            or address.is_multicast
+            or int(address) == 0xFFFFFFFF
+            or int(address) & 0xFF == 0xFF
+        ):
+            raise InvalidInputError(f"{field} must not be wildcard, multicast, or broadcast")
         return host
 
     # Colons are only accepted as part of a parsed IPv6 literal.  This rejects
@@ -98,8 +111,12 @@ def _validated_host(value: Any, *, field: str = PUBLIC_HOST) -> str:
     labels = host.split(".")
     if any(not label or not _HOST_LABEL.fullmatch(label) for label in labels):
         raise InvalidInputError(f"{field} must be a usable hostname or IP address")
-    if host.lower() in {"*", "0.0.0.0", "::"}:
-        raise InvalidInputError(f"{field} must not be a wildcard address")
+    lowered = host.lower()
+    if (
+        lowered == "*"
+        or (not allow_local and (lowered == "localhost" or lowered.endswith(".localhost")))
+    ):
+        raise InvalidInputError(f"{field} must be reachable from the LAN, not localhost")
     return host
 
 
@@ -112,15 +129,13 @@ def _validated_bind(value: Any, *, field: str) -> str:
     if any(character in bind for character in ("/", "?", "#", "@")) or "://" in bind:
         raise InvalidInputError(f"{field} must be a bind address, not a URL")
     try:
-        ipaddress.ip_address(bind)
-        return bind
-    except ValueError:
-        pass
-    if ":" in bind or len(bind) > 253:
-        raise InvalidInputError(f"{field} must be an IP address or hostname without a port")
-    labels = bind.split(".")
-    if any(not label or not _HOST_LABEL.fullmatch(label) for label in labels):
-        raise InvalidInputError(f"{field} must be an IP address or hostname")
+        address = ipaddress.ip_address(bind)
+    except ValueError as exc:
+        raise InvalidInputError(
+            f"{field} must be a Compose-compatible IPv4 literal"
+        ) from exc
+    if address.version != 4:
+        raise InvalidInputError(f"{field} IPv6 literals are not supported in v1 bindings")
     return bind
 
 
@@ -227,9 +242,13 @@ def plan_network(
         existing_management = _validated_bind(
             existing_management, field=MANAGEMENT_BIND_ADDRESS
         )
+    management_legacy = adopted and existing_management is None
     existing_public = env.get(PUBLIC_HOST)
     if existing_public is not None:
-        existing_public = _validated_host(existing_public)
+        existing_public = _validated_host(
+            existing_public,
+            allow_local=mode not in {"lan", "preserve-lan"},
+        )
     existing_remote = env.get(JELLYFIN_REMOTE_ACCESS)
     if existing_remote is not None:
         existing_remote = _bool_text(existing_remote, field=JELLYFIN_REMOTE_ACCESS)
@@ -239,7 +258,10 @@ def plan_network(
     # typo fail before any Compose mutation.
     supplied_public = None
     if public_host is not None:
-        supplied_public = _validated_host(public_host)
+        supplied_public = _validated_host(
+            public_host,
+            allow_local=mode not in {"lan", "preserve-lan"},
+        )
 
     if legacy:
         drift.append(
@@ -254,17 +276,37 @@ def plan_network(
                 ),
             )
         )
-        if mode is None:
-            if not interactive:
-                raise DriftError(
-                    "JELLYFIN_BIND_ADDRESS is missing from an adopted environment; "
-                    "choose preserve-LAN or local before Compose mutation"
+    if management_legacy:
+        drift.append(
+            _record(
+                MANAGEMENT_BIND_ADDRESS,
+                None,
+                LAN_BIND_ADDRESS,
+                kind="legacy-lan",
+                reason=(
+                    "adopted environment predates an explicit management bind; "
+                    "preserve its prior all-interface publication"
+                ),
+            )
+        )
+
+    legacy_network = legacy or management_legacy
+    if legacy_network and mode is None:
+        if not interactive:
+            missing = " and ".join(
+                key
+                for key, is_missing in (
+                    (JELLYFIN_BIND_ADDRESS, legacy),
+                    (MANAGEMENT_BIND_ADDRESS, management_legacy),
                 )
-            selected_mode = "preserve-lan"
-            selected = None
-        else:
-            selected_mode = mode
-            selected = mode
+                if is_missing
+            )
+            raise DriftError(
+                f"{missing} is missing from an adopted environment; "
+                "choose preserve-LAN or local before Compose mutation"
+            )
+        selected_mode = "preserve-lan"
+        selected = None
     else:
         selected_mode = mode
         selected = mode
@@ -273,6 +315,10 @@ def plan_network(
         effective_jellyfin = existing_jellyfin or LOCAL_BIND_ADDRESS
     elif selected_mode == "local":
         effective_jellyfin = LOCAL_BIND_ADDRESS
+    elif selected_mode == "preserve-lan" and selected is None and not legacy:
+        # A management-only legacy checkpoint must not rewrite an explicit
+        # Jellyfin bind while preserving the missing management publication.
+        effective_jellyfin = existing_jellyfin or LAN_BIND_ADDRESS
     else:
         # Explicit LAN is intentionally all-interface for Jellyfin.  The
         # management bind remains an independent safety control and defaults
@@ -306,7 +352,7 @@ def plan_network(
     if selected_mode in {"lan", "preserve-lan"}:
         effective_public = supplied_public or existing_public
         if effective_public is None:
-            if legacy and selected is None:
+            if legacy_network and selected is None:
                 # The interactive checkpoint has not selected LAN yet.  Keep
                 # the report usable without inventing a remote hostname.
                 effective_public = LOCAL_PUBLIC_HOST
@@ -317,7 +363,11 @@ def plan_network(
     else:
         effective_public = supplied_public or existing_public or LOCAL_PUBLIC_HOST
 
-    effective_management = existing_management or LOCAL_BIND_ADDRESS
+    effective_management = existing_management or (
+        LAN_BIND_ADDRESS
+        if legacy_network and selected_mode != "local"
+        else LOCAL_BIND_ADDRESS
+    )
     if selected_mode is None:
         effective_remote = existing_remote or ("true" if effective_jellyfin == LAN_BIND_ADDRESS else "false")
     else:
@@ -335,12 +385,22 @@ def plan_network(
         )
 
     decision: dict[str, Any] | None = None
-    if legacy:
+    if legacy_network:
+        code = "legacy-jellyfin-binding" if legacy else "legacy-management-binding"
+        missing = " and ".join(
+            key
+            for key, is_missing in (
+                (JELLYFIN_BIND_ADDRESS, legacy),
+                (MANAGEMENT_BIND_ADDRESS, management_legacy),
+            )
+            if is_missing
+        )
         decision = {
-            "code": "legacy-jellyfin-binding",
+            "code": code,
             "message": (
-                "Adopted environment is missing JELLYFIN_BIND_ADDRESS; "
-                "choose whether to preserve its legacy LAN exposure or use local-only access."
+                f"Adopted environment is missing {missing}; "
+                "choose whether to preserve its legacy LAN exposure or use local-only access. "
+                "An absent MANAGEMENT_BIND_ADDRESS is also preserved as all-interface exposure."
             ),
             "options": ("preserve-lan", "local"),
             "selected": selected,

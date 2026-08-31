@@ -140,9 +140,44 @@ function Merge-MissingEnvKeys {
     $changed = $true
   }
 
+  # Older .env files predate explicit network bindings.  Their Compose file
+  # published Jellyfin (and, for some hosts, management UIs) on all
+  # interfaces.  Preserve that exposure during adoption so adding the new
+  # required Compose variables cannot silently localize an existing install.
+  $legacyNetworkKeys = [System.Collections.Generic.List[string]]::new()
+  if (-not $map.ContainsKey('JELLYFIN_BIND_ADDRESS')) {
+    $lines.Add('JELLYFIN_BIND_ADDRESS=0.0.0.0')
+    [void]$legacyNetworkKeys.Add('JELLYFIN_BIND_ADDRESS')
+    $changed = $true
+  }
+  if (-not $map.ContainsKey('MANAGEMENT_BIND_ADDRESS')) {
+    $lines.Add('MANAGEMENT_BIND_ADDRESS=0.0.0.0')
+    [void]$legacyNetworkKeys.Add('MANAGEMENT_BIND_ADDRESS')
+    $changed = $true
+  }
+  if (-not $map.ContainsKey('PUBLIC_HOST')) {
+    # Do not guess a LAN address for deep links; the explicit public host can
+    # be set later after adoption.  This value is non-secret and keeps the
+    # legacy localhost links deterministic until then.
+    $lines.Add('PUBLIC_HOST=127.0.0.1')
+    [void]$legacyNetworkKeys.Add('PUBLIC_HOST')
+    $changed = $true
+  }
+  if (-not $map.ContainsKey('JELLYFIN_REMOTE_ACCESS')) {
+    $lines.Add('JELLYFIN_REMOTE_ACCESS=true')
+    [void]$legacyNetworkKeys.Add('JELLYFIN_REMOTE_ACCESS')
+    $changed = $true
+  }
+
+  if ($legacyNetworkKeys.Count -gt 0) {
+    $legacyKeys = $legacyNetworkKeys -join ', '
+    Write-Warning "Adopted .env is missing explicit network settings ($legacyKeys). Preserving legacy LAN exposure; review these values before sharing services."
+    Write-Host 'Network migration decision: legacy all-interface exposure was preserved. Edit .env and choose local-only bindings if desired.' -ForegroundColor Yellow
+  }
+
   if ($changed) {
     Set-Content -Path $EnvFile -Value $lines -Encoding utf8
-    Write-Host 'Added missing keys to .env (DOWNLOADS_PATH and/or QBT_PASSWORD).'
+    Write-Host 'Added missing compatibility/network keys to .env.'
   }
 }
 

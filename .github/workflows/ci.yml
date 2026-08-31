@@ -9,6 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Run Linux installer unit tests
+        run: PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s installer/tests -v
       - name: install.ps1 defines Assert-Docker
         run: grep -q 'function Assert-Docker' install.ps1
       - name: installer derives required pulls from enabled Compose services
@@ -84,24 +89,64 @@ jobs:
 
       - name: Assert explicit network exposure contract
         run: |
-          docker compose --env-file .env.example \
-            --profile subtitles --profile requests --profile maintenance --profile indexer-tools --profile ai \
-            -f docker-compose.yml config --format json \
-          | python3 -c '
-          import json, sys
-          services = json.load(sys.stdin)["services"]
-          jellyfin = services["jellyfin"]["ports"][0]
-          assert jellyfin["host_ip"] == "127.0.0.1", jellyfin
-          management = {"qbittorrent", "radarr", "sonarr", "prowlarr", "flaresolverr", "bazarr", "jellyseerr", "maintainerr", "dashboard"}
-          for name in management:
-              assert services[name]["ports"][0]["host_ip"] == "127.0.0.1", (name, services[name]["ports"])
-          assert services["homepage-actions"]["ports"][0]["host_ip"] == "127.0.0.1"
-          assert all("host_ip" not in port for port in services["qbittorrent"]["ports"][1:])
-          environment = services["homepage-actions"]["environment"]
-          for key in ("JELLYFIN_EXTERNAL_URL", "SONARR_EXTERNAL_URL", "RADARR_EXTERNAL_URL", "PROWLARR_EXTERNAL_URL", "BAZARR_EXTERNAL_URL", "QBITTORRENT_EXTERNAL_URL"):
-              assert environment[key].startswith("http://127.0.0.1:"), (key, environment[key])
-          print("network exposure contract ok")
-          '
+          python3 - <<'PY'
+          import json
+          import subprocess
+
+          base = ["docker", "compose", "--env-file", ".env.example"]
+          all_profiles = [
+              "--profile", "subtitles", "--profile", "requests",
+              "--profile", "maintenance", "--profile", "indexer-tools",
+              "--profile", "ai",
+          ]
+          variants = {
+              "core": ["-f", "docker-compose.yml"],
+              "all": all_profiles + ["-f", "docker-compose.yml"],
+              "dev": ["-f", "docker-compose.yml", "-f", "docker-compose.dev.yml"],
+              "gpu": ["-f", "docker-compose.yml", "-f", "docker-compose.gpu.yml"],
+              "dev-gpu": all_profiles + [
+                  "-f", "docker-compose.yml", "-f", "docker-compose.dev.yml",
+                  "-f", "docker-compose.gpu.yml",
+              ],
+          }
+          management = {
+              "qbittorrent", "radarr", "sonarr", "prowlarr", "flaresolverr",
+              "bazarr", "jellyseerr", "maintainerr", "dashboard",
+          }
+          deep_link_keys = (
+              "JELLYFIN_EXTERNAL_URL", "SONARR_EXTERNAL_URL", "RADARR_EXTERNAL_URL",
+              "PROWLARR_EXTERNAL_URL", "BAZARR_EXTERNAL_URL", "QBITTORRENT_EXTERNAL_URL",
+          )
+
+          for name, compose_args in variants.items():
+              command = base + compose_args + ["config", "--quiet"]
+              quiet = subprocess.run(command, capture_output=True, text=True)
+              assert quiet.returncode == 0, (name, quiet.stdout, quiet.stderr)
+              rendered = subprocess.run(
+                  base + compose_args + ["config", "--format", "json"],
+                  capture_output=True,
+                  text=True,
+              )
+              assert rendered.returncode == 0, (name, rendered.stdout, rendered.stderr)
+              services = json.loads(rendered.stdout)["services"]
+              assert services["jellyfin"]["ports"][0]["host_ip"] == "127.0.0.1"
+              assert services["homepage-actions"]["ports"][0]["host_ip"] == "127.0.0.1"
+              assert all("host_ip" not in port for port in services["qbittorrent"]["ports"][1:])
+              for service_name in management:
+                  if service_name in services:
+                      assert services[service_name]["ports"][0]["host_ip"] == "127.0.0.1", (name, service_name)
+              environment = services["homepage-actions"]["environment"]
+              assert all(environment[key].startswith("http://127.0.0.1:") for key in deep_link_keys)
+              if name in {"dev", "dev-gpu"}:
+                  dashboard_port = services["dashboard"]["ports"][0]
+                  assert str(dashboard_port["target"]) == "4200", (name, dashboard_port)
+              else:
+                  assert str(services["dashboard"]["ports"][0]["target"]) == "80", name
+              if name in {"gpu", "dev-gpu"}:
+                  device = services["jellyfin"]["deploy"]["resources"]["reservations"]["devices"][0]
+                  assert device["driver"] == "nvidia", (name, device)
+              print(name, "network exposure ok")
+          PY
 
       - name: Compose configurations parse
         run: |

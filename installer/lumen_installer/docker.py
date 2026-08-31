@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from .commands import CommandExecutionError, CommandRunner, redact_text
+from .commands import CommandExecutionError, CommandRunner, normalize_stream, redact_text
 from .errors import (
     InvalidInputError,
     PreflightError,
@@ -20,7 +20,16 @@ from .platform import HostFacts, detect_host
 
 Version = tuple[int, int, int]
 COMPOSE_MINIMUM: Version = (2, 24, 4)
-_VERSION = re.compile(r"(?<![0-9])v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?(?![0-9])")
+_VERSION_TOKEN = r"v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?"
+_SHORT_VERSION = re.compile(rf"^\s*{_VERSION_TOKEN}\s*$", re.IGNORECASE)
+_DOCKER_VERSION_LABEL = re.compile(
+    rf"^\s*Docker(?: Engine)?\s+version\s+{_VERSION_TOKEN}(?:\s*,[^\r\n]*)?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_COMPOSE_VERSION_LABEL = re.compile(
+    rf"^\s*Docker[- ]Compose\s+version\s+{_VERSION_TOKEN}\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 _OFFLINE_MARKERS = (
     "network",
     "offline",
@@ -45,7 +54,7 @@ def _version_from(value: Any) -> Version | None:
             return tuple(int(part) for part in value)  # type: ignore[return-value]
         except (TypeError, ValueError):
             return None
-    match = _VERSION.search(str(value))
+    match = _SHORT_VERSION.fullmatch(str(value))
     if match is None:
         return None
     return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
@@ -54,36 +63,63 @@ def _version_from(value: Any) -> Version | None:
 def parse_docker_version(output: Any) -> Version | None:
     """Parse Docker's short, long, client, or server version output."""
 
-    text = str(output or "")
+    text = normalize_stream(output, name="Docker version output", strict=False)
+    short_match = _SHORT_VERSION.fullmatch(text)
+    if short_match is not None:
+        return tuple(int(part) for part in short_match.groups())  # type: ignore[return-value]
+
+    label_match = _DOCKER_VERSION_LABEL.search(text)
+    if label_match is not None:
+        return tuple(int(part) for part in label_match.groups())  # type: ignore[return-value]
+
     # Full ``docker version`` output contains nested containerd and runc
     # versions after the Engine version.  Prefer the first Version field in
     # the Server section so those runtime versions cannot be mistaken for the
     # Docker Engine version.
     server_index = text.lower().find("server:")
     if server_index >= 0:
-        server_match = re.search(r"\bVersion:\s*(v?\d+\.\d+\.\d+)", text[server_index:], re.IGNORECASE)
+        server_match = re.search(
+            rf"^\s*Version:\s*{_VERSION_TOKEN}",
+            text[server_index:],
+            re.IGNORECASE | re.MULTILINE,
+        )
         if server_match is not None:
-            return _version_from(server_match.group(1))
+            return tuple(int(part) for part in server_match.groups())  # type: ignore[return-value]
 
-    matches = list(_VERSION.finditer(text))
-    if not matches:
-        return None
-    # A full ``docker version`` response commonly lists client then server;
-    # the final version is the daemon version the installer needs.
-    match = matches[-1]
-    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
+    # Client-only long output still has a recognized Client section and a
+    # Version field.  Do not accept arbitrary semver-looking diagnostics.
+    if text.lstrip().lower().startswith("client:"):
+        client_match = re.search(
+            rf"^\s*Version:\s*{_VERSION_TOKEN}",
+            text,
+            re.IGNORECASE | re.MULTILINE,
+        )
+        if client_match is not None:
+            return tuple(int(part) for part in client_match.groups())  # type: ignore[return-value]
+    return None
 
 
 def parse_compose_version(output: Any) -> Version | None:
     """Parse Compose v2 output, including desktop suffixes."""
 
-    return _version_from(output)
+    text = normalize_stream(output, name="Compose version output", strict=False)
+    short_match = _SHORT_VERSION.fullmatch(text)
+    if short_match is not None:
+        return tuple(int(part) for part in short_match.groups())  # type: ignore[return-value]
+    label_match = _COMPOSE_VERSION_LABEL.search(text)
+    if label_match is None:
+        return None
+    return tuple(int(part) for part in label_match.groups())  # type: ignore[return-value]
 
 
 def validate_compose_version(version: Any) -> bool:
     """Require the inclusive Compose feature floor used by this repository."""
 
-    parsed = _version_from(version)
+    parsed = (
+        _version_from(version)
+        if isinstance(version, (tuple, list))
+        else parse_compose_version(version)
+    )
     if parsed is None:
         raise InvalidInputError("could not determine Docker Compose version")
     if parsed < COMPOSE_MINIMUM:
@@ -116,11 +152,33 @@ class DecisionRecord:
         }
 
 
+class PlannedCommand(tuple[str, ...]):
+    """Argument vector with optional stdin data for a non-shell command."""
+
+    def __new__(
+        cls,
+        argv: tuple[str, ...] | list[str],
+        *,
+        input_text: str | None = None,
+    ) -> "PlannedCommand":
+        command = super().__new__(cls, argv)
+        command._input_text = input_text  # type: ignore[attr-defined]
+        return command
+
+    @property
+    def argv(self) -> tuple[str, ...]:
+        return tuple(self)
+
+    @property
+    def input_text(self) -> str | None:
+        return self._input_text  # type: ignore[attr-defined]
+
+
 @dataclass(frozen=True)
 class DependencyPlan:
     """Explicit dependency command vectors and non-automatic decisions."""
 
-    commands: tuple[tuple[str, ...], ...] = ()
+    commands: tuple[PlannedCommand, ...] = ()
     decisions: tuple[DecisionRecord, ...] = ()
     supported: bool = True
     status: str = "supported"
@@ -140,6 +198,10 @@ class DependencyPlan:
         return self.commands
 
     @property
+    def command_inputs(self) -> tuple[str | None, ...]:
+        return tuple(getattr(command, "input_text", None) for command in self.commands)
+
+    @property
     def decision_records(self) -> tuple[DecisionRecord, ...]:
         return self.decisions
 
@@ -151,6 +213,7 @@ class DependencyPlan:
             "distro": self.distro,
             "policy": self.policy,
             "commands": [list(command) for command in self.commands],
+            "command_inputs": list(self.command_inputs),
             "decisions": [record.as_dict() for record in self.decisions],
             "error": str(self.error) if self.error is not None else None,
         }
@@ -192,15 +255,26 @@ def _decision_records(*, unsupported: bool = False) -> tuple[DecisionRecord, ...
     return tuple(records)
 
 
-def _apt_plan(family: str) -> tuple[tuple[tuple[str, ...], ...], str]:
+def _apt_plan(
+    family: str,
+    codename: str,
+) -> tuple[tuple[PlannedCommand, ...], str]:
     url = f"https://download.docker.com/linux/{family}/gpg"
     repo_url = f"https://download.docker.com/linux/{family}"
+    source = (
+        "Types: deb\n"
+        f"URIs: {repo_url}\n"
+        f"Suites: {codename}\n"
+        "Components: stable\n"
+        "Architectures: amd64 arm64\n"
+        "Signed-By: /etc/apt/keyrings/docker.gpg\n"
+    )
     commands = (
-        ("sudo", "install", "-m", "0755", "-d", "/etc/apt/keyrings"),
-        ("sudo", "apt-get", "update"),
-        ("sudo", "apt-get", "install", "-y", "ca-certificates", "curl", "gnupg"),
-        ("curl", "-fsSL", url, "--output", "/tmp/lumen-docker.asc"),
-        (
+        PlannedCommand(("sudo", "install", "-m", "0755", "-d", "/etc/apt/keyrings")),
+        PlannedCommand(("sudo", "apt-get", "update")),
+        PlannedCommand(("sudo", "apt-get", "install", "-y", "ca-certificates", "curl", "gnupg")),
+        PlannedCommand(("curl", "-fsSL", url, "--output", "/tmp/lumen-docker.asc")),
+        PlannedCommand((
             "sudo",
             "gpg",
             "--dearmor",
@@ -208,11 +282,14 @@ def _apt_plan(family: str) -> tuple[tuple[tuple[str, ...], ...], str]:
             "--output",
             "/etc/apt/keyrings/docker.gpg",
             "/tmp/lumen-docker.asc",
+        )),
+        PlannedCommand(("sudo", "chmod", "a+r", "/etc/apt/keyrings/docker.gpg")),
+        PlannedCommand(
+            ("sudo", "tee", "/etc/apt/sources.list.d/docker.sources"),
+            input_text=source,
         ),
-        ("sudo", "chmod", "a+r", "/etc/apt/keyrings/docker.gpg"),
-        ("sudo", "tee", f"/etc/apt/sources.list.d/docker.sources"),
-        ("sudo", "apt-get", "update"),
-        (
+        PlannedCommand(("sudo", "apt-get", "update")),
+        PlannedCommand((
             "sudo",
             "apt-get",
             "install",
@@ -222,15 +299,7 @@ def _apt_plan(family: str) -> tuple[tuple[tuple[str, ...], ...], str]:
             "containerd.io",
             "docker-buildx-plugin",
             "docker-compose-plugin",
-        ),
-    )
-    source = (
-        "Types: deb\n"
-        f"URIs: {repo_url}\n"
-        "Suites: <distribution-codename>\n"
-        "Components: stable\n"
-        "Architectures: amd64 arm64\n"
-        "Signed-By: /etc/apt/keyrings/docker.gpg\n"
+        )),
     )
     return commands, source
 
@@ -239,10 +308,26 @@ def dependency_plan(host: HostFacts) -> DependencyPlan:
     """Return approved package policy without installing or changing packages."""
 
     distro = str(host.distro_id or "").strip().lower()
-    like = {str(item).strip().lower() for item in host.distro_like}
     records = _decision_records()
     if distro in {"ubuntu", "debian"}:
-        commands, source = _apt_plan(distro)
+        codename = getattr(host, "codename", None)
+        if not isinstance(codename, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", codename.strip()):
+            codename_record = DecisionRecord(
+                "codename-required",
+                "A concrete distribution codename is required before configuring Docker's apt repository.",
+                action="stop",
+                severity="error",
+            )
+            return DependencyPlan(
+                commands=(),
+                decisions=records + (codename_record,),
+                supported=True,
+                status="needs-codename",
+                distro=distro,
+                policy=f"docker-official-apt-{distro}",
+                error=PreflightError("distribution codename is required for the Docker apt repository"),
+            )
+        commands, source = _apt_plan(distro, codename.strip())
         return DependencyPlan(
             commands=commands,
             decisions=records,
@@ -278,7 +363,7 @@ def dependency_plan(host: HostFacts) -> DependencyPlan:
             distro=distro,
             policy="docker-official-dnf-fedora",
         )
-    if distro in {"arch", "omarchy"} or "arch" in like:
+    if distro in {"arch", "omarchy"}:
         commands = (
             ("sudo", "pacman", "-S", "--needed", "docker", "docker-compose"),
         )
@@ -353,7 +438,7 @@ def _failure_text(error: BaseException) -> str:
 def docker_preflight(runner: CommandRunner | None = None) -> DockerPreflight:
     """Inspect installed Docker/Compose without mutating dependencies."""
 
-    command_runner = runner or CommandRunner()
+    command_runner = runner if runner is not None else CommandRunner()
     try:
         docker_result = command_runner.run(
             ["docker", "version", "--format", "{{.Server.Version}}"]
@@ -470,7 +555,7 @@ def _platforms_from_payload(payload: Any) -> set[tuple[str, str, str | None]]:
 
 
 def _decode_manifest(stdout: Any) -> Any:
-    text = str(stdout or "").strip()
+    text = normalize_stream(stdout, name="manifest output", strict=False).strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -498,7 +583,7 @@ def inspect_manifest_architectures(
     image = image.strip()
     if online is False:
         return ManifestInspection(image=image, status="offline", error="registry inspection is offline")
-    command_runner = runner or CommandRunner()
+    command_runner = runner if runner is not None else CommandRunner()
     try:
         result = command_runner.run(["docker", "manifest", "inspect", "--verbose", image])
     except (CommandExecutionError, OSError) as error:
@@ -539,13 +624,14 @@ def run_host_doctor(
 ) -> dict[str, Any]:
     """Build a secret-free host/Docker doctor report and fail on preflight."""
 
-    facts = host or detect_host(uid=uid, gid=gid, timezone=timezone)
-    dependencies = dependency_plan(facts)
-    if not dependencies.supported:
-        raise dependencies.error or UnsupportedPlatformError("unsupported Linux distribution")
     preflight = docker_preflight(runner)
     if not preflight.ok:
         raise preflight.error or PreflightError("Docker preflight failed")
+    facts = host or detect_host(uid=uid, gid=gid, timezone=timezone)
+    # A working runtime is sufficient to adopt an existing install on an
+    # otherwise unsupported distribution.  The dependency policy is reported
+    # for a later, explicitly approved install-deps flow.
+    dependencies = dependency_plan(facts)
     report: dict[str, Any] = {
         "status": "ok",
         "host": {
@@ -570,6 +656,7 @@ __all__ = [
     "DecisionRecord",
     "DockerPreflight",
     "ManifestInspection",
+    "PlannedCommand",
     "PreflightError",
     "UnsupportedDistroError",
     "UnsupportedPlatformError",

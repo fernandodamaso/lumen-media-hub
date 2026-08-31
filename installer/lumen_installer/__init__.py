@@ -13,13 +13,21 @@ from .dotenv import DotEnvDocument, write_atomic
 from .environment import EnvironmentChange, EnvironmentPlan, plan_environment
 from .platform import HostFacts, detect_host
 from .secrets import ensure_actions_token
-from .commands import CommandError, CommandExecutionError, CommandResult, CommandRunner
+from .commands import (
+    DEFAULT_TIMEOUT,
+    CommandError,
+    CommandExecutionError,
+    CommandResult,
+    CommandRunner,
+    normalize_stream,
+)
 from .docker import (
     COMPOSE_MINIMUM,
     DependencyPlan,
     DecisionRecord,
     DockerPreflight,
     ManifestInspection,
+    PlannedCommand,
     PreflightError,
     UnsupportedDistroError,
     UnsupportedPlatformError,
@@ -53,11 +61,13 @@ __all__ = [
     "CommandExecutionError",
     "CommandResult",
     "CommandRunner",
+    "DEFAULT_TIMEOUT",
     "COMPOSE_MINIMUM",
     "DependencyPlan",
     "DecisionRecord",
     "DockerPreflight",
     "ManifestInspection",
+    "PlannedCommand",
     "PreflightError",
     "UnsupportedDistroError",
     "UnsupportedPlatformError",
@@ -68,4 +78,5 @@ __all__ = [
     "parse_docker_version",
     "run_host_doctor",
     "validate_compose_version",
+    "normalize_stream",
 ]

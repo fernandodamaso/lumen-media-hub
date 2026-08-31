@@ -35,6 +35,7 @@ UBUNTU = HostFacts(
     euid=1000,
     sudo_uid=None,
     sudo_gid=None,
+    codename="jammy",
 )
 FEDORA = HostFacts(
     uid=1000,
@@ -70,6 +71,18 @@ UNSUPPORTED = HostFacts(
     sudo_gid=None,
 )
 
+ALPINE_WITH_ARCH_LIKE = HostFacts(
+    uid=1000,
+    gid=1000,
+    timezone="UTC",
+    distro_id="alpine",
+    distro_like=("arch",),
+    arch="x86_64",
+    euid=1000,
+    sudo_uid=None,
+    sudo_gid=None,
+)
+
 
 class DockerVersionTests(unittest.TestCase):
     def test_parses_common_docker_version_variants(self):
@@ -80,6 +93,14 @@ class DockerVersionTests(unittest.TestCase):
         ):
             with self.subTest(output=output):
                 self.assertEqual(parse_docker_version(output), (26, 1, 4))
+
+    def test_version_parsers_reject_unrelated_semver_text(self):
+        self.assertIsNone(parse_docker_version("error 1.2.3"))
+        self.assertIsNone(parse_compose_version("error 2.24.4"))
+        self.assertIsNone(parse_docker_version("build artifact 26.1.4"))
+        self.assertIsNone(parse_compose_version("warning: 2.24.4"))
+        self.assertIsNone(parse_docker_version("Docker version 26.1.4 garbage"))
+        self.assertIsNone(parse_compose_version("Docker Compose version nope 2.24.4"))
 
     def test_docker_full_server_output_ignores_nested_container_runtime_versions(self):
         output = (
@@ -108,6 +129,7 @@ class DockerVersionTests(unittest.TestCase):
     def test_compose_floor_is_inclusive_and_rejects_older_versions(self):
         self.assertEqual(COMPOSE_MINIMUM, (2, 24, 4))
         self.assertTrue(validate_compose_version((2, 24, 4)))
+        self.assertTrue(validate_compose_version("Docker Compose version v2.24.4"))
         with self.assertRaises(InvalidInputError):
             validate_compose_version((2, 24, 3))
         with self.assertRaises(InvalidInputError):
@@ -149,6 +171,26 @@ class DockerVersionTests(unittest.TestCase):
         self.assertIsInstance(result.error, PreflightError)
         self.assertIn("2.24.4", str(result.error))
 
+    def test_working_runtime_on_unsupported_distro_is_accepted_before_dependency_policy(self):
+        runner = mock.Mock()
+        runner.run.side_effect = [
+            mock.Mock(stdout="Docker version 26.1.4", stderr="", returncode=0),
+            mock.Mock(stdout="Docker Compose version v2.24.4", stderr="", returncode=0),
+        ]
+
+        from lumen_installer.docker import run_host_doctor
+
+        report = run_host_doctor(host=UNSUPPORTED, runner=runner)
+
+        self.assertEqual(report["status"], "ok")
+        self.assertEqual(report["dependencies"]["status"], "unsupported")
+        self.assertEqual(runner.run.call_count, 2)
+
+    def test_arch_like_derivatives_do_not_get_arch_package_policy(self):
+        plan = dependency_plan(ALPINE_WITH_ARCH_LIKE)
+        self.assertFalse(plan.supported)
+        self.assertEqual(plan.status, "unsupported")
+
     def test_missing_daemon_is_explicitly_offline_or_unavailable(self):
         runner = mock.Mock()
         runner.run.side_effect = OSError("Cannot connect to the Docker daemon")
@@ -176,6 +218,25 @@ class DependencyPolicyTests(unittest.TestCase):
         self.assertNotIn("| sh", rendered)
         self.assertNotIn("| bash", rendered)
         self.assertTrue(any("apt-get" in part for command in commands for part in command))
+
+    def test_ubuntu_apt_source_command_carries_detected_codename_input(self):
+        host = HostFacts(**{**UBUNTU.__dict__, "codename": "jammy"})
+        plan = dependency_plan(host)
+
+        self.assertNotIn("<distribution-codename>", plan.input_text or "")
+        self.assertIn("Suites: jammy", plan.input_text or "")
+        tee = next(command for command in plan.commands if command[1] == "tee")
+        self.assertEqual(tee.input_text, plan.input_text)
+        self.assertEqual(plan.command_inputs[6], plan.input_text)
+
+    def test_debian_apt_source_command_carries_detected_codename_input(self):
+        host = HostFacts(**{**UBUNTU.__dict__, "distro_id": "debian", "codename": "bookworm"})
+        plan = dependency_plan(host)
+
+        self.assertIn("URIs: https://download.docker.com/linux/debian", plan.input_text or "")
+        self.assertIn("Suites: bookworm", plan.input_text or "")
+        tee = next(command for command in plan.commands if command[1] == "tee")
+        self.assertEqual(tee.input_text, plan.input_text)
 
     def test_debian_uses_official_docker_apt_repository(self):
         host = UBUNTU.__class__(**{**UBUNTU.__dict__, "distro_id": "debian"})
@@ -243,6 +304,24 @@ class ManifestInspectionTests(unittest.TestCase):
         argv = runner.run.call_args.args[0]
         self.assertEqual(argv[:3], ["docker", "manifest", "inspect"])
         self.assertNotIn("pull", argv)
+
+    def test_parses_manifest_json_bytes_and_replaces_invalid_utf8(self):
+        payload = {
+            "manifests": [
+                {"platform": {"architecture": "amd64", "os": "linux"}},
+            ]
+        }
+        runner = mock.Mock()
+        runner.run.return_value = mock.Mock(stdout=json.dumps(payload).encode("utf-8"), stderr=b"", returncode=0)
+
+        result = inspect_manifest_architectures("image:tag", runner=runner)
+
+        self.assertEqual(result.status, "supported")
+        self.assertEqual(result.architectures, ("amd64",))
+
+        runner.run.return_value = mock.Mock(stdout=b"\xff\xfe", stderr=b"", returncode=0)
+        malformed = inspect_manifest_architectures("image:tag", runner=runner)
+        self.assertEqual(malformed.status, "unknown")
 
     def test_offline_result_is_explicit_and_does_not_claim_support(self):
         runner = mock.Mock()

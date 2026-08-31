@@ -9,6 +9,7 @@ parsers, while its public report and typed failures are redacted.
 from __future__ import annotations
 
 import inspect
+import math
 import subprocess
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ from .errors import InvalidInputError
 
 
 REDACTED = "<redacted>"
+DEFAULT_TIMEOUT = 30.0
 
 
 def _redaction_values(redact: Iterable[Any] | Any) -> tuple[str, ...]:
@@ -33,12 +35,13 @@ def _redaction_values(redact: Iterable[Any] | Any) -> tuple[str, ...]:
             iter(values)
         except TypeError:
             values = (redact,)
-    normalized = {
-        value.decode("utf-8", "replace") if isinstance(value, bytes) else str(value)
-        for value in values
-        if value is not None
-        and (not isinstance(value, (str, bytes)) or str(value).strip())
-    }
+    normalized: set[str] = set()
+    for value in values:
+        if value is None:
+            continue
+        text = value.decode("utf-8", "replace") if isinstance(value, bytes) else str(value)
+        if text:
+            normalized.add(text)
     # Replacing longest values first prevents a shorter credential from
     # exposing the remainder of a longer credential in a report.
     return tuple(sorted(normalized, key=lambda value: (-len(value), value)))
@@ -51,6 +54,20 @@ def redact_text(value: Any, redact: Iterable[Any] | Any = ()) -> str:
     for secret in _redaction_values(redact):
         text = text.replace(secret, REDACTED)
     return text
+
+
+def normalize_stream(value: Any, *, name: str = "stream", strict: bool = True) -> str:
+    """Normalize subprocess streams to UTF-8 text with replacement decoding."""
+
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    if strict:
+        raise ValueError(f"unexpected {name} type: {type(value).__name__}")
+    return str(value)
 
 
 def _redact_argv(argv: Sequence[str], secrets: tuple[str, ...]) -> list[str]:
@@ -103,13 +120,17 @@ class CommandExecutionError(InvalidInputError):
         stdout: Any = "",
         stderr: Any = "",
         redact: Iterable[Any] | Any = (),
+        timed_out: bool = False,
+        timeout: float | None = None,
     ) -> None:
         self._redact = _redaction_values(redact)
         self.argv = tuple(str(item) for item in argv)
         self.returncode = returncode
-        self.stdout = "" if stdout is None else str(stdout)
-        self.stderr = "" if stderr is None else str(stderr)
+        self.stdout = normalize_stream(stdout, name="stdout", strict=False)
+        self.stderr = normalize_stream(stderr, name="stderr", strict=False)
         self._raw_message = str(message)
+        self.timed_out = timed_out
+        self.timeout = timeout
         safe_message = redact_text(message, self._redact)
         super().__init__(safe_message)
 
@@ -121,6 +142,8 @@ class CommandExecutionError(InvalidInputError):
             "stdout": redact_text(self.stdout, self._redact),
             "stderr": redact_text(self.stderr, self._redact),
             "error": redact_text(self._raw_message, self._redact),
+            "timed_out": self.timed_out,
+            "timeout": self.timeout,
         }
 
     @property
@@ -150,15 +173,17 @@ def _coerce_completed(argv: Sequence[str], completed: Any, redact: tuple[str, ..
         return CommandResult(
             tuple(argv),
             completed.returncode,
-            completed.stdout,
-            completed.stderr,
+            normalize_stream(completed.stdout, name="stdout"),
+            normalize_stream(completed.stderr, name="stderr"),
             redact,
         )
+    stdout = normalize_stream(getattr(completed, "stdout", "") or "", name="stdout")
+    stderr = normalize_stream(getattr(completed, "stderr", "") or "", name="stderr")
     return CommandResult(
         tuple(argv),
         int(getattr(completed, "returncode", 0)),
-        getattr(completed, "stdout", "") or "",
-        getattr(completed, "stderr", "") or "",
+        stdout,
+        stderr,
         redact,
     )
 
@@ -166,18 +191,41 @@ def _coerce_completed(argv: Sequence[str], completed: Any, redact: tuple[str, ..
 class CommandRunner:
     """Run argument vectors through ``subprocess.run`` or an injected seam."""
 
-    def __init__(self, executor: Callable[..., Any] | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        executor: Callable[..., Any] | None = None,
+        *,
+        timeout: float = DEFAULT_TIMEOUT,
+        **kwargs: Any,
+    ) -> None:
         # ``run`` and ``execute`` are accepted as descriptive dependency
         # injection aliases for tests and later adapters.
         if executor is not None and kwargs:
             raise TypeError("provide only one command executor")
-        self._executor = executor or kwargs.pop("run", None) or kwargs.pop("execute", None)
+        injected = executor
+        if injected is None:
+            injected = kwargs.pop("run", None)
+        if injected is None:
+            injected = kwargs.pop("execute", None)
+        if injected is not None:
+            delegated_run = getattr(injected, "run", None)
+            if callable(delegated_run):
+                injected = delegated_run
+        self._executor = injected
+        try:
+            self.timeout = float(timeout)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("command timeout must be a positive finite number") from exc
+        if not math.isfinite(self.timeout) or self.timeout <= 0:
+            raise ValueError("command timeout must be a positive finite number")
         if kwargs:
             unknown = next(iter(kwargs))
             raise TypeError(f"unexpected CommandRunner option: {unknown}")
 
     @staticmethod
     def _invoke_executor(executor: Callable[..., Any], argv: list[str], input_text: str | None) -> Any:
+        if input_text is None:
+            return executor(argv)
         try:
             parameters = inspect.signature(executor).parameters.values()
         except (TypeError, ValueError):
@@ -210,16 +258,33 @@ class CommandRunner:
                     text=True,
                     check=False,
                     shell=False,
+                    timeout=self.timeout,
                 )
-        except (OSError, subprocess.SubprocessError) as exc:
+        except subprocess.TimeoutExpired as exc:
+            raise CommandExecutionError(
+                f"command timed out: {vector[0]}",
+                argv=vector,
+                stdout=exc.output,
+                stderr=exc.stderr,
+                redact=secrets,
+                timed_out=True,
+                timeout=self.timeout,
+            ) from exc
+        except Exception as exc:
             raise CommandExecutionError(
                 f"could not execute {vector[0]}: {exc}",
                 argv=vector,
                 stderr=str(exc),
                 redact=secrets,
             ) from exc
-
-        result = _coerce_completed(vector, completed, secrets)
+        try:
+            result = _coerce_completed(vector, completed, secrets)
+        except Exception as exc:
+            raise CommandExecutionError(
+                f"invalid output from {vector[0]}: {exc}",
+                argv=vector,
+                redact=secrets,
+            ) from exc
         if result.returncode != 0:
             raise CommandExecutionError(
                 f"command exited with status {result.returncode}: {vector[0]}",
@@ -237,6 +302,8 @@ __all__ = [
     "CommandExecutionError",
     "CommandResult",
     "CommandRunner",
+    "DEFAULT_TIMEOUT",
     "REDACTED",
+    "normalize_stream",
     "redact_text",
 ]

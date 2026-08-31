@@ -18,6 +18,8 @@ class PackageExportsTests(unittest.TestCase):
         import lumen_installer
 
         self.assertIs(lumen_installer.CommandRunner, CommandRunner)
+        self.assertEqual(lumen_installer.DEFAULT_TIMEOUT, 30.0)
+        self.assertTrue(callable(lumen_installer.normalize_stream))
         self.assertTrue(callable(lumen_installer.dependency_plan))
         self.assertTrue(callable(lumen_installer.inspect_manifest_architectures))
 
@@ -36,7 +38,68 @@ class CommandRunnerTests(unittest.TestCase):
         self.assertFalse(kwargs["shell"])
         self.assertTrue(kwargs["capture_output"])
         self.assertTrue(kwargs["text"])
+        self.assertIsInstance(kwargs["timeout"], (int, float))
+        self.assertGreater(kwargs["timeout"], 0)
         self.assertEqual(result.stdout, "hello")
+
+    def test_object_executor_with_run_method_is_supported(self):
+        delegate = mock.Mock()
+        delegate.run.return_value = subprocess.CompletedProcess(
+            ["tool"], 0, stdout="ok", stderr=""
+        )
+
+        result = CommandRunner(executor=delegate).run(["tool"])
+
+        self.assertEqual(result.stdout, "ok")
+        delegate.run.assert_called_once_with(["tool"])
+
+    def test_default_timeout_is_bounded_and_timeout_error_is_typed_and_redacted(self):
+        secret = "timeout-secret"
+        timed_out = subprocess.TimeoutExpired(
+            ["tool", secret], 15, output=f"out {secret}", stderr=f"err {secret}"
+        )
+        with mock.patch("lumen_installer.commands.subprocess.run", side_effect=timed_out):
+            with self.assertRaises(CommandExecutionError) as raised:
+                CommandRunner().run(["tool", secret], redact=(secret,))
+
+        self.assertTrue(raised.exception.report["timed_out"])
+        self.assertEqual(raised.exception.report["timeout"], 30.0)
+        self.assertNotIn(secret, str(raised.exception))
+        self.assertNotIn(secret, repr(raised.exception))
+
+    def test_byte_streams_are_normalized_to_text_and_invalid_utf8_is_replaced(self):
+        completed = subprocess.CompletedProcess(
+            ["tool"], 0, stdout=b"out \xff", stderr=b"err \xfe"
+        )
+        with mock.patch("lumen_installer.commands.subprocess.run", return_value=completed):
+            result = CommandRunner().run(["tool"])
+
+        self.assertEqual(result.stdout, "out \ufffd")
+        self.assertEqual(result.stderr, "err \ufffd")
+        self.assertIsInstance(result.stdout, str)
+
+    def test_empty_byte_redaction_value_is_ignored(self):
+        completed = subprocess.CompletedProcess(["tool"], 0, stdout="abc", stderr="")
+        with mock.patch("lumen_installer.commands.subprocess.run", return_value=completed):
+            result = CommandRunner().run(["tool"], redact=(b"",))
+
+        self.assertEqual(result.report["stdout"], "abc")
+
+    def test_nonempty_byte_redaction_value_is_decoded_before_redaction(self):
+        secret = "byte-secret"
+        completed = subprocess.CompletedProcess(
+            ["tool", secret], 0, stdout=f"seen {secret}", stderr=""
+        )
+        with mock.patch("lumen_installer.commands.subprocess.run", return_value=completed):
+            result = CommandRunner().run(["tool", secret], redact=(secret.encode(),))
+
+        self.assertNotIn(secret, repr(result.report))
+
+    def test_unexpected_stream_types_are_typed_failures(self):
+        completed = subprocess.CompletedProcess(["tool"], 0, stdout=object(), stderr="")
+        with mock.patch("lumen_installer.commands.subprocess.run", return_value=completed):
+            with self.assertRaises(CommandExecutionError):
+                CommandRunner().run(["tool"])
 
     def test_rejects_string_commands_before_invoking_subprocess(self):
         with mock.patch("lumen_installer.commands.subprocess.run") as run:
@@ -83,6 +146,39 @@ class CommandRunnerTests(unittest.TestCase):
 
         self.assertNotIn(secret, str(raised.exception))
         self.assertNotIn(secret, repr(raised.exception.report))
+
+    def test_injected_startup_exceptions_are_typed_and_redacted(self):
+        secret = "executor-secret"
+        exceptions = (
+            ValueError(f"bad value {secret}"),
+            TypeError(f"bad type {secret}"),
+            UnicodeDecodeError(
+                "utf-8",
+                (secret + "\xff").encode(),
+                len(secret),
+                len(secret) + 1,
+                "invalid continuation byte",
+            ),
+            RuntimeError(f"runtime failure {secret}"),
+        )
+        for exception in exceptions:
+            with self.subTest(exception=type(exception).__name__):
+                def fail(_argv, _exception=exception):
+                    raise _exception
+
+                with self.assertRaises(CommandExecutionError) as raised:
+                    CommandRunner(executor=fail).run(["tool", secret], redact=(secret,))
+                self.assertNotIn(secret, str(raised.exception))
+                self.assertNotIn(secret, repr(raised.exception))
+
+    def test_keyboard_interrupt_and_system_exit_are_not_swallowed(self):
+        for exception in (KeyboardInterrupt(), SystemExit(9)):
+            with self.subTest(exception=type(exception).__name__):
+                def stop(_argv, _exception=exception):
+                    raise _exception
+
+                with self.assertRaises(type(exception)):
+                    CommandRunner(executor=stop).run(["tool"])
 
 
 if __name__ == "__main__":

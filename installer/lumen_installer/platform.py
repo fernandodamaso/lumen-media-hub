@@ -30,11 +30,27 @@ class HostFacts:
     euid: int
     sudo_uid: int | None
     sudo_gid: int | None
+    codename: str | None = None
 
     def __post_init__(self) -> None:
         # Keep the nested collection immutable too; callers commonly build
         # this field from a split ID_LIKE string.
         object.__setattr__(self, "distro_like", tuple(self.distro_like))
+        if self.codename is not None:
+            normalized = str(self.codename).strip()
+            object.__setattr__(self, "codename", normalized or None)
+
+    @property
+    def distro_codename(self) -> str | None:
+        """Compatibility alias for the distribution release codename."""
+
+        return self.codename
+
+    @property
+    def version_codename(self) -> str | None:
+        """Compatibility alias matching the os-release field name."""
+
+        return self.codename
 
 
 _ARCH_ALIASES = {
@@ -205,6 +221,7 @@ def detect_host(
     os_release: Mapping[str, str] | str | None = None,
     os_release_text: str | None = None,
     machine: str | None = None,
+    codename: str | None = None,
 ) -> HostFacts:
     """Detect the immutable host facts needed by installer planning.
 
@@ -269,6 +286,11 @@ def detect_host(
         for item in release_values.get("ID_LIKE", "").split()
         if item.strip()
     )
+    resolved_codename = codename
+    if resolved_codename is None:
+        resolved_codename = release_values.get("VERSION_CODENAME")
+    if resolved_codename is None:
+        resolved_codename = release_values.get("UBUNTU_CODENAME")
 
     return HostFacts(
         uid=owner[0],
@@ -280,6 +302,7 @@ def detect_host(
         euid=effective_uid,
         sudo_uid=sudo_uid,
         sudo_gid=sudo_gid,
+        codename=str(resolved_codename).strip() if resolved_codename else None,
     )
 
 

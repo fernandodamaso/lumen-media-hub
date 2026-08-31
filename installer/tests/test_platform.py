@@ -130,6 +130,21 @@ class PlatformDetectionTests(unittest.TestCase):
                 machine="riscv64",
             )
 
+    def test_detects_distribution_codename_for_dependency_repository_policy(self):
+        facts = detect_host(
+            euid=1000,
+            getuid=lambda: 1000,
+            getgid=lambda: 1000,
+            environment={},
+            timezone="UTC",
+            os_release_text='ID=ubuntu\nVERSION_CODENAME=jammy\n',
+            machine="x86_64",
+        )
+
+        self.assertEqual(facts.codename, "jammy")
+        self.assertEqual(facts.distro_codename, "jammy")
+        self.assertEqual(facts.version_codename, "jammy")
+
 
 if __name__ == "__main__":
     unittest.main()

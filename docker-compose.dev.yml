@@ -15,7 +15,7 @@ services:
       - ./dashboard-app:/app
       - dashboard-app-node-modules:/app/node_modules
     ports: !override
-      - "127.0.0.1:${DASHBOARD_PORT:-3000}:4200"
+      - "${MANAGEMENT_BIND_ADDRESS:-127.0.0.1}:${DASHBOARD_PORT:-3000}:4200"
     environment:
       - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
       - LIVE_API_PROXY_TARGET=http://homepage-actions:8085

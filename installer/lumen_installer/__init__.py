@@ -13,6 +13,17 @@ from .dotenv import DotEnvDocument, write_atomic
 from .environment import EnvironmentChange, EnvironmentPlan, plan_environment
 from .platform import HostFacts, detect_host
 from .secrets import ensure_actions_token
+from .network import (
+    JELLYFIN_BIND_ADDRESS,
+    JELLYFIN_REMOTE_ACCESS,
+    LAN_BIND_ADDRESS,
+    LOCAL_BIND_ADDRESS,
+    LOCAL_PUBLIC_HOST,
+    MANAGEMENT_BIND_ADDRESS,
+    PUBLIC_HOST,
+    NetworkPlan,
+    plan_network,
+)
 from .commands import (
     DEFAULT_TIMEOUT,
     CommandExecutor,
@@ -56,6 +67,15 @@ __all__ = [
     "Resolver",
     "detect_host",
     "ensure_actions_token",
+    "JELLYFIN_BIND_ADDRESS",
+    "JELLYFIN_REMOTE_ACCESS",
+    "LAN_BIND_ADDRESS",
+    "LOCAL_BIND_ADDRESS",
+    "LOCAL_PUBLIC_HOST",
+    "MANAGEMENT_BIND_ADDRESS",
+    "NetworkPlan",
+    "PUBLIC_HOST",
+    "plan_network",
     "plan_environment",
     "write_atomic",
     "CommandError",

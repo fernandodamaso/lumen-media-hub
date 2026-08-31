@@ -82,6 +82,27 @@ jobs:
           print("development dashboard ok:", dashboard["image"], ports, mounts)
           '
 
+      - name: Assert explicit network exposure contract
+        run: |
+          docker compose --env-file .env.example \
+            --profile subtitles --profile requests --profile maintenance --profile indexer-tools --profile ai \
+            -f docker-compose.yml config --format json \
+          | python3 -c '
+          import json, sys
+          services = json.load(sys.stdin)["services"]
+          jellyfin = services["jellyfin"]["ports"][0]
+          assert jellyfin["host_ip"] == "127.0.0.1", jellyfin
+          management = {"qbittorrent", "radarr", "sonarr", "prowlarr", "flaresolverr", "bazarr", "jellyseerr", "maintainerr", "dashboard"}
+          for name in management:
+              assert services[name]["ports"][0]["host_ip"] == "127.0.0.1", (name, services[name]["ports"])
+          assert services["homepage-actions"]["ports"][0]["host_ip"] == "127.0.0.1"
+          assert all("host_ip" not in port for port in services["qbittorrent"]["ports"][1:])
+          environment = services["homepage-actions"]["environment"]
+          for key in ("JELLYFIN_EXTERNAL_URL", "SONARR_EXTERNAL_URL", "RADARR_EXTERNAL_URL", "PROWLARR_EXTERNAL_URL", "BAZARR_EXTERNAL_URL", "QBITTORRENT_EXTERNAL_URL"):
+              assert environment[key].startswith("http://127.0.0.1:"), (key, environment[key])
+          print("network exposure contract ok")
+          '
+
       - name: Compose configurations parse
         run: |
           docker compose --env-file .env.example -f docker-compose.yml config --quiet

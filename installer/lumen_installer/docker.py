@@ -577,7 +577,7 @@ def _platforms_from_payload(payload: Any) -> set[tuple[str, str, str | None]] | 
 
 
 def _decode_manifest(stdout: Any) -> Any:
-    text = normalize_stream(stdout, name="manifest output", strict=False).strip()
+    text = normalize_stream(stdout, name="manifest output").strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -614,7 +614,14 @@ def inspect_manifest_architectures(
         status = "offline" if any(marker in lowered for marker in _OFFLINE_MARKERS) else "unknown"
         return ManifestInspection(image=image, status=status, error=detail)
 
-    payload = _decode_manifest(result.stdout)
+    try:
+        payload = _decode_manifest(result.stdout)
+    except ValueError as error:
+        return ManifestInspection(
+            image=image,
+            status="unknown",
+            error=str(error),
+        )
     if payload is None:
         return ManifestInspection(image=image, status="unknown", error="manifest output was not valid JSON")
     platform_values = _platforms_from_payload(payload)

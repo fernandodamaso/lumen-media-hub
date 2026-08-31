@@ -1,6 +1,6 @@
 import subprocess
 import sys
-import time
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -66,23 +66,91 @@ class CommandRunnerTests(unittest.TestCase):
         self.assertEqual(result.stdout, "ok")
         self.assertEqual(observed, [0.25])
 
-    def test_delayed_injected_executor_has_a_typed_redacted_timeout(self):
+    def test_repeated_protocol_timeouts_are_synchronous_and_redacted(self):
         secret = "delayed-secret"
+        caller_thread = threading.get_ident()
+        executor_threads = []
+        side_effects = []
 
-        def delayed(_argv, *, timeout=None):
-            del timeout
-            time.sleep(0.05)
-            return subprocess.CompletedProcess(["tool", secret], 0, stdout=secret, stderr=secret)
+        def signal_timeout(argv, *, timeout=None):
+            executor_threads.append(threading.get_ident())
+            side_effects.append("signaled")
+            raise subprocess.TimeoutExpired(
+                argv,
+                timeout,
+                output=f"out {secret}".encode(),
+                stderr=f"err {secret}".encode(),
+            )
+
+        runner = CommandRunner(executor=signal_timeout, timeout=0.005)
+        for _ in range(3):
+            with self.assertRaises(CommandExecutionError) as raised:
+                runner.run(["tool", secret], redact=(secret,))
+
+            self.assertTrue(raised.exception.report["timed_out"])
+            self.assertEqual(raised.exception.report["timeout"], 0.005)
+            self.assertNotIn(secret, str(raised.exception))
+            self.assertNotIn(secret, repr(raised.exception.report))
+
+        self.assertEqual(executor_threads, [caller_thread] * 3)
+        self.assertEqual(side_effects, ["signaled"] * 3)
+
+    def test_typed_executor_timeout_result_is_remapped_and_redacted(self):
+        secret = "typed-timeout-secret"
+
+        def signal_timeout(argv, *, timeout=None):
+            raise CommandExecutionError(
+                f"timeout while using {secret}",
+                argv=argv,
+                stdout=f"out {secret}",
+                stderr=f"err {secret}",
+                timed_out=True,
+                timeout=timeout,
+            )
 
         with self.assertRaises(CommandExecutionError) as raised:
-            CommandRunner(executor=delayed, timeout=0.005).run(
+            CommandRunner(executor=signal_timeout, timeout=0.025).run(
                 ["tool", secret], redact=(secret,)
             )
 
         self.assertTrue(raised.exception.report["timed_out"])
-        self.assertEqual(raised.exception.report["timeout"], 0.005)
+        self.assertEqual(raised.exception.report["timeout"], 0.025)
         self.assertNotIn(secret, str(raised.exception))
         self.assertNotIn(secret, repr(raised.exception.report))
+
+    def test_opaque_executor_signature_keeps_legacy_one_argument_call(self):
+        calls = []
+
+        class OpaqueExecutor:
+            @property
+            def __signature__(self):
+                raise ValueError("signature unavailable")
+
+            def __call__(self, argv):
+                calls.append(argv)
+                return subprocess.CompletedProcess(argv, 0, stdout="ok", stderr="")
+
+        result = CommandRunner(executor=OpaqueExecutor()).run(["tool"])
+
+        self.assertEqual(result.stdout, "ok")
+        self.assertEqual(calls, [["tool"]])
+
+    def test_opaque_executor_internal_type_error_is_called_once(self):
+        calls = []
+
+        class OpaqueExecutor:
+            @property
+            def __signature__(self):
+                raise ValueError("signature unavailable")
+
+            def __call__(self, argv):
+                calls.append(argv)
+                raise TypeError("executor body failed")
+
+        with self.assertRaises(CommandExecutionError):
+            CommandRunner(executor=OpaqueExecutor()).run(["tool"])
+
+        self.assertEqual(calls, [["tool"]])
 
     def test_default_timeout_is_bounded_and_timeout_error_is_typed_and_redacted(self):
         secret = "timeout-secret"
@@ -144,6 +212,19 @@ class CommandRunnerTests(unittest.TestCase):
                     ):
                         with self.assertRaises(CommandExecutionError):
                             CommandRunner().run(["tool"])
+
+    def test_internal_executor_type_error_is_not_retried(self):
+        calls = []
+
+        def execute(argv, *, timeout=None):
+            del timeout
+            calls.append(argv)
+            raise TypeError("executor body failed")
+
+        with self.assertRaises(CommandExecutionError):
+            CommandRunner(executor=execute).run(["tool"])
+
+        self.assertEqual(calls, [["tool"]])
 
     def test_rejects_string_commands_before_invoking_subprocess(self):
         with mock.patch("lumen_installer.commands.subprocess.run") as run:

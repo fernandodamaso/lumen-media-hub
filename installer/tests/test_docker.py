@@ -378,6 +378,26 @@ class ManifestInspectionTests(unittest.TestCase):
         self.assertEqual(result.status, "unknown")
         self.assertFalse(result.supported)
 
+    def test_falsey_custom_manifest_stream_is_not_stringified_as_json(self):
+        payload = json.dumps(
+            {"manifests": [{"platform": {"os": "linux", "architecture": "amd64"}}]}
+        )
+
+        class FalseyStream:
+            def __bool__(self):
+                return False
+
+            def __str__(self):
+                return payload
+
+        runner = mock.Mock()
+        runner.run.return_value = mock.Mock(stdout=FalseyStream(), stderr="", returncode=0)
+
+        result = inspect_manifest_architectures("image:tag", runner=runner)
+
+        self.assertEqual(result.status, "unknown")
+        self.assertFalse(result.supported)
+
 
 if __name__ == "__main__":
     unittest.main()

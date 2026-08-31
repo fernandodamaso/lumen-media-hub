@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import socket
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,121 @@ LOCAL_BIND_ADDRESS = "127.0.0.1"
 LAN_BIND_ADDRESS = "0.0.0.0"
 LOCAL_PUBLIC_HOST = "127.0.0.1"
 _HOST_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+_NUMERIC_HOST = re.compile(r"^[0-9.]+$")
+
+
+def _default_host_resolver(host: str) -> list[str]:
+    """Resolve a hostname to address strings for safety validation.
+
+    The resolver is deliberately a tiny boundary so tests and callers can
+    inject deterministic answers.  DNS failures are handled by the caller as
+    an unresolved-but-syntactically-valid hostname.
+    """
+
+    return [
+        result[4][0]
+        for result in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    ]
+
+
+def _is_noncanonical_numeric_host(host: str) -> bool:
+    """Identify legacy numeric forms that URL/DNS parsers interpret as IPs."""
+
+    if host.isdigit():
+        return True
+    if not _NUMERIC_HOST.fullmatch(host):
+        return False
+    parts = host.split(".")
+    if len(parts) != 4:
+        return True
+    return any(
+        not part
+        or (len(part) > 1 and part.startswith("0"))
+        or int(part) > 255
+        for part in parts
+    )
+
+
+def _is_loopback_alias(host: str) -> bool:
+    """Recognize hostnames that encode a loopback IPv4 prefix."""
+
+    parts = host.split(".")
+    if len(parts) < 4 or not all(part.isdigit() for part in parts[:4]):
+        return False
+    prefix = parts[:4]
+    if any(len(part) > 1 and part.startswith("0") for part in prefix):
+        return prefix[0] == "127"
+    try:
+        address = ipaddress.ip_address(".".join(prefix))
+    except ValueError:
+        return False
+    return address.is_loopback
+
+
+def _resolved_addresses(results: Any) -> list[str]:
+    """Extract address strings from common resolver/getaddrinfo results."""
+
+    if results is None:
+        return []
+    if isinstance(results, str):
+        return [results]
+    addresses: list[str] = []
+    for result in results:
+        if isinstance(result, str):
+            addresses.append(result)
+        elif isinstance(result, Mapping):
+            address = result.get("address")
+            if isinstance(address, str):
+                addresses.append(address)
+        elif isinstance(result, (tuple, list)):
+            # socket.getaddrinfo returns (..., sockaddr), where sockaddr's
+            # first item is the address.  Also accept a simple (address, ...)
+            # tuple from lightweight test resolvers.
+            candidate = result[0] if result and isinstance(result[0], str) else None
+            if candidate is None and result and isinstance(result[-1], (tuple, list)):
+                candidate = result[-1][0] if result[-1] else None
+            if isinstance(candidate, str):
+                addresses.append(candidate)
+    return addresses
+
+
+def _validate_resolved_addresses(host: str, resolver: Any) -> None:
+    try:
+        results = resolver(host)
+    except (OSError, socket.gaierror):
+        # An unavailable DNS server must not make a syntactically valid host
+        # unusable.  If it later resolves to an unsafe address, the next
+        # explicit LAN planning attempt will reject it.
+        return
+
+    for value in _resolved_addresses(results):
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError as exc:
+            raise InvalidInputError(
+                f"{PUBLIC_HOST} resolver returned an invalid address for {host}"
+            ) from exc
+        broadcast = address.version == 4 and (
+            int(address) == 0xFFFFFFFF or int(address) & 0xFF == 0xFF
+        )
+        if address.is_loopback:
+            reason = "loopback"
+        elif address.is_unspecified:
+            reason = "unspecified"
+        elif address.is_multicast:
+            reason = "multicast"
+        elif address.is_reserved:
+            reason = "reserved"
+        elif address.is_link_local:
+            reason = "link-local"
+        elif broadcast:
+            reason = "broadcast"
+        else:
+            reason = None
+        if reason is not None:
+            raise InvalidInputError(
+                f"{PUBLIC_HOST} hostname {host!r} resolves to an unsafe {reason} address"
+            )
 
 
 def _coerce_env(existing_env: Any) -> dict[str, str]:
@@ -70,6 +186,7 @@ def _validated_host(
     *,
     field: str = PUBLIC_HOST,
     allow_local: bool = False,
+    resolver: Any = None,
 ) -> str:
     if not isinstance(value, str):
         raise InvalidInputError(f"{field} must be a hostname or IP address")
@@ -80,6 +197,10 @@ def _validated_host(
         raise InvalidInputError(f"{field} must not contain whitespace")
     if any(character in host for character in ("/", "?", "#", "@")) or "://" in host:
         raise InvalidInputError(f"{field} must be a hostname or IP address without a URL")
+    if _is_noncanonical_numeric_host(host):
+        raise InvalidInputError(f"{field} must use a canonical IPv4 literal")
+    if not allow_local and _is_loopback_alias(host):
+        raise InvalidInputError(f"{field} must be reachable from the LAN, not localhost")
 
     try:
         address = ipaddress.ip_address(host)
@@ -112,11 +233,17 @@ def _validated_host(
     if any(not label or not _HOST_LABEL.fullmatch(label) for label in labels):
         raise InvalidInputError(f"{field} must be a usable hostname or IP address")
     lowered = host.lower()
-    if (
-        lowered == "*"
-        or (not allow_local and (lowered == "localhost" or lowered.endswith(".localhost")))
-    ):
+    local_alias = (
+        lowered == "localhost"
+        or lowered.startswith("localhost.")
+        or lowered.endswith(".localhost")
+        or lowered.endswith(".localdomain")
+        or lowered in {"localhost6", "ip6-localhost", "ip6-loopback"}
+    )
+    if lowered == "*" or (not allow_local and local_alias):
         raise InvalidInputError(f"{field} must be reachable from the LAN, not localhost")
+    if not allow_local and resolver is not None:
+        _validate_resolved_addresses(host, resolver)
     return host
 
 
@@ -214,6 +341,8 @@ def plan_network(
     requested_mode: str | None,
     public_host: str | None,
     interactive: bool,
+    *,
+    resolver: Any = None,
 ) -> NetworkPlan:
     """Plan local/LAN exposure and explicit legacy Jellyfin adoption.
 
@@ -229,29 +358,69 @@ def plan_network(
     mode = _normalise_mode(requested_mode)
     adopted = bool(env)
     explicit_jellyfin = env.get(JELLYFIN_BIND_ADDRESS)
-    legacy = adopted and not explicit_jellyfin
+    legacy = adopted and not (isinstance(explicit_jellyfin, str) and explicit_jellyfin.strip())
     drift: list[dict[str, str]] = []
 
     existing_jellyfin = (
         _validated_bind(explicit_jellyfin, field=JELLYFIN_BIND_ADDRESS)
-        if explicit_jellyfin
+        if not legacy and explicit_jellyfin is not None
         else None
     )
     existing_management = env.get(MANAGEMENT_BIND_ADDRESS)
-    if existing_management is not None:
+    management_legacy = adopted and not (
+        isinstance(existing_management, str) and existing_management.strip()
+    )
+    if not management_legacy and existing_management is not None:
         existing_management = _validated_bind(
             existing_management, field=MANAGEMENT_BIND_ADDRESS
         )
-    management_legacy = adopted and existing_management is None
+    else:
+        existing_management = None
+    existing_remote = env.get(JELLYFIN_REMOTE_ACCESS)
+    if isinstance(existing_remote, str) and existing_remote.strip():
+        existing_remote = _bool_text(existing_remote, field=JELLYFIN_REMOTE_ACCESS)
+    else:
+        existing_remote = None
+
+    legacy_network = legacy or management_legacy
+    if legacy_network and mode is None:
+        if not interactive:
+            missing = " and ".join(
+                key
+                for key, is_missing in (
+                    (JELLYFIN_BIND_ADDRESS, legacy),
+                    (MANAGEMENT_BIND_ADDRESS, management_legacy),
+                )
+                if is_missing
+            )
+            raise DriftError(
+                f"{missing} is missing from an adopted environment; "
+                "choose preserve-LAN or local before Compose mutation"
+            )
+        # Select the effective mode before validating PUBLIC_HOST.  An
+        # adopted interactive plan is a preserve-LAN checkpoint, so a
+        # loopback host must not slip through as if the plan were local.
+        selected_mode = "preserve-lan"
+        selected = None
+    else:
+        selected_mode = mode
+        selected = mode
+
+    # Existing and supplied hosts are validated against the effective mode,
+    # including the implicit preserve-LAN choice above.  DNS resolution is
+    # intentionally limited to LAN validation; local planning never performs
+    # a surprising network lookup.
+    allow_local_host = selected_mode not in {"lan", "preserve-lan"}
+    host_resolver = resolver if resolver is not None else _default_host_resolver
     existing_public = env.get(PUBLIC_HOST)
-    if existing_public is not None:
+    if isinstance(existing_public, str) and existing_public.strip():
         existing_public = _validated_host(
             existing_public,
-            allow_local=mode not in {"lan", "preserve-lan"},
+            allow_local=allow_local_host,
+            resolver=host_resolver,
         )
-    existing_remote = env.get(JELLYFIN_REMOTE_ACCESS)
-    if existing_remote is not None:
-        existing_remote = _bool_text(existing_remote, field=JELLYFIN_REMOTE_ACCESS)
+    else:
+        existing_public = None
 
     # Validate an explicitly supplied host even when the caller is selecting
     # local exposure.  This keeps externally constructed URLs safe and makes a
@@ -260,7 +429,8 @@ def plan_network(
     if public_host is not None:
         supplied_public = _validated_host(
             public_host,
-            allow_local=mode not in {"lan", "preserve-lan"},
+            allow_local=allow_local_host,
+            resolver=host_resolver,
         )
 
     if legacy:
@@ -289,27 +459,6 @@ def plan_network(
                 ),
             )
         )
-
-    legacy_network = legacy or management_legacy
-    if legacy_network and mode is None:
-        if not interactive:
-            missing = " and ".join(
-                key
-                for key, is_missing in (
-                    (JELLYFIN_BIND_ADDRESS, legacy),
-                    (MANAGEMENT_BIND_ADDRESS, management_legacy),
-                )
-                if is_missing
-            )
-            raise DriftError(
-                f"{missing} is missing from an adopted environment; "
-                "choose preserve-LAN or local before Compose mutation"
-            )
-        selected_mode = "preserve-lan"
-        selected = None
-    else:
-        selected_mode = mode
-        selected = mode
 
     if selected_mode is None:
         effective_jellyfin = existing_jellyfin or LOCAL_BIND_ADDRESS
@@ -369,11 +518,16 @@ def plan_network(
         else LOCAL_BIND_ADDRESS
     )
     if selected_mode is None:
-        effective_remote = existing_remote or ("true" if effective_jellyfin == LAN_BIND_ADDRESS else "false")
+        inferred_remote = "true" if effective_jellyfin == LAN_BIND_ADDRESS else "false"
+        effective_remote = existing_remote or inferred_remote
     else:
         effective_remote = "true" if effective_jellyfin == LAN_BIND_ADDRESS else "false"
 
-    if existing_remote is not None and selected_mode is None and existing_remote != effective_remote:
+    if (
+        existing_remote is not None
+        and selected_mode is None
+        and existing_remote != effective_remote
+    ):
         drift.append(
             _record(
                 JELLYFIN_REMOTE_ACCESS,

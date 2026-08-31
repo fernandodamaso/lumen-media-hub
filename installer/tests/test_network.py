@@ -1,4 +1,5 @@
 import json
+import socket
 import shutil
 import subprocess
 import sys
@@ -105,6 +106,94 @@ class NetworkPlanTests(unittest.TestCase):
             with self.subTest(host=host):
                 with self.assertRaises(InvalidInputError):
                     plan_network({}, "lan", host, interactive=False)
+
+    def test_lan_public_host_rejects_disguised_loopback_names_and_numeric_forms(self):
+        for host in (
+            "localhost.localdomain",
+            "localhost6",
+            "127.0.0.1.nip.io",
+            "127.1",
+            "0",
+            "2130706433",
+            "127.000.000.001",
+        ):
+            with self.subTest(host=host):
+                with self.assertRaises(InvalidInputError):
+                    plan_network({}, "lan", host, interactive=False)
+
+    def test_lan_public_host_rejects_injected_loopback_dns_result(self):
+        calls = []
+
+        def resolve(host):
+            calls.append(host)
+            return ["127.0.0.1"]
+
+        with self.assertRaisesRegex(InvalidInputError, "loopback"):
+            plan_network(
+                {}, "lan", "media.example.test", interactive=False, resolver=resolve
+            )
+        self.assertEqual(calls, ["media.example.test"])
+
+    def test_lan_public_host_accepts_safe_injected_dns_result(self):
+        plan = plan_network(
+            {},
+            "lan",
+            "media.example.test",
+            interactive=False,
+            resolver=lambda host: ["192.168.1.20"],
+        )
+        self.assertEqual(plan.values["PUBLIC_HOST"], "media.example.test")
+
+    def test_lan_public_host_accepts_syntactically_valid_name_when_dns_fails(self):
+        def resolve(host):
+            raise socket.gaierror("temporary DNS failure")
+
+        plan = plan_network(
+            {},
+            "lan",
+            "media.example.test",
+            interactive=False,
+            resolver=resolve,
+        )
+        self.assertEqual(plan.values["PUBLIC_HOST"], "media.example.test")
+
+    def test_local_mode_does_not_resolve_public_host(self):
+        def resolve(host):
+            raise AssertionError(f"local mode unexpectedly resolved {host}")
+
+        plan = plan_network(
+            {}, "local", "localhost", interactive=False, resolver=resolve
+        )
+        self.assertEqual(plan.values["PUBLIC_HOST"], "localhost")
+
+    def test_adopted_interactive_implicit_preserve_rejects_loopback_public_host(self):
+        for host in ("127.0.0.1", "localhost"):
+            with self.subTest(host=host):
+                with self.assertRaises(InvalidInputError):
+                    plan_network(
+                        {"ROOT_PATH": "/srv/media"},
+                        None,
+                        host,
+                        interactive=True,
+                    )
+
+    def test_injected_dns_rejects_unsafe_addresses(self):
+        for address in (
+            "0.0.0.0",
+            "169.254.1.1",
+            "224.0.0.1",
+            "240.0.0.1",
+            "255.255.255.255",
+        ):
+            with self.subTest(address=address):
+                with self.assertRaises(InvalidInputError):
+                    plan_network(
+                        {},
+                        "lan",
+                        "media.example.test",
+                        interactive=False,
+                        resolver=lambda host, address=address: [address],
+                    )
 
     def test_local_mode_accepts_loopback_public_host_but_lan_rejects_existing_loopback(self):
         local = plan_network(
@@ -337,12 +426,41 @@ class WindowsNetworkMigrationSourceTests(unittest.TestCase):
         merge_end = source.index("function Initialize-EnvFile")
         merge = source[merge_start:merge_end]
 
-        self.assertIn("-not $map.ContainsKey('JELLYFIN_BIND_ADDRESS')", merge)
-        self.assertIn("-not $map.ContainsKey('MANAGEMENT_BIND_ADDRESS')", merge)
-        self.assertIn("-not $map.ContainsKey('PUBLIC_HOST')", merge)
-        self.assertIn("-not $map.ContainsKey('JELLYFIN_REMOTE_ACCESS')", merge)
+        self.assertIn("Test-NonEmptyEnvValue $map 'JELLYFIN_BIND_ADDRESS'", merge)
+        self.assertIn("Test-NonEmptyEnvValue $map 'MANAGEMENT_BIND_ADDRESS'", merge)
+        self.assertIn("Test-NonEmptyEnvValue $map 'PUBLIC_HOST'", merge)
+        self.assertIn("Test-NonEmptyEnvValue $map 'JELLYFIN_REMOTE_ACCESS'", merge)
         self.assertIn("0.0.0.0", merge)
         self.assertIn("127.0.0.1", merge)
+
+    def test_windows_migration_treats_blank_network_values_as_unset(self):
+        source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
+        merge_start = source.index("function Merge-MissingEnvKeys")
+        merge_end = source.index("function Initialize-EnvFile")
+        merge = source[merge_start:merge_end]
+
+        self.assertIn("function Test-NonEmptyEnvValue", source)
+        self.assertIn("IsNullOrWhiteSpace", source)
+        for key in (
+            "JELLYFIN_BIND_ADDRESS",
+            "MANAGEMENT_BIND_ADDRESS",
+            "PUBLIC_HOST",
+            "JELLYFIN_REMOTE_ACCESS",
+        ):
+            self.assertIn(f"Test-NonEmptyEnvValue $map '{key}'", merge)
+
+    def test_windows_migration_derives_remote_intent_from_effective_bind(self):
+        source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
+        merge_start = source.index("function Merge-MissingEnvKeys")
+        merge_end = source.index("function Initialize-EnvFile")
+        merge = source[merge_start:merge_end]
+
+        self.assertIn("$effectiveJellyfinBind", merge)
+        self.assertIn("-match '^127\\.'", merge)
+        self.assertIn("{ 'false' }", merge)
+        self.assertIn("{ 'true' }", merge)
+        self.assertIn("JELLYFIN_REMOTE_ACCESS=$remoteAccess", merge)
+        self.assertNotIn("JELLYFIN_REMOTE_ACCESS=true'", merge)
 
 
 if __name__ == "__main__":

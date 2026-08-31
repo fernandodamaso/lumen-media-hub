@@ -124,6 +124,12 @@ function Unquote-DotEnvValue([string]$Value) {
   return $Value
 }
 
+function Test-NonEmptyEnvValue([hashtable]$Map, [string]$Name) {
+  if (-not $Map.ContainsKey($Name)) { return $false }
+  $value = Unquote-DotEnvValue ([string]$Map[$Name])
+  return -not [string]::IsNullOrWhiteSpace($value)
+}
+
 function Merge-MissingEnvKeys {
   $lines = [System.Collections.Generic.List[string]]::new()
   $lines.AddRange([string[]](Get-Content $EnvFile))
@@ -145,17 +151,21 @@ function Merge-MissingEnvKeys {
   # interfaces.  Preserve that exposure during adoption so adding the new
   # required Compose variables cannot silently localize an existing install.
   $legacyNetworkKeys = [System.Collections.Generic.List[string]]::new()
-  if (-not $map.ContainsKey('JELLYFIN_BIND_ADDRESS')) {
+  $jellyfinBindConfigured = Test-NonEmptyEnvValue $map 'JELLYFIN_BIND_ADDRESS'
+  $effectiveJellyfinBind = '0.0.0.0'
+  if ($jellyfinBindConfigured) {
+    $effectiveJellyfinBind = (Unquote-DotEnvValue ([string]$map['JELLYFIN_BIND_ADDRESS'])).Trim()
+  } else {
     $lines.Add('JELLYFIN_BIND_ADDRESS=0.0.0.0')
     [void]$legacyNetworkKeys.Add('JELLYFIN_BIND_ADDRESS')
     $changed = $true
   }
-  if (-not $map.ContainsKey('MANAGEMENT_BIND_ADDRESS')) {
+  if (-not (Test-NonEmptyEnvValue $map 'MANAGEMENT_BIND_ADDRESS')) {
     $lines.Add('MANAGEMENT_BIND_ADDRESS=0.0.0.0')
     [void]$legacyNetworkKeys.Add('MANAGEMENT_BIND_ADDRESS')
     $changed = $true
   }
-  if (-not $map.ContainsKey('PUBLIC_HOST')) {
+  if (-not (Test-NonEmptyEnvValue $map 'PUBLIC_HOST')) {
     # Do not guess a LAN address for deep links; the explicit public host can
     # be set later after adoption.  This value is non-secret and keeps the
     # legacy localhost links deterministic until then.
@@ -163,16 +173,17 @@ function Merge-MissingEnvKeys {
     [void]$legacyNetworkKeys.Add('PUBLIC_HOST')
     $changed = $true
   }
-  if (-not $map.ContainsKey('JELLYFIN_REMOTE_ACCESS')) {
-    $lines.Add('JELLYFIN_REMOTE_ACCESS=true')
+  if (-not (Test-NonEmptyEnvValue $map 'JELLYFIN_REMOTE_ACCESS')) {
+    $remoteAccess = if ($effectiveJellyfinBind -match '^127\.') { 'false' } else { 'true' }
+    $lines.Add("JELLYFIN_REMOTE_ACCESS=$remoteAccess")
     [void]$legacyNetworkKeys.Add('JELLYFIN_REMOTE_ACCESS')
     $changed = $true
   }
 
   if ($legacyNetworkKeys.Count -gt 0) {
     $legacyKeys = $legacyNetworkKeys -join ', '
-    Write-Warning "Adopted .env is missing explicit network settings ($legacyKeys). Preserving legacy LAN exposure; review these values before sharing services."
-    Write-Host 'Network migration decision: legacy all-interface exposure was preserved. Edit .env and choose local-only bindings if desired.' -ForegroundColor Yellow
+    Write-Warning "Adopted .env has missing or blank explicit network settings ($legacyKeys). Preserving legacy exposure; review these values before sharing services."
+    Write-Host 'Network migration decision: missing network settings were made explicit without overwriting nonempty values. Edit .env and choose local-only bindings if desired.' -ForegroundColor Yellow
   }
 
   if ($changed) {

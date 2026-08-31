@@ -23,6 +23,16 @@ _SECRET_MARKERS = (
     "apikey",
     "private_key",
 )
+_DISPLAY_SAFE_KEYS = frozenset(
+    {
+        "PUID",
+        "PGID",
+        "TZ",
+        "ROOT_PATH",
+        "DOWNLOADS_PATH",
+        "UMASK",
+    }
+)
 
 
 def _is_secret_key(key: str) -> bool:
@@ -130,8 +140,12 @@ class EnvironmentChange:
         if self.previous is _MISSING:
             old = "<unset>"
         else:
-            old = _REDACTED if self.secret else self.previous
-        new = _REDACTED if self.secret else self.value
+            old = (
+                _REDACTED
+                if self.secret or self.key not in _DISPLAY_SAFE_KEYS
+                else self.previous
+            )
+        new = _REDACTED if self.secret or self.key not in _DISPLAY_SAFE_KEYS else self.value
         return {
             "key": self.key,
             "action": self.action,
@@ -173,14 +187,37 @@ class EnvironmentPlan:
     @property
     def display(self) -> dict[str, Any]:
         values = {
-            key: (_REDACTED if _is_secret_key(key) else value)
+            key: (
+                value
+                if key in _DISPLAY_SAFE_KEYS and not _is_secret_key(key)
+                else _REDACTED
+            )
             for key, value in self.values.items()
         }
+        drift = []
+        for record in self.drift:
+            key = str(record.get("key", ""))
+            if key in _DISPLAY_SAFE_KEYS and not _is_secret_key(key):
+                drift.append(
+                    {
+                        field: record[field]
+                        for field in ("key", "kind", "reason", "old", "new")
+                        if field in record
+                    }
+                )
+            else:
+                drift.append(
+                    {
+                        "key": key,
+                        "kind": record.get("kind", "drift"),
+                        "reason": record.get("reason", ""),
+                    }
+                )
         return {
             "fresh_setup": self.fresh_setup,
             "values": values,
             "changes": [change.redacted() for change in self.changes],
-            "drift": [dict(record) for record in self.drift],
+            "drift": drift,
         }
 
     @property
@@ -210,6 +247,13 @@ class EnvironmentPlan:
 
     def __contains__(self, key: object) -> bool:
         return key in self.values
+
+    def __repr__(self) -> str:
+        return (
+            f"EnvironmentPlan(fresh_setup={self.fresh_setup!r}, "
+            f"keys={list(self.values)!r}, changes={len(self.changes)}, "
+            f"drift={len(self.drift)})"
+        )
 
 
 def _coerce_document(existing: Any) -> DotEnvDocument:

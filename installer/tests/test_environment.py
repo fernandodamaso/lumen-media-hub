@@ -81,6 +81,34 @@ class EnvironmentPlanTests(unittest.TestCase):
         self.assertEqual(plan.display["values"]["ACTIONS_TOKEN"], "<redacted>")
         self.assertEqual(plan.display["values"]["STACK_PASSWORD"], "<redacted>")
 
+    def test_display_redacts_unknown_credentials_identifiers_and_raw_config_by_default(self):
+        document = DotEnvDocument.parse(
+            "PUID=2001\n"
+            "PGID=2002\n"
+            "TZ=UTC\n"
+            "CUSTOM_CREDENTIAL=credential-value\n"
+            "AUTH_COOKIE=cookie-value\n"
+            "ACCOUNT_ID=account-value\n"
+            "RAW_CONFIG=raw-config-value\n"
+        )
+
+        plan = plan_environment(document, HOST, {})
+
+        for key in ("CUSTOM_CREDENTIAL", "AUTH_COOKIE", "ACCOUNT_ID", "RAW_CONFIG"):
+            self.assertEqual(plan.display["values"][key], "<redacted>")
+        for projection in (plan.display, plan.report, plan.redacted):
+            projection_text = repr(projection)
+            self.assertNotIn("credential-value", projection_text)
+            self.assertNotIn("cookie-value", projection_text)
+            self.assertNotIn("account-value", projection_text)
+            self.assertNotIn("raw-config-value", projection_text)
+        self.assertNotIn("credential-value", repr(plan))
+        self.assertEqual(plan.display["values"]["PUID"], "2001")
+        self.assertEqual(plan.display["values"]["PGID"], "2002")
+        self.assertEqual(plan.display["values"]["TZ"], "UTC")
+        self.assertEqual(plan.display["drift"][0]["key"], "PUID")
+        self.assertEqual(plan.display["drift"][0]["old"], "2001")
+
 
 if __name__ == "__main__":
     unittest.main()

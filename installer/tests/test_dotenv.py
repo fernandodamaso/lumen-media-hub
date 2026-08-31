@@ -1,5 +1,3 @@
-import contextlib
-import os
 import stat
 import sys
 import tempfile
@@ -58,6 +56,22 @@ class DotEnvDocumentTests(unittest.TestCase):
             "# header\nUNKNOWN=keep\nNEW_VALUE=\"needs quoting\"\n",
         )
 
+    def test_appending_after_editing_unterminated_assignment_inserts_line_break(self):
+        document = DotEnvDocument.parse("A=old")
+
+        document.set("A", "new")
+        document.set("B", "value")
+
+        self.assertEqual(document.render(), "A=new\nB=value\n")
+
+    def test_unknown_double_quote_escapes_are_preserved(self):
+        document = DotEnvDocument.parse(
+            'PASSWORD="p\\q"\nWINDOWS_PATH="C:\\\\media\\\\downloads"\n'
+        )
+
+        self.assertEqual(document.get("PASSWORD"), r"p\q")
+        self.assertEqual(document.get("WINDOWS_PATH"), r"C:\media\downloads")
+
     def test_write_atomic_sets_restrictive_mode_and_preserves_original_on_replace_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / ".env"
@@ -79,6 +93,20 @@ class DotEnvDocumentTests(unittest.TestCase):
                 [child.name for child in Path(temporary).iterdir()],
                 [".env"],
             )
+
+    def test_post_replace_parent_fsync_failure_does_not_report_failed_mutation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / ".env"
+            path.write_text("ORIGINAL=keep\n", encoding="utf-8")
+
+            with mock.patch(
+                "lumen_installer.dotenv._fsync_parent",
+                side_effect=[None, OSError("post-rename fsync failed")],
+            ) as sync_parent:
+                write_atomic(path, "NEW=value\n")
+
+            self.assertEqual(path.read_text(encoding="utf-8"), "NEW=value\n")
+            self.assertEqual(sync_parent.call_count, 2)
 
 
 if __name__ == "__main__":

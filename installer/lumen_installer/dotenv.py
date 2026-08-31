@@ -49,8 +49,15 @@ def _decode_double_quoted(value: str) -> str:
         character = value[index]
         if character == "\\" and index + 1 < len(value):
             next_character = value[index + 1]
-            decoded.append(escapes.get(next_character, next_character))
+            if next_character in escapes:
+                decoded.append(escapes[next_character])
+            else:
+                decoded.append("\\" + next_character)
             index += 2
+            continue
+        if character == "\\":
+            decoded.append("\\")
+            index += 1
             continue
         decoded.append(character)
         index += 1
@@ -213,7 +220,11 @@ class DotEnvDocument:
             return
 
         if self._entries and not self._entries[-1].render().endswith(("\n", "\r")):
-            self._entries[-1].original += self._newline
+            last = self._entries[-1]
+            if last.key is not None and last.changed:
+                last.line_ending = self._newline
+            else:
+                last.original += self._newline
         self._entries.append(
             _Entry(
                 original="",
@@ -287,6 +298,7 @@ def write_atomic(path: str | Path, content: str | bytes, mode: int = 0o600) -> N
         dir=str(parent),
     )
     temporary = Path(temporary_name)
+    replaced = False
     try:
         os.fchmod(descriptor, mode)
         with os.fdopen(descriptor, "wb") as handle:
@@ -299,28 +311,22 @@ def write_atomic(path: str | Path, content: str | bytes, mode: int = 0o600) -> N
         # atomic name replacement durable.
         _fsync_parent(parent)
         os.replace(str(temporary), str(destination))
-        _fsync_parent(parent)
+        replaced = True
+        # Once replacement succeeds, a directory fsync can only improve
+        # durability; it must not turn a successful atomic mutation into a
+        # reported failure that claims the old file is still in place.
+        try:
+            _fsync_parent(parent)
+        except OSError:
+            pass
     finally:
         if descriptor >= 0:
             os.close(descriptor)
-        try:
-            temporary.unlink()
-        except FileNotFoundError:
-            pass
+        if not replaced:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
 
 
-def plan_environment(existing: Any, host: Any, answers: Any) -> Any:
-    """Compatibility import for callers treating dotenv planning as one API.
-
-    The implementation lives in :mod:`lumen_installer.environment` to keep
-    parsing/atomic I/O separate from host-fact reconciliation.  Importing
-    lazily avoids a module cycle while retaining the task's public dotenv
-    entrypoint.
-    """
-
-    from .environment import plan_environment as _plan_environment
-
-    return _plan_environment(existing, host, answers)
-
-
-__all__ = ["DotEnvDocument", "plan_environment", "write_atomic"]
+__all__ = ["DotEnvDocument", "write_atomic"]

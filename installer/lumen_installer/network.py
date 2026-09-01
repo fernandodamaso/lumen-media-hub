@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import ipaddress
 import re
-import socket
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,35 +31,26 @@ _HOST_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 _NUMERIC_HOST = re.compile(r"^[0-9.]+$")
 
 
-def _default_host_resolver(host: str) -> list[str]:
-    """Resolve a hostname to address strings for safety validation.
-
-    The resolver is deliberately a tiny boundary so tests and callers can
-    inject deterministic answers.  DNS failures are handled by the caller as
-    an unresolved-but-syntactically-valid hostname.
-    """
-
-    return [
-        result[4][0]
-        for result in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-    ]
-
-
 def _is_noncanonical_numeric_host(host: str) -> bool:
     """Identify legacy numeric forms that URL/DNS parsers interpret as IPs."""
 
     if host.isdigit():
         return True
-    if not _NUMERIC_HOST.fullmatch(host):
-        return False
-    parts = host.split(".")
-    if len(parts) != 4:
+    if host.lower().startswith("0x") and re.fullmatch(r"0[xX][0-9a-fA-F]+", host):
         return True
-    return any(
-        not part
-        or (len(part) > 1 and part.startswith("0"))
-        or int(part) > 255
-        for part in parts
+    if _NUMERIC_HOST.fullmatch(host):
+        parts = host.split(".")
+        if len(parts) != 4:
+            return True
+        return any(
+            not part
+            or (len(part) > 1 and part.startswith("0"))
+            or int(part) > 255
+            for part in parts
+        )
+    parts = host.split(".")
+    return len(parts) > 1 and all(
+        re.fullmatch(r"(?:0[xX][0-9a-fA-F]+|[0-9]+)", part) for part in parts
     )
 
 
@@ -110,10 +100,9 @@ def _resolved_addresses(results: Any) -> list[str]:
 def _validate_resolved_addresses(host: str, resolver: Any) -> None:
     try:
         results = resolver(host)
-    except (OSError, socket.gaierror):
-        # An unavailable DNS server must not make a syntactically valid host
-        # unusable.  If it later resolves to an unsafe address, the next
-        # explicit LAN planning attempt will reject it.
+    except OSError:
+        # An unavailable injected resolver must not make a syntactically valid
+        # host unusable. Production planning does not invoke one by default.
         return
 
     for value in _resolved_addresses(results):
@@ -219,6 +208,8 @@ def _validated_host(
         if (
             address.is_unspecified
             or address.is_multicast
+            or address.is_link_local
+            or address.is_reserved
             or int(address) == 0xFFFFFFFF
             or int(address) & 0xFF == 0xFF
         ):
@@ -237,7 +228,10 @@ def _validated_host(
         lowered == "localhost"
         or lowered.startswith("localhost.")
         or lowered.endswith(".localhost")
+        or lowered == "localdomain"
         or lowered.endswith(".localdomain")
+        or lowered == "local"
+        or lowered.endswith(".local")
         or lowered in {"localhost6", "ip6-localhost", "ip6-loopback"}
     )
     if lowered == "*" or (not allow_local and local_alias):
@@ -274,6 +268,13 @@ def _bool_text(value: Any, *, field: str) -> str:
     if isinstance(value, str) and value.strip().lower() in {"false", "0", "no", "off"}:
         return "false"
     raise InvalidInputError(f"{field} must be true or false")
+
+
+def _remote_access_for_bind(bind: str) -> str:
+    """Derive remote intent: every non-loopback bind is remotely reachable."""
+
+    address = ipaddress.ip_address(bind)
+    return "false" if address.is_loopback else "true"
 
 
 @dataclass(frozen=True)
@@ -367,10 +368,7 @@ def plan_network(
         else None
     )
     existing_management = env.get(MANAGEMENT_BIND_ADDRESS)
-    management_legacy = adopted and not (
-        isinstance(existing_management, str) and existing_management.strip()
-    )
-    if not management_legacy and existing_management is not None:
+    if isinstance(existing_management, str) and existing_management.strip():
         existing_management = _validated_bind(
             existing_management, field=MANAGEMENT_BIND_ADDRESS
         )
@@ -382,19 +380,10 @@ def plan_network(
     else:
         existing_remote = None
 
-    legacy_network = legacy or management_legacy
-    if legacy_network and mode is None:
+    if legacy and mode is None:
         if not interactive:
-            missing = " and ".join(
-                key
-                for key, is_missing in (
-                    (JELLYFIN_BIND_ADDRESS, legacy),
-                    (MANAGEMENT_BIND_ADDRESS, management_legacy),
-                )
-                if is_missing
-            )
             raise DriftError(
-                f"{missing} is missing from an adopted environment; "
+                f"{JELLYFIN_BIND_ADDRESS} is missing from an adopted environment; "
                 "choose preserve-LAN or local before Compose mutation"
             )
         # Select the effective mode before validating PUBLIC_HOST.  An
@@ -407,11 +396,14 @@ def plan_network(
         selected = mode
 
     # Existing and supplied hosts are validated against the effective mode,
-    # including the implicit preserve-LAN choice above.  DNS resolution is
-    # intentionally limited to LAN validation; local planning never performs
-    # a surprising network lookup.
+    # including the implicit preserve-LAN choice above.  Production planning
+    # uses syntax/special-address checks only; callers may inject a resolver
+    # when they have a bounded DNS policy.  Local planning never resolves.
     allow_local_host = selected_mode not in {"lan", "preserve-lan"}
-    host_resolver = resolver if resolver is not None else _default_host_resolver
+    # Production planning intentionally does not perform DNS lookups: an
+    # injected resolver may be used by callers/tests when they can guarantee
+    # their own bounded lookup policy.
+    host_resolver = resolver
     existing_public = env.get(PUBLIC_HOST)
     if isinstance(existing_public, str) and existing_public.strip():
         existing_public = _validated_host(
@@ -446,28 +438,10 @@ def plan_network(
                 ),
             )
         )
-    if management_legacy:
-        drift.append(
-            _record(
-                MANAGEMENT_BIND_ADDRESS,
-                None,
-                LAN_BIND_ADDRESS,
-                kind="legacy-lan",
-                reason=(
-                    "adopted environment predates an explicit management bind; "
-                    "preserve its prior all-interface publication"
-                ),
-            )
-        )
-
     if selected_mode is None:
         effective_jellyfin = existing_jellyfin or LOCAL_BIND_ADDRESS
     elif selected_mode == "local":
         effective_jellyfin = LOCAL_BIND_ADDRESS
-    elif selected_mode == "preserve-lan" and selected is None and not legacy:
-        # A management-only legacy checkpoint must not rewrite an explicit
-        # Jellyfin bind while preserving the missing management publication.
-        effective_jellyfin = existing_jellyfin or LAN_BIND_ADDRESS
     else:
         # Explicit LAN is intentionally all-interface for Jellyfin.  The
         # management bind remains an independent safety control and defaults
@@ -501,7 +475,7 @@ def plan_network(
     if selected_mode in {"lan", "preserve-lan"}:
         effective_public = supplied_public or existing_public
         if effective_public is None:
-            if legacy_network and selected is None:
+            if legacy and selected is None:
                 # The interactive checkpoint has not selected LAN yet.  Keep
                 # the report usable without inventing a remote hostname.
                 effective_public = LOCAL_PUBLIC_HOST
@@ -512,16 +486,14 @@ def plan_network(
     else:
         effective_public = supplied_public or existing_public or LOCAL_PUBLIC_HOST
 
-    effective_management = existing_management or (
-        LAN_BIND_ADDRESS
-        if legacy_network and selected_mode != "local"
-        else LOCAL_BIND_ADDRESS
-    )
+    # Management UIs were already loopback-only before explicit bindings were
+    # introduced.  Missing/blank adopted values retain that prior exposure.
+    effective_management = existing_management or LOCAL_BIND_ADDRESS
     if selected_mode is None:
-        inferred_remote = "true" if effective_jellyfin == LAN_BIND_ADDRESS else "false"
+        inferred_remote = _remote_access_for_bind(effective_jellyfin)
         effective_remote = existing_remote or inferred_remote
     else:
-        effective_remote = "true" if effective_jellyfin == LAN_BIND_ADDRESS else "false"
+        effective_remote = _remote_access_for_bind(effective_jellyfin)
 
     if (
         existing_remote is not None
@@ -539,22 +511,13 @@ def plan_network(
         )
 
     decision: dict[str, Any] | None = None
-    if legacy_network:
-        code = "legacy-jellyfin-binding" if legacy else "legacy-management-binding"
-        missing = " and ".join(
-            key
-            for key, is_missing in (
-                (JELLYFIN_BIND_ADDRESS, legacy),
-                (MANAGEMENT_BIND_ADDRESS, management_legacy),
-            )
-            if is_missing
-        )
+    if legacy:
         decision = {
-            "code": code,
+            "code": "legacy-jellyfin-binding",
             "message": (
-                f"Adopted environment is missing {missing}; "
+                f"Adopted environment is missing {JELLYFIN_BIND_ADDRESS}; "
                 "choose whether to preserve its legacy LAN exposure or use local-only access. "
-                "An absent MANAGEMENT_BIND_ADDRESS is also preserved as all-interface exposure."
+                "Management UIs retain their prior loopback-only exposure."
             ),
             "options": ("preserve-lan", "local"),
             "selected": selected,

@@ -4,8 +4,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 WORKTREE_ROOT = Path(__file__).resolve().parents[2]
@@ -121,6 +123,22 @@ class NetworkPlanTests(unittest.TestCase):
                 with self.assertRaises(InvalidInputError):
                     plan_network({}, "lan", host, interactive=False)
 
+    def test_lan_public_host_rejects_special_suffixes_legacy_numeric_and_unsafe_literals(self):
+        for host in (
+            "localdomain",
+            "media.local",
+            "media.localhost",
+            "media.localdomain",
+            "0x7f000001",
+            "017700000001",
+            "0x7f.0.0.1",
+            "169.254.1.1",
+            "240.0.0.1",
+        ):
+            with self.subTest(host=host):
+                with self.assertRaises(InvalidInputError):
+                    plan_network({}, "lan", host, interactive=False)
+
     def test_lan_public_host_rejects_injected_loopback_dns_result(self):
         calls = []
 
@@ -226,13 +244,57 @@ class NetworkPlanTests(unittest.TestCase):
                 with self.assertRaises(InvalidInputError):
                     plan_network({key: value}, None, None, interactive=False)
 
-    def test_legacy_missing_binds_preserve_all_interface_exposure_with_warning(self):
+    def test_legacy_missing_jellyfin_bind_preserves_jellyfin_lan_and_management_loopback(self):
         plan = plan_network({"ROOT_PATH": "/srv/media"}, None, None, interactive=True)
 
         self.assertEqual(plan.values["JELLYFIN_BIND_ADDRESS"], "0.0.0.0")
-        self.assertEqual(plan.values["MANAGEMENT_BIND_ADDRESS"], "0.0.0.0")
-        self.assertTrue(any(record["key"] == "MANAGEMENT_BIND_ADDRESS" for record in plan.drift))
+        self.assertEqual(plan.values["MANAGEMENT_BIND_ADDRESS"], "127.0.0.1")
+        self.assertFalse(any(record["key"] == "MANAGEMENT_BIND_ADDRESS" for record in plan.drift))
+        self.assertIn("jellyfin", (plan.warning or "").lower())
         self.assertIn("management", (plan.warning or "").lower())
+        self.assertIn("loopback-only", (plan.warning or "").lower())
+
+    def test_adopted_missing_management_bind_keeps_prior_loopback_default(self):
+        plan = plan_network(
+            {"ROOT_PATH": "/srv/media", "JELLYFIN_BIND_ADDRESS": "192.168.1.20"},
+            None,
+            None,
+            interactive=False,
+        )
+
+        self.assertEqual(plan.values["MANAGEMENT_BIND_ADDRESS"], "127.0.0.1")
+        self.assertFalse(plan.drift)
+        self.assertIsNone(plan.decision)
+
+    def test_nonloopback_jellyfin_bind_derives_remote_access_true(self):
+        plan = plan_network(
+            {
+                "JELLYFIN_BIND_ADDRESS": "192.168.1.20",
+                "MANAGEMENT_BIND_ADDRESS": "127.0.0.1",
+            },
+            None,
+            None,
+            interactive=False,
+        )
+
+        self.assertEqual(plan.values["JELLYFIN_REMOTE_ACCESS"], "true")
+
+    def test_production_lan_validation_does_not_call_unbounded_dns(self):
+        def hanging_lookup(*args, **kwargs):
+            time.sleep(2)
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.20", 0))]
+
+        with mock.patch(
+            "socket.getaddrinfo",
+            side_effect=hanging_lookup,
+        ) as lookup:
+            started = time.monotonic()
+            plan = plan_network({}, "lan", "media.example.test", interactive=False)
+            elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 0.5)
+        lookup.assert_not_called()
+        self.assertEqual(plan.values["PUBLIC_HOST"], "media.example.test")
 
 
     def test_existing_explicit_values_are_preserved_without_reconciliation(self):
@@ -432,6 +494,7 @@ class WindowsNetworkMigrationSourceTests(unittest.TestCase):
         self.assertIn("Test-NonEmptyEnvValue $map 'JELLYFIN_REMOTE_ACCESS'", merge)
         self.assertIn("0.0.0.0", merge)
         self.assertIn("127.0.0.1", merge)
+        self.assertNotIn("MANAGEMENT_BIND_ADDRESS=0.0.0.0", merge)
 
     def test_windows_migration_treats_blank_network_values_as_unset(self):
         source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
@@ -456,11 +519,36 @@ class WindowsNetworkMigrationSourceTests(unittest.TestCase):
         merge = source[merge_start:merge_end]
 
         self.assertIn("$effectiveJellyfinBind", merge)
-        self.assertIn("-match '^127\\.'", merge)
+        self.assertIn("-match '^(127\\.|::1$)'", merge)
         self.assertIn("{ 'false' }", merge)
         self.assertIn("{ 'true' }", merge)
         self.assertIn("JELLYFIN_REMOTE_ACCESS=$remoteAccess", merge)
         self.assertNotIn("JELLYFIN_REMOTE_ACCESS=true'", merge)
+
+    def test_windows_migration_parses_single_and_double_quoted_blank_values(self):
+        source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("^'(.*)'$", source)
+        self.assertIn('.Replace("\'\'", "\'")', source)
+        self.assertIn("$effectiveJellyfinBind -match '^(127\\.|::1$)'", source)
+        self.assertIn("JELLYFIN_BIND_ADDRESS=0.0.0.0", source)
+        self.assertIn("MANAGEMENT_BIND_ADDRESS=127.0.0.1", source)
+
+    def test_windows_compose_consumers_run_only_after_env_migration(self):
+        source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
+
+        for function_name in ("Invoke-RedeployDashboard", "Invoke-Stack", "Invoke-StackUp"):
+            function_start = source.index(f"function {function_name}")
+            next_function = source.find("function ", function_start + 1)
+            body = source[function_start:] if next_function < 0 else source[function_start:next_function]
+            initialize = body.index("Initialize-EnvFile")
+            compose_operations = [
+                body.index(operation)
+                for operation in ("docker compose",)
+                if operation in body
+            ]
+            self.assertTrue(compose_operations)
+            self.assertTrue(all(operation > initialize for operation in compose_operations))
 
 
 if __name__ == "__main__":

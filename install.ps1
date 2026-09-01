@@ -121,6 +121,7 @@ function Get-EnvMap([string[]]$Lines) {
 
 function Unquote-DotEnvValue([string]$Value) {
   if ($Value -match '^"(.*)"$') { return $Matches[1].Replace('\"', '"').Replace('\\', '\') }
+  if ($Value -match "^'(.*)'$") { return $Matches[1].Replace("''", "'") }
   return $Value
 }
 
@@ -146,23 +147,25 @@ function Merge-MissingEnvKeys {
     $changed = $true
   }
 
-  # Older .env files predate explicit network bindings.  Their Compose file
-  # published Jellyfin (and, for some hosts, management UIs) on all
-  # interfaces.  Preserve that exposure during adoption so adding the new
-  # required Compose variables cannot silently localize an existing install.
-  $legacyNetworkKeys = [System.Collections.Generic.List[string]]::new()
+  # Older .env files predate the explicit Jellyfin binding.  Jellyfin was
+  # published on all interfaces, while management UIs were already
+  # loopback-only.  Preserve each prior exposure while making the variables
+  # explicit before any Compose operation consumes the environment.
+  $networkMigrationKeys = [System.Collections.Generic.List[string]]::new()
+  $legacyJellyfinBind = $false
   $jellyfinBindConfigured = Test-NonEmptyEnvValue $map 'JELLYFIN_BIND_ADDRESS'
   $effectiveJellyfinBind = '0.0.0.0'
   if ($jellyfinBindConfigured) {
     $effectiveJellyfinBind = (Unquote-DotEnvValue ([string]$map['JELLYFIN_BIND_ADDRESS'])).Trim()
   } else {
     $lines.Add('JELLYFIN_BIND_ADDRESS=0.0.0.0')
-    [void]$legacyNetworkKeys.Add('JELLYFIN_BIND_ADDRESS')
+    [void]$networkMigrationKeys.Add('JELLYFIN_BIND_ADDRESS')
+    $legacyJellyfinBind = $true
     $changed = $true
   }
   if (-not (Test-NonEmptyEnvValue $map 'MANAGEMENT_BIND_ADDRESS')) {
-    $lines.Add('MANAGEMENT_BIND_ADDRESS=0.0.0.0')
-    [void]$legacyNetworkKeys.Add('MANAGEMENT_BIND_ADDRESS')
+    $lines.Add('MANAGEMENT_BIND_ADDRESS=127.0.0.1')
+    [void]$networkMigrationKeys.Add('MANAGEMENT_BIND_ADDRESS')
     $changed = $true
   }
   if (-not (Test-NonEmptyEnvValue $map 'PUBLIC_HOST')) {
@@ -170,20 +173,25 @@ function Merge-MissingEnvKeys {
     # be set later after adoption.  This value is non-secret and keeps the
     # legacy localhost links deterministic until then.
     $lines.Add('PUBLIC_HOST=127.0.0.1')
-    [void]$legacyNetworkKeys.Add('PUBLIC_HOST')
+    [void]$networkMigrationKeys.Add('PUBLIC_HOST')
     $changed = $true
   }
   if (-not (Test-NonEmptyEnvValue $map 'JELLYFIN_REMOTE_ACCESS')) {
-    $remoteAccess = if ($effectiveJellyfinBind -match '^127\.') { 'false' } else { 'true' }
+    $remoteAccess = if ($effectiveJellyfinBind -match '^(127\.|::1$)') { 'false' } else { 'true' }
     $lines.Add("JELLYFIN_REMOTE_ACCESS=$remoteAccess")
-    [void]$legacyNetworkKeys.Add('JELLYFIN_REMOTE_ACCESS')
+    [void]$networkMigrationKeys.Add('JELLYFIN_REMOTE_ACCESS')
     $changed = $true
   }
 
-  if ($legacyNetworkKeys.Count -gt 0) {
-    $legacyKeys = $legacyNetworkKeys -join ', '
-    Write-Warning "Adopted .env has missing or blank explicit network settings ($legacyKeys). Preserving legacy exposure; review these values before sharing services."
-    Write-Host 'Network migration decision: missing network settings were made explicit without overwriting nonempty values. Edit .env and choose local-only bindings if desired.' -ForegroundColor Yellow
+  if ($networkMigrationKeys.Count -gt 0) {
+    $migratedKeys = $networkMigrationKeys -join ', '
+    if ($legacyJellyfinBind) {
+      Write-Warning "Adopted .env has missing or blank network settings ($migratedKeys). Preserving legacy Jellyfin LAN exposure; management UIs remain loopback-only. Review these values before sharing services."
+      Write-Host 'Network migration decision: legacy Jellyfin all-interface exposure was preserved; management bindings retain their prior loopback default. Edit .env and choose local-only Jellyfin access if desired.' -ForegroundColor Yellow
+    } else {
+      Write-Warning "Adopted .env has missing or blank network settings ($migratedKeys). Management UIs retain their prior loopback-only default. Review these values before sharing services."
+      Write-Host 'Network migration decision: missing network settings were made explicit without overwriting nonempty values.' -ForegroundColor Yellow
+    }
   }
 
   if ($changed) {

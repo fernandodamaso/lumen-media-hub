@@ -517,7 +517,7 @@ def plan_network(
             "message": (
                 f"Adopted environment is missing {JELLYFIN_BIND_ADDRESS}; "
                 "choose whether to preserve its legacy LAN exposure or use local-only access. "
-                "Management UIs retain their prior loopback-only exposure."
+                f"Management UIs retain their existing bind {effective_management}."
             ),
             "options": ("preserve-lan", "local"),
             "selected": selected,

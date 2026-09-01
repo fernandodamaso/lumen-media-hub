@@ -163,7 +163,11 @@ function Merge-MissingEnvKeys {
     $legacyJellyfinBind = $true
     $changed = $true
   }
-  if (-not (Test-NonEmptyEnvValue $map 'MANAGEMENT_BIND_ADDRESS')) {
+  $managementBindConfigured = Test-NonEmptyEnvValue $map 'MANAGEMENT_BIND_ADDRESS'
+  $effectiveManagementBind = '127.0.0.1'
+  if ($managementBindConfigured) {
+    $effectiveManagementBind = (Unquote-DotEnvValue ([string]$map['MANAGEMENT_BIND_ADDRESS'])).Trim()
+  } else {
     $lines.Add('MANAGEMENT_BIND_ADDRESS=127.0.0.1')
     [void]$networkMigrationKeys.Add('MANAGEMENT_BIND_ADDRESS')
     $changed = $true
@@ -186,10 +190,10 @@ function Merge-MissingEnvKeys {
   if ($networkMigrationKeys.Count -gt 0) {
     $migratedKeys = $networkMigrationKeys -join ', '
     if ($legacyJellyfinBind) {
-      Write-Warning "Adopted .env has missing or blank network settings ($migratedKeys). Preserving legacy Jellyfin LAN exposure; management UIs remain loopback-only. Review these values before sharing services."
-      Write-Host 'Network migration decision: legacy Jellyfin all-interface exposure was preserved; management bindings retain their prior loopback default. Edit .env and choose local-only Jellyfin access if desired.' -ForegroundColor Yellow
+      Write-Warning "Adopted .env has missing or blank network settings ($migratedKeys). Preserving legacy Jellyfin LAN exposure; management UIs retain their existing bind $effectiveManagementBind. Review these values before sharing services."
+      Write-Host 'Network migration decision: legacy Jellyfin all-interface exposure was preserved; existing management exposure was retained. Edit .env and choose local-only Jellyfin access if desired.' -ForegroundColor Yellow
     } else {
-      Write-Warning "Adopted .env has missing or blank network settings ($migratedKeys). Management UIs retain their prior loopback-only default. Review these values before sharing services."
+      Write-Warning "Adopted .env has missing or blank network settings ($migratedKeys). Management UIs retain their existing bind $effectiveManagementBind. Review these values before sharing services."
       Write-Host 'Network migration decision: missing network settings were made explicit without overwriting nonempty values.' -ForegroundColor Yellow
     }
   }

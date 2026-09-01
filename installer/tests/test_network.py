@@ -252,7 +252,7 @@ class NetworkPlanTests(unittest.TestCase):
         self.assertFalse(any(record["key"] == "MANAGEMENT_BIND_ADDRESS" for record in plan.drift))
         self.assertIn("jellyfin", (plan.warning or "").lower())
         self.assertIn("management", (plan.warning or "").lower())
-        self.assertIn("loopback-only", (plan.warning or "").lower())
+        self.assertIn("127.0.0.1", plan.warning or "")
 
     def test_adopted_missing_management_bind_keeps_prior_loopback_default(self):
         plan = plan_network(
@@ -265,6 +265,21 @@ class NetworkPlanTests(unittest.TestCase):
         self.assertEqual(plan.values["MANAGEMENT_BIND_ADDRESS"], "127.0.0.1")
         self.assertFalse(plan.drift)
         self.assertIsNone(plan.decision)
+
+    def test_legacy_warning_reports_preserved_explicit_management_bind(self):
+        plan = plan_network(
+            {
+                "ROOT_PATH": "/srv/media",
+                "MANAGEMENT_BIND_ADDRESS": "0.0.0.0",
+            },
+            None,
+            "media.example.test",
+            interactive=True,
+        )
+
+        self.assertEqual(plan.values["MANAGEMENT_BIND_ADDRESS"], "0.0.0.0")
+        self.assertIn("0.0.0.0", plan.warning or "")
+        self.assertNotIn("loopback-only", (plan.warning or "").lower())
 
     def test_nonloopback_jellyfin_bind_derives_remote_access_true(self):
         plan = plan_network(
@@ -533,6 +548,16 @@ class WindowsNetworkMigrationSourceTests(unittest.TestCase):
         self.assertIn("$effectiveJellyfinBind -match '^(127\\.|::1$)'", source)
         self.assertIn("JELLYFIN_BIND_ADDRESS=0.0.0.0", source)
         self.assertIn("MANAGEMENT_BIND_ADDRESS=127.0.0.1", source)
+
+    def test_windows_warning_reports_explicit_management_bind_exposure(self):
+        source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
+        merge_start = source.index("function Merge-MissingEnvKeys")
+        merge_end = source.index("function Initialize-EnvFile")
+        merge = source[merge_start:merge_end]
+
+        self.assertIn("$effectiveManagementBind", merge)
+        self.assertIn("Management UIs retain their existing bind $effectiveManagementBind", merge)
+        self.assertNotIn("management bindings retain their prior loopback default", merge)
 
     def test_windows_compose_consumers_run_only_after_env_migration(self):
         source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")

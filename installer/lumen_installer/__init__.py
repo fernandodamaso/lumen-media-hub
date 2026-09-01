@@ -51,6 +51,27 @@ from .docker import (
     run_host_doctor,
     validate_compose_version,
 )
+from .state import (
+    DEFAULT_STAGES,
+    InstallerState,
+    KNOWN_GPU_MODES,
+    KNOWN_PROFILES,
+    STATE_DIR_NAME,
+    STATE_FILE_NAME,
+    StageJournal,
+    state_directory,
+    state_path,
+)
+from .storage import (
+    DOWNLOAD_SUBDIRECTORIES,
+    KNOWN_STACK_CONTAINER_NAMES,
+    MEDIA_SUBDIRECTORIES,
+    STORAGE_DIRECTORY_MODE,
+    StaleContainer,
+    StorageValidation,
+    find_stale_containers,
+    validate_storage,
+)
 
 __all__ = [
     "DriftError",
@@ -101,4 +122,21 @@ __all__ = [
     "run_host_doctor",
     "validate_compose_version",
     "normalize_stream",
+    "DEFAULT_STAGES",
+    "InstallerState",
+    "KNOWN_GPU_MODES",
+    "KNOWN_PROFILES",
+    "STATE_DIR_NAME",
+    "STATE_FILE_NAME",
+    "StageJournal",
+    "state_directory",
+    "state_path",
+    "DOWNLOAD_SUBDIRECTORIES",
+    "KNOWN_STACK_CONTAINER_NAMES",
+    "MEDIA_SUBDIRECTORIES",
+    "STORAGE_DIRECTORY_MODE",
+    "StaleContainer",
+    "StorageValidation",
+    "find_stale_containers",
+    "validate_storage",
 ]

@@ -483,7 +483,11 @@ def _cleanup_temporary_directory(
 ) -> None:
     """Remove only an empty candidate whose parent and inode remain stable."""
 
-    if parent_signature is None:
+    # A candidate without a captured inode is identity-uncertain.  Do not
+    # pathname-delete it: an attacker can replace the entry between the
+    # no-follow check and the removal syscall.  The private installer name is
+    # intentionally left for a later, explicit cleanup pass.
+    if parent_signature is None or expected is None or child_fd is None:
         return
     try:
         if _directory_signature(parent_fd) != parent_signature:
@@ -501,7 +505,7 @@ def _cleanup_temporary_directory(
                 return
         if _directory_signature(parent_fd) != parent_signature:
             return
-        os.rmdir(name, dir_fd=parent_fd)
+        _remove_directory_at(parent_fd, name)
     except OSError:
         pass
 

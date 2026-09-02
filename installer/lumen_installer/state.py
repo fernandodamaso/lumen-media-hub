@@ -273,7 +273,11 @@ def _cleanup_temporary_directory(
 ) -> None:
     """Remove only an empty candidate whose parent and inode remain stable."""
 
-    if parent_signature is None:
+    # Without a retained child descriptor and captured inode, the pathname is
+    # identity-uncertain.  A replacement can appear between lstat and the
+    # removal syscall, so leave the installer-named candidate for safe later
+    # cleanup rather than risking an unrelated inode.
+    if parent_signature is None or expected is None or child_fd is None:
         return
     try:
         if _directory_signature(parent_fd) != parent_signature:
@@ -761,12 +765,6 @@ def _create_temp_state_file(installer_fd: int) -> tuple[int, str, tuple[int, int
             raise
         except OSError as exc:
             _close_fd(fd)
-            try:
-                current = os.stat(name, dir_fd=installer_fd, follow_symlinks=False)
-                if expected is None or (current.st_dev, current.st_ino) == expected:
-                    os.unlink(name, dir_fd=installer_fd)
-            except OSError:
-                pass
             raise InvalidInputError("temporary installer state file metadata could not be read") from exc
         try:
             os.fchmod(fd, 0o600)
@@ -1107,15 +1105,26 @@ def _save_state_to_handles(state: InstallerState, path: Path, handles: _StateHan
             raise InvalidInputError("installer state file could not be inspected before save") from exc
     _close_fd(existing_fd)
     backup: str | None = None
-    if previous_identity is not None:
-        backup = _create_state_backup(handles.installer_fd, previous_identity)
-    fd, temporary, temporary_identity = _create_temp_state_file(handles.installer_fd)
+    fd: int | None = None
+    temporary: str | None = None
+    temporary_identity: tuple[int, int] | None = None
     replaced = False
     preserve_temporary = False
     replace_failed = False
     pre_rename_fsync_failed = False
+    temporary_create_failed = False
     backup_safe_to_remove = False
     try:
+        if previous_identity is not None:
+            backup = _create_state_backup(handles.installer_fd, previous_identity)
+        try:
+            fd, temporary, temporary_identity = _create_temp_state_file(handles.installer_fd)
+        except OSError:
+            # Preserve the established raw OSError boundary for the
+            # temporary inode's fchmod failure.  All other setup errors are
+            # typed by _create_temp_state_file itself.
+            temporary_create_failed = True
+            raise
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as stream:
             fd = -1
             stream.write(payload)
@@ -1182,12 +1191,17 @@ def _save_state_to_handles(state: InstallerState, path: Path, handles: _StateHan
     except InvalidInputError:
         raise
     except OSError as exc:
-        if replace_failed or pre_rename_fsync_failed:
+        if replace_failed or pre_rename_fsync_failed or temporary_create_failed:
             raise
         raise InvalidInputError("installer state could not be installed safely") from exc
     finally:
         _close_fd(fd)
-        if not replaced and not preserve_temporary:
+        if (
+            temporary is not None
+            and temporary_identity is not None
+            and not replaced
+            and not preserve_temporary
+        ):
             _unlink_state_entry_if_identity(handles.installer_fd, temporary, temporary_identity)
         if backup is not None and (
             backup_safe_to_remove

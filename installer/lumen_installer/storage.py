@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import stat
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -20,6 +21,29 @@ from .errors import InvalidInputError
 MEDIA_SUBDIRECTORIES = (Path("media"), Path("media/movies"), Path("media/tv"))
 DOWNLOAD_SUBDIRECTORIES: tuple[Path, ...] = ()
 STORAGE_DIRECTORY_MODE = 0o775
+
+
+class StorageMutationError(InvalidInputError):
+    """Storage layout mutation failed and rollback left created paths."""
+
+    def __init__(self, message: str, partial_created_paths: Iterable[Path | str]) -> None:
+        self.partial_created_paths = tuple(str(path) for path in partial_created_paths)
+        # These are approved host paths, not credentials or opaque resource
+        # identifiers; include them in the typed failure so operators can
+        # recover an incomplete rollback without guessing what remains.
+        suffix = ", ".join(self.partial_created_paths) or "<unknown>"
+        super().__init__(f"{message}: {suffix}")
+
+    @property
+    def report(self) -> dict[str, Any]:
+        return {
+            "error": "storage mutation partially rolled back",
+            "partial_created_paths": list(self.partial_created_paths),
+        }
+
+    @property
+    def redacted(self) -> dict[str, Any]:
+        return self.report
 
 
 @dataclass(frozen=True, repr=False)
@@ -90,7 +114,7 @@ def _as_absolute_path(value: Any, *, field_name: str) -> Path:
     _reject_symlink_components(raw, field_name=field_name)
     try:
         resolved = raw.resolve(strict=False)
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
         raise InvalidInputError(f"{field_name} cannot be resolved") from exc
     return resolved
 
@@ -197,7 +221,7 @@ def _check_existing_or_parent(
         raise InvalidInputError(f"{field_name} is not writable") from exc
     if not writable:
         raise InvalidInputError(f"{field_name} is not writable")
-    if path.exists() and (uid is not None or gid is not None):
+    if uid is not None or gid is not None:
         actual_uid = _stat_value(metadata, "st_uid")
         actual_gid = _stat_value(metadata, "st_gid")
         if uid is not None and actual_uid is not None and actual_uid != uid:
@@ -220,19 +244,70 @@ def _free_gib(path: Path, probe: Callable[[Path], Any] | None) -> float:
     return available * block_size / (1024**3)
 
 
-def _create_directory(path: Path, *, uid: int | None, gid: int | None, created: list[Path]) -> None:
-    if path.exists():
+def _create_directory(
+    path: Path,
+    *,
+    uid: int | None,
+    gid: int | None,
+    created: list[Path],
+    mkdir_probe: Callable[[Path, int], Any] | None = None,
+    chmod_probe: Callable[[Path, int], Any] | None = None,
+    chown_probe: Callable[[Path, int, int], Any] | None = None,
+) -> None:
+    _reject_symlink_components(path, field_name="approved storage path")
+    existed_before = path.exists()
+    if existed_before:
         if path.is_symlink() or not path.is_dir():
             raise InvalidInputError("approved storage layout contains an unsafe existing path")
         return
     try:
-        path.mkdir(mode=STORAGE_DIRECTORY_MODE)
-        os.chmod(path, STORAGE_DIRECTORY_MODE)
-        if uid is not None and gid is not None and (uid != os.getuid() or gid != os.getgid()):
-            os.chown(path, uid, gid)
-    except (OSError, ValueError) as exc:
+        if mkdir_probe is None:
+            path.mkdir(mode=STORAGE_DIRECTORY_MODE)
+        else:
+            mkdir_probe(path, STORAGE_DIRECTORY_MODE)
+        created.append(path)
+        (chmod_probe or os.chmod)(path, STORAGE_DIRECTORY_MODE)
+        if uid is not None and gid is not None:
+            if chown_probe is not None:
+                chown_probe(path, uid, gid)
+            elif uid != os.getuid() or gid != os.getgid():
+                os.chown(path, uid, gid)
+    except FileExistsError as exc:
+        # A concurrent creator owns a directory that appeared between the
+        # preflight check and mkdir; never claim or remove it during rollback.
         raise InvalidInputError("approved storage layout could not be created") from exc
-    created.append(path)
+    except Exception as exc:
+        # A probe may model a mkdir that created its directory before
+        # reporting an error.  Track that path so rollback can remove it only
+        # when it remains empty; a normal failed mkdir leaves no path here.
+        if not existed_before and path.exists() and path.is_dir() and path not in created:
+            created.append(path)
+        raise InvalidInputError("approved storage layout could not be created") from exc
+
+
+def _rollback_created(
+    created: Sequence[Path],
+    *,
+    remove_probe: Callable[[Path], Any] | None = None,
+) -> tuple[str, ...]:
+    partial: list[str] = []
+    remove = remove_probe or (lambda path: path.rmdir())
+    for path in reversed(created):
+        try:
+            if path.is_symlink() or not path.is_dir():
+                partial.append(str(path))
+                continue
+            try:
+                next(path.iterdir())
+            except StopIteration:
+                remove(path)
+                if path.exists():
+                    partial.append(str(path))
+            else:
+                partial.append(str(path))
+        except Exception:
+            partial.append(str(path))
+    return tuple(partial)
 
 
 def validate_storage(
@@ -247,6 +322,10 @@ def validate_storage(
     stat_probe: Callable[[Path], Any] | None = None,
     statvfs_probe: Callable[[Path], Any] | None = None,
     access_probe: Callable[[str | os.PathLike[str], int], bool] | None = None,
+    mkdir_probe: Callable[[Path, int], Any] | None = None,
+    chmod_probe: Callable[[Path, int], Any] | None = None,
+    chown_probe: Callable[[Path, int, int], Any] | None = None,
+    remove_probe: Callable[[Path], Any] | None = None,
     **kwargs: Any,
 ) -> StorageValidation:
     """Validate and, unless dry-run, create the approved media foundation.
@@ -264,6 +343,21 @@ def validate_storage(
         uid = kwargs.pop("expected_uid")
     if "expected_gid" in kwargs:
         gid = kwargs.pop("expected_gid")
+    for option, target in (
+        ("mkdir_fn", "mkdir_probe"),
+        ("chmod_fn", "chmod_probe"),
+        ("chown_fn", "chown_probe"),
+        ("remove_fn", "remove_probe"),
+    ):
+        if option in kwargs:
+            if target == "mkdir_probe":
+                mkdir_probe = kwargs.pop(option)
+            elif target == "chmod_probe":
+                chmod_probe = kwargs.pop(option)
+            elif target == "chown_probe":
+                chown_probe = kwargs.pop(option)
+            else:
+                remove_probe = kwargs.pop(option)
     if kwargs:
         raise TypeError(f"unexpected storage validation option: {next(iter(kwargs))}")
     if repo_root is None:
@@ -317,8 +411,24 @@ def validate_storage(
     approved = list(dict.fromkeys(approved))
     created: list[Path] = []
     if not dry_run:
-        for path in approved:
-            _create_directory(path, uid=uid, gid=gid, created=created)
+        try:
+            for path in approved:
+                _create_directory(
+                    path,
+                    uid=uid,
+                    gid=gid,
+                    created=created,
+                    mkdir_probe=mkdir_probe,
+                    chmod_probe=chmod_probe,
+                    chown_probe=chown_probe,
+                )
+        except Exception as exc:
+            partial = _rollback_created(created, remove_probe=remove_probe)
+            if partial:
+                raise StorageMutationError("storage layout rollback was incomplete", partial) from exc
+            if isinstance(exc, InvalidInputError):
+                raise
+            raise InvalidInputError("approved storage layout could not be created") from exc
     else:
         warnings.append("dry-run: approved layout was not created")
     return StorageValidation(
@@ -358,28 +468,32 @@ KNOWN_STACK_CONTAINER_NAMES = frozenset(
 
 @dataclass(frozen=True, repr=False)
 class StaleContainer:
-    identifier: str
+    _identifier: str
     name: str
     working_dir: str
 
     @property
-    def id(self) -> str:
-        return self.identifier
+    def execution_identifier(self) -> str:
+        """Return the exact Docker ID for internal removal execution only."""
+
+        return self._identifier
 
     @property
-    def container_id(self) -> str:
-        return self.identifier
+    def execution_argv(self) -> tuple[str, ...]:
+        """Return an argv vector for internal lifecycle code."""
 
-    @property
-    def remove_argv(self) -> tuple[str, ...]:
-        return ("docker", "rm", "-f", self.identifier)
+        return ("docker", "rm", "-f", self._identifier)
 
     @property
     def plan(self) -> dict[str, Any]:
-        return {"identifier": self.identifier, "name": self.name, "argv": list(self.remove_argv)}
+        return {"name": self.name, "action": "remove-confirmed-stale-container"}
+
+    @property
+    def report(self) -> dict[str, Any]:
+        return self.plan
 
     def __repr__(self) -> str:
-        return f"StaleContainer(identifier={self.identifier!r}, name={self.name!r})"
+        return f"StaleContainer(name={self.name!r}, working_dir_present={bool(self.working_dir)!r})"
 
 
 def _container_rows(value: Any) -> tuple[Mapping[str, Any], ...]:
@@ -416,7 +530,7 @@ def find_stale_containers(
     repo_root: str | os.PathLike[str],
     *,
     known_names: Iterable[str] = KNOWN_STACK_CONTAINER_NAMES,
-    project_name: str | None = "media",
+    project_name: str | None = None,
     **kwargs: Any,
 ) -> tuple[StaleContainer, ...]:
     """Return removal plans for containers from a dead Compose checkout.
@@ -435,23 +549,32 @@ def find_stale_containers(
     repo = _as_absolute_path(repo_root, field_name="repository root")
     names = frozenset(item for item in known_names if isinstance(item, str))
     if project_name is None:
-        projects = frozenset({"media", repo.name})
+        projects = None
     elif isinstance(project_name, str) and project_name:
         projects = frozenset({project_name})
     else:
         return ()
+    # Running from anything other than a real checkout is not safe enough to
+    # infer ownership of containers.  Git worktrees may represent .git as a
+    # file, therefore existence (not is_dir()) is intentional here.
+    if not (repo / ".git").exists():
+        return ()
+    canonical_repo = repo.resolve(strict=False)
     stale: list[StaleContainer] = []
     for row in _container_rows(inspected):
         raw_name = row.get("Name", row.get("name"))
         if not isinstance(raw_name, str):
             continue
-        name = raw_name.lstrip("/")
+        name = raw_name[1:] if raw_name.startswith("/") else raw_name
         if name not in names:
             continue
         labels = _labels(row)
         if labels is None:
             continue
-        if labels.get("com.docker.compose.project") not in projects:
+        compose_project = labels.get("com.docker.compose.project")
+        if not isinstance(compose_project, str) or not compose_project.strip():
+            continue
+        if projects is not None and compose_project not in projects:
             continue
         if labels.get("com.docker.compose.service") != name:
             continue
@@ -463,14 +586,18 @@ def find_stale_containers(
             checkout = Path(working_dir).expanduser()
             if not checkout.is_absolute():
                 continue
+            if checkout.resolve(strict=False) == canonical_repo:
+                continue
             # Existing PowerShell guard treats a checkout as live only when
             # its .git marker remains.  Resolve only for the existence check;
             # retain the original non-secret path in the removal plan.
             if checkout.exists() and (checkout / ".git").exists():
                 continue
-        except (OSError, ValueError):
+        except (OSError, RuntimeError, ValueError):
             continue
-        stale.append(StaleContainer(identifier=identifier, name=name, working_dir=working_dir))
+        if not re.fullmatch(r"[0-9a-fA-F]{12,64}", identifier):
+            continue
+        stale.append(StaleContainer(_identifier=identifier, name=name, working_dir=working_dir))
     return tuple(stale)
 
 
@@ -480,6 +607,7 @@ __all__ = [
     "MEDIA_SUBDIRECTORIES",
     "STORAGE_DIRECTORY_MODE",
     "StaleContainer",
+    "StorageMutationError",
     "StorageValidation",
     "find_stale_containers",
     "validate_storage",

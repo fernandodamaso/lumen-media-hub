@@ -11,7 +11,7 @@ if str(INSTALLER_ROOT) not in sys.path:
     sys.path.insert(0, str(INSTALLER_ROOT))
 
 from lumen_installer.errors import InvalidInputError
-from lumen_installer.storage import validate_storage
+from lumen_installer.storage import StorageMutationError, validate_storage
 
 
 class StorageValidationTests(unittest.TestCase):
@@ -52,6 +52,92 @@ class StorageValidationTests(unittest.TestCase):
             self.assertFalse(downloads.exists())
             self.assertEqual(len(result.approved_paths), 5)
             self.assertTrue(result.report["dry_run"])
+
+    def test_creation_failure_rolls_back_only_empty_directories_created_by_this_call(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+            preexisting = root / "media"
+            preexisting.mkdir(parents=True)
+            (preexisting / "keep.txt").write_text("keep", encoding="utf-8")
+
+            def mkdir_probe(path, mode):
+                if Path(path).name == "tv":
+                    raise OSError("injected mkdir failure")
+                Path(path).mkdir(mode=mode)
+
+            with self.assertRaises(InvalidInputError):
+                validate_storage(root, downloads, repo_root=repo, mkdir_probe=mkdir_probe)
+            self.assertTrue(preexisting.is_dir())
+            self.assertTrue((preexisting / "keep.txt").exists())
+            self.assertFalse(downloads.exists())
+            self.assertFalse((root / "media" / "movies").exists())
+
+    def test_failed_rollback_reports_only_unremoved_created_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+
+            def mkdir_probe(path, mode):
+                if Path(path).name == "tv":
+                    raise OSError("injected mkdir failure")
+                Path(path).mkdir(mode=mode)
+
+            def remove_probe(path):
+                if Path(path).name == "media":
+                    raise OSError("injected rollback failure")
+                Path(path).rmdir()
+
+            with self.assertRaises(StorageMutationError) as raised:
+                validate_storage(root, downloads, repo_root=repo, mkdir_probe=mkdir_probe, remove_probe=remove_probe)
+            self.assertIn(str(root / "media"), raised.exception.partial_created_paths)
+            self.assertIn(str(root / "media"), raised.exception.report["partial_created_paths"])
+            self.assertEqual(raised.exception.redacted, raised.exception.report)
+
+    def test_mkdir_failure_after_creation_is_rolled_back(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+
+            def mkdir_probe(path, mode):
+                path.mkdir(mode=mode)
+                if path == root / "media" / "movies":
+                    raise OSError("mkdir reported failure after creating path")
+
+            with self.assertRaises(InvalidInputError):
+                validate_storage(root, downloads, repo_root=repo, mkdir_probe=mkdir_probe)
+            self.assertFalse(root.exists())
+            self.assertFalse(downloads.exists())
+
+    def test_ownership_is_checked_on_existing_parent_for_missing_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            foreign = type("ForeignStat", (), {
+                "st_uid": 4242,
+                "st_gid": 4343,
+                "st_mode": stat.S_IFDIR | 0o755,
+            })()
+            with self.assertRaises(InvalidInputError):
+                validate_storage(
+                    base / "library",
+                    base / "downloads",
+                    repo_root=repo,
+                    uid=1000,
+                    gid=1000,
+                    stat_probe=lambda path: foreign,
+                    dry_run=True,
+                )
 
     def test_rejects_empty_relative_root_repo_root_inside_repo_and_overlap(self):
         with tempfile.TemporaryDirectory() as temporary:

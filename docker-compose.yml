@@ -40,6 +40,7 @@ services:
       - TORRENTING_PORT=${QBITTORRENT_PEER_PORT}
     volumes:
       - ${ROOT_PATH}:/data
+      - ${DOWNLOADS_PATH}:/downloads
       - ./config/qbittorrent:/config
     logging:
       driver: json-file

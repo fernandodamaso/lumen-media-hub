@@ -444,6 +444,19 @@ class ComposeNetworkBindingTests(unittest.TestCase):
         self.assertEqual(environment["JELLYFIN_EXTERNAL_URL"], "http://media.example.test:18096")
         self.assertEqual(environment["QBITTORRENT_EXTERNAL_URL"], "http://media.example.test:18081")
 
+    def test_disjoint_download_path_is_shared_at_downloads_for_qbittorrent_and_arrs(self):
+        services = self._compose_config()
+
+        def host_volume(service, target):
+            matches = [volume for volume in services[service]["volumes"] if volume["target"] == target]
+            self.assertEqual(len(matches), 1, service + target)
+            return matches[0]["source"]
+
+        self.assertEqual(host_volume("qbittorrent", "/downloads"), "/srv/downloads")
+        self.assertEqual(host_volume("sonarr", "/downloads"), "/srv/downloads")
+        self.assertEqual(host_volume("radarr", "/downloads"), "/srv/downloads")
+        self.assertEqual(host_volume("qbittorrent", "/data"), "/srv/media")
+
     def test_dev_override_keeps_dashboard_loopback_and_retargets_container_port(self):
         services = self._compose_config(dev=True)
         dashboard_port = services["dashboard"]["ports"][0]

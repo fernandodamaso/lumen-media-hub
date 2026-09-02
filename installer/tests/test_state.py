@@ -3,7 +3,9 @@ import os
 import stat
 import sys
 import tempfile
+import threading
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -79,6 +81,48 @@ class InstallerStateTests(unittest.TestCase):
             with self.assertRaises(InvalidInputError):
                 InstallerState(schema_version=1.0)
 
+    def test_schema_requires_all_fields_exact_types_and_allowed_stage_set(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            path = repo / ".state" / "installer" / "state.json"
+            path.parent.mkdir(parents=True)
+            canonical = {
+                "schema_version": 1,
+                "profiles": [],
+                "gpu_mode": "none",
+                "owned_resources": {},
+                "completed_stages": [],
+            }
+            for field_name in canonical:
+                malformed = dict(canonical)
+                malformed.pop(field_name)
+                path.write_text(json.dumps(malformed), encoding="utf-8")
+                with self.subTest(kind="missing", field=field_name):
+                    with self.assertRaises(InvalidInputError):
+                        InstallerState.load(repo)
+            for field_name in ("profiles", "gpu_mode", "owned_resources", "completed_stages"):
+                malformed = dict(canonical)
+                malformed[field_name] = None
+                path.write_text(json.dumps(malformed), encoding="utf-8")
+                with self.subTest(kind="null", field=field_name):
+                    with self.assertRaises(InvalidInputError):
+                        InstallerState.load(repo)
+            malformed = dict(canonical)
+            malformed["unexpected"] = "value"
+            path.write_text(json.dumps(malformed), encoding="utf-8")
+            with self.assertRaises(InvalidInputError):
+                InstallerState.load(repo)
+            malformed = dict(canonical)
+            malformed["completed_stages"] = ["future-stage"]
+            path.write_text(json.dumps(malformed), encoding="utf-8")
+            with self.assertRaises(InvalidInputError):
+                InstallerState.load(repo, allowed_stages=("host",))
+            for field_name in ("profiles", "gpu_mode", "owned_resources", "completed_stages"):
+                with self.subTest(kind="constructor-null", field=field_name):
+                    with self.assertRaises(InvalidInputError):
+                        InstallerState(**{field_name: None})
+
     def test_invalid_state_directory_is_not_treated_as_a_missing_fresh_state(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary) / "checkout"
@@ -113,7 +157,125 @@ class InstallerStateTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     changed.save()
             self.assertEqual(path.read_bytes(), original)
-            self.assertEqual([child.name for child in path.parent.iterdir()], ["state.json"])
+            self.assertEqual({child.name for child in path.parent.iterdir()}, {"state.json"})
+
+    def test_state_mode_is_set_before_replace_and_final_chmod_is_never_needed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            state = InstallerState(repo_root=repo, profiles=("requests",))
+            state_path = repo / ".state" / "installer" / "state.json"
+            replace_seen = []
+            real_replace = os.replace
+            real_chmod = os.chmod
+
+            def replace(source, destination):
+                replace_seen.append((Path(source), Path(destination)))
+                return real_replace(source, destination)
+
+            def chmod(path, mode):
+                if Path(path) == state_path:
+                    raise OSError("final chmod must not run")
+                return real_chmod(path, mode)
+
+            with mock.patch("lumen_installer.state.os.replace", side_effect=replace):
+                with mock.patch("lumen_installer.state.os.chmod", side_effect=chmod):
+                    state.save()
+            self.assertEqual(len(replace_seen), 1)
+            self.assertTrue(state_path.exists())
+
+            old = state_path.read_bytes()
+            def fail_temp(path, mode):
+                if str(path).endswith(".tmp"):
+                    raise OSError("temporary chmod failed")
+                return real_chmod(path, mode)
+
+            with mock.patch("lumen_installer.state.os.chmod", side_effect=fail_temp):
+                with self.assertRaises(OSError):
+                    InstallerState(repo_root=repo, profiles=("ai",)).save()
+            self.assertEqual(state_path.read_bytes(), old)
+
+            with mock.patch("lumen_installer.state.os.replace", side_effect=OSError("replace failed")):
+                with self.assertRaises(OSError):
+                    InstallerState(repo_root=repo, profiles=("ai",)).save()
+            self.assertEqual(state_path.read_bytes(), old)
+
+            real_fsync = os.fsync
+            fsync_calls = 0
+
+            def fail_pre_rename_fsync(fd):
+                nonlocal fsync_calls
+                fsync_calls += 1
+                if fsync_calls == 2:
+                    raise OSError("pre-rename directory fsync failed")
+                return real_fsync(fd)
+
+            with mock.patch("lumen_installer.state.os.fsync", side_effect=fail_pre_rename_fsync):
+                with self.assertRaises(OSError):
+                    InstallerState(repo_root=repo, profiles=("ai",)).save()
+            self.assertEqual(state_path.read_bytes(), old)
+
+            fsync_calls = 0
+
+            def fail_post_rename_fsync(fd):
+                nonlocal fsync_calls
+                fsync_calls += 1
+                if fsync_calls == 3:
+                    raise OSError("post-rename directory fsync failed")
+                return real_fsync(fd)
+
+            with mock.patch("lumen_installer.state.os.fsync", side_effect=fail_post_rename_fsync):
+                InstallerState(repo_root=repo, profiles=("ai",)).save()
+            self.assertEqual(InstallerState.load(repo).profiles, ("ai",))
+
+    def test_state_reports_and_string_forms_never_include_resource_identifier_values(self):
+        sentinel = "0123456789abcdef0123456789abcdef"
+        state = InstallerState(owned_resources={"resource": sentinel})
+        self.assertNotIn(sentinel, str(state))
+        self.assertNotIn(sentinel, repr(state))
+        self.assertNotIn(sentinel, repr(state.report))
+        self.assertNotIn(sentinel, repr(state.redacted))
+        malformed = state.as_dict()
+        malformed["owned_resources"] = {"resource": sentinel + "!"}
+        with self.assertRaises(InvalidInputError) as raised:
+            InstallerState.from_dict(malformed)
+        self.assertNotIn(sentinel, str(raised.exception))
+
+    def test_state_path_symlinks_are_rejected_and_existing_modes_are_corrected_without_repo_chmod(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            outside = base / "outside"
+            outside.mkdir()
+
+            (repo / ".state").symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(InvalidInputError):
+                InstallerState.load(repo)
+
+            (repo / ".state").unlink()
+            installer = repo / ".state" / "installer"
+            installer.mkdir(parents=True)
+            state_path = installer / "state.json"
+            state_path.write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "profiles": [],
+                    "gpu_mode": "none",
+                    "owned_resources": {},
+                    "completed_stages": [],
+                }),
+                encoding="utf-8",
+            )
+            (repo / ".state").chmod(0o755)
+            installer.chmod(0o755)
+            state_path.chmod(0o644)
+            original_repo_mode = stat.S_IMODE(repo.stat().st_mode)
+            loaded = InstallerState.load(repo)
+            self.assertEqual(loaded.profiles, ())
+            self.assertEqual(stat.S_IMODE(repo.stat().st_mode), original_repo_mode)
+            self.assertEqual(stat.S_IMODE(installer.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o600)
 
 
 class StageJournalTests(unittest.TestCase):
@@ -134,6 +296,53 @@ class StageJournalTests(unittest.TestCase):
             self.assertTrue(resumed.complete("storage"))
             self.assertEqual(InstallerState.load(repo).completed_stages, ("host", "storage"))
             self.assertTrue(resumed.complete("compose"))
+
+    def test_journal_lock_merges_concurrent_state_choices_and_only_one_same_stage_wins(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            first = StageJournal(
+                InstallerState(repo_root=repo, profiles=("requests",)),
+                stages=("host", "storage"),
+            )
+            second = StageJournal(InstallerState.load(repo), stages=("host", "storage"))
+            outcomes = []
+            barrier = threading.Barrier(2)
+
+            def finish(journal):
+                barrier.wait()
+                outcomes.append(journal.complete("host"))
+
+            threads = [threading.Thread(target=finish, args=(journal,)) for journal in (first, second)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            self.assertEqual(sorted(outcomes), [False, True])
+            path = repo / ".state" / "installer" / "state.lock"
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+            current = InstallerState.load(repo)
+            current = replace(current, profiles=("ai",), gpu_mode="nvidia", owned_resources={"dashboard": "dashboard"})
+            current.save()
+            self.assertTrue(first.complete("storage"))
+            merged = InstallerState.load(repo)
+            self.assertEqual(merged.profiles, ("ai",))
+            self.assertEqual(merged.gpu_mode, "nvidia")
+            self.assertEqual(merged.owned_resources, {"dashboard": "dashboard"})
+
+    def test_journal_lock_symlink_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            outside = Path(temporary) / "outside"
+            outside.write_text("not a lock", encoding="utf-8")
+            journal = StageJournal(InstallerState(repo_root=repo), stages=("host",))
+            journal.state.save()
+            lock = repo / ".state" / "installer" / "state.lock"
+            lock.symlink_to(outside)
+            with self.assertRaises(InvalidInputError):
+                journal.complete("host")
 
     def test_journal_rejects_unknown_duplicate_and_out_of_order_persisted_stages(self):
         with tempfile.TemporaryDirectory() as temporary:

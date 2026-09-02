@@ -401,6 +401,51 @@ def _rename_noreplace(source: str, destination: str, parent_fd: int) -> None:
         raise OSError(error_number, os.strerror(error_number), destination)
 
 
+def _directory_signature(fd: int) -> tuple[int, int, int, int]:
+    metadata = os.fstat(fd)
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise InvalidInputError("storage parent is not a directory")
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_ctime_ns,
+        metadata.st_mtime_ns,
+    )
+
+
+def _cleanup_temporary_directory(
+    parent_fd: int,
+    name: str,
+    *,
+    parent_signature: tuple[int, int, int, int] | None,
+    child_fd: int | None,
+    expected: tuple[int, int] | None,
+) -> None:
+    """Remove only an empty candidate whose parent and inode remain stable."""
+
+    if parent_signature is None:
+        return
+    try:
+        if _directory_signature(parent_fd) != parent_signature:
+            return
+        lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if stat.S_ISLNK(lexical.st_mode) or not stat.S_ISDIR(lexical.st_mode):
+            return
+        if expected is not None and (lexical.st_dev, lexical.st_ino) != expected:
+            return
+        if child_fd is not None:
+            if os.listdir(child_fd):
+                return
+        else:
+            if os.listdir(f"/proc/self/fd/{parent_fd}/{name}"):
+                return
+        if _directory_signature(parent_fd) != parent_signature:
+            return
+        os.rmdir(name, dir_fd=parent_fd)
+    except OSError:
+        pass
+
+
 def _open_storage_target(path: Path) -> _StorageTarget:
     parent_chain = _open_directory_chain(path.parent)
     parent_fd = parent_chain.fd
@@ -671,47 +716,142 @@ def _create_directory_noreplace(
     temporary: str | None = None
     child_fd: int | None = None
     record: _CreatedDirectory | None = None
-    for _ in range(100):
-        candidate = f".lumen-installer-{uuid.uuid4().hex}.tmp"
-        try:
-            os.mkdir(candidate, mode=STORAGE_DIRECTORY_MODE, dir_fd=parent_fd)
-        except FileExistsError:
-            continue
-        temporary = candidate
-        break
-    if temporary is None:
-        raise InvalidInputError("temporary storage directory name could not be allocated")
+    parent_after_create: tuple[int, int, int, int] | None = None
+    staging: str | None = None
+    installed = False
     try:
+        parent_before_create = _directory_signature(parent_fd)
+        for _ in range(100):
+            candidate = f".lumen-installer-{uuid.uuid4().hex}.tmp"
+            try:
+                os.mkdir(candidate, mode=STORAGE_DIRECTORY_MODE, dir_fd=parent_fd)
+            except FileExistsError:
+                continue
+            temporary = candidate
+            break
+        if temporary is None:
+            raise InvalidInputError("temporary storage directory name could not be allocated")
+        parent_after_create = _directory_signature(parent_fd)
+        if parent_after_create[:2] != parent_before_create[:2]:
+            raise InvalidInputError("storage target parent changed during creation")
+
         try:
             child_fd = os.open(temporary, _DIRECTORY_FLAGS, dir_fd=parent_fd)
+            parent_after_open = _directory_signature(parent_fd)
+            if parent_after_create != parent_after_open:
+                raise InvalidInputError("temporary storage parent changed during creation")
             metadata = os.fstat(child_fd)
             if not stat.S_ISDIR(metadata.st_mode):
                 raise InvalidInputError("temporary storage directory is not a directory")
-            record = _CreatedDirectory(path, parent_fd, temporary, metadata.st_dev, metadata.st_ino)
-            created.append(record)
+            expected = (metadata.st_dev, metadata.st_ino)
             os.fchmod(child_fd, STORAGE_DIRECTORY_MODE)
             if uid is not None or gid is not None:
                 os.fchown(child_fd, uid if uid is not None else -1, gid if gid is not None else -1)
             configured = os.fstat(child_fd)
-            if (configured.st_dev, configured.st_ino) != (record.device, record.inode):
+            if (configured.st_dev, configured.st_ino) != expected:
                 raise InvalidInputError("temporary storage directory changed during creation")
-            _rename_noreplace(temporary, name, parent_fd)
+            source = os.stat(temporary, dir_fd=parent_fd, follow_symlinks=False)
+            if (
+                stat.S_ISLNK(source.st_mode)
+                or not stat.S_ISDIR(source.st_mode)
+                or (source.st_dev, source.st_ino) != expected
+            ):
+                raise InvalidInputError("temporary storage directory changed before installation")
+            if _directory_signature(parent_fd) != parent_after_open:
+                raise InvalidInputError("temporary storage parent changed before installation")
+
+            # Record only the inode that was opened and configured.  If a
+            # rename-boundary race moves a different inode, the staged check
+            # below catches it before the public target name is installed.
+            record = _CreatedDirectory(path, parent_fd, temporary, expected[0], expected[1])
+            created.append(record)
+            staging = f".lumen-installer-stage-{uuid.uuid4().hex}.tmp"
+            _rename_noreplace(temporary, staging, parent_fd)
+            record.name = staging
+            staged = os.stat(staging, dir_fd=parent_fd, follow_symlinks=False)
+            if (
+                stat.S_ISLNK(staged.st_mode)
+                or not stat.S_ISDIR(staged.st_mode)
+                or (staged.st_dev, staged.st_ino) != expected
+            ):
+                raise InvalidInputError("temporary storage directory changed during staging")
+            parent_after_stage = _directory_signature(parent_fd)
+            if _directory_signature(parent_fd) != parent_after_stage:
+                raise InvalidInputError("temporary storage parent changed during staging")
+            staged_again = os.stat(staging, dir_fd=parent_fd, follow_symlinks=False)
+            if (
+                stat.S_ISLNK(staged_again.st_mode)
+                or not stat.S_ISDIR(staged_again.st_mode)
+                or (staged_again.st_dev, staged_again.st_ino) != expected
+            ):
+                raise InvalidInputError("temporary storage directory changed before installation")
+            if _directory_signature(parent_fd) != parent_after_stage:
+                raise InvalidInputError("temporary storage parent changed before installation")
+            final_source = os.stat(staging, dir_fd=parent_fd, follow_symlinks=False)
+            if (
+                stat.S_ISLNK(final_source.st_mode)
+                or not stat.S_ISDIR(final_source.st_mode)
+                or (final_source.st_dev, final_source.st_ino) != expected
+            ):
+                raise InvalidInputError("temporary storage directory changed before installation")
+            _rename_noreplace(staging, name, parent_fd)
             record.name = name
+            installed = True
             lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
             if (
                 stat.S_ISLNK(lexical.st_mode)
                 or not stat.S_ISDIR(lexical.st_mode)
-                or lexical.st_dev != record.device
-                or lexical.st_ino != record.inode
+                or (lexical.st_dev, lexical.st_ino) != expected
             ):
                 raise InvalidInputError("approved storage path changed during installation")
             return child_fd, True
         except OSError as exc:
             raise InvalidInputError("approved storage layout could not be installed safely") from exc
     except InvalidInputError:
+        if record is None:
+            # Open/fstat/configuration failures happen before the candidate is
+            # represented in the mutation journal.  Remove only that exact,
+            # still-empty inode; a replacement is deliberately left alone.
+            if staging is not None:
+                _cleanup_temporary_directory(
+                    parent_fd,
+                    staging,
+                    parent_signature=parent_after_create,
+                    child_fd=child_fd,
+                    expected=None,
+                )
+            if temporary is not None:
+                _cleanup_temporary_directory(
+                    parent_fd,
+                    temporary,
+                    parent_signature=parent_after_create,
+                    child_fd=child_fd,
+                    expected=None,
+                )
         if child_fd is not None:
             _close_fd(child_fd)
         raise
+    except OSError as exc:
+        if record is None:
+            if staging is not None:
+                _cleanup_temporary_directory(
+                    parent_fd,
+                    staging,
+                    parent_signature=parent_after_create,
+                    child_fd=child_fd,
+                    expected=None,
+                )
+            if temporary is not None:
+                _cleanup_temporary_directory(
+                    parent_fd,
+                    temporary,
+                    parent_signature=parent_after_create,
+                    child_fd=child_fd,
+                    expected=None,
+                )
+        if child_fd is not None:
+            _close_fd(child_fd)
+        raise InvalidInputError("approved storage layout could not be installed safely") from exc
 
 
 def _close_created(created: Sequence[_CreatedDirectory]) -> None:

@@ -235,23 +235,49 @@ def _rename_noreplace(source: str, destination: str, parent_fd: int) -> None:
         raise OSError(error_number, os.strerror(error_number), destination)
 
 
-def _cleanup_directory_if_identity(
+def _directory_signature(fd: int) -> tuple[int, int, int, int]:
+    metadata = os.fstat(fd)
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise InvalidInputError("installer state parent is not a directory")
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_ctime_ns,
+        metadata.st_mtime_ns,
+    )
+
+
+def _cleanup_temporary_directory(
     parent_fd: int,
     name: str,
-    child_fd: int,
-    expected: tuple[int, int],
+    *,
+    parent_signature: tuple[int, int, int, int] | None,
+    child_fd: int | None,
+    expected: tuple[int, int] | None,
 ) -> None:
-    """Remove only an empty temporary directory matching its retained fd."""
+    """Remove only an empty candidate whose parent and inode remain stable."""
 
+    if parent_signature is None:
+        return
     try:
+        if _directory_signature(parent_fd) != parent_signature:
+            return
         current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-        if (
-            current.st_dev == expected[0]
-            and current.st_ino == expected[1]
-            and not os.listdir(child_fd)
-        ):
-            os.rmdir(name, dir_fd=parent_fd)
+        if stat.S_ISLNK(current.st_mode) or not stat.S_ISDIR(current.st_mode):
+            return
+        if expected is not None and (current.st_dev, current.st_ino) != expected:
+            return
+        if child_fd is not None:
+            if os.listdir(child_fd):
+                return
+        elif os.listdir(f"/proc/self/fd/{parent_fd}/{name}"):
+            return
+        if _directory_signature(parent_fd) != parent_signature:
+            return
+        os.rmdir(name, dir_fd=parent_fd)
     except OSError:
+        # Never remove an entry after a failed identity check.  The original
+        # typed error is more useful than risking a replacement inode.
         pass
 
 
@@ -259,21 +285,32 @@ def _create_directory_noreplace(parent_fd: int, name: str, *, mode: int, descrip
     """Prepare a directory under a private name, then install it atomically."""
 
     temporary: str | None = None
+    staging: str | None = None
     child_fd: int | None = None
     installed = False
     expected: tuple[int, int] | None = None
-    for _ in range(100):
-        candidate = f".{name}-{uuid.uuid4().hex}.tmp"
-        try:
-            os.mkdir(candidate, mode=mode, dir_fd=parent_fd)
-        except FileExistsError:
-            continue
-        temporary = candidate
-        break
-    if temporary is None:
-        raise InvalidInputError(f"temporary {description} name could not be allocated")
+    parent_after_create: tuple[int, int, int, int] | None = None
+    staging_parent_signature: tuple[int, int, int, int] | None = None
     try:
+        parent_before_create = _directory_signature(parent_fd)
+        for _ in range(100):
+            candidate = f".{name}-{uuid.uuid4().hex}.tmp"
+            try:
+                os.mkdir(candidate, mode=mode, dir_fd=parent_fd)
+            except FileExistsError:
+                continue
+            temporary = candidate
+            break
+        if temporary is None:
+            raise InvalidInputError(f"temporary {description} name could not be allocated")
+        parent_after_create = _directory_signature(parent_fd)
+        if parent_after_create[:2] != parent_before_create[:2]:
+            raise InvalidInputError(f"{description} parent changed during creation")
+
         child_fd = os.open(temporary, _DIRECTORY_FLAGS, dir_fd=parent_fd)
+        parent_after_open = _directory_signature(parent_fd)
+        if parent_after_open != parent_after_create:
+            raise InvalidInputError(f"temporary {description} parent changed during creation")
         metadata = os.fstat(child_fd)
         if not stat.S_ISDIR(metadata.st_mode):
             raise InvalidInputError(f"temporary {description} is not a directory")
@@ -282,7 +319,55 @@ def _create_directory_noreplace(parent_fd: int, name: str, *, mode: int, descrip
         configured = os.fstat(child_fd)
         if (configured.st_dev, configured.st_ino) != expected:
             raise InvalidInputError(f"temporary {description} changed during creation")
-        _rename_noreplace(temporary, name, parent_fd)
+        source = os.stat(temporary, dir_fd=parent_fd, follow_symlinks=False)
+        if (
+            stat.S_ISLNK(source.st_mode)
+            or not stat.S_ISDIR(source.st_mode)
+            or (source.st_dev, source.st_ino) != expected
+        ):
+            raise InvalidInputError(f"temporary {description} changed before installation")
+        if _directory_signature(parent_fd) != parent_after_open:
+            raise InvalidInputError(f"{description} parent changed before installation")
+
+        # Stage first so a source swap at the rename boundary cannot put an
+        # unverified inode at the public .state path.
+        staging = f".{name}-stage-{uuid.uuid4().hex}.tmp"
+        _rename_noreplace(temporary, staging, parent_fd)
+        try:
+            lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            lexical = None
+        # The name still does not exist; validate the staged entry instead.
+        staged = os.stat(staging, dir_fd=parent_fd, follow_symlinks=False)
+        if (
+            stat.S_ISLNK(staged.st_mode)
+            or not stat.S_ISDIR(staged.st_mode)
+            or (staged.st_dev, staged.st_ino) != expected
+        ):
+            raise InvalidInputError(f"temporary {description} changed during staging")
+        if lexical is not None:
+            raise InvalidInputError(f"{description} appeared during installation")
+        parent_after_stage = _directory_signature(parent_fd)
+        staging_parent_signature = parent_after_stage
+        if _directory_signature(parent_fd) != parent_after_stage:
+            raise InvalidInputError(f"{description} parent changed during staging")
+        staged_again = os.stat(staging, dir_fd=parent_fd, follow_symlinks=False)
+        if (
+            stat.S_ISLNK(staged_again.st_mode)
+            or not stat.S_ISDIR(staged_again.st_mode)
+            or (staged_again.st_dev, staged_again.st_ino) != expected
+        ):
+            raise InvalidInputError(f"temporary {description} changed before installation")
+        if _directory_signature(parent_fd) != parent_after_stage:
+            raise InvalidInputError(f"{description} parent changed before installation")
+        final_source = os.stat(staging, dir_fd=parent_fd, follow_symlinks=False)
+        if (
+            stat.S_ISLNK(final_source.st_mode)
+            or not stat.S_ISDIR(final_source.st_mode)
+            or (final_source.st_dev, final_source.st_ino) != expected
+        ):
+            raise InvalidInputError(f"temporary {description} changed before installation")
+        _rename_noreplace(staging, name, parent_fd)
         installed = True
         lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
         if (
@@ -293,13 +378,43 @@ def _create_directory_noreplace(parent_fd: int, name: str, *, mode: int, descrip
             raise InvalidInputError(f"{description} changed during installation")
         return child_fd
     except InvalidInputError:
-        if not installed and temporary is not None and child_fd is not None and expected is not None:
-            _cleanup_directory_if_identity(parent_fd, temporary, child_fd, expected)
+        if not installed:
+            if staging is not None:
+                _cleanup_temporary_directory(
+                    parent_fd,
+                    staging,
+                    parent_signature=staging_parent_signature,
+                    child_fd=child_fd,
+                    expected=expected,
+                )
+            if temporary is not None:
+                _cleanup_temporary_directory(
+                    parent_fd,
+                    temporary,
+                    parent_signature=parent_after_create,
+                    child_fd=child_fd,
+                    expected=expected,
+                )
         _close_fd(child_fd)
         raise
     except OSError as exc:
-        if not installed and temporary is not None and child_fd is not None and expected is not None:
-            _cleanup_directory_if_identity(parent_fd, temporary, child_fd, expected)
+        if not installed:
+            if staging is not None:
+                _cleanup_temporary_directory(
+                    parent_fd,
+                    staging,
+                    parent_signature=staging_parent_signature,
+                    child_fd=child_fd,
+                    expected=expected,
+                )
+            if temporary is not None:
+                _cleanup_temporary_directory(
+                    parent_fd,
+                    temporary,
+                    parent_signature=parent_after_create,
+                    child_fd=child_fd,
+                    expected=expected,
+                )
         _close_fd(child_fd)
         raise InvalidInputError(f"{description} could not be installed safely") from exc
 

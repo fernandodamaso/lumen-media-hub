@@ -13,6 +13,7 @@ if str(INSTALLER_ROOT) not in sys.path:
 
 from lumen_installer.errors import InvalidInputError
 from lumen_installer.errors import ExitCode
+import lumen_installer.storage as storage_module
 from lumen_installer.storage import StorageMutationError, validate_storage
 
 
@@ -368,6 +369,103 @@ class StorageValidationTests(unittest.TestCase):
                     validate_storage(root, downloads, repo_root=repo)
             self.assertEqual((root / sentinel.name).read_text(encoding="utf-8"), "untouched")
             self.assertFalse((root / "media").exists())
+
+    def test_temporary_target_replacement_before_open_is_rejected_without_adoption(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+            outside = base / "outside"
+            outside.mkdir()
+            sentinel = outside / "outside-sentinel"
+            sentinel.write_text("untouched", encoding="utf-8")
+            moved = base / "temporary-original"
+            candidate_path = None
+            replaced = False
+            real_open = os.open
+
+            def open_swap(name, flags, mode=0o777, *, dir_fd=None):
+                nonlocal candidate_path, replaced
+                if isinstance(name, str) and name.startswith(".lumen-installer-") and not replaced:
+                    candidate_path = base / name
+                    candidate_path.rename(moved)
+                    outside.rename(candidate_path)
+                    replaced = True
+                return real_open(name, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch("lumen_installer.storage.os.open", side_effect=open_swap):
+                with self.assertRaises(InvalidInputError):
+                    validate_storage(root, downloads, repo_root=repo)
+            self.assertIsNotNone(candidate_path)
+            self.assertEqual((candidate_path / sentinel.name).read_text(encoding="utf-8"), "untouched")
+            self.assertFalse(root.exists())
+
+    def test_temporary_storage_open_and_fstat_failures_leave_no_candidate(self):
+        for failure in ("open", "fstat"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary)
+                repo = base / "checkout"
+                repo.mkdir()
+                root = base / "library"
+                downloads = base / "downloads"
+                real_open = os.open
+                real_fstat = os.fstat
+                temporary_fd = None
+
+                def open_failure(name, flags, mode=0o777, *, dir_fd=None):
+                    nonlocal temporary_fd
+                    result = real_open(name, flags, mode, dir_fd=dir_fd)
+                    if isinstance(name, str) and name.startswith(".lumen-installer-"):
+                        if failure == "open":
+                            os.close(result)
+                            raise OSError("injected temporary open failure")
+                        temporary_fd = result
+                    return result
+
+                def fstat_failure(fd):
+                    if failure == "fstat" and fd == temporary_fd:
+                        raise OSError("injected temporary fstat failure")
+                    return real_fstat(fd)
+
+                with mock.patch("lumen_installer.storage.os.open", side_effect=open_failure):
+                    with mock.patch("lumen_installer.storage.os.fstat", side_effect=fstat_failure):
+                        with self.assertRaises(InvalidInputError):
+                            validate_storage(root, downloads, repo_root=repo)
+                self.assertEqual(tuple(base.glob(".lumen-installer-*.tmp")), ())
+
+    def test_temporary_storage_swap_after_open_is_rejected_before_adoption(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+            outside = base / "outside"
+            outside.mkdir()
+            sentinel = outside / "outside-sentinel"
+            sentinel.write_text("untouched", encoding="utf-8")
+            moved = base / "temporary-original"
+            swapped = False
+            real_rename = storage_module._rename_noreplace
+
+            def rename_swap(source, destination, parent_fd):
+                nonlocal swapped
+                if not swapped and str(source).startswith(".lumen-installer-"):
+                    source_path = base / source
+                    source_path.rename(moved)
+                    outside.rename(source_path)
+                    swapped = True
+                return real_rename(source, destination, parent_fd)
+
+            with mock.patch.object(storage_module, "_rename_noreplace", side_effect=rename_swap):
+                with self.assertRaises((InvalidInputError, StorageMutationError)):
+                    validate_storage(root, downloads, repo_root=repo)
+            self.assertFalse(root.exists())
+            candidates = tuple(base.glob(".lumen-installer-*.tmp"))
+            self.assertTrue(candidates)
+            self.assertEqual((candidates[0] / sentinel.name).read_text(encoding="utf-8"), "untouched")
 
     def test_mkdir_failure_after_creation_is_rolled_back(self):
         with tempfile.TemporaryDirectory() as temporary:

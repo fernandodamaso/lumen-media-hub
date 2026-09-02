@@ -602,6 +602,42 @@ class InstallerStateTests(unittest.TestCase):
             self.assertEqual(result[0]["candidates"][0]["kind"], "other")
             self.assertFalse(result[0]["candidates"][0]["identity_verified"])
 
+    def test_state_candidate_diagnostic_stat_to_open_fifo_swap_does_not_block(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            InstallerState(repo_root=repo).save()
+            installer = repo / ".state" / "installer"
+            candidate = installer / ".state-race-candidate.tmp"
+            candidate.write_text("candidate", encoding="utf-8")
+            real_open = os.open
+            swapped = False
+            result = []
+
+            def open_swap(name, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if name == candidate.name and not swapped:
+                    candidate.unlink()
+                    os.mkfifo(candidate)
+                    swapped = True
+                return real_open(name, flags, mode, dir_fd=dir_fd)
+
+            def diagnose():
+                try:
+                    result.append(diagnose_state_candidates(repo))
+                except BaseException as exc:
+                    result.append(exc)
+
+            with mock.patch("lumen_installer.state.os.open", side_effect=open_swap):
+                worker = threading.Thread(target=diagnose, daemon=True)
+                worker.start()
+                worker.join(timeout=1.0)
+            self.assertFalse(worker.is_alive(), "candidate diagnostic blocked on swapped FIFO")
+            self.assertTrue(swapped)
+            self.assertIsInstance(result[0], dict)
+            self.assertEqual(result[0]["candidates"][0]["kind"], "other")
+            self.assertFalse(result[0]["candidates"][0]["identity_verified"])
+
     def test_state_candidate_diagnostic_does_not_correct_existing_directory_modes(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary) / "checkout"
@@ -616,6 +652,39 @@ class InstallerStateTests(unittest.TestCase):
 
             self.assertEqual(stat.S_IMODE(state_dir.stat().st_mode), 0o750)
             self.assertEqual(stat.S_IMODE(installer.stat().st_mode), 0o750)
+
+    def test_state_load_stat_to_open_fifo_swap_is_bounded_and_typed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            InstallerState(repo_root=repo).save()
+            state_path = repo / ".state" / "installer" / "state.json"
+            real_stat = os.stat
+            swapped = False
+            result = []
+
+            def stat_swap(name, *args, **kwargs):
+                nonlocal swapped
+                result_stat = real_stat(name, *args, **kwargs)
+                if name == "state.json" and not swapped:
+                    state_path.unlink()
+                    os.mkfifo(state_path)
+                    swapped = True
+                return result_stat
+
+            def load():
+                try:
+                    result.append(InstallerState.load(repo))
+                except BaseException as exc:
+                    result.append(exc)
+
+            with mock.patch("lumen_installer.state.os.stat", side_effect=stat_swap):
+                worker = threading.Thread(target=load, daemon=True)
+                worker.start()
+                worker.join(timeout=1.0)
+            self.assertFalse(worker.is_alive(), "state load blocked on swapped FIFO")
+            self.assertTrue(swapped)
+            self.assertIsInstance(result[0], InvalidInputError)
 
     def test_temporary_state_swap_after_open_is_rejected_before_adoption(self):
         with tempfile.TemporaryDirectory() as temporary:

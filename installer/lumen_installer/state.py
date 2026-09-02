@@ -642,7 +642,15 @@ def _assert_state_identity(path: Path, fd: int, *, description: str) -> None:
 
 
 def _open_state_file(installer_fd: int) -> int | None:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        lexical = os.stat(STATE_FILE_NAME, dir_fd=installer_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise InvalidInputError("installer state file could not be inspected safely") from exc
+    if stat.S_ISLNK(lexical.st_mode) or not stat.S_ISREG(lexical.st_mode):
+        raise InvalidInputError("installer state file is not regular")
     try:
         fd = os.open(STATE_FILE_NAME, flags, dir_fd=installer_fd)
     except FileNotFoundError:
@@ -651,8 +659,18 @@ def _open_state_file(installer_fd: int) -> int | None:
         raise InvalidInputError("installer state file could not be opened safely") from exc
     try:
         metadata = os.fstat(fd)
-        if not stat.S_ISREG(metadata.st_mode):
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or (metadata.st_dev, metadata.st_ino) != (lexical.st_dev, lexical.st_ino)
+        ):
             raise InvalidInputError("installer state file is not regular")
+        current = os.stat(STATE_FILE_NAME, dir_fd=installer_fd, follow_symlinks=False)
+        if (
+            stat.S_ISLNK(current.st_mode)
+            or not stat.S_ISREG(current.st_mode)
+            or (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino)
+        ):
+            raise InvalidInputError("installer state file changed during opening")
         if stat.S_IMODE(metadata.st_mode) != 0o600:
             os.fchmod(fd, 0o600)
     except InvalidInputError:
@@ -1202,11 +1220,15 @@ def diagnose_state_candidates(
                     if finding["kind"] not in {"file", "directory"}:
                         candidates.append(finding)
                         continue
-                    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
                     if stat.S_ISDIR(lexical.st_mode):
                         flags |= getattr(os, "O_DIRECTORY", 0)
                     fd = os.open(name, flags, dir_fd=handles.installer_fd)
                     captured = os.fstat(fd)
+                    if not (stat.S_ISREG(captured.st_mode) or stat.S_ISDIR(captured.st_mode)):
+                        finding["kind"] = "other"
+                        candidates.append(finding)
+                        continue
                     current = os.stat(name, dir_fd=handles.installer_fd, follow_symlinks=False)
                     finding["identity_verified"] = (
                         not stat.S_ISLNK(current.st_mode)

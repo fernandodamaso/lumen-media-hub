@@ -177,7 +177,7 @@ class InstallerStateTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     changed.save()
             self.assertEqual(path.read_bytes(), original)
-            self.assertEqual({child.name for child in path.parent.iterdir()}, {"state.json"})
+            self.assertEqual(len(tuple(path.parent.glob(".state-*.tmp"))), 1)
 
     def test_state_mode_is_set_before_replace_and_final_chmod_is_never_needed(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -493,19 +493,7 @@ class InstallerStateTests(unittest.TestCase):
             outside = base / "outside-state"
             (outside / "installer").mkdir(parents=True)
             (outside / "installer" / "sentinel").write_text("outside-sentinel", encoding="utf-8")
-            moved = base / "state-original"
             swapped = False
-            real_remove = state_module._remove_directory_at
-
-            def remove_swap(parent_fd, name):
-                nonlocal swapped
-                if not swapped and name.startswith("..state-"):
-                    candidate = repo / name
-                    candidate.rename(moved)
-                    outside.rename(candidate)
-                    swapped = True
-                return real_remove(parent_fd, name)
-
             real_open = os.open
 
             def open_failure(name, flags, mode=0o777, *, dir_fd=None):
@@ -516,7 +504,7 @@ class InstallerStateTests(unittest.TestCase):
                 return result
 
             with mock.patch("lumen_installer.state.os.open", side_effect=open_failure):
-                with mock.patch.object(state_module, "_remove_directory_at", side_effect=remove_swap) as remove:
+                with mock.patch("lumen_installer.state.os.rmdir") as remove:
                     with self.assertRaises(InvalidInputError):
                         InstallerState(repo_root=repo).save()
             self.assertFalse(swapped)
@@ -524,7 +512,23 @@ class InstallerStateTests(unittest.TestCase):
             self.assertTrue(outside.exists())
             self.assertTrue((outside / "installer" / "sentinel").exists())
 
-    def test_state_backup_is_cleaned_when_temporary_file_creation_fails(self):
+    def test_state_known_identity_cleanup_never_removes_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            outside = base / "outside-state"
+            (outside / "installer").mkdir(parents=True)
+            (outside / "installer" / "sentinel").write_text("outside-sentinel", encoding="utf-8")
+            with mock.patch("lumen_installer.state.os.fchmod", side_effect=PermissionError("injected state chmod")):
+                with mock.patch("lumen_installer.state.os.rmdir") as remove:
+                    with self.assertRaises(InvalidInputError):
+                        InstallerState(repo_root=repo).save()
+            self.assertFalse(remove.called)
+            self.assertTrue(outside.exists())
+            self.assertTrue((outside / "installer" / "sentinel").exists())
+
+    def test_previous_state_is_preserved_when_temporary_file_creation_fails(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary) / "checkout"
             repo.mkdir()
@@ -651,7 +655,7 @@ class InstallerStateTests(unittest.TestCase):
                     with self.assertRaises(InvalidInputError):
                         InstallerState(repo_root=repo, profiles=("ai",)).save()
             self.assertEqual(state_path.read_bytes(), previous)
-            self.assertEqual(tuple((state_path.parent).glob(".state-*.tmp")), ())
+            self.assertEqual(len(tuple((state_path.parent).glob(".state-*.tmp"))), 1)
 
     def test_state_final_directory_swap_is_rolled_back_without_adopting_external_inode(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -703,7 +707,7 @@ class InstallerStateTests(unittest.TestCase):
                 with self.assertRaises(InvalidInputError):
                     InstallerState(repo_root=repo).save()
             self.assertTrue(failed)
-            self.assertEqual(tuple(repo.glob("..state-stage-*.tmp")), ())
+            self.assertEqual(len(tuple(repo.glob("..state-stage-*.tmp"))), 1)
 
     def test_state_final_stat_swap_is_rolled_back_before_external_inode_is_adopted(self):
         with tempfile.TemporaryDirectory() as temporary:

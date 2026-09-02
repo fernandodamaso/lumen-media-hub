@@ -247,7 +247,6 @@ def _free_gib(path: Path, probe: Callable[[Path], Any] | None) -> float:
 
 _DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 _RENAME_NOREPLACE = 1
-_AT_REMOVEDIR = 0x200
 
 
 def _close_fd(fd: int | None) -> None:
@@ -346,15 +345,6 @@ def _open_directory_chain(path: Path) -> _DirectoryChain:
         raise InvalidInputError("storage parent could not be opened safely") from exc
 
 
-def _open_absolute_directory(path: Path) -> int:
-    """Compatibility wrapper returning only the final descriptor."""
-
-    chain = _open_directory_chain(path)
-    for fd in chain.retained_fds[:-1]:
-        _close_fd(fd)
-    return chain.fd
-
-
 def _assert_directory_chain(chain: _DirectoryChain, *, description: str) -> None:
     """Reject replacement of any lexical component below the stable root fd."""
 
@@ -400,21 +390,6 @@ def _rename_noreplace(source: str, destination: str, parent_fd: int) -> None:
     if result != 0:
         error_number = ctypes.get_errno()
         raise OSError(error_number, os.strerror(error_number), destination)
-
-
-def _remove_directory_at(parent_fd: int, name: str) -> None:
-    """Remove a directory entry relative to its retained parent descriptor."""
-
-    try:
-        unlinkat = ctypes.CDLL(None, use_errno=True).unlinkat
-    except (AttributeError, OSError) as exc:
-        raise InvalidInputError("safe storage cleanup is unavailable") from exc
-    unlinkat.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
-    unlinkat.restype = ctypes.c_int
-    result = unlinkat(parent_fd, os.fsencode(name), _AT_REMOVEDIR)
-    if result != 0:
-        error_number = ctypes.get_errno()
-        raise OSError(error_number, os.strerror(error_number), name)
 
 
 def _directory_signature(fd: int) -> tuple[int, int, int, int]:
@@ -471,43 +446,6 @@ def _restore_directory_entry(parent_fd: int, public_name: str, staging_name: str
         raise
     except OSError as exc:
         raise InvalidInputError("storage target could not be restored safely") from exc
-
-
-def _cleanup_temporary_directory(
-    parent_fd: int,
-    name: str,
-    *,
-    parent_signature: tuple[int, int, int, int] | None,
-    child_fd: int | None,
-    expected: tuple[int, int] | None,
-) -> None:
-    """Remove only an empty candidate whose parent and inode remain stable."""
-
-    # A candidate without a captured inode is identity-uncertain.  Do not
-    # pathname-delete it: an attacker can replace the entry between the
-    # no-follow check and the removal syscall.  The private installer name is
-    # intentionally left for a later, explicit cleanup pass.
-    if parent_signature is None or expected is None or child_fd is None:
-        return
-    try:
-        if _directory_signature(parent_fd) != parent_signature:
-            return
-        lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-        if stat.S_ISLNK(lexical.st_mode) or not stat.S_ISDIR(lexical.st_mode):
-            return
-        if expected is not None and (lexical.st_dev, lexical.st_ino) != expected:
-            return
-        if child_fd is not None:
-            if os.listdir(child_fd):
-                return
-        else:
-            if os.listdir(f"/proc/self/fd/{parent_fd}/{name}"):
-                return
-        if _directory_signature(parent_fd) != parent_signature:
-            return
-        _remove_directory_at(parent_fd, name)
-    except OSError:
-        pass
 
 
 def _open_storage_target(path: Path) -> _StorageTarget:
@@ -782,7 +720,6 @@ def _create_directory_noreplace(
     record: _CreatedDirectory | None = None
     parent_after_create: tuple[int, int, int, int] | None = None
     staging: str | None = None
-    installed = False
     try:
         parent_before_create = _directory_signature(parent_fd)
         for _ in range(100):
@@ -872,52 +809,14 @@ def _create_directory_noreplace(
                 record.name = staging
                 raise InvalidInputError("approved storage path changed during installation")
             record.name = name
-            installed = True
             return child_fd, True
         except OSError as exc:
             raise InvalidInputError("approved storage layout could not be installed safely") from exc
     except InvalidInputError:
-        if record is None:
-            # Open/fstat/configuration failures happen before the candidate is
-            # represented in the mutation journal.  Remove only that exact,
-            # still-empty inode; a replacement is deliberately left alone.
-            if staging is not None:
-                _cleanup_temporary_directory(
-                    parent_fd,
-                    staging,
-                    parent_signature=parent_after_create,
-                    child_fd=child_fd,
-                    expected=None,
-                )
-            if temporary is not None:
-                _cleanup_temporary_directory(
-                    parent_fd,
-                    temporary,
-                    parent_signature=parent_after_create,
-                    child_fd=child_fd,
-                    expected=None,
-                )
         if child_fd is not None:
             _close_fd(child_fd)
         raise
     except OSError as exc:
-        if record is None:
-            if staging is not None:
-                _cleanup_temporary_directory(
-                    parent_fd,
-                    staging,
-                    parent_signature=parent_after_create,
-                    child_fd=child_fd,
-                    expected=None,
-                )
-            if temporary is not None:
-                _cleanup_temporary_directory(
-                    parent_fd,
-                    temporary,
-                    parent_signature=parent_after_create,
-                    child_fd=child_fd,
-                    expected=None,
-                )
         if child_fd is not None:
             _close_fd(child_fd)
         raise InvalidInputError("approved storage layout could not be installed safely") from exc
@@ -945,9 +844,6 @@ def _create_directory_at(
     chmod_probe: Callable[[Path, int], Any] | None = None,
     chown_probe: Callable[[Path, int, int], Any] | None = None,
 ) -> tuple[int, bool]:
-    made = False
-    record_added = False
-    record_attempted = False
     try:
         succeeded = False
         try:
@@ -988,22 +884,17 @@ def _create_directory_at(
                 gid=gid,
                 created=created,
             )
-        # A test/integration probe may create the directory before reporting
-        # an error.  Mark the attempt before invoking it so that the stable
-        # parent descriptor can discover and roll back that inode.
-        made = True
+        # A probe is an injected integration boundary.  If it creates a
+        # directory and then reports failure, its inode was not captured by
+        # the installer and must never be reopened or adopted for rollback.
         if mkdir_probe is None:
             os.mkdir(name, mode=STORAGE_DIRECTORY_MODE, dir_fd=parent_fd)
         else:
             mkdir_probe(path, STORAGE_DIRECTORY_MODE)
-        record_attempted = True
         record, child_fd = _created_record(parent_fd, name, path)
         if record is None:
             raise InvalidInputError("approved storage layout could not be created")
         created.append(record)
-        record_added = True
-        if child_fd is None:
-            raise InvalidInputError("approved storage path could not be opened safely")
         try:
             if chmod_probe is not None:
                 chmod_probe(path, STORAGE_DIRECTORY_MODE)
@@ -1048,65 +939,7 @@ def _create_directory_at(
         # preflight check and mkdir; never claim or remove it during rollback.
         raise InvalidInputError("approved storage layout could not be created") from exc
     except Exception as exc:
-        # A probe may model a mkdir that created its directory before
-        # reporting an error.  Track that path through the stable parent
-        # descriptor so rollback never follows a replacement symlink.
-        if made and not record_added and not record_attempted:
-            try:
-                record, child_fd = _created_record(parent_fd, name, path)
-                if child_fd is not None:
-                    _close_fd(child_fd)
-                if record is not None:
-                    created.append(record)
-            except Exception:
-                pass
         raise InvalidInputError("approved storage layout could not be created") from exc
-
-
-def _create_directory(
-    path: Path,
-    *,
-    uid: int | None,
-    gid: int | None,
-    created: list[_CreatedDirectory],
-    mkdir_probe: Callable[[Path, int], Any] | None = None,
-    chmod_probe: Callable[[Path, int], Any] | None = None,
-    chown_probe: Callable[[Path, int, int], Any] | None = None,
-) -> None:
-    """Compatibility wrapper for descriptor-relative directory creation."""
-
-    parent_fd = _open_absolute_directory(path.parent)
-    original_count = len(created)
-    try:
-        try:
-            current = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
-        except FileNotFoundError:
-            expected = None
-        except OSError as exc:
-            raise InvalidInputError("approved storage path could not be inspected") from exc
-        else:
-            if stat.S_ISLNK(current.st_mode) or not stat.S_ISDIR(current.st_mode):
-                raise InvalidInputError("approved storage layout contains an unsafe existing path")
-            expected = (current.st_dev, current.st_ino)
-        child_fd, _ = _create_directory_at(
-            path,
-            parent_fd=parent_fd,
-            name=path.name,
-            expected=expected,
-            uid=uid,
-            gid=gid,
-            created=created,
-            mkdir_probe=mkdir_probe,
-            chmod_probe=chmod_probe,
-            chown_probe=chown_probe,
-        )
-        _close_fd(child_fd)
-    finally:
-        # A newly created record owns this parent descriptor until the caller
-        # completes or rolls back the mutation.  Existing-path checks have no
-        # record and can release it here.
-        if len(created) == original_count:
-            _close_fd(parent_fd)
 
 
 def _apply_target_layout(
@@ -1210,13 +1043,17 @@ def _rollback_created(
                     pass
             if remove_probe is not None:
                 remove_probe(path)
+                try:
+                    os.stat(record.name, dir_fd=record.parent_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    partial.append(str(path))
             else:
-                _remove_directory_at(record.parent_fd, record.name)
-            try:
-                os.stat(record.name, dir_fd=record.parent_fd, follow_symlinks=False)
-            except FileNotFoundError:
-                pass
-            else:
+                # Linux has no unlink-by-open-directory-fd primitive.  A
+                # pathname rmdir remains vulnerable to replacement after the
+                # identity check, so report the installer-owned path as a
+                # partial rollback instead of deleting an uncertain inode.
                 partial.append(str(path))
         except Exception:
             partial.append(str(path))

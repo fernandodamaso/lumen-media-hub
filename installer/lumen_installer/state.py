@@ -68,9 +68,6 @@ def _lexical_absolute(path: Path) -> Path:
 
 _DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 _RENAME_NOREPLACE = 1
-_AT_REMOVEDIR = 0x200
-
-
 @dataclass(frozen=True)
 class _StateDirectoryChainEntry:
     parent_fd: int
@@ -158,15 +155,6 @@ def _open_directory_chain(path: Path, *, description: str) -> _StateDirectoryCha
         raise InvalidInputError(f"{description} could not be opened safely") from exc
 
 
-def _open_absolute_directory(path: Path, *, description: str) -> int:
-    """Compatibility wrapper returning only the final descriptor."""
-
-    chain = _open_directory_chain(path, description=description)
-    for fd in chain.retained_fds[:-1]:
-        _close_fd(fd)
-    return chain.fd
-
-
 def _assert_state_chain(chain: _StateDirectoryChain, *, description: str) -> None:
     """Verify each lexical component still names the retained directory."""
 
@@ -236,21 +224,6 @@ def _rename_noreplace(source: str, destination: str, parent_fd: int) -> None:
         raise OSError(error_number, os.strerror(error_number), destination)
 
 
-def _remove_directory_at(parent_fd: int, name: str) -> None:
-    """Remove a directory entry relative to its retained parent descriptor."""
-
-    try:
-        unlinkat = ctypes.CDLL(None, use_errno=True).unlinkat
-    except (AttributeError, OSError) as exc:
-        raise InvalidInputError("safe temporary directory cleanup is unavailable") from exc
-    unlinkat.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
-    unlinkat.restype = ctypes.c_int
-    result = unlinkat(parent_fd, os.fsencode(name), _AT_REMOVEDIR)
-    if result != 0:
-        error_number = ctypes.get_errno()
-        raise OSError(error_number, os.strerror(error_number), name)
-
-
 def _directory_signature(fd: int) -> tuple[int, int, int, int]:
     metadata = os.fstat(fd)
     if not stat.S_ISDIR(metadata.st_mode):
@@ -261,44 +234,6 @@ def _directory_signature(fd: int) -> tuple[int, int, int, int]:
         metadata.st_ctime_ns,
         metadata.st_mtime_ns,
     )
-
-
-def _cleanup_temporary_directory(
-    parent_fd: int,
-    name: str,
-    *,
-    parent_signature: tuple[int, int, int, int] | None,
-    child_fd: int | None,
-    expected: tuple[int, int] | None,
-) -> None:
-    """Remove only an empty candidate whose parent and inode remain stable."""
-
-    # Without a retained child descriptor and captured inode, the pathname is
-    # identity-uncertain.  A replacement can appear between lstat and the
-    # removal syscall, so leave the installer-named candidate for safe later
-    # cleanup rather than risking an unrelated inode.
-    if parent_signature is None or expected is None or child_fd is None:
-        return
-    try:
-        if _directory_signature(parent_fd) != parent_signature:
-            return
-        current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-        if stat.S_ISLNK(current.st_mode) or not stat.S_ISDIR(current.st_mode):
-            return
-        if expected is not None and (current.st_dev, current.st_ino) != expected:
-            return
-        if child_fd is not None:
-            if os.listdir(child_fd):
-                return
-        elif os.listdir(f"/proc/self/fd/{parent_fd}/{name}"):
-            return
-        if _directory_signature(parent_fd) != parent_signature:
-            return
-        _remove_directory_at(parent_fd, name)
-    except OSError:
-        # Never remove an entry after a failed identity check.  The original
-        # typed error is more useful than risking a replacement inode.
-        pass
 
 
 def _regular_file_matches(parent_fd: int, name: str, expected: tuple[int, int]) -> bool:
@@ -366,49 +301,10 @@ def _restore_state_entry(parent_fd: int, public_name: str, staging_name: str) ->
         raise InvalidInputError("installer state could not be restored safely") from exc
 
 
-def _unlink_state_entry_if_identity(
-    parent_fd: int,
-    name: str,
-    expected: tuple[int, int],
-) -> None:
-    try:
-        current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-        if (current.st_dev, current.st_ino) == expected and stat.S_ISREG(current.st_mode):
-            os.unlink(name, dir_fd=parent_fd)
-    except OSError:
-        pass
-
-
-def _create_state_backup(parent_fd: int, expected: tuple[int, int]) -> str:
-    for _ in range(100):
-        name = f".state-backup-{uuid.uuid4().hex}.tmp"
-        try:
-            os.link(
-                STATE_FILE_NAME,
-                name,
-                src_dir_fd=parent_fd,
-                dst_dir_fd=parent_fd,
-                follow_symlinks=False,
-            )
-        except FileExistsError:
-            continue
-        except OSError as exc:
-            raise InvalidInputError("installer state backup could not be created safely") from exc
-        try:
-            if not _regular_file_matches(parent_fd, name, expected):
-                _unlink_state_entry_if_identity(parent_fd, name, expected)
-                raise InvalidInputError("installer state changed while creating its backup")
-        except InvalidInputError:
-            raise
-        return name
-    raise InvalidInputError("installer state backup name could not be allocated")
-
-
 def _restore_state_after_replace(
     parent_fd: int,
     temporary: str,
-    backup: str | None,
-    previous_identity: tuple[int, int] | None,
+    previous_payload: bytes | None,
 ) -> None:
     """Restore the old state and quarantine the mismatched new inode."""
 
@@ -416,12 +312,25 @@ def _restore_state_after_replace(
     # no-replace and therefore preserves an attacker-provided file/symlink
     # instead of deleting or following it.
     _restore_state_entry(parent_fd, STATE_FILE_NAME, temporary)
-    if backup is not None and previous_identity is not None:
-        if not _regular_file_matches(parent_fd, backup, previous_identity):
-            raise InvalidInputError("installer state backup changed during rollback")
-        _rename_noreplace(backup, STATE_FILE_NAME, parent_fd)
-        if not _regular_file_matches(parent_fd, STATE_FILE_NAME, previous_identity):
+    if previous_payload is None:
+        return
+    restore_fd, restore_name, restore_identity = _create_temp_state_file(parent_fd)
+    try:
+        with os.fdopen(restore_fd, "wb", closefd=True) as stream:
+            restore_fd = -1
+            stream.write(previous_payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+            written = os.fstat(stream.fileno())
+            if (written.st_dev, written.st_ino) != restore_identity:
+                raise InvalidInputError("installer state rollback file changed while writing")
+        if not _regular_file_matches(parent_fd, restore_name, restore_identity):
+            raise InvalidInputError("installer state rollback file changed before installation")
+        _rename_noreplace(restore_name, STATE_FILE_NAME, parent_fd)
+        if not _regular_file_matches(parent_fd, STATE_FILE_NAME, restore_identity):
             raise InvalidInputError("installer state could not be restored safely")
+    finally:
+        _close_fd(restore_fd)
 
 
 def _create_directory_noreplace(parent_fd: int, name: str, *, mode: int, description: str) -> int:
@@ -430,10 +339,8 @@ def _create_directory_noreplace(parent_fd: int, name: str, *, mode: int, descrip
     temporary: str | None = None
     staging: str | None = None
     child_fd: int | None = None
-    installed = False
     expected: tuple[int, int] | None = None
     parent_after_create: tuple[int, int, int, int] | None = None
-    staging_parent_signature: tuple[int, int, int, int] | None = None
     try:
         parent_before_create = _directory_signature(parent_fd)
         for _ in range(100):
@@ -477,9 +384,9 @@ def _create_directory_noreplace(parent_fd: int, name: str, *, mode: int, descrip
         staging = f".{name}-stage-{uuid.uuid4().hex}.tmp"
         _rename_noreplace(temporary, staging, parent_fd)
         # Capture the post-rename parent identity before any pathname read so
-        # a failure in the first staging stat can still clean the candidate.
+        # a failure in the first staging stat still identifies the private
+        # candidate for diagnostics; it is never pathname-deleted on failure.
         parent_after_stage = _directory_signature(parent_fd)
-        staging_parent_signature = parent_after_stage
         try:
             lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
         except FileNotFoundError:
@@ -519,46 +426,11 @@ def _create_directory_noreplace(parent_fd: int, name: str, *, mode: int, descrip
             except InvalidInputError:
                 raise
             raise InvalidInputError(f"{description} changed during installation")
-        installed = True
         return child_fd
     except InvalidInputError:
-        if not installed:
-            if staging is not None:
-                _cleanup_temporary_directory(
-                    parent_fd,
-                    staging,
-                    parent_signature=staging_parent_signature,
-                    child_fd=child_fd,
-                    expected=expected,
-                )
-            if temporary is not None:
-                _cleanup_temporary_directory(
-                    parent_fd,
-                    temporary,
-                    parent_signature=parent_after_create,
-                    child_fd=child_fd,
-                    expected=expected,
-                )
         _close_fd(child_fd)
         raise
     except OSError as exc:
-        if not installed:
-            if staging is not None:
-                _cleanup_temporary_directory(
-                    parent_fd,
-                    staging,
-                    parent_signature=staging_parent_signature,
-                    child_fd=child_fd,
-                    expected=expected,
-                )
-            if temporary is not None:
-                _cleanup_temporary_directory(
-                    parent_fd,
-                    temporary,
-                    parent_signature=parent_after_create,
-                    child_fd=child_fd,
-                    expected=expected,
-                )
         _close_fd(child_fd)
         raise InvalidInputError(f"{description} could not be installed safely") from exc
 
@@ -760,8 +632,6 @@ def _create_temp_state_file(installer_fd: int) -> tuple[int, str, tuple[int, int
             expected = (metadata.st_dev, metadata.st_ino)
         except InvalidInputError:
             _close_fd(fd)
-            if expected is not None:
-                _unlink_state_entry_if_identity(installer_fd, name, expected)
             raise
         except OSError as exc:
             _close_fd(fd)
@@ -770,10 +640,9 @@ def _create_temp_state_file(installer_fd: int) -> tuple[int, str, tuple[int, int
             os.fchmod(fd, 0o600)
         except OSError as exc:
             _close_fd(fd)
-            if expected is not None:
-                _unlink_state_entry_if_identity(installer_fd, name, expected)
             # Preserve the established fchmod failure boundary used by the
-            # installer tests while still cleaning only our inode.
+            # installer tests.  The private candidate remains because a
+            # pathname unlink could race a replacement inode.
             raise exc
         return fd, name, expected
     raise InvalidInputError("temporary installer state file name could not be allocated")
@@ -1091,32 +960,33 @@ def _save_state_to_handles(state: InstallerState, path: Path, handles: _StateHan
     _assert_state_components_identity(handles)
     existing_fd = _open_state_file(handles.installer_fd)
     previous_identity: tuple[int, int] | None = None
+    previous_payload: bytes | None = None
     if existing_fd is not None:
         try:
             metadata = os.fstat(existing_fd)
             previous_identity = (metadata.st_dev, metadata.st_ino)
             if not _regular_file_matches(handles.installer_fd, STATE_FILE_NAME, previous_identity):
                 raise InvalidInputError("installer state file changed before save")
+            previous_stream = os.fdopen(existing_fd, "rb")
+            existing_fd = -1
+            with previous_stream:
+                previous_payload = previous_stream.read()
+            if not _regular_file_matches(handles.installer_fd, STATE_FILE_NAME, previous_identity):
+                raise InvalidInputError("installer state file changed while reading before save")
         except InvalidInputError:
             _close_fd(existing_fd)
             raise
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             _close_fd(existing_fd)
             raise InvalidInputError("installer state file could not be inspected before save") from exc
     _close_fd(existing_fd)
-    backup: str | None = None
     fd: int | None = None
     temporary: str | None = None
     temporary_identity: tuple[int, int] | None = None
-    replaced = False
-    preserve_temporary = False
     replace_failed = False
     pre_rename_fsync_failed = False
     temporary_create_failed = False
-    backup_safe_to_remove = False
     try:
-        if previous_identity is not None:
-            backup = _create_state_backup(handles.installer_fd, previous_identity)
         try:
             fd, temporary, temporary_identity = _create_temp_state_file(handles.installer_fd)
         except OSError:
@@ -1168,17 +1038,13 @@ def _save_state_to_handles(state: InstallerState, path: Path, handles: _StateHan
         except OSError:
             replace_failed = True
             raise
-        replaced = True
         if not _regular_file_matches(handles.installer_fd, STATE_FILE_NAME, temporary_identity):
             _restore_state_after_replace(
                 handles.installer_fd,
                 temporary,
-                backup,
-                previous_identity,
+                previous_payload,
             )
-            preserve_temporary = True
             raise InvalidInputError("installer state changed during installation")
-        backup_safe_to_remove = True
         # The post-rename directory sync is best effort, matching dotenv's
         # atomic-write contract.  The state is already installed and must not
         # be reported as failed here.
@@ -1196,21 +1062,6 @@ def _save_state_to_handles(state: InstallerState, path: Path, handles: _StateHan
         raise InvalidInputError("installer state could not be installed safely") from exc
     finally:
         _close_fd(fd)
-        if (
-            temporary is not None
-            and temporary_identity is not None
-            and not replaced
-            and not preserve_temporary
-        ):
-            _unlink_state_entry_if_identity(handles.installer_fd, temporary, temporary_identity)
-        if backup is not None and (
-            backup_safe_to_remove
-            or (
-                previous_identity is not None
-                and _regular_file_matches(handles.installer_fd, STATE_FILE_NAME, previous_identity)
-            )
-        ):
-            _unlink_state_entry_if_identity(handles.installer_fd, backup, previous_identity or (-1, -1))
 
 
 class StageJournal:

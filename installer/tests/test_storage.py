@@ -72,12 +72,12 @@ class StorageValidationTests(unittest.TestCase):
                     raise OSError("injected mkdir failure")
                 Path(path).mkdir(mode=mode)
 
-            with self.assertRaises(InvalidInputError):
+            with self.assertRaises(StorageMutationError):
                 validate_storage(root, downloads, repo_root=repo, mkdir_probe=mkdir_probe)
             self.assertTrue(preexisting.is_dir())
             self.assertTrue((preexisting / "keep.txt").exists())
-            self.assertFalse(downloads.exists())
-            self.assertFalse((root / "media" / "movies").exists())
+            self.assertTrue(downloads.exists())
+            self.assertTrue((root / "media" / "movies").exists())
 
     def test_failed_rollback_reports_only_unremoved_created_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -365,7 +365,7 @@ class StorageValidationTests(unittest.TestCase):
                 side_effect=target_appears,
                 create=True,
             ):
-                with self.assertRaises(InvalidInputError):
+                with self.assertRaises(StorageMutationError):
                     validate_storage(root, downloads, repo_root=repo)
             self.assertEqual((root / sentinel.name).read_text(encoding="utf-8"), "untouched")
             self.assertFalse((root / "media").exists())
@@ -476,6 +476,70 @@ class StorageValidationTests(unittest.TestCase):
             self.assertTrue(outside.exists())
             self.assertTrue((outside / "outside-sentinel").exists())
             self.assertEqual(len(tuple(base.glob(".lumen-installer-*.tmp"))), 1)
+
+    def test_storage_known_identity_cleanup_never_removes_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+            outside = base / "outside"
+            outside.mkdir()
+            (outside / "outside-sentinel").write_text("untouched", encoding="utf-8")
+            with mock.patch("lumen_installer.storage.os.fchmod", side_effect=PermissionError("injected storage chmod")):
+                with mock.patch("lumen_installer.storage.os.rmdir") as remove:
+                    with self.assertRaises(InvalidInputError):
+                        validate_storage(root, downloads, repo_root=repo)
+            self.assertFalse(remove.called)
+            self.assertTrue(outside.exists())
+            self.assertTrue((outside / "outside-sentinel").exists())
+
+    def test_storage_rollback_never_removes_replacement_after_identity_check(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+            outside = base / "outside"
+            outside.mkdir()
+            (outside / "outside-sentinel").write_text("untouched", encoding="utf-8")
+            with mock.patch.object(storage_module, "_directory_entry_matches", return_value=False):
+                with mock.patch("lumen_installer.storage.os.rmdir") as remove:
+                    with self.assertRaises(StorageMutationError):
+                        validate_storage(root, downloads, repo_root=repo)
+            self.assertFalse(remove.called)
+            self.assertTrue(outside.exists())
+            self.assertTrue((outside / "outside-sentinel").exists())
+
+    def test_mkdir_probe_exception_never_adopts_replacement_inode(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+            outside = base / "outside"
+            outside.mkdir()
+            (outside / "outside-sentinel").write_text("untouched", encoding="utf-8")
+            moved = base / "probe-original"
+            swapped = False
+
+            def mkdir_probe(path, mode):
+                nonlocal swapped
+                path.mkdir(mode=mode)
+                if path == root and not swapped:
+                    path.rename(moved)
+                    outside.rename(path)
+                    swapped = True
+                raise OSError("injected mkdir probe failure")
+
+            with self.assertRaises((InvalidInputError, StorageMutationError)):
+                validate_storage(root, downloads, repo_root=repo, mkdir_probe=mkdir_probe)
+            self.assertTrue(swapped)
+            self.assertTrue(root.exists())
+            self.assertTrue((root / "outside-sentinel").exists())
 
     def test_storage_fstat_failure_leaves_unverified_candidate_without_raw_error(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -597,7 +661,7 @@ class StorageValidationTests(unittest.TestCase):
                 raise OSError("injected ownership failure")
 
             with mock.patch("lumen_installer.storage.os.rmdir", side_effect=rmdir_swap) as rmdir_mock:
-                with self.assertRaises(InvalidInputError):
+                with self.assertRaises(StorageMutationError):
                     validate_storage(
                         root,
                         downloads,
@@ -608,7 +672,7 @@ class StorageValidationTests(unittest.TestCase):
                     )
             self.assertFalse(rmdir_mock.called)
             self.assertFalse(swapped)
-            self.assertFalse(root.exists())
+            self.assertTrue(root.exists())
             self.assertTrue(outside.exists())
 
     def test_storage_final_stat_swap_is_rolled_back_before_external_inode_is_adopted(self):
@@ -661,10 +725,10 @@ class StorageValidationTests(unittest.TestCase):
                 if path == root / "media" / "movies":
                     raise OSError("mkdir reported failure after creating path")
 
-            with self.assertRaises(InvalidInputError):
+            with self.assertRaises(StorageMutationError):
                 validate_storage(root, downloads, repo_root=repo, mkdir_probe=mkdir_probe)
-            self.assertFalse(root.exists())
-            self.assertFalse(downloads.exists())
+            self.assertTrue(root.exists())
+            self.assertTrue(downloads.exists())
 
     def test_ownership_is_checked_on_existing_parent_for_missing_target(self):
         with tempfile.TemporaryDirectory() as temporary:

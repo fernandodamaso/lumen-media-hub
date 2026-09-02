@@ -51,12 +51,15 @@ def _gpu(value: Any) -> bool | None:
     if value is None:
         return None
     if type(value) is bool:
-        return value
-    # State from the later GPU phase stores a mode while Task 7's command
-    # contract exposes an enabled/disabled overlay.  Keep this conversion
-    # here so saved state can be consumed without service auto-detection.
+        if value:
+            raise InvalidInputError("GPU overlay is unavailable until the GPU phase")
+        return False
+    # State from the later GPU phase stores a mode, but Task 7 must not turn
+    # any non-none mode into an NVIDIA overlay before that phase runs.
     if isinstance(value, str) and value in KNOWN_GPU_MODES:
-        return value != "none"
+        if value != "none":
+            raise InvalidInputError("GPU mode is unavailable until the GPU phase")
+        return False
     raise InvalidInputError("gpu must be a boolean or a known GPU mode")
 
 
@@ -95,7 +98,10 @@ class ComposeOptions:
         saved_dev: bool = False,
     ) -> "ComposeOptions":
         profiles = self.profiles if self.profiles is not None else tuple(saved_profiles)
-        gpu = self.gpu if self.gpu is not None else _gpu(saved_gpu)
+        # Task 7 deliberately does not select a hardware overlay.  Persisted
+        # choices from the later GPU phase are therefore ignored until that
+        # phase owns detection and validation.
+        gpu = self.gpu if self.gpu is not None else False
         dev = self.dev if self.dev is not False else bool(saved_dev)
         # ``dev`` is not currently persisted, so callers normally leave the
         # saved value false.  This method still supports a future state field.
@@ -281,7 +287,6 @@ def up(
         command.append("--build")
     if force_recreate:
         command.append("--force-recreate")
-    command.append("--remove-orphans")
     command.extend(tuple(services))
     return run_compose(runner, repo_root, env_file, options, *command, redact=redact)
 

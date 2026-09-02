@@ -12,13 +12,17 @@ import json
 import math
 import os
 import re
+import stat
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
+
+import fcntl
 
 from .commands import CommandExecutionError, CommandResult, CommandRunner
 from .compose import (
@@ -40,12 +44,14 @@ from .platform import HostFacts, detect_host
 from .state import DEFAULT_STAGES, InstallerState, StageJournal
 from .storage import KNOWN_STACK_CONTAINER_NAMES, StaleContainer, find_stale_containers, validate_storage
 from .network import plan_network
-from .answers import Answers
+from .answers import Answers, Resolver
 
 
 FOUNDATION_STAGES = tuple(DEFAULT_STAGES)
 DEFAULT_HEALTH_TIMEOUT = 120.0
 DEFAULT_HEALTH_INTERVAL = 5.0
+DEFAULT_ROOT_PATH = "/srv/lumen-media"
+DEFAULT_DOWNLOADS_PATH = "/srv/lumen-downloads"
 _ID = re.compile(r"^[0-9a-fA-F]{12,64}$")
 _SECRET_KEY = re.compile(
     r"(?:password|secret|token|api[_-]?key|credential|cookie|account[_-]?id|private[_-]?key|oauth)",
@@ -112,19 +118,52 @@ def _inputs(
     root_path: str | Path | None,
     downloads_path: str | Path | None,
     qbt_password: str | None = None,
+    existing: Mapping[str, Any] | None = None,
+    interactive: bool = False,
+    prompt: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     result = dict(answers)
+    for name, value in (("ROOT_PATH", root_path), ("DOWNLOADS_PATH", downloads_path)):
+        if value is not None and (not isinstance(value, (str, Path)) or not str(value).strip()):
+            raise InvalidInputError(f"{name} must not be empty")
     # Only process environment values with the explicit LUMEN_ namespace are
     # consulted by the Linux installer.  This prevents an unrelated shell
     # credential from becoming an accidental report/input source.
-    for key in ("ROOT_PATH", "DOWNLOADS_PATH", "QBT_PASSWORD", "STACK_PASSWORD", "PUBLIC_HOST", "NETWORK_MODE"):
+    for key in ("QBT_PASSWORD", "STACK_PASSWORD", "PUBLIC_HOST", "NETWORK_MODE"):
         ref = f"LUMEN_{key}"
         if ref in environment and environment[ref] != "":
             result[key] = environment[ref]
-    if root_path is not None:
-        result["ROOT_PATH"] = root_path
-    if downloads_path is not None:
-        result["DOWNLOADS_PATH"] = downloads_path
+    # Resolver is the one source of truth for required paths.  Existing .env
+    # values act as defaults for an adopted install, while a fresh install
+    # gets safe, explicit defaults only in interactive mode.  CLI values are
+    # kept separate so the precedence remains CLI > LUMEN_* > answers >
+    # prompt/default.
+    cli_values = {
+        key: value
+        for key, value in {
+            "ROOT_PATH": root_path,
+            "DOWNLOADS_PATH": downloads_path,
+        }.items()
+        if value is not None
+    }
+    defaults: dict[str, Any] = {}
+    for key in ("ROOT_PATH", "DOWNLOADS_PATH"):
+        existing_value = existing.get(key) if existing is not None else None
+        placeholder = str(existing_value).strip() in {
+            ".",
+            "./downloads",
+            "downloads",
+        }
+        if existing_value and not placeholder:
+            defaults[key] = existing_value
+        elif interactive:
+            defaults[key] = {
+                "ROOT_PATH": DEFAULT_ROOT_PATH,
+                "DOWNLOADS_PATH": DEFAULT_DOWNLOADS_PATH,
+            }[key]
+    resolver = Resolver(defaults=defaults, noninteractive=not interactive)
+    for key in ("ROOT_PATH", "DOWNLOADS_PATH"):
+        result[key] = resolver.get(key, cli_values, environment, answers, prompt)
     if qbt_password is not None:
         result["QBT_PASSWORD"] = qbt_password
     # Answers files may carry a secret reference (``env:NAME`` or
@@ -186,6 +225,7 @@ def _state_and_journal(
     dry_run: bool,
     *,
     state: InstallerState | None = None,
+    reset_on_change: bool = False,
 ) -> tuple[InstallerState, StageJournal]:
     if state is not None:
         current = state
@@ -202,7 +242,121 @@ def _state_and_journal(
     if options.gpu is not None:
         gpu_mode = "nvidia" if options.gpu else "none"
     candidate = replace(current, profiles=profiles, gpu_mode=gpu_mode)
+    if reset_on_change and candidate.completed_stages:
+        # Answers/host/storage changes invalidate the ordered mutations.  The
+        # journal is deliberately reset before the next stage can be marked,
+        # so a resumed run cannot skip a validation or commit boundary.
+        candidate = replace(candidate, completed_stages=())
     return candidate, StageJournal(candidate, stages=FOUNDATION_STAGES)
+
+
+@contextmanager
+def _lifecycle_lock(root: Path, *, dry_run: bool):
+    """Serialize mutating lifecycle runs without making dry-run state."""
+
+    lock_directory = root / ".state" / "installer"
+    lock_path = lock_directory / "lifecycle.lock"
+    if dry_run and not lock_path.exists():
+        # A dry run is discovery-only.  In particular, do not create the
+        # ignored state tree merely to take a lock that cannot protect a
+        # mutation.
+        yield
+        return
+    fd: int | None = None
+    try:
+        try:
+            if not dry_run:
+                for directory in (lock_directory.parent, lock_directory):
+                    try:
+                        metadata = directory.lstat()
+                    except FileNotFoundError:
+                        try:
+                            directory.mkdir(mode=0o700)
+                        except FileExistsError:
+                            # Another installer may have won the directory
+                            # race; inspect the winner before touching it.
+                            pass
+                        metadata = directory.lstat()
+                    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                        raise InvalidInputError("installer lifecycle lock directory is unsafe")
+                    os.chmod(directory, 0o700)
+            try:
+                lock_metadata = lock_path.lstat()
+            except FileNotFoundError:
+                lock_metadata = None
+            if lock_metadata is not None and (
+                stat.S_ISLNK(lock_metadata.st_mode)
+                or not stat.S_ISREG(lock_metadata.st_mode)
+            ):
+                raise InvalidInputError("installer lifecycle lock is not a regular file")
+            fd = os.open(
+                lock_path,
+                os.O_RDWR | (os.O_CREAT if not dry_run else 0) | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+            if not dry_run:
+                os.fchmod(fd, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_SH if dry_run else fcntl.LOCK_EX)
+        except FileNotFoundError:
+            if not dry_run:
+                raise InvalidInputError("installer lifecycle lock could not be created")
+            yield
+            return
+        except OSError as exc:
+            raise InvalidInputError("installer lifecycle lock could not be acquired") from exc
+        yield
+    finally:
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+def _guard_storage_targets(root_path: Any, downloads_path: Any, repo: Path) -> None:
+    """Reject broad/overlapping targets before an injected validator runs."""
+
+    try:
+        media = Path(root_path)
+        downloads = Path(downloads_path)
+    except (TypeError, ValueError, OSError) as exc:
+        raise InvalidInputError("storage paths are invalid") from exc
+    if not media.is_absolute() or not downloads.is_absolute():
+        raise InvalidInputError("storage paths must be absolute")
+    if "\x00" in str(media) or "\x00" in str(downloads):
+        raise InvalidInputError("storage paths are invalid")
+    media = Path(os.path.abspath(str(media)))
+    downloads = Path(os.path.abspath(str(downloads)))
+    broad = {
+        Path("/"), Path("/bin"), Path("/boot"), Path("/dev"), Path("/etc"),
+        Path("/home"), Path("/lib"), Path("/media"), Path("/mnt"), Path("/opt"),
+        Path("/proc"), Path("/root"), Path("/run"), Path("/sbin"), Path("/srv"),
+        Path("/sys"), Path("/tmp"), Path("/usr"), Path("/var"),
+    }
+    if media in broad or downloads in broad:
+        raise InvalidInputError("storage targets are too broad")
+    if media == repo or repo in media.parents or media in repo.parents:
+        raise InvalidInputError("media path must be outside the repository")
+    if downloads == repo or repo in downloads.parents or downloads in repo.parents:
+        raise InvalidInputError("downloads path must be outside the repository")
+    if media == downloads or media in downloads.parents or downloads in media.parents:
+        raise InvalidInputError("media and downloads must not overlap")
+    for path, label in ((media, "ROOT_PATH"), (downloads, "DOWNLOADS_PATH")):
+        current = Path(path.anchor)
+        for component in path.parts[1:]:
+            current /= component
+            try:
+                metadata = current.lstat()
+            except FileNotFoundError:
+                continue
+            except (OSError, ValueError) as exc:
+                raise InvalidInputError(f"{label} cannot be inspected safely") from exc
+            if stat.S_ISLNK(metadata.st_mode):
+                raise InvalidInputError(f"{label} must not contain symlink components")
 
 
 def _host(
@@ -214,7 +368,18 @@ def _host(
     detector: Callable[..., HostFacts],
 ) -> HostFacts:
     if supplied is not None:
-        return supplied
+        overrides: dict[str, Any] = {}
+        for name, value in (("uid", uid), ("gid", gid), ("timezone", timezone)):
+            if value is not None:
+                if name in {"uid", "gid"}:
+                    try:
+                        value = int(value)
+                    except (TypeError, ValueError) as exc:
+                        raise InvalidInputError(f"{name} must be a nonzero integer") from exc
+                    if value <= 0:
+                        raise InvalidInputError(f"{name} must be a nonzero integer")
+                overrides[name] = value
+        return replace(supplied, **overrides) if overrides else supplied
     return _call(detector, uid=uid, gid=gid, timezone=timezone)
 
 
@@ -273,7 +438,7 @@ def _stale(
 ) -> tuple[StaleContainer, ...]:
     if finder is None:
         return _stale_from_runner(runner, root, project_name)
-    value = _call(finder, runner, root)
+    value = _call(finder, runner, root, project_name=project_name)
     if value is None:
         return ()
     result: list[StaleContainer] = []
@@ -435,7 +600,7 @@ class FoundationResult:
         return self.report
 
 
-def run_foundation(
+def _run_foundation_unlocked(
     repo_root: str | Path | None = None,
     *,
     runner: CommandRunner | Any | None = None,
@@ -454,6 +619,7 @@ def run_foundation(
     network_mode: str | None = None,
     public_host: str | None = None,
     interactive: bool = False,
+    prompt: Callable[..., Any] | None = None,
     dry_run: bool = False,
     stale_finder: Callable[..., Any] | None = None,
     compose_project: str | None = None,
@@ -477,6 +643,21 @@ def run_foundation(
         env_path = root / env_path
     command_runner = runner if runner is not None else CommandRunner()
     requested = options if options is not None else ComposeOptions()
+    process_environment = environment if environment is not None else os.environ
+    environment_override = environment is not None or any(
+        f"LUMEN_{key}" in process_environment
+        for key in (
+            "ROOT_PATH",
+            "DOWNLOADS_PATH",
+            "QBT_PASSWORD",
+            "STACK_PASSWORD",
+            "PUBLIC_HOST",
+            "NETWORK_MODE",
+        )
+    )
+    answers_credential_override = answers is not None and any(
+        str(key).upper() == "QBT_PASSWORD" for key in answers
+    )
     if stage_journal is not None and journal is not None:
         raise InvalidInputError("provide only one stage journal")
     if stage_journal is not None or journal is not None:
@@ -484,7 +665,31 @@ def run_foundation(
         assert active_journal is not None
         state = active_journal.state
     else:
-        state, active_journal = _state_and_journal(root, requested, dry_run, state=state)
+        explicit_override = any(
+            value is not None
+            for value in (
+                requested.profiles,
+                requested.gpu,
+                answers_path,
+                environment if environment is not None else None,
+                env_file,
+                uid,
+                gid,
+                timezone,
+                root_path,
+                downloads_path,
+                qbt_password,
+                network_mode,
+                public_host,
+            )
+        ) or requested.dev or environment_override or answers_credential_override
+        state, active_journal = _state_and_journal(
+            root,
+            requested,
+            dry_run,
+            state=state,
+            reset_on_change=explicit_override,
+        )
     effective = _effective_options(requested, state)
     # A completed foundation with its environment still present is safely
     # idempotent.  Explicit overrides are the caller's request to reconcile
@@ -494,13 +699,33 @@ def run_foundation(
         for value in (
             requested.profiles,
             requested.gpu,
+            answers_path,
+            environment if environment is not None else None,
+            env_file,
+            uid,
+            gid,
+            timezone,
             root_path,
             downloads_path,
+            qbt_password,
             network_mode,
             public_host,
         )
-    ) or requested.dev
-    if active_journal.is_complete("compose") and env_path.exists() and not dry_run and not explicit_override:
+    ) or requested.dev or environment_override or answers_credential_override
+    try:
+        env_metadata = env_path.lstat()
+        env_permissions_ok = (
+            stat.S_ISREG(env_metadata.st_mode)
+            and stat.S_IMODE(env_metadata.st_mode) == 0o600
+        )
+    except OSError:
+        env_permissions_ok = False
+    if (
+        active_journal.is_complete("compose")
+        and env_permissions_ok
+        and not dry_run
+        and not explicit_override
+    ):
         return FoundationResult(
             status="ok",
             dry_run=False,
@@ -519,16 +744,44 @@ def run_foundation(
             state.save()
             active_journal.complete("host")
     original_doc = _load_document(env_path)
+    seeded_doc = original_doc
+    if not original_doc.values:
+        example_path = root / ".env.example"
+        if example_path.exists():
+            template = _load_document(example_path)
+            # The template supplies the Compose defaults, while an empty or
+            # comment-only user file still contributes every comment/unknown
+            # line to the lossless document before managed keys are changed.
+            try:
+                template_text = template.render()
+                existing_text = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+            except OSError as exc:
+                raise InvalidInputError("environment could not be read before seeding") from exc
+            separator = "" if template_text.endswith(("\n", "\r")) or not existing_text else "\n"
+            seeded_doc = DotEnvDocument.parse(template_text + separator + existing_text)
     answer_values = _answers(answers_path, answers)
     input_values = _inputs(
         answer_values,
-        environment=environment or os.environ,
+        environment=process_environment,
         root_path=root_path,
         downloads_path=downloads_path,
         qbt_password=qbt_password,
+        existing=original_doc.values,
+        interactive=interactive,
+        prompt=prompt,
     )
 
-    env_plan: EnvironmentPlan = plan_environment(original_doc, facts, input_values)
+    env_plan: EnvironmentPlan = plan_environment(
+        seeded_doc,
+        facts,
+        input_values,
+        fresh_setup=not bool(original_doc.values),
+        force_host_facts=any(value is not None for value in (uid, gid, timezone)),
+        force_credentials=(
+            qbt_password is not None
+            or any(str(key).upper() == "QBT_PASSWORD" for key in input_values)
+        ),
+    )
     if not active_journal.is_complete("environment"):
         if not dry_run:
             active_journal.complete("environment")
@@ -554,7 +807,9 @@ def run_foundation(
     storage_downloads = _storage_target_input(
         "DOWNLOADS_PATH", planned_downloads, original=original_doc, inputs=input_values, root=root
     )
-    if active_journal.is_complete("storage"):
+    _guard_storage_targets(storage_root, storage_downloads, root)
+    storage_changed = any(value is not None for value in (root_path, downloads_path))
+    if active_journal.is_complete("storage") and not storage_changed:
         storage = {}
     else:
         storage = _call(
@@ -579,7 +834,11 @@ def run_foundation(
 
     project = compose_project
     if project is None:
-        project = (environment or os.environ).get("COMPOSE_PROJECT_NAME")
+        project = original_doc.get("COMPOSE_PROJECT_NAME")
+    if project is None:
+        project = process_environment.get("COMPOSE_PROJECT_NAME")
+    if isinstance(project, str):
+        project = project.strip() or None
     stale = _stale(command_runner, root, stale_finder, project)
     stale_removed = _remove_stale(stale, command_runner, dry_run=dry_run)
 
@@ -590,9 +849,16 @@ def run_foundation(
         rendered = env_plan.render()
         try:
             needs_write = not env_path.exists() or env_path.read_text(encoding="utf-8") != rendered
+            try:
+                mode_needs_fix = (
+                    not stat.S_ISREG(env_path.lstat().st_mode)
+                    or stat.S_IMODE(env_path.lstat().st_mode) != 0o600
+                )
+            except OSError:
+                mode_needs_fix = True
         except OSError as exc:
             raise InvalidInputError("environment could not be read before commit") from exc
-        if needs_write:
+        if needs_write or mode_needs_fix:
             try:
                 env_writer(env_path, rendered, mode=0o600)
             except (OSError, ValueError) as exc:
@@ -604,7 +870,7 @@ def run_foundation(
     planned = [effective.argv(root, env_path, "pull", *pull_services)]
     if build_services:
         planned.append(effective.argv(root, env_path, "build", *build_services))
-    planned.append(effective.argv(root, env_path, "up", "-d", "--remove-orphans"))
+    planned.append(effective.argv(root, env_path, "up", "-d"))
     if not dry_run:
         compose_pull(command_runner, root, env_path, effective, pull_services, redact=secret_values)
         if build_services:
@@ -647,6 +913,31 @@ def run_foundation(
     return result
 
 
+def run_foundation(*args: Any, **kwargs: Any) -> FoundationResult:
+    """Run foundation while serializing all lifecycle mutations."""
+
+    repo_value = kwargs.get("repo_root", args[0] if args else None)
+    root = _repo(repo_value)
+    dry_run = bool(kwargs.get("dry_run", False))
+    # Host discovery is intentionally outside the advisory lock: a failed
+    # detector must not create installer state, and the foundation order
+    # remains host -> dotenv/network planning -> mutations.  Pass the facts
+    # through so the unlocked implementation does not detect twice.
+    if kwargs.get("host") is None:
+        detector = kwargs.get("host_detector", detect_host)
+        discovered = _host(
+            None,
+            uid=kwargs.get("uid"),
+            gid=kwargs.get("gid"),
+            timezone=kwargs.get("timezone"),
+            detector=detector,
+        )
+        kwargs = dict(kwargs)
+        kwargs["host"] = discovered
+    with _lifecycle_lock(root, dry_run=dry_run):
+        return _run_foundation_unlocked(*args, **kwargs)
+
+
 def _load_lifecycle(root: Path, options: ComposeOptions | None) -> tuple[Path, InstallerState, ComposeOptions]:
     env_path = root / ".env"
     state = InstallerState.load(root, allowed_stages=FOUNDATION_STAGES)
@@ -664,13 +955,23 @@ def run_up(
     compose_project: str | None = None,
 ) -> FoundationResult:
     root = _repo(repo_root)
-    default_env, state, effective = _load_lifecycle(root, options)
-    env_path = Path(env_file) if env_file is not None else default_env
-    command_runner = runner if runner is not None else CommandRunner()
-    stale_removed = _remove_stale(_stale(command_runner, root, stale_finder, compose_project), command_runner, dry_run=dry_run)
-    if not dry_run:
-        compose_up(command_runner, root, env_path, effective, redact=_secret_values(_load_document(env_path)))
-    return FoundationResult("dry-run" if dry_run else "ok", dry_run, state.completed_stages, effective, stale_removed=stale_removed, planned_commands=(effective.argv(root, env_path, "up", "-d", "--remove-orphans"),))
+    with _lifecycle_lock(root, dry_run=dry_run):
+        default_env, state, effective = _load_lifecycle(root, options)
+        env_path = Path(env_file) if env_file is not None else default_env
+        if not env_path.is_absolute():
+            env_path = root / env_path
+        command_runner = runner if runner is not None else CommandRunner()
+        project = compose_project
+        if project is None:
+            project = _load_document(env_path).get("COMPOSE_PROJECT_NAME")
+        if project is None:
+            project = os.environ.get("COMPOSE_PROJECT_NAME")
+        if isinstance(project, str):
+            project = project.strip() or None
+        stale_removed = _remove_stale(_stale(command_runner, root, stale_finder, project), command_runner, dry_run=dry_run)
+        if not dry_run:
+            compose_up(command_runner, root, env_path, effective, redact=_secret_values(_load_document(env_path)))
+        return FoundationResult("dry-run" if dry_run else "ok", dry_run, state.completed_stages, effective, stale_removed=stale_removed, planned_commands=(effective.argv(root, env_path, "up", "-d"),))
 
 
 def run_down(
@@ -682,12 +983,15 @@ def run_down(
     dry_run: bool = False,
 ) -> FoundationResult:
     root = _repo(repo_root)
-    default_env, state, effective = _load_lifecycle(root, options)
-    env_path = Path(env_file) if env_file is not None else default_env
-    command_runner = runner if runner is not None else CommandRunner()
-    if not dry_run:
-        compose_down(command_runner, root, env_path, effective, redact=_secret_values(_load_document(env_path)))
-    return FoundationResult("dry-run" if dry_run else "ok", dry_run, state.completed_stages, effective, planned_commands=(effective.argv(root, env_path, "down"),))
+    with _lifecycle_lock(root, dry_run=dry_run):
+        default_env, state, effective = _load_lifecycle(root, options)
+        env_path = Path(env_file) if env_file is not None else default_env
+        if not env_path.is_absolute():
+            env_path = root / env_path
+        command_runner = runner if runner is not None else CommandRunner()
+        if not dry_run:
+            compose_down(command_runner, root, env_path, effective, redact=_secret_values(_load_document(env_path)))
+        return FoundationResult("dry-run" if dry_run else "ok", dry_run, state.completed_stages, effective, planned_commands=(effective.argv(root, env_path, "down"),))
 
 
 def run_redeploy_dashboard(
@@ -699,17 +1003,23 @@ def run_redeploy_dashboard(
     dry_run: bool = False,
 ) -> FoundationResult:
     root = _repo(repo_root)
-    default_env, state, effective = _load_lifecycle(root, options)
-    env_path = Path(env_file) if env_file is not None else default_env
-    effective = replace(effective, dev=False)
-    command_runner = runner if runner is not None else CommandRunner()
-    if not dry_run:
-        compose_redeploy_dashboard(command_runner, root, env_path, effective, redact=_secret_values(_load_document(env_path)))
-    return FoundationResult("dry-run" if dry_run else "ok", dry_run, state.completed_stages, effective, planned_commands=(effective.argv(root, env_path, "up", "-d", "--build", "--force-recreate", "--remove-orphans", "dashboard"),))
+    with _lifecycle_lock(root, dry_run=dry_run):
+        default_env, state, effective = _load_lifecycle(root, options)
+        env_path = Path(env_file) if env_file is not None else default_env
+        if not env_path.is_absolute():
+            env_path = root / env_path
+        effective = replace(effective, dev=False)
+        command_runner = runner if runner is not None else CommandRunner()
+        if not dry_run:
+            compose_redeploy_dashboard(command_runner, root, env_path, effective, redact=_secret_values(_load_document(env_path)))
+        return FoundationResult("dry-run" if dry_run else "ok", dry_run, state.completed_stages, effective, planned_commands=(effective.argv(root, env_path, "up", "-d", "--build", "--force-recreate", "dashboard"),))
 
 
-_NODE_VERSION = re.compile(r"^v?(\d+)\.(\d+)(?:\.(\d+))?")
-_COMPARATOR = re.compile(r"(>=|<=|>|<|=|~\s*|\^\s*)?v?(\d+)(?:\.(\d+))?(?:\.(\d+))?")
+_NODE_VERSION = re.compile(r"^v?(\d+)\.(\d+)(?:\.(\d+))?$")
+_SEMVER_TOKEN = re.compile(
+    r"^(?P<operator>>=|<=|>|<|=|~|\^)?\s*v?(?P<major>\d+)"
+    r"(?:\.(?P<minor>\d+|[xX*]))?(?:\.(?P<patch>\d+|[xX*]))?$"
+)
 
 
 def _node_tuple(value: str) -> tuple[int, int, int]:
@@ -724,17 +1034,27 @@ def node_satisfies(version: str, expression: str) -> bool:
 
     actual = _node_tuple(version)
     for alternative in str(expression).split("||"):
-        tokens = [item for item in re.split(r"\s+", alternative.strip()) if item]
+        # Operators and versions may be separated by whitespace (npm accepts
+        # both ``>=22.0.0`` and ``>= 22.0.0``).
+        tokens = [item for item in re.findall(r"(?:>=|<=|>|<|=|~|\^)\s*\d[^\s]*|\d[^\s]*", alternative.strip()) if item]
         if not tokens:
             continue
         valid = True
         for token in tokens:
-            match = _COMPARATOR.fullmatch(token)
+            match = _SEMVER_TOKEN.fullmatch(token)
             if match is None:
                 valid = False
                 break
-            operator = (match.group(1) or "=").replace(" ", "")
-            target = tuple(int(item or 0) for item in match.groups()[1:])
+            operator = match.group("operator") or "="
+            raw_major = match.group("major")
+            raw_minor = match.group("minor")
+            raw_patch = match.group("patch")
+            target_parts = tuple(
+                int(item) if item is not None and item not in {"x", "X", "*"} else 0
+                for item in (raw_major, raw_minor, raw_patch)
+            )
+            specified = 1 + (raw_minor is not None) + (raw_patch is not None)
+            target = target_parts
             if operator == ">=" and not actual >= target:
                 valid = False
             elif operator == "<=" and not actual <= target:
@@ -743,12 +1063,26 @@ def node_satisfies(version: str, expression: str) -> bool:
                 valid = False
             elif operator == "<" and not actual < target:
                 valid = False
-            elif operator == "=" and not actual[:2] == target[:2]:
-                valid = False
-            elif operator == "^" and not (actual >= target and actual[0] == target[0]):
-                valid = False
-            elif operator == "~" and not (actual >= target and actual[:2] == target[:2]):
-                valid = False
+            elif operator == "=":
+                if specified == 1 and actual[0] != target[0]:
+                    valid = False
+                elif specified == 2 and actual[:2] != target[:2]:
+                    valid = False
+                elif specified >= 3 and actual != target:
+                    valid = False
+            elif operator == "^":
+                if target[0] != 0:
+                    upper = (target[0] + 1, 0, 0)
+                elif target[1] != 0:
+                    upper = (0, target[1] + 1, 0)
+                else:
+                    upper = (0, 0, target[2] + 1)
+                if not (actual >= target and actual < upper):
+                    valid = False
+            elif operator == "~":
+                upper = (target[0], target[1] + 1, 0) if specified >= 2 else (target[0] + 1, 0, 0)
+                if not (actual >= target and actual < upper):
+                    valid = False
         if valid:
             return True
     return False
@@ -792,7 +1126,23 @@ def doctor_diagnostics(
 
     root = _repo(repo_root)
     env_path = root / ".env"
-    report: dict[str, Any] = {"host_docker": dict(host_report or {}), "status": "ok"}
+    report: dict[str, Any] = {
+        "host_docker": dict(host_report or {}),
+        "status": "ok",
+        "exit_code": 0,
+    }
+
+    def issue(error: Exception, code: int) -> None:
+        report["status"] = "needs-attention"
+        # A partial/health problem is the most actionable result when several
+        # read-only checks fail; otherwise retain the typed drift/invalid code.
+        report["exit_code"] = max(int(report.get("exit_code", 0)), code)
+        report.setdefault("errors", []).append(str(error))
+
+    if isinstance(host_report, Mapping) and str(host_report.get("status", "ok")) not in {"ok", "supported"}:
+        host_status = str(host_report.get("status", "")).lower()
+        host_code = 4 if "partial" in host_status or "health" in host_status else 3 if "drift" in host_status else 2
+        issue(InvalidInputError("host or Docker preflight needs attention"), host_code)
     try:
         document = _load_document(env_path)
         values = document.values
@@ -803,25 +1153,36 @@ def doctor_diagnostics(
         }
         try:
             report["network"] = plan_network(values, None, None, False).report
-        except (InvalidInputError, DriftError) as exc:
+        except DriftError as exc:
             report["network"] = {"status": "needs-attention", "error": str(exc)}
+            issue(exc, 3)
+        except InvalidInputError as exc:
+            report["network"] = {"status": "needs-attention", "error": str(exc)}
+            issue(exc, 2)
         storage_values = (values.get("ROOT_PATH"), values.get("DOWNLOADS_PATH"))
         if all(storage_values):
             try:
                 checked = validate_storage(*storage_values, repo_root=root, dry_run=True)
                 report["storage"] = checked.report
+            except DriftError as exc:
+                report["storage"] = {"status": "needs-attention", "error": str(exc)}
+                issue(exc, 3)
+            except PartialError as exc:
+                report["storage"] = {"status": "needs-attention", "error": str(exc)}
+                issue(exc, 4)
             except InvalidInputError as exc:
                 report["storage"] = {"status": "needs-attention", "error": str(exc)}
+                issue(exc, 2)
         else:
             report["storage"] = {"status": "not-configured"}
     except InvalidInputError as exc:
-        report["status"] = "needs-attention"
+        issue(exc, 2)
         report["environment"] = {"status": "needs-attention", "error": str(exc)}
     try:
         state = InstallerState.load(root, allowed_stages=FOUNDATION_STAGES, correct_modes=False)
         report["state"] = state.report
     except InvalidInputError as exc:
-        report["status"] = "needs-attention"
+        issue(exc, 2)
         report["state"] = {"status": "needs-attention", "error": str(exc)}
     return report
 

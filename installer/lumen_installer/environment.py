@@ -271,7 +271,15 @@ def _coerce_document(existing: Any) -> DotEnvDocument:
     raise TypeError("existing environment must be dotenv text, a mapping, or DotEnvDocument")
 
 
-def plan_environment(existing: Any, host: Any, answers: Any) -> EnvironmentPlan:
+def plan_environment(
+    existing: Any,
+    host: Any,
+    answers: Any,
+    *,
+    fresh_setup: bool | None = None,
+    force_host_facts: bool = False,
+    force_credentials: bool = False,
+) -> EnvironmentPlan:
     """Plan safe environment migration without logging secret values.
 
     Existing owner and timezone values are authoritative.  When they differ
@@ -281,7 +289,7 @@ def plan_environment(existing: Any, host: Any, answers: Any) -> EnvironmentPlan:
 
     document = _coerce_document(existing)
     original_values = document.values
-    fresh_setup = not bool(original_values)
+    fresh_setup = not bool(original_values) if fresh_setup is None else bool(fresh_setup)
     changes: list[EnvironmentChange] = []
     drift: list[dict[str, Any]] = []
 
@@ -313,6 +321,8 @@ def plan_environment(existing: Any, host: Any, answers: Any) -> EnvironmentPlan:
         current = document.get(key, _MISSING)
         if current is _MISSING or not _present(current):
             put(key, detected, reason="detected host fact")
+        elif force_host_facts and not _same_fact(key, current, detected):
+            put(key, detected, reason="explicit host override")
         elif not _same_fact(key, current, detected):
             drift.append(
                 {
@@ -345,6 +355,13 @@ def plan_environment(existing: Any, host: Any, answers: Any) -> EnvironmentPlan:
         if _present(password) and _scalar(password) is not None:
             put("QBT_PASSWORD", password, secret=True, reason="fresh setup credential")
             put("STACK_PASSWORD", password, secret=True, reason="fresh setup compatibility alias")
+    elif force_credentials and _present(_answer_value(answers, "QBT_PASSWORD")):
+        put(
+            "QBT_PASSWORD",
+            _answer_value(answers, "QBT_PASSWORD"),
+            secret=True,
+            reason="explicit credential override",
+        )
     elif not _present(document.get("QBT_PASSWORD", None)) and _present(document.get("STACK_PASSWORD", None)):
         put(
             "QBT_PASSWORD",

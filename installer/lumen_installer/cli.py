@@ -112,7 +112,7 @@ def _doctor(args: argparse.Namespace) -> int:
     diagnostics = doctor_diagnostics(host_report=report)
     report = {**report, **diagnostics}
     print(json.dumps(_redact_report(report), sort_keys=True))
-    return int(ExitCode.OK)
+    return int(report.get("exit_code", ExitCode.OK))
 
 
 def _compose_options(args: argparse.Namespace) -> ComposeOptions:

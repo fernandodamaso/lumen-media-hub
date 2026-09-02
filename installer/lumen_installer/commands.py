@@ -38,6 +38,7 @@ class CommandExecutor(Protocol):
         *,
         input_text: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
+        cwd: str | None = None,
     ) -> Any:
         ...
 
@@ -248,6 +249,7 @@ class CommandRunner:
         argv: list[str],
         input_text: str | None,
         timeout: float,
+        cwd: str | None,
     ) -> Any:
         try:
             parameters = tuple(inspect.signature(executor).parameters.values())
@@ -267,6 +269,8 @@ class CommandRunner:
                     positional.append(input_text)
                 elif parameter.name == "timeout":
                     positional.append(timeout)
+                elif parameter.name == "cwd":
+                    positional.append(cwd)
                 elif parameter.default is inspect.Parameter.empty:
                     # Let Python produce the usual invocation TypeError for
                     # unsupported required positional parameters.
@@ -275,9 +279,13 @@ class CommandRunner:
                 keyword[parameter.name] = input_text
             elif parameter.name == "timeout":
                 keyword[parameter.name] = timeout
+            elif parameter.name == "cwd":
+                keyword[parameter.name] = cwd
         if accepts_kwargs:
             keyword.setdefault("input_text", input_text)
             keyword.setdefault("timeout", timeout)
+            if cwd is not None:
+                keyword.setdefault("cwd", cwd)
         return executor(*positional, **keyword)
 
     def run(
@@ -286,6 +294,7 @@ class CommandRunner:
         *,
         input_text: str | None = None,
         redact: Iterable[Any] | Any = (),
+        cwd: str | None = None,
     ) -> CommandResult:
         """Execute one vector without a shell and raise on nonzero status."""
 
@@ -294,7 +303,7 @@ class CommandRunner:
         try:
             if self._executor is not None:
                 completed = self._invoke_executor(
-                    self._executor, vector, input_text, self.timeout
+                    self._executor, vector, input_text, self.timeout, cwd
                 )
             else:
                 completed = subprocess.run(
@@ -305,6 +314,7 @@ class CommandRunner:
                     check=False,
                     shell=False,
                     timeout=self.timeout,
+                    cwd=cwd,
                 )
         except subprocess.TimeoutExpired as exc:
             raise CommandExecutionError(

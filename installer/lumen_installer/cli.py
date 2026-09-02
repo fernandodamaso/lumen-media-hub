@@ -17,6 +17,15 @@ from .errors import (
     NotAvailableError,
 )
 from .docker import run_host_doctor
+from .compose import ComposeOptions
+from .setup import (
+    doctor_diagnostics,
+    run_down,
+    run_foundation,
+    run_frontend_dev,
+    run_redeploy_dashboard,
+    run_up,
+)
 
 
 PUBLIC_COMMANDS = (
@@ -97,7 +106,62 @@ def _doctor(args: argparse.Namespace) -> int:
         timezone=getattr(args, "timezone", None),
         image=getattr(args, "image", None),
     )
+    # Keep the host preflight call at this boundary for compatibility with
+    # callers that inject only the Docker portion, then add safe local
+    # environment/network/storage/state diagnostics from the lifecycle layer.
+    diagnostics = doctor_diagnostics(host_report=report)
+    report = {**report, **diagnostics}
     print(json.dumps(_redact_report(report), sort_keys=True))
+    return int(ExitCode.OK)
+
+
+def _compose_options(args: argparse.Namespace) -> ComposeOptions:
+    return ComposeOptions(
+        profiles=getattr(args, "profiles", None),
+        gpu=getattr(args, "gpu", None),
+        dev=bool(getattr(args, "dev", False)),
+    )
+
+
+def _setup(args: argparse.Namespace) -> int:
+    result = run_foundation(
+        options=_compose_options(args),
+        answers_path=getattr(args, "answers", None),
+        uid=getattr(args, "uid", None),
+        gid=getattr(args, "gid", None),
+        timezone=getattr(args, "timezone", None),
+        root_path=getattr(args, "root_path", None),
+        downloads_path=getattr(args, "downloads_path", None),
+        network_mode=getattr(args, "network_mode", None),
+        public_host=getattr(args, "public_host", None),
+        interactive=not bool(getattr(args, "noninteractive", False)),
+        dry_run=bool(getattr(args, "dry_run", False)),
+    )
+    print(json.dumps(_redact_report(result.report), sort_keys=True))
+    return int(ExitCode.OK)
+
+
+def _up(args: argparse.Namespace) -> int:
+    result = run_up(options=_compose_options(args), dry_run=bool(getattr(args, "dry_run", False)))
+    print(json.dumps(_redact_report(result.report), sort_keys=True))
+    return int(ExitCode.OK)
+
+
+def _down(args: argparse.Namespace) -> int:
+    result = run_down(options=_compose_options(args), dry_run=bool(getattr(args, "dry_run", False)))
+    print(json.dumps(_redact_report(result.report), sort_keys=True))
+    return int(ExitCode.OK)
+
+
+def _redeploy_dashboard(args: argparse.Namespace) -> int:
+    result = run_redeploy_dashboard(options=_compose_options(args), dry_run=bool(getattr(args, "dry_run", False)))
+    print(json.dumps(_redact_report(result.report), sort_keys=True))
+    return int(ExitCode.OK)
+
+
+def _frontend_dev(args: argparse.Namespace) -> int:
+    result = run_frontend_dev(dry_run=bool(getattr(args, "dry_run", False)))
+    print(json.dumps(_redact_report(result.report), sort_keys=True))
     return int(ExitCode.OK)
 
 
@@ -161,6 +225,44 @@ def _add_shared_options(parser: argparse.ArgumentParser, *, suppress_defaults: b
         default=argparse.SUPPRESS if suppress_defaults else False,
         help="fail when a required value is missing instead of prompting",
     )
+    parser.add_argument(
+        "--profile",
+        dest="profiles",
+        action="append",
+        default=argparse.SUPPRESS if suppress_defaults else argparse.SUPPRESS,
+        metavar="NAME",
+        help="enable a Compose profile (repeatable)",
+    )
+    parser.add_argument(
+        "--gpu",
+        dest="gpu",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="enable the NVIDIA Compose overlay when available",
+    )
+    parser.add_argument(
+        "--no-gpu",
+        dest="gpu",
+        action="store_false",
+        default=argparse.SUPPRESS,
+        help="disable the saved GPU Compose overlay",
+    )
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="use the Docker hot-reload development overlay",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="render checks and commands without mutation",
+    )
+    parser.add_argument("--root-path", dest="root_path", metavar="PATH", default=default)
+    parser.add_argument("--downloads-path", dest="downloads_path", metavar="PATH", default=default)
+    parser.add_argument("--network-mode", dest="network_mode", metavar="MODE", default=default)
+    parser.add_argument("--public-host", dest="public_host", metavar="HOST", default=default)
 
 
 def build_parser() -> InstallerArgumentParser:
@@ -217,6 +319,11 @@ COMMAND_HANDLERS: dict[str, Handler] = {
     command: _not_available for command in PUBLIC_COMMANDS
 }
 COMMAND_HANDLERS["doctor"] = _doctor
+COMMAND_HANDLERS["setup"] = _setup
+COMMAND_HANDLERS["up"] = _up
+COMMAND_HANDLERS["down"] = _down
+COMMAND_HANDLERS["frontend-dev"] = _frontend_dev
+COMMAND_HANDLERS["redeploy-dashboard"] = _redeploy_dashboard
 
 
 def dispatch(args: argparse.Namespace) -> int | ExitCode | None:

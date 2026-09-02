@@ -990,6 +990,7 @@ class InstallerState:
         target: str | os.PathLike[str],
         *,
         allowed_stages: Sequence[str] | None = None,
+        correct_modes: bool = True,
     ) -> "InstallerState":
         repo, path = _normalise_path_target(target)
         if repo is None:
@@ -1000,7 +1001,7 @@ class InstallerState:
         if not repo.is_absolute():
             raise InvalidInputError("repository root must be an absolute path")
         repo = _lexical_absolute(repo)
-        with _state_components(repo, create=False, correct_modes=True) as handles:
+        with _state_components(repo, create=False, correct_modes=correct_modes) as handles:
             if handles is None:
                 return cls(repo_root=repo)
             _assert_state_identity(handles.state_path, handles.state_fd, description="installer state parent")

@@ -123,6 +123,25 @@ class InstallerStateTests(unittest.TestCase):
                     with self.assertRaises(InvalidInputError):
                         InstallerState(**{field_name: None})
 
+    def test_direct_load_rejects_unknown_stage_without_an_explicit_stage_registry(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            path = repo / ".state" / "installer" / "state.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "profiles": [],
+                    "gpu_mode": "none",
+                    "owned_resources": {},
+                    "completed_stages": ["bogus"],
+                }),
+                encoding="utf-8",
+            )
+            with self.assertRaises(InvalidInputError):
+                InstallerState.load(repo)
+
     def test_invalid_state_directory_is_not_treated_as_a_missing_fresh_state(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary) / "checkout"
@@ -169,9 +188,9 @@ class InstallerStateTests(unittest.TestCase):
             real_replace = os.replace
             real_chmod = os.chmod
 
-            def replace(source, destination):
+            def replace(source, destination, **kwargs):
                 replace_seen.append((Path(source), Path(destination)))
-                return real_replace(source, destination)
+                return real_replace(source, destination, **kwargs)
 
             def chmod(path, mode):
                 if Path(path) == state_path:
@@ -185,12 +204,10 @@ class InstallerStateTests(unittest.TestCase):
             self.assertTrue(state_path.exists())
 
             old = state_path.read_bytes()
-            def fail_temp(path, mode):
-                if str(path).endswith(".tmp"):
-                    raise OSError("temporary chmod failed")
-                return real_chmod(path, mode)
+            def fail_temp(fd, mode):
+                raise OSError("temporary chmod failed")
 
-            with mock.patch("lumen_installer.state.os.chmod", side_effect=fail_temp):
+            with mock.patch("lumen_installer.state.os.fchmod", side_effect=fail_temp):
                 with self.assertRaises(OSError):
                     InstallerState(repo_root=repo, profiles=("ai",)).save()
             self.assertEqual(state_path.read_bytes(), old)
@@ -227,6 +244,30 @@ class InstallerStateTests(unittest.TestCase):
             with mock.patch("lumen_installer.state.os.fsync", side_effect=fail_post_rename_fsync):
                 InstallerState(repo_root=repo, profiles=("ai",)).save()
             self.assertEqual(InstallerState.load(repo).profiles, ("ai",))
+
+    def test_state_replace_cannot_follow_an_installer_directory_swap(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            InstallerState(repo_root=repo, profiles=("requests",)).save()
+            installer = repo / ".state" / "installer"
+            outside = base / "outside"
+            outside.mkdir()
+            outside_state = outside / "state.json"
+            outside_state.write_text("outside-sentinel", encoding="utf-8")
+            moved = repo / ".state" / "installer-real"
+            real_replace = os.replace
+
+            def swap_then_replace(source, destination, **kwargs):
+                installer.rename(moved)
+                installer.symlink_to(outside, target_is_directory=True)
+                return real_replace(source, destination, **kwargs)
+
+            with mock.patch("lumen_installer.state.os.replace", side_effect=swap_then_replace):
+                with self.assertRaises(InvalidInputError):
+                    InstallerState(repo_root=repo, profiles=("ai",)).save()
+            self.assertEqual(outside_state.read_text(encoding="utf-8"), "outside-sentinel")
 
     def test_state_reports_and_string_forms_never_include_resource_identifier_values(self):
         sentinel = "0123456789abcdef0123456789abcdef"
@@ -279,6 +320,26 @@ class InstallerStateTests(unittest.TestCase):
 
 
 class StageJournalTests(unittest.TestCase):
+    def test_first_completion_persists_initial_state_choices(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            journal = StageJournal(
+                InstallerState(
+                    repo_root=repo,
+                    profiles=("ai",),
+                    gpu_mode="nvidia",
+                    owned_resources={"dashboard": "dashboard"},
+                ),
+                stages=("host",),
+            )
+            self.assertTrue(journal.complete("host"))
+            persisted = InstallerState.load(repo, allowed_stages=("host",))
+            self.assertEqual(persisted.profiles, ("ai",))
+            self.assertEqual(persisted.gpu_mode, "nvidia")
+            self.assertEqual(persisted.owned_resources, {"dashboard": "dashboard"})
+            self.assertEqual(persisted.completed_stages, ("host",))
+
     def test_journal_is_ordered_idempotent_and_resumable(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary) / "checkout"
@@ -291,10 +352,16 @@ class StageJournalTests(unittest.TestCase):
             self.assertTrue(journal.complete("host"))
             self.assertFalse(journal.complete("host"))
             self.assertEqual(journal.pending, ("storage", "compose"))
-            resumed = StageJournal(InstallerState.load(repo), stages=("host", "storage", "compose"))
+            resumed = StageJournal(
+                InstallerState.load(repo, allowed_stages=("host", "storage", "compose")),
+                stages=("host", "storage", "compose"),
+            )
             self.assertTrue(resumed.is_complete("host"))
             self.assertTrue(resumed.complete("storage"))
-            self.assertEqual(InstallerState.load(repo).completed_stages, ("host", "storage"))
+            self.assertEqual(
+                InstallerState.load(repo, allowed_stages=("host", "storage", "compose")).completed_stages,
+                ("host", "storage"),
+            )
             self.assertTrue(resumed.complete("compose"))
 
     def test_journal_lock_merges_concurrent_state_choices_and_only_one_same_stage_wins(self):
@@ -326,7 +393,7 @@ class StageJournalTests(unittest.TestCase):
             current = replace(current, profiles=("ai",), gpu_mode="nvidia", owned_resources={"dashboard": "dashboard"})
             current.save()
             self.assertTrue(first.complete("storage"))
-            merged = InstallerState.load(repo)
+            merged = InstallerState.load(repo, allowed_stages=("host", "storage"))
             self.assertEqual(merged.profiles, ("ai",))
             self.assertEqual(merged.gpu_mode, "nvidia")
             self.assertEqual(merged.owned_resources, {"dashboard": "dashboard"})

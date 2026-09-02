@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 INSTALLER_ROOT = Path(__file__).resolve().parents[1]
@@ -11,6 +12,7 @@ if str(INSTALLER_ROOT) not in sys.path:
     sys.path.insert(0, str(INSTALLER_ROOT))
 
 from lumen_installer.errors import InvalidInputError
+from lumen_installer.errors import ExitCode
 from lumen_installer.storage import StorageMutationError, validate_storage
 
 
@@ -99,6 +101,94 @@ class StorageValidationTests(unittest.TestCase):
             self.assertIn(str(root / "media"), raised.exception.partial_created_paths)
             self.assertIn(str(root / "media"), raised.exception.report["partial_created_paths"])
             self.assertEqual(raised.exception.redacted, raised.exception.report)
+            self.assertEqual(raised.exception.exit_code, ExitCode.PARTIAL)
+
+    def test_uid_only_and_gid_only_chown_preserve_the_other_owner_axis(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            uid = os.getuid() + 1000
+            gid = os.getgid() + 1000
+            OwnerStat = type("OwnerStat", (), {
+                "st_uid": uid,
+                "st_gid": gid,
+                "st_mode": stat.S_IFDIR | 0o755,
+            })
+
+            calls = []
+            chown = lambda path, requested_uid, requested_gid: calls.append(
+                (Path(path), requested_uid, requested_gid)
+            )
+            validate_storage(
+                base / "uid-library",
+                base / "uid-downloads",
+                repo_root=repo,
+                uid=uid,
+                chown_probe=chown,
+                stat_probe=lambda path: OwnerStat(),
+                access_probe=lambda path, mode: True,
+            )
+            validate_storage(
+                base / "gid-library",
+                base / "gid-downloads",
+                repo_root=repo,
+                gid=gid,
+                chown_probe=chown,
+                stat_probe=lambda path: OwnerStat(),
+                access_probe=lambda path, mode: True,
+            )
+            self.assertTrue(calls)
+            uid_calls = [call for call in calls if call[0] == base / "uid-library"]
+            gid_calls = [call for call in calls if call[0] == base / "gid-library"]
+            self.assertTrue(uid_calls)
+            self.assertTrue(gid_calls)
+            self.assertTrue(all(call[1:] == (uid, -1) for call in uid_calls))
+            self.assertTrue(all(call[1:] == (-1, gid) for call in gid_calls))
+
+    def test_storage_inode_swap_does_not_chown_outside_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+            outside = base / "outside"
+            outside.mkdir()
+            sentinel = outside / "sentinel"
+            sentinel.write_text("untouched", encoding="utf-8")
+            moved = base / "library-real"
+
+            def swap_root(path, mode):
+                path = Path(path)
+                if path == root:
+                    path.rename(moved)
+                    path.symlink_to(outside, target_is_directory=True)
+                else:
+                    os.chmod(path, mode)
+
+            class OwnerStat:
+                st_uid = os.getuid() + 1000
+                st_gid = os.getgid() + 1000
+                st_mode = stat.S_IFDIR | 0o755
+
+            def unsafe_chown(*args):
+                sentinel.write_text("outside-was-touched", encoding="utf-8")
+
+            with mock.patch("lumen_installer.storage.os.chown", side_effect=unsafe_chown):
+                with self.assertRaises(StorageMutationError):
+                    validate_storage(
+                        root,
+                        downloads,
+                        repo_root=repo,
+                        uid=OwnerStat.st_uid,
+                        gid=OwnerStat.st_gid,
+                        stat_probe=lambda path: OwnerStat(),
+                        access_probe=lambda path, mode: True,
+                        chmod_probe=swap_root,
+                        chown_probe=lambda path, requested_uid, requested_gid: None,
+                    )
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched")
 
     def test_mkdir_failure_after_creation_is_rolled_back(self):
         with tempfile.TemporaryDirectory() as temporary:

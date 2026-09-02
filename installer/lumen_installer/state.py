@@ -14,7 +14,7 @@ import json
 import os
 import re
 import stat
-import tempfile
+import uuid
 from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -65,107 +65,264 @@ def _lexical_absolute(path: Path) -> Path:
     return Path(os.path.abspath(str(path)))
 
 
-def _lstat(path: Path, *, description: str) -> os.stat_result | None:
+_DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+
+
+@dataclass(frozen=True)
+class _StateHandles:
+    repo_fd: int
+    state_fd: int
+    installer_fd: int
+    repo_path: Path
+
+    @property
+    def state_path(self) -> Path:
+        return self.repo_path / ".state"
+
+    @property
+    def installer_path(self) -> Path:
+        return self.state_path / "installer"
+
+
+def _close_fd(fd: int | None) -> None:
+    if fd is None:
+        return
     try:
-        result = os.lstat(path)
-    except FileNotFoundError:
-        return None
+        os.close(fd)
+    except OSError:
+        pass
+
+
+def _open_absolute_directory(path: Path, *, description: str) -> int:
+    """Walk an absolute path one component at a time without symlinks."""
+
+    if not path.is_absolute():
+        raise InvalidInputError(f"{description} must be an absolute path")
+    try:
+        fd = os.open(os.path.sep, _DIRECTORY_FLAGS)
+        for component in path.parts[1:]:
+            next_fd = os.open(component, _DIRECTORY_FLAGS, dir_fd=fd)
+            _close_fd(fd)
+            fd = next_fd
+        return fd
     except OSError as exc:
-        raise InvalidInputError(f"{description} could not be inspected") from exc
-    if stat.S_ISLNK(result.st_mode):
-        raise InvalidInputError(f"{description} must not be a symlink")
-    return result
+        if "fd" in locals():
+            _close_fd(fd)
+        raise InvalidInputError(f"{description} could not be opened safely") from exc
+
+
+def _open_directory_child(
+    parent_fd: int,
+    name: str,
+    *,
+    create: bool,
+    mode: int,
+    description: str,
+) -> int | None:
+    try:
+        fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError:
+        if not create:
+            return None
+        try:
+            os.mkdir(name, mode=mode, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+        except OSError as exc:
+            raise InvalidInputError(f"{description} could not be created") from exc
+        try:
+            fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
+        except OSError as exc:
+            raise InvalidInputError(f"{description} could not be opened safely") from exc
+    except OSError as exc:
+        raise InvalidInputError(f"{description} could not be opened safely") from exc
+    try:
+        metadata = os.fstat(fd)
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise InvalidInputError(f"{description} is not a directory")
+        if stat.S_IMODE(metadata.st_mode) != mode:
+            os.fchmod(fd, mode)
+    except InvalidInputError:
+        _close_fd(fd)
+        raise
+    except OSError as exc:
+        _close_fd(fd)
+        raise InvalidInputError(f"{description} permissions could not be restricted") from exc
+    return fd
+
+
+def _restrict_existing_lock(installer_fd: int) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(STATE_LOCK_NAME, flags, dir_fd=installer_fd)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise InvalidInputError("installer state lock could not be opened safely") from exc
+    try:
+        metadata = os.fstat(fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise InvalidInputError("installer state lock is not regular")
+        os.fchmod(fd, 0o600)
+    except InvalidInputError:
+        raise
+    except OSError as exc:
+        raise InvalidInputError("installer state lock permissions could not be restricted") from exc
+    finally:
+        _close_fd(fd)
+
+
+@contextmanager
+def _state_components(repo: Path, *, create: bool, correct_modes: bool):
+    """Open state components by descriptor and reject symlink replacement."""
+
+    repo = _lexical_absolute(repo)
+    repo_fd: int | None = None
+    state_fd: int | None = None
+    installer_fd: int | None = None
+    try:
+        repo_fd = _open_absolute_directory(repo, description="repository root")
+        state_fd = _open_directory_child(
+            repo_fd,
+            ".state",
+            create=create,
+            mode=0o700,
+            description="installer state parent",
+        )
+        if state_fd is None:
+            yield None
+            return
+        installer_fd = _open_directory_child(
+            state_fd,
+            "installer",
+            create=create,
+            mode=0o700,
+            description="installer state directory",
+        )
+        if installer_fd is None:
+            yield None
+            return
+        if correct_modes:
+            _restrict_existing_lock(installer_fd)
+        yield _StateHandles(repo_fd, state_fd, installer_fd, repo)
+    finally:
+        _close_fd(installer_fd)
+        _close_fd(state_fd)
+        _close_fd(repo_fd)
+
+
+def _assert_state_identity(path: Path, fd: int, *, description: str) -> None:
+    try:
+        current = os.stat(path, follow_symlinks=False)
+        expected = os.fstat(fd)
+    except OSError as exc:
+        raise InvalidInputError(f"{description} changed or could not be inspected") from exc
+    if not stat.S_ISDIR(current.st_mode) or current.st_dev != expected.st_dev or current.st_ino != expected.st_ino:
+        raise InvalidInputError(f"{description} changed or is unsafe")
 
 
 def _ensure_repo_and_state_paths(repo: Path, *, create: bool, correct_modes: bool) -> Path:
-    """Validate repo-relative state components without following symlinks."""
+    """Validate state components through descriptor-relative operations."""
 
-    repo = _lexical_absolute(repo)
-    repo_stat = _lstat(repo, description="repository root")
-    if repo_stat is None or not stat.S_ISDIR(repo_stat.st_mode):
-        raise InvalidInputError("repository root must be an existing directory")
-    state_parent = repo / ".state"
-    installer_dir = state_parent / "installer"
-    for directory, description in ((state_parent, "installer state parent"), (installer_dir, "installer state directory")):
-        metadata = _lstat(directory, description=description)
-        if metadata is None:
-            if not create:
-                continue
-            try:
-                directory.mkdir(mode=0o700)
-            except FileExistsError:
-                # Another journal thread may have created this component
-                # between lstat and mkdir.  Re-lstat below decides whether it
-                # is the expected directory or an unsafe replacement.
-                pass
-            except OSError as exc:
-                raise InvalidInputError(f"{description} could not be created") from exc
-            metadata = _lstat(directory, description=description)
-        if metadata is None or not stat.S_ISDIR(metadata.st_mode):
-            raise InvalidInputError(f"{description} is not a directory")
-        if correct_modes and stat.S_IMODE(metadata.st_mode) != 0o700:
-            try:
-                os.chmod(directory, 0o700)
-            except OSError as exc:
-                raise InvalidInputError(f"{description} permissions could not be restricted") from exc
-    lock_path = installer_dir / STATE_LOCK_NAME
-    lock_metadata = _lstat(lock_path, description="installer state lock")
-    if lock_metadata is not None:
-        if not stat.S_ISREG(lock_metadata.st_mode):
-            raise InvalidInputError("installer state lock is not regular")
-        if correct_modes and stat.S_IMODE(lock_metadata.st_mode) != 0o600:
-            try:
-                os.chmod(lock_path, 0o600)
-            except OSError as exc:
-                raise InvalidInputError("installer state lock permissions could not be restricted") from exc
-    return installer_dir
+    with _state_components(repo, create=create, correct_modes=correct_modes) as handles:
+        return (handles.installer_path if handles is not None else _lexical_absolute(repo) / STATE_DIR_NAME)
 
 
-def _validate_state_file(path: Path, *, correct_mode: bool) -> None:
-    metadata = _lstat(path, description="installer state file")
-    if metadata is None:
-        return
-    if not stat.S_ISREG(metadata.st_mode):
-        raise InvalidInputError("installer state file is not regular")
-    if correct_mode and stat.S_IMODE(metadata.st_mode) != 0o600:
+def _open_state_file(installer_fd: int) -> int | None:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(STATE_FILE_NAME, flags, dir_fd=installer_fd)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise InvalidInputError("installer state file could not be opened safely") from exc
+    try:
+        metadata = os.fstat(fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise InvalidInputError("installer state file is not regular")
+        if stat.S_IMODE(metadata.st_mode) != 0o600:
+            os.fchmod(fd, 0o600)
+    except InvalidInputError:
+        _close_fd(fd)
+        raise
+    except OSError as exc:
+        _close_fd(fd)
+        raise InvalidInputError("installer state file permissions could not be restricted") from exc
+    return fd
+
+
+def _read_state(handles: _StateHandles) -> str | None:
+    fd = _open_state_file(handles.installer_fd)
+    if fd is None:
+        return None
+    try:
+        stream = os.fdopen(fd, "r", encoding="utf-8")
+        fd = -1
+        with stream:
+            return stream.read()
+    except (OSError, UnicodeError) as exc:
+        raise InvalidInputError("installer state is corrupt or unreadable") from exc
+    finally:
+        _close_fd(fd)
+
+
+def _create_temp_state_file(installer_fd: int) -> tuple[int, str]:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    for _ in range(100):
+        name = f".state-{uuid.uuid4().hex}.tmp"
         try:
-            os.chmod(path, 0o600)
+            fd = os.open(name, flags, 0o600, dir_fd=installer_fd)
+        except FileExistsError:
+            continue
         except OSError as exc:
-            raise InvalidInputError("installer state file permissions could not be restricted") from exc
+            raise InvalidInputError("temporary installer state file could not be created") from exc
+        try:
+            os.fchmod(fd, 0o600)
+        except OSError as exc:
+            _close_fd(fd)
+            try:
+                os.unlink(name, dir_fd=installer_fd)
+            except OSError:
+                pass
+            raise exc
+        return fd, name
+    raise InvalidInputError("temporary installer state file name could not be allocated")
 
 
 @contextmanager
 def _state_lock(repo: Path):
     """Take an advisory process lock on the installer state directory."""
 
-    directory = _ensure_repo_and_state_paths(repo, create=True, correct_modes=True)
-    lock_path = directory / STATE_LOCK_NAME
-    _lstat(lock_path, description="installer state lock")
-    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        fd = os.open(lock_path, flags, 0o600)
-    except OSError as exc:
-        raise InvalidInputError("installer state lock could not be opened") from exc
-    try:
-        metadata = os.fstat(fd)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise InvalidInputError("installer state lock is not regular")
-        os.fchmod(fd, 0o600)
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    except OSError as exc:
-        raise InvalidInputError("installer state lock could not be acquired") from exc
-    finally:
+    with _state_components(repo, create=True, correct_modes=True) as handles:
+        if handles is None:
+            raise InvalidInputError("installer state directory could not be opened")
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
         try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        except OSError:
-            pass
+            fd = os.open(STATE_LOCK_NAME, flags, 0o600, dir_fd=handles.installer_fd)
+        except OSError as exc:
+            raise InvalidInputError("installer state lock could not be opened") from exc
         try:
-            os.close(fd)
-        except OSError:
-            # The state mutation (if any) has already committed.  A close
-            # failure must not make StageJournal report a failed completion.
-            pass
+            metadata = os.fstat(fd)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise InvalidInputError("installer state lock is not regular")
+            os.fchmod(fd, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
+            try:
+                lock_stat = os.stat(STATE_LOCK_NAME, dir_fd=handles.installer_fd, follow_symlinks=False)
+            except OSError as exc:
+                raise InvalidInputError("installer state lock changed or could not be inspected") from exc
+            if lock_stat.st_dev != metadata.st_dev or lock_stat.st_ino != metadata.st_ino:
+                raise InvalidInputError("installer state lock changed or is unsafe")
+            yield handles
+        except OSError as exc:
+            raise InvalidInputError("installer state lock could not be acquired") from exc
+        finally:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+            _close_fd(fd)
 
 
 def _normalise_path_target(target: str | os.PathLike[str]) -> tuple[Path | None, Path]:
@@ -225,6 +382,29 @@ def _normalise_stages(value: Any) -> tuple[str, ...]:
     if len(values) != len(set(values)):
         raise InvalidInputError("installer state contains duplicate completed stages")
     return values
+
+
+def _normalise_stage_registry(value: Sequence[str] | None) -> tuple[str, ...]:
+    registry = DEFAULT_STAGES if value is None else value
+    if isinstance(registry, (str, bytes)) or not isinstance(registry, Sequence) or not registry:
+        raise InvalidInputError("installer stage registry must be a non-empty ordered list")
+    stages = tuple(_validate_identifier(stage, field_name="allowed stage") for stage in registry)
+    if len(stages) != len(set(stages)):
+        raise InvalidInputError("allowed installer stages contain duplicates")
+    return stages
+
+
+def _decode_state(
+    raw: str,
+    *,
+    repo_root: Path,
+    allowed_stages: Sequence[str] | None,
+) -> "InstallerState":
+    try:
+        decoded = json.loads(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise InvalidInputError("installer state is corrupt or unreadable") from exc
+    return InstallerState.from_dict(decoded, repo_root=repo_root, allowed_stages=allowed_stages)
 
 
 @dataclass(frozen=True, repr=False)
@@ -346,12 +526,11 @@ class InstallerState:
         completed = value.get("completed_stages")
         if type(completed) is not list:
             raise InvalidInputError("installer state completed stages must be a list")
-        if allowed_stages is not None:
-            allowed = tuple(_validate_identifier(stage, field_name="allowed stage") for stage in allowed_stages)
-            if len(allowed) != len(set(allowed)):
-                raise InvalidInputError("allowed installer stages contain duplicates")
-            if any(stage not in allowed for stage in completed):
-                raise InvalidInputError("installer state contains an unknown completed stage")
+        allowed = _normalise_stage_registry(allowed_stages)
+        if any(stage not in allowed for stage in completed):
+            raise InvalidInputError("installer state contains an unknown completed stage")
+        if tuple(completed) != allowed[: len(completed)]:
+            raise InvalidInputError("installer stages are out of order")
         return cls(
             repo_root=repo_root,
             schema_version=schema,
@@ -377,16 +556,15 @@ class InstallerState:
         if not repo.is_absolute():
             raise InvalidInputError("repository root must be an absolute path")
         repo = _lexical_absolute(repo)
-        directory = _ensure_repo_and_state_paths(repo, create=False, correct_modes=True)
-        _validate_state_file(path, correct_mode=True)
-        if not path.exists():
+        with _state_components(repo, create=False, correct_modes=True) as handles:
+            if handles is None:
+                return cls(repo_root=repo)
+            _assert_state_identity(handles.state_path, handles.state_fd, description="installer state parent")
+            _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
+            raw = _read_state(handles)
+        if raw is None:
             return cls(repo_root=repo)
-        try:
-            raw = path.read_text(encoding="utf-8")
-            decoded = json.loads(raw)
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise InvalidInputError("installer state is corrupt or unreadable") from exc
-        return cls.from_dict(decoded, repo_root=repo, allowed_stages=allowed_stages)
+        return _decode_state(raw, repo_root=repo, allowed_stages=allowed_stages)
 
     @classmethod
     def new(cls, repo_root: str | os.PathLike[str], **kwargs: Any) -> "InstallerState":
@@ -400,61 +578,55 @@ class InstallerState:
         if parent.name != "installer" or parent.parent.name != ".state":
             raise InvalidInputError("installer state must stay below .state/installer")
         parent_root = parent.parent.parent
-        parent = _ensure_repo_and_state_paths(parent_root, create=True, correct_modes=True)
-        path = parent / STATE_FILE_NAME
-        _validate_state_file(path, correct_mode=True)
         payload = json.dumps(self.as_dict(), ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
-        fd, temporary = tempfile.mkstemp(prefix=".state-", suffix=".tmp", dir=str(parent))
-        temporary_path = Path(temporary)
-        try:
-            os.fchmod(fd, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8", newline="") as stream:
-                stream.write(payload)
-                stream.flush()
-                os.fsync(stream.fileno())
-            # Set the path mode before replacement.  There is intentionally no
-            # fallible chmod of the destination after os.replace: a failure
-            # must never report an error after the new state is installed.
-            os.chmod(temporary_path, 0o600)
-            # A pre-rename parent sync is allowed to fail: in that case the
-            # old state name is still present and the caller receives the
-            # failure without losing it.  The post-rename sync below is
-            # best-effort, matching dotenv's atomic-write contract.
-            directory_fd = os.open(str(parent), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        with _state_components(parent_root, create=True, correct_modes=True) as handles:
+            if handles is None:
+                raise InvalidInputError("installer state directory could not be opened")
+            _assert_state_identity(handles.state_path, handles.state_fd, description="installer state parent")
+            _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
+            existing_fd = _open_state_file(handles.installer_fd)
+            _close_fd(existing_fd)
+            fd, temporary = _create_temp_state_file(handles.installer_fd)
+            replaced = False
             try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-            os.replace(temporary_path, path)
-            try:
-                directory_fd = os.open(str(parent), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-            except OSError:
-                directory_fd = None
-            if directory_fd is not None:
+                with os.fdopen(fd, "w", encoding="utf-8", newline="") as stream:
+                    fd = -1
+                    stream.write(payload)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                # The mode is applied to the open temporary inode before it
+                # can become visible as state.json.  No destination chmod is
+                # needed or allowed after the atomic rename.
+                os.fsync(handles.installer_fd)
+                _assert_state_identity(handles.state_path, handles.state_fd, description="installer state parent")
+                _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
+                os.replace(
+                    temporary,
+                    STATE_FILE_NAME,
+                    src_dir_fd=handles.installer_fd,
+                    dst_dir_fd=handles.installer_fd,
+                )
+                replaced = True
+                # The post-rename directory sync is best effort, matching
+                # dotenv's atomic-write contract.  The state is already
+                # installed and must not be reported as failed here.
                 try:
-                    os.fsync(directory_fd)
+                    os.fsync(handles.installer_fd)
                 except OSError:
-                    # The rename already happened.  Do not claim persistence
-                    # failed after the new state became durable enough to read.
                     pass
-                finally:
+                _assert_state_identity(handles.state_path, handles.state_fd, description="installer state parent")
+                _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
+            finally:
+                _close_fd(fd)
+                if not replaced:
                     try:
-                        os.close(directory_fd)
-                    except OSError:
-                        # The destination has already been replaced; closing
-                        # the best-effort fsync descriptor must not turn a
-                        # successful state commit into a reported failure.
+                        os.unlink(temporary, dir_fd=handles.installer_fd)
+                    except FileNotFoundError:
                         pass
-        except BaseException:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-            try:
-                temporary_path.unlink()
-            except FileNotFoundError:
-                pass
-            raise
+                    except OSError:
+                        # Cleanup is descriptor-relative and therefore cannot
+                        # remove a replacement outside this state directory.
+                        pass
         return path
 
     persist = save
@@ -520,11 +692,16 @@ class StageJournal:
         if self._state.repo_root is None:
             raise InvalidInputError("stage journal has no repository root")
         with _state_lock(self._state.repo_root):
-            state_file = state_path(self._state.repo_root)
-            persisted_exists = _lstat(state_file, description="installer state file") is not None
-            current = InstallerState.load(self._state.repo_root, allowed_stages=self.stages)
-            if not persisted_exists:
-                current = self._state
+            with _state_components(self._state.repo_root, create=False, correct_modes=True) as handles:
+                if handles is None:
+                    current = self._state
+                else:
+                    raw = _read_state(handles)
+                    current = (
+                        self._state
+                        if raw is None
+                        else _decode_state(raw, repo_root=self._state.repo_root, allowed_stages=self.stages)
+                    )
             completed = current.completed_stages
             if any(item not in self.stages for item in completed):
                 raise InvalidInputError("installer state contains an unknown completed stage")

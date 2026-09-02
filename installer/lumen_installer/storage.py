@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .errors import InvalidInputError
+from .errors import InvalidInputError, PartialError
 
 
 # These are the only directories the foundation phase owns.  Service adapters
@@ -23,7 +23,7 @@ DOWNLOAD_SUBDIRECTORIES: tuple[Path, ...] = ()
 STORAGE_DIRECTORY_MODE = 0o775
 
 
-class StorageMutationError(InvalidInputError):
+class StorageMutationError(PartialError):
     """Storage layout mutation failed and rollback left created paths."""
 
     def __init__(self, message: str, partial_created_paths: Iterable[Path | str]) -> None:
@@ -112,11 +112,10 @@ def _as_absolute_path(value: Any, *, field_name: str) -> Path:
     if "\x00" in str(raw):
         raise InvalidInputError(f"{field_name} is invalid")
     _reject_symlink_components(raw, field_name=field_name)
-    try:
-        resolved = raw.resolve(strict=False)
-    except (OSError, RuntimeError) as exc:
-        raise InvalidInputError(f"{field_name} cannot be resolved") from exc
-    return resolved
+    # Keep the validated lexical path.  Resolving here would follow a
+    # component that could be replaced by a symlink between the lstat pass and
+    # resolution; apply-time descriptor walks below reject that replacement.
+    return Path(os.path.abspath(str(raw)))
 
 
 def _under(path: Path, parent: Path) -> bool:
@@ -244,69 +243,224 @@ def _free_gib(path: Path, probe: Callable[[Path], Any] | None) -> float:
     return available * block_size / (1024**3)
 
 
+_DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+
+
+@dataclass
+class _CreatedDirectory:
+    path: Path
+    parent_fd: int
+    name: str
+    device: int
+    inode: int
+
+
+def _open_absolute_directory(path: Path) -> int:
+    """Walk an absolute path one component at a time without symlinks."""
+
+    fd: int | None = None
+    try:
+        fd = os.open(os.path.sep, _DIRECTORY_FLAGS)
+        for component in path.parts[1:]:
+            next_fd = os.open(component, _DIRECTORY_FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+        return fd
+    except OSError as exc:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        raise InvalidInputError("storage parent could not be opened safely") from exc
+
+
+def _created_record(
+    parent_fd: int,
+    name: str,
+    path: Path,
+) -> tuple[_CreatedDirectory | None, int | None]:
+    try:
+        metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None, None
+    except OSError as exc:
+        raise InvalidInputError("approved storage path could not be inspected") from exc
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise InvalidInputError("approved storage layout contains an unsafe existing path")
+    record = _CreatedDirectory(path, parent_fd, name, metadata.st_dev, metadata.st_ino)
+    try:
+        child_fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
+    except OSError:
+        return record, None
+    try:
+        child_metadata = os.fstat(child_fd)
+        if (
+            not stat.S_ISDIR(child_metadata.st_mode)
+            or child_metadata.st_dev != record.device
+            or child_metadata.st_ino != record.inode
+        ):
+            raise InvalidInputError("approved storage path changed during creation")
+    except InvalidInputError:
+        try:
+            os.close(child_fd)
+        except OSError:
+            pass
+        raise
+    except OSError as exc:
+        try:
+            os.close(child_fd)
+        except OSError:
+            pass
+        raise InvalidInputError("approved storage path could not be inspected") from exc
+    return record, child_fd
+
+
+def _close_created(created: Sequence[_CreatedDirectory]) -> None:
+    for record in created:
+        try:
+            os.close(record.parent_fd)
+        except OSError:
+            pass
+
+
 def _create_directory(
     path: Path,
     *,
     uid: int | None,
     gid: int | None,
-    created: list[Path],
+    created: list[_CreatedDirectory],
     mkdir_probe: Callable[[Path, int], Any] | None = None,
     chmod_probe: Callable[[Path, int], Any] | None = None,
     chown_probe: Callable[[Path, int, int], Any] | None = None,
 ) -> None:
     _reject_symlink_components(path, field_name="approved storage path")
-    existed_before = path.exists()
-    if existed_before:
-        if path.is_symlink() or not path.is_dir():
-            raise InvalidInputError("approved storage layout contains an unsafe existing path")
-        return
+    parent_fd = _open_absolute_directory(path.parent)
+    name = path.name
+    made = False
     try:
+        try:
+            existing = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            existing = None
+        except OSError as exc:
+            raise InvalidInputError("approved storage path could not be inspected") from exc
+        if existing is not None:
+            if stat.S_ISLNK(existing.st_mode) or not stat.S_ISDIR(existing.st_mode):
+                raise InvalidInputError("approved storage layout contains an unsafe existing path")
+            return
+        # A test/integration probe may create the directory before reporting
+        # an error.  Mark the attempt before invoking it so that the stable
+        # parent descriptor can discover and roll back that inode.
+        made = True
         if mkdir_probe is None:
-            path.mkdir(mode=STORAGE_DIRECTORY_MODE)
+            os.mkdir(name, mode=STORAGE_DIRECTORY_MODE, dir_fd=parent_fd)
         else:
             mkdir_probe(path, STORAGE_DIRECTORY_MODE)
-        created.append(path)
-        (chmod_probe or os.chmod)(path, STORAGE_DIRECTORY_MODE)
-        if uid is not None and gid is not None:
-            if chown_probe is not None:
-                chown_probe(path, uid, gid)
-            elif uid != os.getuid() or gid != os.getgid():
-                os.chown(path, uid, gid)
+        record, child_fd = _created_record(parent_fd, name, path)
+        if record is None:
+            raise InvalidInputError("approved storage layout could not be created")
+        created.append(record)
+        parent_fd = -1
+        if child_fd is None:
+            raise InvalidInputError("approved storage path could not be opened safely")
+        try:
+            if chmod_probe is not None:
+                chmod_probe(path, STORAGE_DIRECTORY_MODE)
+            else:
+                os.fchmod(child_fd, STORAGE_DIRECTORY_MODE)
+            if uid is not None or gid is not None:
+                effective_uid = uid if uid is not None else -1
+                effective_gid = gid if gid is not None else -1
+                if chown_probe is not None:
+                    chown_probe(path, effective_uid, effective_gid)
+                else:
+                    os.fchown(child_fd, effective_uid, effective_gid)
+        finally:
+            try:
+                os.close(child_fd)
+            except OSError:
+                pass
     except FileExistsError as exc:
         # A concurrent creator owns a directory that appeared between the
         # preflight check and mkdir; never claim or remove it during rollback.
         raise InvalidInputError("approved storage layout could not be created") from exc
     except Exception as exc:
         # A probe may model a mkdir that created its directory before
-        # reporting an error.  Track that path so rollback can remove it only
-        # when it remains empty; a normal failed mkdir leaves no path here.
-        if not existed_before and path.exists() and path.is_dir() and path not in created:
-            created.append(path)
+        # reporting an error.  Track that path through the stable parent
+        # descriptor so rollback never follows a replacement symlink.
+        if made and parent_fd >= 0:
+            try:
+                record, child_fd = _created_record(parent_fd, name, path)
+                if child_fd is not None:
+                    os.close(child_fd)
+                if record is not None:
+                    created.append(record)
+                    parent_fd = -1
+            except Exception:
+                pass
         raise InvalidInputError("approved storage layout could not be created") from exc
+    finally:
+        if parent_fd >= 0:
+            try:
+                os.close(parent_fd)
+            except OSError:
+                pass
 
 
 def _rollback_created(
-    created: Sequence[Path],
+    created: Sequence[_CreatedDirectory],
     *,
     remove_probe: Callable[[Path], Any] | None = None,
 ) -> tuple[str, ...]:
     partial: list[str] = []
-    remove = remove_probe or (lambda path: path.rmdir())
-    for path in reversed(created):
+    for record in reversed(created):
+        path = record.path
         try:
-            if path.is_symlink() or not path.is_dir():
+            try:
+                metadata = os.stat(record.name, dir_fd=record.parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
                 partial.append(str(path))
                 continue
+            if (
+                stat.S_ISLNK(metadata.st_mode)
+                or not stat.S_ISDIR(metadata.st_mode)
+                or metadata.st_dev != record.device
+                or metadata.st_ino != record.inode
+            ):
+                partial.append(str(path))
+                continue
+            child_fd = os.open(record.name, _DIRECTORY_FLAGS, dir_fd=record.parent_fd)
             try:
-                next(path.iterdir())
-            except StopIteration:
-                remove(path)
-                if path.exists():
+                child_metadata = os.fstat(child_fd)
+                if child_metadata.st_dev != record.device or child_metadata.st_ino != record.inode:
                     partial.append(str(path))
+                    continue
+                if os.listdir(child_fd):
+                    partial.append(str(path))
+                    continue
+            finally:
+                try:
+                    os.close(child_fd)
+                except OSError:
+                    pass
+            if remove_probe is not None:
+                remove_probe(path)
+            else:
+                os.rmdir(record.name, dir_fd=record.parent_fd)
+            try:
+                os.stat(record.name, dir_fd=record.parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
             else:
                 partial.append(str(path))
         except Exception:
             partial.append(str(path))
+        finally:
+            try:
+                os.close(record.parent_fd)
+            except OSError:
+                pass
     return tuple(partial)
 
 
@@ -409,7 +563,7 @@ def validate_storage(
     # A deterministic parent-before-child order prevents partial layout
     # creation from ever requiring a broad recursive mkdir.
     approved = list(dict.fromkeys(approved))
-    created: list[Path] = []
+    created: list[_CreatedDirectory] = []
     if not dry_run:
         try:
             for path in approved:
@@ -431,11 +585,13 @@ def validate_storage(
             raise InvalidInputError("approved storage layout could not be created") from exc
     else:
         warnings.append("dry-run: approved layout was not created")
+    created_paths = tuple(record.path for record in created)
+    _close_created(created)
     return StorageValidation(
         root_path=root,
         downloads_path=downloads,
         approved_paths=tuple(approved),
-        created_paths=tuple(created),
+        created_paths=created_paths,
         free_gib=free,
         warnings=tuple(warnings),
         decisions=(),

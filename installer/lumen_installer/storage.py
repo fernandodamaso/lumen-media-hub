@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import math
 import os
 import re
 import stat
+import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -244,6 +246,7 @@ def _free_gib(path: Path, probe: Callable[[Path], Any] | None) -> float:
 
 
 _DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+_RENAME_NOREPLACE = 1
 
 
 def _close_fd(fd: int | None) -> None:
@@ -375,6 +378,27 @@ def _assert_directory_chain(chain: _DirectoryChain, *, description: str) -> None
         raise
     except OSError as exc:
         raise InvalidInputError(f"{description} path could not be inspected safely") from exc
+
+
+def _rename_noreplace(source: str, destination: str, parent_fd: int) -> None:
+    """Atomically install ``source`` as ``destination`` only when absent."""
+
+    try:
+        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+    except (AttributeError, OSError) as exc:
+        raise InvalidInputError("atomic no-replace directory install is unavailable") from exc
+    renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        parent_fd,
+        os.fsencode(source),
+        parent_fd,
+        os.fsencode(destination),
+        _RENAME_NOREPLACE,
+    )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number), destination)
 
 
 def _open_storage_target(path: Path) -> _StorageTarget:
@@ -633,6 +657,63 @@ def _created_record(
         raise InvalidInputError("approved storage path could not be inspected") from exc
 
 
+def _create_directory_noreplace(
+    path: Path,
+    *,
+    parent_fd: int,
+    name: str,
+    uid: int | None,
+    gid: int | None,
+    created: list[_CreatedDirectory],
+) -> tuple[int, bool]:
+    """Create and configure a directory before atomically installing its name."""
+
+    temporary: str | None = None
+    child_fd: int | None = None
+    record: _CreatedDirectory | None = None
+    for _ in range(100):
+        candidate = f".lumen-installer-{uuid.uuid4().hex}.tmp"
+        try:
+            os.mkdir(candidate, mode=STORAGE_DIRECTORY_MODE, dir_fd=parent_fd)
+        except FileExistsError:
+            continue
+        temporary = candidate
+        break
+    if temporary is None:
+        raise InvalidInputError("temporary storage directory name could not be allocated")
+    try:
+        try:
+            child_fd = os.open(temporary, _DIRECTORY_FLAGS, dir_fd=parent_fd)
+            metadata = os.fstat(child_fd)
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise InvalidInputError("temporary storage directory is not a directory")
+            record = _CreatedDirectory(path, parent_fd, temporary, metadata.st_dev, metadata.st_ino)
+            created.append(record)
+            os.fchmod(child_fd, STORAGE_DIRECTORY_MODE)
+            if uid is not None or gid is not None:
+                os.fchown(child_fd, uid if uid is not None else -1, gid if gid is not None else -1)
+            configured = os.fstat(child_fd)
+            if (configured.st_dev, configured.st_ino) != (record.device, record.inode):
+                raise InvalidInputError("temporary storage directory changed during creation")
+            _rename_noreplace(temporary, name, parent_fd)
+            record.name = name
+            lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            if (
+                stat.S_ISLNK(lexical.st_mode)
+                or not stat.S_ISDIR(lexical.st_mode)
+                or lexical.st_dev != record.device
+                or lexical.st_ino != record.inode
+            ):
+                raise InvalidInputError("approved storage path changed during installation")
+            return child_fd, True
+        except OSError as exc:
+            raise InvalidInputError("approved storage layout could not be installed safely") from exc
+    except InvalidInputError:
+        if child_fd is not None:
+            _close_fd(child_fd)
+        raise
+
+
 def _close_created(created: Sequence[_CreatedDirectory]) -> None:
     seen: set[int] = set()
     for record in created:
@@ -689,6 +770,15 @@ def _create_directory_at(
                 raise
         if expected is not None:
             raise InvalidInputError("approved storage path disappeared during validation")
+        if mkdir_probe is None and chmod_probe is None and chown_probe is None:
+            return _create_directory_noreplace(
+                path,
+                parent_fd=parent_fd,
+                name=name,
+                uid=uid,
+                gid=gid,
+                created=created,
+            )
         # A test/integration probe may create the directory before reporting
         # an error.  Mark the attempt before invoking it so that the stable
         # parent descriptor can discover and roll back that inode.

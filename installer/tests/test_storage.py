@@ -331,8 +331,41 @@ class StorageValidationTests(unittest.TestCase):
                         root,
                         downloads,
                         repo_root=repo,
+                        mkdir_probe=lambda path, mode: Path(path).mkdir(mode=mode),
                         access_probe=lambda path, mode: True,
                     )
+            self.assertEqual((root / sentinel.name).read_text(encoding="utf-8"), "untouched")
+            self.assertFalse((root / "media").exists())
+
+    def test_no_replace_creation_rejects_target_appearing_before_install(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+            outside = base / "outside"
+            outside.mkdir()
+            sentinel = outside / "outside-sentinel"
+            sentinel.write_text("untouched", encoding="utf-8")
+            appeared = False
+            storage_module = __import__("lumen_installer.storage", fromlist=["_rename_noreplace"])
+            real_install = getattr(storage_module, "_rename_noreplace", lambda source, destination, parent_fd: None)
+
+            def target_appears(source, destination, parent_fd):
+                nonlocal appeared
+                if destination == root.name and not appeared:
+                    appeared = True
+                    outside.rename(root)
+                return real_install(source, destination, parent_fd)
+
+            with mock.patch(
+                "lumen_installer.storage._rename_noreplace",
+                side_effect=target_appears,
+                create=True,
+            ):
+                with self.assertRaises(InvalidInputError):
+                    validate_storage(root, downloads, repo_root=repo)
             self.assertEqual((root / sentinel.name).read_text(encoding="utf-8"), "untouched")
             self.assertFalse((root / "media").exists())
 

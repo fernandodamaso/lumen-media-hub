@@ -329,26 +329,51 @@ class InstallerStateTests(unittest.TestCase):
             external_state = replacement_installer / "state.json"
             external_state.write_text("outside-sentinel", encoding="utf-8")
             moved = base / "state-original"
-            real_open = os.open
+            state_module = __import__("lumen_installer.state", fromlist=["_rename_noreplace"])
+            real_install = getattr(state_module, "_rename_noreplace", lambda source, destination, parent_fd: None)
             swapped = False
-            missing_seen = False
 
-            def open_and_replace(name, flags, mode=0o777, *, dir_fd=None):
-                nonlocal missing_seen, swapped
-                if name == ".state" and dir_fd is not None and not missing_seen:
-                    try:
-                        return real_open(name, flags, mode, dir_fd=dir_fd)
-                    except FileNotFoundError:
-                        missing_seen = True
-                        raise
-                if name == ".state" and dir_fd is not None and missing_seen and not swapped:
+            def target_appears(source, destination, parent_fd):
+                nonlocal swapped
+                if destination == ".state" and not swapped:
                     state_parent = repo / ".state"
-                    state_parent.rename(moved)
+                    if state_parent.exists():
+                        state_parent.rename(moved)
                     replacement.rename(state_parent)
                     swapped = True
-                return real_open(name, flags, mode, dir_fd=dir_fd)
+                return real_install(source, destination, parent_fd)
 
-            with mock.patch("lumen_installer.state.os.open", side_effect=open_and_replace):
+            with mock.patch("lumen_installer.state._rename_noreplace", side_effect=target_appears):
+                with self.assertRaises(InvalidInputError):
+                    InstallerState(repo_root=repo).save()
+            self.assertEqual((repo / ".state" / "installer" / "state.json").read_text(encoding="utf-8"), "outside-sentinel")
+
+    def test_state_no_replace_creation_rejects_state_appearing_before_install(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            replacement = base / "replacement-state"
+            replacement_installer = replacement / "installer"
+            replacement_installer.mkdir(parents=True)
+            external_state = replacement_installer / "state.json"
+            external_state.write_text("outside-sentinel", encoding="utf-8")
+            appeared = False
+            state_module = __import__("lumen_installer.state", fromlist=["_rename_noreplace"])
+            real_install = getattr(state_module, "_rename_noreplace", lambda source, destination, parent_fd: None)
+
+            def target_appears(source, destination, parent_fd):
+                nonlocal appeared
+                if destination == ".state" and not appeared:
+                    appeared = True
+                    replacement.rename(repo / ".state")
+                return real_install(source, destination, parent_fd)
+
+            with mock.patch(
+                "lumen_installer.state._rename_noreplace",
+                side_effect=target_appears,
+                create=True,
+            ):
                 with self.assertRaises(InvalidInputError):
                     InstallerState(repo_root=repo).save()
             self.assertEqual((repo / ".state" / "installer" / "state.json").read_text(encoding="utf-8"), "outside-sentinel")

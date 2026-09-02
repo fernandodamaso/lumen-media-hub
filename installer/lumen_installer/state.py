@@ -9,6 +9,7 @@ adopted install into a fresh install.
 
 from __future__ import annotations
 
+import ctypes
 import fcntl
 import json
 import os
@@ -66,6 +67,7 @@ def _lexical_absolute(path: Path) -> Path:
 
 
 _DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+_RENAME_NOREPLACE = 1
 
 
 @dataclass(frozen=True)
@@ -212,6 +214,96 @@ def _assert_state_components_identity(handles: _StateHandles) -> None:
     _assert_state_entry(handles.state_fd, "installer", handles.installer_fd, description="installer state directory")
 
 
+def _rename_noreplace(source: str, destination: str, parent_fd: int) -> None:
+    """Atomically install ``source`` as ``destination`` only when absent."""
+
+    try:
+        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+    except (AttributeError, OSError) as exc:
+        raise InvalidInputError("atomic no-replace directory install is unavailable") from exc
+    renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        parent_fd,
+        os.fsencode(source),
+        parent_fd,
+        os.fsencode(destination),
+        _RENAME_NOREPLACE,
+    )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number), destination)
+
+
+def _cleanup_directory_if_identity(
+    parent_fd: int,
+    name: str,
+    child_fd: int,
+    expected: tuple[int, int],
+) -> None:
+    """Remove only an empty temporary directory matching its retained fd."""
+
+    try:
+        current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if (
+            current.st_dev == expected[0]
+            and current.st_ino == expected[1]
+            and not os.listdir(child_fd)
+        ):
+            os.rmdir(name, dir_fd=parent_fd)
+    except OSError:
+        pass
+
+
+def _create_directory_noreplace(parent_fd: int, name: str, *, mode: int, description: str) -> int:
+    """Prepare a directory under a private name, then install it atomically."""
+
+    temporary: str | None = None
+    child_fd: int | None = None
+    installed = False
+    expected: tuple[int, int] | None = None
+    for _ in range(100):
+        candidate = f".{name}-{uuid.uuid4().hex}.tmp"
+        try:
+            os.mkdir(candidate, mode=mode, dir_fd=parent_fd)
+        except FileExistsError:
+            continue
+        temporary = candidate
+        break
+    if temporary is None:
+        raise InvalidInputError(f"temporary {description} name could not be allocated")
+    try:
+        child_fd = os.open(temporary, _DIRECTORY_FLAGS, dir_fd=parent_fd)
+        metadata = os.fstat(child_fd)
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise InvalidInputError(f"temporary {description} is not a directory")
+        expected = (metadata.st_dev, metadata.st_ino)
+        os.fchmod(child_fd, mode)
+        configured = os.fstat(child_fd)
+        if (configured.st_dev, configured.st_ino) != expected:
+            raise InvalidInputError(f"temporary {description} changed during creation")
+        _rename_noreplace(temporary, name, parent_fd)
+        installed = True
+        lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if (
+            stat.S_ISLNK(lexical.st_mode)
+            or not stat.S_ISDIR(lexical.st_mode)
+            or (lexical.st_dev, lexical.st_ino) != expected
+        ):
+            raise InvalidInputError(f"{description} changed during installation")
+        return child_fd
+    except InvalidInputError:
+        if not installed and temporary is not None and child_fd is not None and expected is not None:
+            _cleanup_directory_if_identity(parent_fd, temporary, child_fd, expected)
+        _close_fd(child_fd)
+        raise
+    except OSError as exc:
+        if not installed and temporary is not None and child_fd is not None and expected is not None:
+            _cleanup_directory_if_identity(parent_fd, temporary, child_fd, expected)
+        _close_fd(child_fd)
+        raise InvalidInputError(f"{description} could not be installed safely") from exc
+
+
 def _open_directory_child(
     parent_fd: int,
     name: str,
@@ -220,37 +312,18 @@ def _open_directory_child(
     mode: int,
     description: str,
 ) -> int | None:
-    expected: tuple[int, int] | None = None
     try:
         fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
     except FileNotFoundError:
         if not create:
             return None
-        try:
-            os.mkdir(name, mode=mode, dir_fd=parent_fd)
-        except FileExistsError:
-            pass
-        except OSError as exc:
-            raise InvalidInputError(f"{description} could not be created") from exc
-        try:
-            created = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-        except OSError as exc:
-            raise InvalidInputError(f"{description} could not be inspected safely") from exc
-        if stat.S_ISLNK(created.st_mode) or not stat.S_ISDIR(created.st_mode):
-            raise InvalidInputError(f"{description} is not a directory")
-        expected = (created.st_dev, created.st_ino)
-        try:
-            fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
-        except OSError as exc:
-            raise InvalidInputError(f"{description} could not be opened safely") from exc
+        return _create_directory_noreplace(parent_fd, name, mode=mode, description=description)
     except OSError as exc:
         raise InvalidInputError(f"{description} could not be opened safely") from exc
     try:
         metadata = os.fstat(fd)
         if not stat.S_ISDIR(metadata.st_mode):
             raise InvalidInputError(f"{description} is not a directory")
-        if expected is not None and (metadata.st_dev, metadata.st_ino) != expected:
-            raise InvalidInputError(f"{description} changed during creation")
         lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
         if (
             stat.S_ISLNK(lexical.st_mode)
@@ -300,9 +373,20 @@ def _state_components(repo: Path, *, create: bool, correct_modes: bool):
     repo_chain: _StateDirectoryChain | None = None
     state_fd: int | None = None
     installer_fd: int | None = None
+    repo_creation_locked = False
     try:
         repo_chain = _open_directory_chain(repo, description="repository root")
         repo_fd = repo_chain.fd
+        if create:
+            try:
+                # Directory creation has no returned fd.  Serialize the
+                # no-replace install across processes using the stable repo
+                # directory, so a concurrent creator is not mistaken for an
+                # attacker-provided replacement.
+                fcntl.flock(repo_fd, fcntl.LOCK_EX)
+                repo_creation_locked = True
+            except OSError as exc:
+                raise InvalidInputError("installer state creation lock could not be acquired") from exc
         state_fd = _open_directory_child(
             repo_fd,
             ".state",
@@ -334,6 +418,11 @@ def _state_components(repo: Path, *, create: bool, correct_modes: bool):
         if repo_chain is None:
             _close_fd(repo_fd)
         else:
+            if repo_creation_locked:
+                try:
+                    fcntl.flock(repo_fd, fcntl.LOCK_UN)
+                except OSError:
+                    pass
             for item in reversed(repo_chain.retained_fds):
                 _close_fd(item)
 

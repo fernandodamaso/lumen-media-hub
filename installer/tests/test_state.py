@@ -579,6 +579,44 @@ class InstallerStateTests(unittest.TestCase):
             self.assertIn("atomic", confirmed["cleanup"]["guidance"])
             self.assertTrue(candidate.exists())
 
+    def test_state_candidate_diagnostic_skips_fifos_without_blocking(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            InstallerState(repo_root=repo).save()
+            installer = repo / ".state" / "installer"
+            fifo_candidate = installer / ".state-fifo-candidate.tmp"
+            fifo_state = installer / "state.json"
+            os.mkfifo(fifo_candidate)
+            fifo_state.unlink()
+            os.mkfifo(fifo_state)
+            result = []
+
+            def diagnose():
+                result.append(diagnose_state_candidates(repo))
+
+            worker = threading.Thread(target=diagnose, daemon=True)
+            worker.start()
+            worker.join(timeout=1.0)
+            self.assertFalse(worker.is_alive(), "candidate diagnostic blocked on FIFO")
+            self.assertEqual(result[0]["candidates"][0]["kind"], "other")
+            self.assertFalse(result[0]["candidates"][0]["identity_verified"])
+
+    def test_state_candidate_diagnostic_does_not_correct_existing_directory_modes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            InstallerState(repo_root=repo).save()
+            state_dir = repo / ".state"
+            installer = state_dir / "installer"
+            state_dir.chmod(0o750)
+            installer.chmod(0o750)
+
+            diagnose_state_candidates(repo)
+
+            self.assertEqual(stat.S_IMODE(state_dir.stat().st_mode), 0o750)
+            self.assertEqual(stat.S_IMODE(installer.stat().st_mode), 0o750)
+
     def test_temporary_state_swap_after_open_is_rejected_before_adoption(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -736,12 +774,15 @@ class InstallerStateTests(unittest.TestCase):
             with mock.patch("lumen_installer.state.os.replace", side_effect=replace_swap):
                 with mock.patch.object(
                     state_module,
-                    "_rename_noreplace",
+                    "_rename_exchange",
                     side_effect=OSError("injected rollback rename failure"),
                 ):
                     with self.assertRaises(InvalidInputError):
                         replacement.save()
             self.assertEqual(state_path.read_bytes(), previous)
+            recovery = tuple(state_path.parent.glob(".state-recovery-*.tmp"))
+            self.assertTrue(recovery)
+            self.assertEqual(recovery[0].read_text(encoding="utf-8"), "outside-sentinel")
 
     def test_state_save_aborts_before_replace_when_backup_cannot_be_created(self):
         with tempfile.TemporaryDirectory() as temporary:

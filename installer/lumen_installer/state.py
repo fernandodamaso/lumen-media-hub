@@ -23,7 +23,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from .errors import InvalidInputError
+from .errors import InvalidInputError, PartialError
 
 
 STATE_SCHEMA_VERSION = 1
@@ -347,6 +347,23 @@ def _create_state_backup(parent_fd: int, expected: tuple[int, int]) -> tuple[str
     raise InvalidInputError("installer state backup name could not be allocated")
 
 
+def _restore_state_from_backup(parent_fd: int, backup: str, backup_identity: tuple[int, int]) -> None:
+    if not _regular_file_matches(parent_fd, backup, backup_identity):
+        raise InvalidInputError("installer state backup changed during rollback")
+    try:
+        os.link(
+            backup,
+            STATE_FILE_NAME,
+            src_dir_fd=parent_fd,
+            dst_dir_fd=parent_fd,
+            follow_symlinks=False,
+        )
+    except OSError as exc:
+        raise InvalidInputError("installer state could not be restored safely") from exc
+    if not _regular_file_matches(parent_fd, STATE_FILE_NAME, backup_identity):
+        raise InvalidInputError("installer state could not be restored safely")
+
+
 def _restore_state_after_replace(
     parent_fd: int,
     temporary: str,
@@ -365,8 +382,23 @@ def _restore_state_after_replace(
         raise InvalidInputError("installer state backup changed during rollback")
     try:
         _rename_exchange(STATE_FILE_NAME, backup, parent_fd)
-    except OSError as exc:
-        raise InvalidInputError("installer state could not be restored safely") from exc
+    except (InvalidInputError, OSError):
+        # A failure may have happened before the exchange syscall, leaving the
+        # external inode public. Quarantine it under a fresh private name and
+        # restore the prevalidated artifact directly. If the exchange did
+        # complete before reporting failure, the identity check avoids a
+        # second mutation.
+        if _regular_file_matches(parent_fd, STATE_FILE_NAME, backup_identity):
+            return
+        quarantine = f".state-recovery-{uuid.uuid4().hex}.tmp"
+        try:
+            _restore_state_entry(parent_fd, STATE_FILE_NAME, quarantine)
+            _restore_state_from_backup(parent_fd, backup, backup_identity)
+        except (InvalidInputError, OSError) as recovery_error:
+            raise PartialError(
+                "installer state rollback incomplete: state.json may still reference unverified content"
+            ) from recovery_error
+        return
     if not _regular_file_matches(parent_fd, STATE_FILE_NAME, backup_identity):
         raise InvalidInputError("installer state could not be restored safely")
 
@@ -479,6 +511,7 @@ def _open_directory_child(
     *,
     create: bool,
     mode: int,
+    correct_mode: bool = True,
     description: str,
 ) -> int | None:
     try:
@@ -501,7 +534,7 @@ def _open_directory_child(
             or lexical.st_ino != metadata.st_ino
         ):
             raise InvalidInputError(f"{description} changed during creation")
-        if stat.S_IMODE(metadata.st_mode) != mode:
+        if correct_mode and stat.S_IMODE(metadata.st_mode) != mode:
             os.fchmod(fd, mode)
     except InvalidInputError:
         _close_fd(fd)
@@ -561,6 +594,7 @@ def _state_components(repo: Path, *, create: bool, correct_modes: bool):
             ".state",
             create=create,
             mode=0o700,
+            correct_mode=correct_modes,
             description="installer state parent",
         )
         if state_fd is None:
@@ -571,6 +605,7 @@ def _state_components(repo: Path, *, create: bool, correct_modes: bool):
             "installer",
             create=create,
             mode=0o700,
+            correct_mode=correct_modes,
             description="installer state directory",
         )
         if installer_fd is None:
@@ -1100,6 +1135,7 @@ _CANDIDATE_NAME_PATTERNS = (
     re.compile(r"\.state-[A-Za-z0-9][A-Za-z0-9-]*\.tmp\Z"),
     re.compile(r"\.state-stage-[A-Za-z0-9][A-Za-z0-9-]*\.tmp\Z"),
     re.compile(r"\.state-backup-[A-Za-z0-9][A-Za-z0-9-]*\.tmp\Z"),
+    re.compile(r"\.state-recovery-[A-Za-z0-9][A-Za-z0-9-]*\.tmp\Z"),
 )
 
 
@@ -1163,6 +1199,9 @@ def diagnose_state_candidates(
                         finding["kind"] = "other"
                     age = max(0.0, timestamp - float(lexical.st_mtime))
                     finding["age_seconds"] = age
+                    if finding["kind"] not in {"file", "directory"}:
+                        candidates.append(finding)
+                        continue
                     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
                     if stat.S_ISDIR(lexical.st_mode):
                         flags |= getattr(os, "O_DIRECTORY", 0)

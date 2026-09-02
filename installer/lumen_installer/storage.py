@@ -247,6 +247,7 @@ def _free_gib(path: Path, probe: Callable[[Path], Any] | None) -> float:
 
 _DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 _RENAME_NOREPLACE = 1
+_AT_REMOVEDIR = 0x200
 
 
 def _close_fd(fd: int | None) -> None:
@@ -401,6 +402,21 @@ def _rename_noreplace(source: str, destination: str, parent_fd: int) -> None:
         raise OSError(error_number, os.strerror(error_number), destination)
 
 
+def _remove_directory_at(parent_fd: int, name: str) -> None:
+    """Remove a directory entry relative to its retained parent descriptor."""
+
+    try:
+        unlinkat = ctypes.CDLL(None, use_errno=True).unlinkat
+    except (AttributeError, OSError) as exc:
+        raise InvalidInputError("safe storage cleanup is unavailable") from exc
+    unlinkat.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
+    unlinkat.restype = ctypes.c_int
+    result = unlinkat(parent_fd, os.fsencode(name), _AT_REMOVEDIR)
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number), name)
+
+
 def _directory_signature(fd: int) -> tuple[int, int, int, int]:
     metadata = os.fstat(fd)
     if not stat.S_ISDIR(metadata.st_mode):
@@ -411,6 +427,50 @@ def _directory_signature(fd: int) -> tuple[int, int, int, int]:
         metadata.st_ctime_ns,
         metadata.st_mtime_ns,
     )
+
+
+def _directory_entry_matches(parent_fd: int, name: str, expected: tuple[int, int]) -> bool:
+    """Verify a public directory through a fresh no-follow descriptor."""
+
+    fd: int | None = None
+    try:
+        fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
+        metadata = os.fstat(fd)
+        lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        return (
+            stat.S_ISDIR(metadata.st_mode)
+            and not stat.S_ISLNK(lexical.st_mode)
+            and stat.S_ISDIR(lexical.st_mode)
+            and (metadata.st_dev, metadata.st_ino) == expected
+            and (lexical.st_dev, lexical.st_ino) == expected
+        )
+    except OSError:
+        return False
+    finally:
+        _close_fd(fd)
+
+
+def _restore_directory_entry(parent_fd: int, public_name: str, staging_name: str) -> None:
+    """Move a mismatched public entry back to its private staging name."""
+
+    try:
+        os.stat(public_name, dir_fd=parent_fd, follow_symlinks=False)
+        try:
+            os.stat(staging_name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise InvalidInputError("storage staging path unexpectedly exists")
+        _rename_noreplace(public_name, staging_name, parent_fd)
+        try:
+            os.stat(public_name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        raise InvalidInputError("storage target could not be restored safely")
+    except InvalidInputError:
+        raise
+    except OSError as exc:
+        raise InvalidInputError("storage target could not be restored safely") from exc
 
 
 def _cleanup_temporary_directory(
@@ -795,15 +855,20 @@ def _create_directory_noreplace(
             ):
                 raise InvalidInputError("temporary storage directory changed before installation")
             _rename_noreplace(staging, name, parent_fd)
+            # The syscall can race the final source check.  Verify the
+            # destination through a fresh descriptor before claiming success;
+            # if it is not our inode, move that unverified entry back to the
+            # now-free staging name without deleting or following it.
+            if not _directory_entry_matches(parent_fd, name, expected):
+                try:
+                    _restore_directory_entry(parent_fd, name, staging)
+                except InvalidInputError:
+                    record.name = name
+                    raise
+                record.name = staging
+                raise InvalidInputError("approved storage path changed during installation")
             record.name = name
             installed = True
-            lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-            if (
-                stat.S_ISLNK(lexical.st_mode)
-                or not stat.S_ISDIR(lexical.st_mode)
-                or (lexical.st_dev, lexical.st_ino) != expected
-            ):
-                raise InvalidInputError("approved storage path changed during installation")
             return child_fd, True
         except OSError as exc:
             raise InvalidInputError("approved storage layout could not be installed safely") from exc
@@ -1142,7 +1207,7 @@ def _rollback_created(
             if remove_probe is not None:
                 remove_probe(path)
             else:
-                os.rmdir(record.name, dir_fd=record.parent_fd)
+                _remove_directory_at(record.parent_fd, record.name)
             try:
                 os.stat(record.name, dir_fd=record.parent_fd, follow_symlinks=False)
             except FileNotFoundError:

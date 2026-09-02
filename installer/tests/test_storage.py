@@ -467,6 +467,116 @@ class StorageValidationTests(unittest.TestCase):
             self.assertTrue(candidates)
             self.assertEqual((candidates[0] / sentinel.name).read_text(encoding="utf-8"), "untouched")
 
+    def test_storage_final_source_swap_is_rolled_back_without_adopting_external_inode(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+            outside = base / "outside"
+            outside.mkdir()
+            sentinel = outside / "outside-sentinel"
+            sentinel.write_text("untouched", encoding="utf-8")
+            moved = base / "temporary-original"
+            swapped = False
+            calls = 0
+            real_rename = storage_module._rename_noreplace
+
+            def rename_swap(source, destination, parent_fd):
+                nonlocal calls, swapped
+                calls += 1
+                if calls == 2 and not swapped:
+                    source_path = base / source
+                    source_path.rename(moved)
+                    outside.rename(source_path)
+                    swapped = True
+                return real_rename(source, destination, parent_fd)
+
+            with mock.patch.object(storage_module, "_rename_noreplace", side_effect=rename_swap):
+                with self.assertRaises(StorageMutationError):
+                    validate_storage(root, downloads, repo_root=repo)
+            self.assertFalse(root.exists())
+            candidates = tuple(base.glob(".lumen-installer-stage-*.tmp"))
+            self.assertTrue(candidates)
+            self.assertEqual((candidates[0] / sentinel.name).read_text(encoding="utf-8"), "untouched")
+
+    def test_storage_rollback_does_not_remove_replaced_external_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+            outside = base / "outside"
+            outside.mkdir()
+            moved = base / "original-library"
+            swapped = False
+            real_rmdir = os.rmdir
+
+            def rmdir_swap(name, *, dir_fd=None):
+                nonlocal swapped
+                if not swapped and isinstance(name, str) and name == root.name:
+                    root.rename(moved)
+                    outside.rename(root)
+                    swapped = True
+                return real_rmdir(name, dir_fd=dir_fd)
+
+            def fail_chown(path, uid, gid):
+                raise OSError("injected ownership failure")
+
+            with mock.patch("lumen_installer.storage.os.rmdir", side_effect=rmdir_swap) as rmdir_mock:
+                with self.assertRaises(InvalidInputError):
+                    validate_storage(
+                        root,
+                        downloads,
+                        repo_root=repo,
+                        uid=os.getuid(),
+                        gid=os.getgid(),
+                        chown_probe=fail_chown,
+                    )
+            self.assertFalse(rmdir_mock.called)
+            self.assertFalse(swapped)
+            self.assertFalse(root.exists())
+            self.assertTrue(outside.exists())
+
+    def test_storage_final_stat_swap_is_rolled_back_before_external_inode_is_adopted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+            outside = base / "outside"
+            outside.mkdir()
+            sentinel = outside / "outside-sentinel"
+            sentinel.write_text("untouched", encoding="utf-8")
+            moved = base / "temporary-original"
+            lookups = 0
+            swapped = False
+            real_stat = os.stat
+
+            def stat_swap(name, *args, **kwargs):
+                nonlocal lookups, swapped
+                result = real_stat(name, *args, **kwargs)
+                if isinstance(name, str) and name.startswith(".lumen-installer-stage-") and not swapped:
+                    lookups += 1
+                    if lookups == 3:
+                        source_path = base / name
+                        source_path.rename(moved)
+                        outside.rename(source_path)
+                        swapped = True
+                return result
+
+            with mock.patch("lumen_installer.storage.os.stat", side_effect=stat_swap):
+                with self.assertRaises(StorageMutationError):
+                    validate_storage(root, downloads, repo_root=repo)
+            self.assertTrue(swapped)
+            self.assertFalse(root.exists())
+            candidates = tuple(base.glob(".lumen-installer-stage-*.tmp"))
+            self.assertTrue(candidates)
+            self.assertEqual((candidates[0] / sentinel.name).read_text(encoding="utf-8"), "untouched")
+
     def test_mkdir_failure_after_creation_is_rolled_back(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)

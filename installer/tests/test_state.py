@@ -481,6 +481,162 @@ class InstallerStateTests(unittest.TestCase):
                 with self.assertRaises(InvalidInputError):
                     InstallerState(repo_root=repo).save()
 
+    def test_state_file_final_source_swap_is_rolled_back_without_installing_external_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            outside = base / "outside-state.json"
+            outside.write_text("outside-sentinel", encoding="utf-8")
+            moved = base / "temporary-state-original"
+            swapped = False
+
+            state = InstallerState(repo_root=repo, profiles=("requests",))
+            state.save()
+            previous = (repo / ".state" / "installer" / "state.json").read_text(encoding="utf-8")
+            replacement = InstallerState(repo_root=repo, profiles=("ai",))
+            real_replace = os.replace
+
+            def replace_swap(source, destination, *, src_dir_fd=None, dst_dir_fd=None):
+                nonlocal swapped
+                source_path = repo / ".state" / "installer" / source
+                source_path.rename(moved)
+                outside.rename(source_path)
+                swapped = True
+                return real_replace(
+                    source,
+                    destination,
+                    src_dir_fd=src_dir_fd,
+                    dst_dir_fd=dst_dir_fd,
+                )
+
+            with mock.patch("lumen_installer.state.os.replace", side_effect=replace_swap):
+                with self.assertRaises(InvalidInputError):
+                    replacement.save()
+            state_path = repo / ".state" / "installer" / "state.json"
+            self.assertEqual(state_path.read_text(encoding="utf-8"), previous)
+            self.assertTrue(swapped)
+            candidates = tuple((repo / ".state" / "installer").glob(".state-*.tmp"))
+            self.assertTrue(candidates)
+            self.assertEqual(candidates[0].read_text(encoding="utf-8"), "outside-sentinel")
+
+    def test_state_file_fstat_failure_cleans_candidate_even_without_recorded_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            InstallerState(repo_root=repo, profiles=("requests",)).save()
+            state_path = repo / ".state" / "installer" / "state.json"
+            previous = state_path.read_bytes()
+            real_open = os.open
+            real_fstat = os.fstat
+            temporary_fd = None
+
+            def capture_temp_open(name, flags, mode=0o777, *, dir_fd=None):
+                nonlocal temporary_fd
+                result = real_open(name, flags, mode, dir_fd=dir_fd)
+                if isinstance(name, str) and name.startswith(".state-"):
+                    temporary_fd = result
+                return result
+
+            def fail_temp_fstat(fd):
+                if fd == temporary_fd:
+                    raise OSError("injected state file fstat failure")
+                return real_fstat(fd)
+
+            with mock.patch("lumen_installer.state.os.open", side_effect=capture_temp_open):
+                with mock.patch("lumen_installer.state.os.fstat", side_effect=fail_temp_fstat):
+                    with self.assertRaises(InvalidInputError):
+                        InstallerState(repo_root=repo, profiles=("ai",)).save()
+            self.assertEqual(state_path.read_bytes(), previous)
+            self.assertEqual(tuple((state_path.parent).glob(".state-*.tmp")), ())
+
+    def test_state_final_directory_swap_is_rolled_back_without_adopting_external_inode(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            outside = base / "outside-state"
+            (outside / "installer").mkdir(parents=True)
+            sentinel = outside / "installer" / "sentinel"
+            sentinel.write_text("untouched", encoding="utf-8")
+            moved = base / "temporary-state-original"
+            swapped = False
+            calls = 0
+            real_rename = state_module._rename_noreplace
+
+            def rename_swap(source, destination, parent_fd):
+                nonlocal calls, swapped
+                calls += 1
+                if calls == 2 and not swapped:
+                    source_path = repo / source
+                    source_path.rename(moved)
+                    outside.rename(source_path)
+                    swapped = True
+                return real_rename(source, destination, parent_fd)
+
+            with mock.patch.object(state_module, "_rename_noreplace", side_effect=rename_swap):
+                with self.assertRaises(InvalidInputError):
+                    InstallerState(repo_root=repo).save()
+            self.assertFalse((repo / ".state").exists())
+            candidates = tuple(repo.glob("..state-stage-*.tmp"))
+            self.assertTrue(candidates)
+            self.assertEqual((candidates[0] / "installer" / sentinel.name).read_text(encoding="utf-8"), "untouched")
+
+    def test_state_staging_stat_failure_cleans_only_its_candidate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            real_stat = os.stat
+            failed = False
+
+            def fail_staging_stat(name, *args, **kwargs):
+                nonlocal failed
+                if isinstance(name, str) and name.startswith("..state-stage-") and not failed:
+                    failed = True
+                    raise OSError("injected staging stat failure")
+                return real_stat(name, *args, **kwargs)
+
+            with mock.patch("lumen_installer.state.os.stat", side_effect=fail_staging_stat):
+                with self.assertRaises(InvalidInputError):
+                    InstallerState(repo_root=repo).save()
+            self.assertTrue(failed)
+            self.assertEqual(tuple(repo.glob("..state-stage-*.tmp")), ())
+
+    def test_state_final_stat_swap_is_rolled_back_before_external_inode_is_adopted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            outside = base / "outside-state"
+            (outside / "installer").mkdir(parents=True)
+            sentinel = outside / "installer" / "sentinel"
+            sentinel.write_text("untouched", encoding="utf-8")
+            moved = base / "temporary-state-original"
+            lookups = 0
+            swapped = False
+            real_stat = os.stat
+
+            def stat_swap(name, *args, **kwargs):
+                nonlocal lookups, swapped
+                result = real_stat(name, *args, **kwargs)
+                if isinstance(name, str) and name.startswith("..state-stage-") and not swapped:
+                    lookups += 1
+                    if lookups == 3:
+                        source_path = repo / name
+                        source_path.rename(moved)
+                        outside.rename(source_path)
+                        swapped = True
+                return result
+
+            with mock.patch("lumen_installer.state.os.stat", side_effect=stat_swap):
+                with self.assertRaises(InvalidInputError):
+                    InstallerState(repo_root=repo).save()
+            self.assertTrue(swapped)
+            self.assertFalse((repo / ".state").exists())
+            candidates = tuple(repo.glob("..state-stage-*.tmp"))
+            self.assertTrue(candidates)
+            self.assertEqual((candidates[0] / "installer" / sentinel.name).read_text(encoding="utf-8"), "untouched")
+
     def test_state_reports_and_string_forms_never_include_resource_identifier_values(self):
         sentinel = "0123456789abcdef0123456789abcdef"
         state = InstallerState(owned_resources={"resource": sentinel})

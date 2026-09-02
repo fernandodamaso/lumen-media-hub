@@ -60,6 +60,7 @@ from .state import (
     STATE_FILE_NAME,
     STATE_LOCK_NAME,
     StageJournal,
+    diagnose_state_candidates,
     state_directory,
     state_path,
 )
@@ -132,6 +133,7 @@ __all__ = [
     "STATE_FILE_NAME",
     "STATE_LOCK_NAME",
     "StageJournal",
+    "diagnose_state_candidates",
     "state_directory",
     "state_path",
     "DOWNLOAD_SUBDIRECTORIES",

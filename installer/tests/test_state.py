@@ -16,7 +16,7 @@ if str(INSTALLER_ROOT) not in sys.path:
 
 from lumen_installer.errors import InvalidInputError
 import lumen_installer.state as state_module
-from lumen_installer.state import InstallerState, StageJournal
+from lumen_installer.state import InstallerState, StageJournal, diagnose_state_candidates
 
 
 class InstallerStateTests(unittest.TestCase):
@@ -177,7 +177,7 @@ class InstallerStateTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     changed.save()
             self.assertEqual(path.read_bytes(), original)
-            self.assertEqual(len(tuple(path.parent.glob(".state-*.tmp"))), 1)
+            self.assertEqual(len(tuple(path.parent.glob(".state-*.tmp"))), 2)
 
     def test_state_mode_is_set_before_replace_and_final_chmod_is_never_needed(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -544,7 +544,40 @@ class InstallerStateTests(unittest.TestCase):
                 with self.assertRaises(InvalidInputError):
                     InstallerState(repo_root=repo, profiles=("ai",)).save()
             self.assertEqual(path.read_bytes(), original)
-            self.assertEqual(tuple(path.parent.glob(".state-backup-*.tmp")), ())
+            backups = tuple(path.parent.glob(".state-backup-*.tmp"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].read_bytes(), original)
+
+    def test_state_candidate_diagnostic_is_age_identity_checked_and_confirmation_gated(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            InstallerState(repo_root=repo).save()
+            installer = repo / ".state" / "installer"
+            candidate = installer / ".state-manual-candidate.tmp"
+            candidate.write_text("private candidate", encoding="utf-8")
+            now = 2_000_000.0
+            os.utime(candidate, (now - 7_200, now - 7_200))
+            unknown = installer / "notes.tmp"
+            unknown.write_text("not an installer candidate", encoding="utf-8")
+
+            report = diagnose_state_candidates(repo, now=now, minimum_age_seconds=3_600)
+
+            self.assertEqual(len(report["candidates"]), 1)
+            finding = report["candidates"][0]
+            self.assertEqual(finding["path"], str(candidate))
+            self.assertEqual(finding["kind"], "file")
+            self.assertTrue(finding["identity_verified"])
+            self.assertTrue(finding["age_eligible"])
+            self.assertTrue(report["cleanup"]["requires_confirmation"])
+            self.assertFalse(report["cleanup"]["performed"])
+            with self.assertRaises(InvalidInputError):
+                diagnose_state_candidates(repo, now=now, cleanup=True)
+            self.assertTrue(candidate.exists())
+            confirmed = diagnose_state_candidates(repo, now=now, cleanup=True, confirm=True)
+            self.assertFalse(confirmed["cleanup"]["performed"])
+            self.assertIn("atomic", confirmed["cleanup"]["guidance"])
+            self.assertTrue(candidate.exists())
 
     def test_temporary_state_swap_after_open_is_rejected_before_adoption(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -626,6 +659,109 @@ class InstallerStateTests(unittest.TestCase):
             candidates = tuple((repo / ".state" / "installer").glob(".state-*.tmp"))
             self.assertTrue(candidates)
             self.assertEqual(candidates[0].read_text(encoding="utf-8"), "outside-sentinel")
+
+    def test_state_final_source_swap_keeps_previous_state_when_rollback_setup_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            outside = base / "outside-state.json"
+            outside.write_text("outside-sentinel", encoding="utf-8")
+            moved = base / "temporary-state-original"
+            state = InstallerState(repo_root=repo, profiles=("requests",))
+            state.save()
+            state_path = repo / ".state" / "installer" / "state.json"
+            previous = state_path.read_bytes()
+            replacement = InstallerState(repo_root=repo, profiles=("ai",))
+            real_replace = os.replace
+            real_temp_file = state_module._create_temp_state_file
+            temp_calls = 0
+
+            def replace_swap(source, destination, *, src_dir_fd=None, dst_dir_fd=None):
+                source_path = repo / ".state" / "installer" / source
+                source_path.rename(moved)
+                outside.rename(source_path)
+                return real_replace(
+                    source,
+                    destination,
+                    src_dir_fd=src_dir_fd,
+                    dst_dir_fd=dst_dir_fd,
+                )
+
+            def rollback_temp_failure(installer_fd):
+                nonlocal temp_calls
+                temp_calls += 1
+                if temp_calls == 2:
+                    raise OSError("injected rollback temp fchmod failure")
+                return real_temp_file(installer_fd)
+
+            with mock.patch("lumen_installer.state.os.replace", side_effect=replace_swap):
+                with mock.patch.object(
+                    state_module,
+                    "_create_temp_state_file",
+                    side_effect=rollback_temp_failure,
+                ):
+                    with self.assertRaises(InvalidInputError):
+                        replacement.save()
+            self.assertEqual(state_path.read_bytes(), previous)
+            candidates = tuple(state_path.parent.glob(".state-*.tmp"))
+            self.assertTrue(any(candidate.read_text(encoding="utf-8") == "outside-sentinel" for candidate in candidates))
+
+    def test_state_final_source_swap_keeps_previous_state_when_rollback_rename_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            outside = base / "outside-state.json"
+            outside.write_text("outside-sentinel", encoding="utf-8")
+            moved = base / "temporary-state-original"
+            state = InstallerState(repo_root=repo, profiles=("requests",))
+            state.save()
+            state_path = repo / ".state" / "installer" / "state.json"
+            previous = state_path.read_bytes()
+            replacement = InstallerState(repo_root=repo, profiles=("ai",))
+            real_replace = os.replace
+
+            def replace_swap(source, destination, *, src_dir_fd=None, dst_dir_fd=None):
+                source_path = repo / ".state" / "installer" / source
+                source_path.rename(moved)
+                outside.rename(source_path)
+                return real_replace(
+                    source,
+                    destination,
+                    src_dir_fd=src_dir_fd,
+                    dst_dir_fd=dst_dir_fd,
+                )
+
+            with mock.patch("lumen_installer.state.os.replace", side_effect=replace_swap):
+                with mock.patch.object(
+                    state_module,
+                    "_rename_noreplace",
+                    side_effect=OSError("injected rollback rename failure"),
+                ):
+                    with self.assertRaises(InvalidInputError):
+                        replacement.save()
+            self.assertEqual(state_path.read_bytes(), previous)
+
+    def test_state_save_aborts_before_replace_when_backup_cannot_be_created(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "checkout"
+            repo.mkdir()
+            state = InstallerState(repo_root=repo, profiles=("requests",))
+            state.save()
+            state_path = repo / ".state" / "installer" / "state.json"
+            previous = state_path.read_bytes()
+            replacement = InstallerState(repo_root=repo, profiles=("ai",))
+            with mock.patch.object(
+                state_module,
+                "_create_state_backup",
+                side_effect=InvalidInputError("injected backup failure"),
+            ):
+                with mock.patch("lumen_installer.state.os.replace") as replace:
+                    with self.assertRaises(InvalidInputError):
+                        replacement.save()
+            self.assertEqual(state_path.read_bytes(), previous)
+            self.assertFalse(replace.called)
 
     def test_state_file_fstat_failure_cleans_candidate_even_without_recorded_identity(self):
         with tempfile.TemporaryDirectory() as temporary:

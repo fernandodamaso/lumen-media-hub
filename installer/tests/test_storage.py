@@ -104,6 +104,29 @@ class StorageValidationTests(unittest.TestCase):
             self.assertEqual(raised.exception.redacted, raised.exception.report)
             self.assertEqual(raised.exception.exit_code, ExitCode.PARTIAL)
 
+    def test_partial_rollback_report_includes_private_candidate_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+            real_rename = storage_module._rename_noreplace
+            calls = 0
+
+            def fail_private_install(source, destination, parent_fd):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise OSError("injected private staging failure")
+                return real_rename(source, destination, parent_fd)
+
+            with mock.patch.object(storage_module, "_rename_noreplace", side_effect=fail_private_install):
+                with self.assertRaises(StorageMutationError) as raised:
+                    validate_storage(root, downloads, repo_root=repo)
+            self.assertTrue(any(".lumen-installer-" in item for item in raised.exception.partial_created_paths))
+            self.assertTrue(any(".lumen-installer-" in item for item in raised.exception.report["partial_created_paths"]))
+
     def test_uid_only_and_gid_only_chown_preserve_the_other_owner_axis(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)

@@ -173,76 +173,10 @@ def _validate_target_safety(root: Path, downloads: Path, repo: Path) -> None:
     _reject_symlink_components(downloads, field_name="DOWNLOADS_PATH")
 
 
-def _nearest_existing(path: Path) -> Path:
-    current = path
-    while not current.exists():
-        parent = current.parent
-        if parent == current:
-            break
-        current = parent
-    if not current.exists() or not current.is_dir():
-        raise InvalidInputError("storage target has no usable parent directory")
-    return current
-
-
-def _probe_stat(path: Path, probe: Callable[[Path], Any] | None) -> Any:
-    try:
-        return probe(path) if probe is not None else path.stat()
-    except (OSError, ValueError, TypeError) as exc:
-        raise InvalidInputError("storage target metadata could not be read") from exc
-
-
 def _stat_value(metadata: Any, name: str) -> Any:
     if isinstance(metadata, Mapping):
         return metadata.get(name)
     return getattr(metadata, name, None)
-
-
-def _check_existing_or_parent(
-    path: Path,
-    *,
-    field_name: str,
-    uid: int | None,
-    gid: int | None,
-    stat_probe: Callable[[Path], Any] | None,
-    access_probe: Callable[[str | os.PathLike[str], int], bool] | None,
-    warnings: list[str],
-) -> None:
-    existing = path if path.exists() else _nearest_existing(path)
-    metadata = _probe_stat(existing, stat_probe)
-    mode = _stat_value(metadata, "st_mode")
-    if mode is not None and not stat.S_ISDIR(mode):
-        raise InvalidInputError(f"{field_name} is not a directory")
-    if mode is not None and not (int(mode) & 0o222):
-        raise InvalidInputError(f"{field_name} is not writable")
-    access = access_probe or os.access
-    try:
-        writable = bool(access(existing, os.W_OK))
-    except (OSError, ValueError, TypeError) as exc:
-        raise InvalidInputError(f"{field_name} is not writable") from exc
-    if not writable:
-        raise InvalidInputError(f"{field_name} is not writable")
-    if uid is not None or gid is not None:
-        actual_uid = _stat_value(metadata, "st_uid")
-        actual_gid = _stat_value(metadata, "st_gid")
-        if uid is not None and actual_uid is not None and actual_uid != uid:
-            raise InvalidInputError(f"{field_name} owner does not match the requested uid")
-        if gid is not None and actual_gid is not None and actual_gid != gid:
-            raise InvalidInputError(f"{field_name} group does not match the requested gid")
-    elif path.exists() and uid is None and gid is None:
-        warnings.append(f"{field_name} ownership was not explicitly requested")
-
-
-def _free_gib(path: Path, probe: Callable[[Path], Any] | None) -> float:
-    try:
-        metadata = probe(path) if probe is not None else os.statvfs(path)
-        available = float(_stat_value(metadata, "f_bavail"))
-        block_size = float(_stat_value(metadata, "f_frsize") or _stat_value(metadata, "f_bsize"))
-    except (OSError, TypeError, ValueError, OverflowError) as exc:
-        raise InvalidInputError("free storage capacity could not be read") from exc
-    if not math.isfinite(available) or not math.isfinite(block_size) or available < 0 or block_size <= 0:
-        raise InvalidInputError("free storage capacity metadata is invalid")
-    return available * block_size / (1024**3)
 
 
 _DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -1011,13 +945,23 @@ def _rollback_created(
     remove_probe: Callable[[Path], Any] | None = None,
 ) -> tuple[str, ...]:
     partial: list[str] = []
+
+    def add_partial(record: _CreatedDirectory) -> None:
+        """Report both the intended path and any private remaining entry."""
+
+        logical = str(record.path)
+        remaining = record.path.parent / record.name
+        partial.append(logical)
+        if str(remaining) != logical:
+            partial.append(str(remaining))
+
     for record in reversed(created):
         path = record.path
         try:
             try:
                 metadata = os.stat(record.name, dir_fd=record.parent_fd, follow_symlinks=False)
             except FileNotFoundError:
-                partial.append(str(path))
+                add_partial(record)
                 continue
             if (
                 stat.S_ISLNK(metadata.st_mode)
@@ -1025,16 +969,16 @@ def _rollback_created(
                 or metadata.st_dev != record.device
                 or metadata.st_ino != record.inode
             ):
-                partial.append(str(path))
+                add_partial(record)
                 continue
             child_fd = os.open(record.name, _DIRECTORY_FLAGS, dir_fd=record.parent_fd)
             try:
                 child_metadata = os.fstat(child_fd)
                 if child_metadata.st_dev != record.device or child_metadata.st_ino != record.inode:
-                    partial.append(str(path))
+                    add_partial(record)
                     continue
                 if os.listdir(child_fd):
-                    partial.append(str(path))
+                    add_partial(record)
                     continue
             finally:
                 try:
@@ -1048,15 +992,15 @@ def _rollback_created(
                 except FileNotFoundError:
                     pass
                 else:
-                    partial.append(str(path))
+                    add_partial(record)
             else:
                 # Linux has no unlink-by-open-directory-fd primitive.  A
                 # pathname rmdir remains vulnerable to replacement after the
                 # identity check, so report the installer-owned path as a
                 # partial rollback instead of deleting an uncertain inode.
-                partial.append(str(path))
+                add_partial(record)
         except Exception:
-            partial.append(str(path))
+            add_partial(record)
     return tuple(partial)
 
 

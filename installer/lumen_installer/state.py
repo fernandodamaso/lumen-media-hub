@@ -15,6 +15,7 @@ import json
 import os
 import re
 import stat
+import time
 import uuid
 from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
@@ -68,6 +69,7 @@ def _lexical_absolute(path: Path) -> Path:
 
 _DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 _RENAME_NOREPLACE = 1
+_RENAME_EXCHANGE = 2
 @dataclass(frozen=True)
 class _StateDirectoryChainEntry:
     parent_fd: int
@@ -224,6 +226,27 @@ def _rename_noreplace(source: str, destination: str, parent_fd: int) -> None:
         raise OSError(error_number, os.strerror(error_number), destination)
 
 
+def _rename_exchange(source: str, destination: str, parent_fd: int) -> None:
+    """Atomically exchange two entries in one retained directory."""
+
+    try:
+        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+    except (AttributeError, OSError) as exc:
+        raise InvalidInputError("atomic state rollback is unavailable") from exc
+    renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        parent_fd,
+        os.fsencode(source),
+        parent_fd,
+        os.fsencode(destination),
+        _RENAME_EXCHANGE,
+    )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number), destination)
+
+
 def _directory_signature(fd: int) -> tuple[int, int, int, int]:
     metadata = os.fstat(fd)
     if not stat.S_ISDIR(metadata.st_mode):
@@ -301,36 +324,51 @@ def _restore_state_entry(parent_fd: int, public_name: str, staging_name: str) ->
         raise InvalidInputError("installer state could not be restored safely") from exc
 
 
+def _create_state_backup(parent_fd: int, expected: tuple[int, int]) -> tuple[str, tuple[int, int]]:
+    """Create a same-directory hard-link restore artifact before replacement."""
+
+    for _ in range(100):
+        name = f".state-backup-{uuid.uuid4().hex}.tmp"
+        try:
+            os.link(
+                STATE_FILE_NAME,
+                name,
+                src_dir_fd=parent_fd,
+                dst_dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
+        except FileExistsError:
+            continue
+        except OSError as exc:
+            raise InvalidInputError("installer state backup could not be created safely") from exc
+        if not _regular_file_matches(parent_fd, name, expected):
+            raise InvalidInputError("installer state backup changed during creation")
+        return name, expected
+    raise InvalidInputError("installer state backup name could not be allocated")
+
+
 def _restore_state_after_replace(
     parent_fd: int,
     temporary: str,
-    previous_payload: bytes | None,
+    backup: str | None,
+    backup_identity: tuple[int, int] | None,
 ) -> None:
-    """Restore the old state and quarantine the mismatched new inode."""
+    """Restore the old state from its prevalidated same-directory artifact."""
 
-    # ``temporary`` is free after replace.  Moving the public entry there is
-    # no-replace and therefore preserves an attacker-provided file/symlink
-    # instead of deleting or following it.
-    _restore_state_entry(parent_fd, STATE_FILE_NAME, temporary)
-    if previous_payload is None:
+    # Exchange the mismatched public inode with the prevalidated backup in one
+    # syscall. The external inode is preserved at the private backup name and
+    # the prior state becomes public without creating another temp file.
+    if backup is None or backup_identity is None:
+        _restore_state_entry(parent_fd, STATE_FILE_NAME, temporary)
         return
-    restore_fd, restore_name, restore_identity = _create_temp_state_file(parent_fd)
+    if not _regular_file_matches(parent_fd, backup, backup_identity):
+        raise InvalidInputError("installer state backup changed during rollback")
     try:
-        with os.fdopen(restore_fd, "wb", closefd=True) as stream:
-            restore_fd = -1
-            stream.write(previous_payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-            written = os.fstat(stream.fileno())
-            if (written.st_dev, written.st_ino) != restore_identity:
-                raise InvalidInputError("installer state rollback file changed while writing")
-        if not _regular_file_matches(parent_fd, restore_name, restore_identity):
-            raise InvalidInputError("installer state rollback file changed before installation")
-        _rename_noreplace(restore_name, STATE_FILE_NAME, parent_fd)
-        if not _regular_file_matches(parent_fd, STATE_FILE_NAME, restore_identity):
-            raise InvalidInputError("installer state could not be restored safely")
-    finally:
-        _close_fd(restore_fd)
+        _rename_exchange(STATE_FILE_NAME, backup, parent_fd)
+    except OSError as exc:
+        raise InvalidInputError("installer state could not be restored safely") from exc
+    if not _regular_file_matches(parent_fd, STATE_FILE_NAME, backup_identity):
+        raise InvalidInputError("installer state could not be restored safely")
 
 
 def _create_directory_noreplace(parent_fd: int, name: str, *, mode: int, description: str) -> int:
@@ -566,13 +604,6 @@ def _assert_state_identity(path: Path, fd: int, *, description: str) -> None:
         raise InvalidInputError(f"{description} changed or could not be inspected") from exc
     if not stat.S_ISDIR(current.st_mode) or current.st_dev != expected.st_dev or current.st_ino != expected.st_ino:
         raise InvalidInputError(f"{description} changed or is unsafe")
-
-
-def _ensure_repo_and_state_paths(repo: Path, *, create: bool, correct_modes: bool) -> Path:
-    """Validate state components through descriptor-relative operations."""
-
-    with _state_components(repo, create=create, correct_modes=correct_modes) as handles:
-        return (handles.installer_path if handles is not None else _lexical_absolute(repo) / STATE_DIR_NAME)
 
 
 def _open_state_file(installer_fd: int) -> int | None:
@@ -960,26 +991,21 @@ def _save_state_to_handles(state: InstallerState, path: Path, handles: _StateHan
     _assert_state_components_identity(handles)
     existing_fd = _open_state_file(handles.installer_fd)
     previous_identity: tuple[int, int] | None = None
-    previous_payload: bytes | None = None
     if existing_fd is not None:
         try:
             metadata = os.fstat(existing_fd)
             previous_identity = (metadata.st_dev, metadata.st_ino)
             if not _regular_file_matches(handles.installer_fd, STATE_FILE_NAME, previous_identity):
                 raise InvalidInputError("installer state file changed before save")
-            previous_stream = os.fdopen(existing_fd, "rb")
-            existing_fd = -1
-            with previous_stream:
-                previous_payload = previous_stream.read()
-            if not _regular_file_matches(handles.installer_fd, STATE_FILE_NAME, previous_identity):
-                raise InvalidInputError("installer state file changed while reading before save")
         except InvalidInputError:
             _close_fd(existing_fd)
             raise
-        except (OSError, UnicodeError) as exc:
+        except OSError as exc:
             _close_fd(existing_fd)
             raise InvalidInputError("installer state file could not be inspected before save") from exc
     _close_fd(existing_fd)
+    backup: str | None = None
+    backup_identity: tuple[int, int] | None = None
     fd: int | None = None
     temporary: str | None = None
     temporary_identity: tuple[int, int] | None = None
@@ -987,6 +1013,8 @@ def _save_state_to_handles(state: InstallerState, path: Path, handles: _StateHan
     pre_rename_fsync_failed = False
     temporary_create_failed = False
     try:
+        if previous_identity is not None:
+            backup, backup_identity = _create_state_backup(handles.installer_fd, previous_identity)
         try:
             fd, temporary, temporary_identity = _create_temp_state_file(handles.installer_fd)
         except OSError:
@@ -1028,6 +1056,9 @@ def _save_state_to_handles(state: InstallerState, path: Path, handles: _StateHan
                 raise InvalidInputError("installer state appeared before installation")
         elif not _regular_file_matches(handles.installer_fd, STATE_FILE_NAME, previous_identity):
             raise InvalidInputError("installer state changed before installation")
+        if backup is not None and backup_identity is not None:
+            if not _regular_file_matches(handles.installer_fd, backup, backup_identity):
+                raise InvalidInputError("installer state backup changed before installation")
         try:
             os.replace(
                 temporary,
@@ -1042,7 +1073,8 @@ def _save_state_to_handles(state: InstallerState, path: Path, handles: _StateHan
             _restore_state_after_replace(
                 handles.installer_fd,
                 temporary,
-                previous_payload,
+                backup,
+                backup_identity,
             )
             raise InvalidInputError("installer state changed during installation")
         # The post-rename directory sync is best effort, matching dotenv's
@@ -1062,6 +1094,113 @@ def _save_state_to_handles(state: InstallerState, path: Path, handles: _StateHan
         raise InvalidInputError("installer state could not be installed safely") from exc
     finally:
         _close_fd(fd)
+
+
+_CANDIDATE_NAME_PATTERNS = (
+    re.compile(r"\.state-[A-Za-z0-9][A-Za-z0-9-]*\.tmp\Z"),
+    re.compile(r"\.state-stage-[A-Za-z0-9][A-Za-z0-9-]*\.tmp\Z"),
+    re.compile(r"\.state-backup-[A-Za-z0-9][A-Za-z0-9-]*\.tmp\Z"),
+)
+
+
+def _is_candidate_name(name: str) -> bool:
+    return any(pattern.fullmatch(name) for pattern in _CANDIDATE_NAME_PATTERNS)
+
+
+def diagnose_state_candidates(
+    repo_root: str | os.PathLike[str],
+    *,
+    now: float | None = None,
+    minimum_age_seconds: float = 3600.0,
+    cleanup: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Report private state candidates without mutating the checkout.
+
+    Candidate cleanup is intentionally guidance-only.  Linux has no atomic
+    no-follow removal operation that can prove a pathname still names the
+    scanned inode at the removal syscall, so even explicit confirmation does
+    not enable deletion here.
+    """
+
+    if cleanup and not confirm:
+        raise InvalidInputError("candidate cleanup requires explicit confirmation")
+    try:
+        timestamp = time.time() if now is None else float(now)
+        minimum_age = float(minimum_age_seconds)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise InvalidInputError("candidate age threshold is invalid") from exc
+    if not all(value >= 0 and value != float("inf") for value in (timestamp, minimum_age)):
+        raise InvalidInputError("candidate age threshold is invalid")
+    root = _lexical_absolute(Path(repo_root).expanduser())
+    if not root.is_absolute():
+        raise InvalidInputError("repository root must be an absolute path")
+    candidates: list[dict[str, Any]] = []
+    with _state_components(root, create=False, correct_modes=False) as handles:
+        if handles is not None:
+            try:
+                names = sorted(name for name in os.listdir(handles.installer_fd) if _is_candidate_name(name))
+            except OSError as exc:
+                raise InvalidInputError("installer state candidates could not be listed safely") from exc
+            for name in names:
+                finding: dict[str, Any] = {
+                    "path": str(handles.installer_path / name),
+                    "kind": "unknown",
+                    "age_seconds": None,
+                    "age_eligible": False,
+                    "identity_verified": False,
+                }
+                fd: int | None = None
+                try:
+                    lexical = os.stat(name, dir_fd=handles.installer_fd, follow_symlinks=False)
+                    if stat.S_ISLNK(lexical.st_mode):
+                        finding["kind"] = "symlink"
+                    elif stat.S_ISDIR(lexical.st_mode):
+                        finding["kind"] = "directory"
+                    elif stat.S_ISREG(lexical.st_mode):
+                        finding["kind"] = "file"
+                    else:
+                        finding["kind"] = "other"
+                    age = max(0.0, timestamp - float(lexical.st_mtime))
+                    finding["age_seconds"] = age
+                    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                    if stat.S_ISDIR(lexical.st_mode):
+                        flags |= getattr(os, "O_DIRECTORY", 0)
+                    fd = os.open(name, flags, dir_fd=handles.installer_fd)
+                    captured = os.fstat(fd)
+                    current = os.stat(name, dir_fd=handles.installer_fd, follow_symlinks=False)
+                    finding["identity_verified"] = (
+                        not stat.S_ISLNK(current.st_mode)
+                        and current.st_dev == captured.st_dev
+                        and current.st_ino == captured.st_ino
+                        and current.st_dev == lexical.st_dev
+                        and current.st_ino == lexical.st_ino
+                    )
+                    finding["age_eligible"] = (
+                        bool(finding["identity_verified"])
+                        and age >= minimum_age
+                        and finding["kind"] in {"file", "directory"}
+                    )
+                    finding["device"] = captured.st_dev
+                    finding["inode"] = captured.st_ino
+                except OSError:
+                    # Keep the matching private name visible, but never claim
+                    # age or identity eligibility after an unsafe inspection.
+                    pass
+                finally:
+                    _close_fd(fd)
+                candidates.append(finding)
+    cleanup_report = {
+        "requested": bool(cleanup),
+        "confirmed": bool(confirm),
+        "requires_confirmation": True,
+        "performed": False,
+        "guidance": (
+            "Review each candidate's age and verified device/inode before any manual cleanup; "
+            "automatic cleanup is disabled because no atomic no-follow removal primitive is available."
+        ),
+    }
+    return {"candidates": candidates, "cleanup": cleanup_report}
 
 
 class StageJournal:
@@ -1165,6 +1304,7 @@ __all__ = [
     "STATE_FILE_NAME",
     "STATE_LOCK_NAME",
     "StageJournal",
+    "diagnose_state_candidates",
     "state_directory",
     "state_path",
 ]

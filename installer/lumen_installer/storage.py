@@ -264,6 +264,25 @@ class _CreatedDirectory:
     inode: int
 
 
+@dataclass(frozen=True)
+class _DirectoryChainEntry:
+    """One lexical path component held relative to its stable parent fd."""
+
+    parent_fd: int
+    name: str
+    parent_device: int
+    parent_inode: int
+    device: int
+    inode: int
+
+
+@dataclass
+class _DirectoryChain:
+    fd: int
+    entries: tuple[_DirectoryChainEntry, ...]
+    retained_fds: list[int]
+
+
 @dataclass
 class _StorageTarget:
     path: Path
@@ -277,30 +296,90 @@ class _StorageTarget:
     existed: bool
     layout_identities: dict[tuple[str, ...], tuple[int, int] | None] = field(default_factory=dict)
     retained_fds: list[int] = field(default_factory=list)
+    parent_chain: _DirectoryChain | None = None
 
 
-def _open_absolute_directory(path: Path) -> int:
-    """Walk an absolute path one component at a time without symlinks."""
+def _open_directory_chain(path: Path) -> _DirectoryChain:
+    """Open an absolute directory and retain every path-component descriptor."""
 
     fd: int | None = None
+    retained: list[int] = []
+    entries: list[_DirectoryChainEntry] = []
     try:
         fd = os.open(os.path.sep, _DIRECTORY_FLAGS)
+        retained.append(fd)
         for component in path.parts[1:]:
+            parent_metadata = os.fstat(fd)
             next_fd = os.open(component, _DIRECTORY_FLAGS, dir_fd=fd)
-            os.close(fd)
-            fd = next_fd
-        return fd
-    except OSError as exc:
-        if fd is not None:
             try:
-                os.close(fd)
+                metadata = os.fstat(next_fd)
             except OSError:
-                pass
+                _close_fd(next_fd)
+                raise
+            if not stat.S_ISDIR(metadata.st_mode):
+                _close_fd(next_fd)
+                raise InvalidInputError("storage parent is not a directory")
+            entries.append(
+                _DirectoryChainEntry(
+                    fd,
+                    component,
+                    parent_metadata.st_dev,
+                    parent_metadata.st_ino,
+                    metadata.st_dev,
+                    metadata.st_ino,
+                )
+            )
+            fd = next_fd
+            retained.append(fd)
+        return _DirectoryChain(fd, tuple(entries), retained)
+    except InvalidInputError:
+        for item in reversed(retained):
+            _close_fd(item)
+        raise
+    except OSError as exc:
+        for item in reversed(retained):
+            _close_fd(item)
         raise InvalidInputError("storage parent could not be opened safely") from exc
 
 
+def _open_absolute_directory(path: Path) -> int:
+    """Compatibility wrapper returning only the final descriptor."""
+
+    chain = _open_directory_chain(path)
+    for fd in chain.retained_fds[:-1]:
+        _close_fd(fd)
+    return chain.fd
+
+
+def _assert_directory_chain(chain: _DirectoryChain, *, description: str) -> None:
+    """Reject replacement of any lexical component below the stable root fd."""
+
+    try:
+        for entry in chain.entries:
+            parent = os.fstat(entry.parent_fd)
+            if (
+                not stat.S_ISDIR(parent.st_mode)
+                or parent.st_dev != entry.parent_device
+                or parent.st_ino != entry.parent_inode
+            ):
+                raise InvalidInputError(f"{description} parent changed or is unsafe")
+            current = os.stat(entry.name, dir_fd=entry.parent_fd, follow_symlinks=False)
+            if (
+                stat.S_ISLNK(current.st_mode)
+                or not stat.S_ISDIR(current.st_mode)
+                or current.st_dev != entry.device
+                or current.st_ino != entry.inode
+            ):
+                raise InvalidInputError(f"{description} path component changed or is unsafe")
+    except InvalidInputError:
+        raise
+    except OSError as exc:
+        raise InvalidInputError(f"{description} path could not be inspected safely") from exc
+
+
 def _open_storage_target(path: Path) -> _StorageTarget:
-    parent_fd = _open_absolute_directory(path.parent)
+    parent_chain = _open_directory_chain(path.parent)
+    parent_fd = parent_chain.fd
     fd: int | None = None
     try:
         parent_metadata = os.fstat(parent_fd)
@@ -320,7 +399,8 @@ def _open_storage_target(path: Path) -> _StorageTarget:
                 None,
                 None,
                 False,
-                retained_fds=[parent_fd],
+                retained_fds=list(parent_chain.retained_fds),
+                parent_chain=parent_chain,
             )
         except OSError as exc:
             raise InvalidInputError("storage target could not be opened safely") from exc
@@ -338,7 +418,8 @@ def _open_storage_target(path: Path) -> _StorageTarget:
                 metadata.st_dev,
                 metadata.st_ino,
                 True,
-                retained_fds=[parent_fd, fd],
+                retained_fds=[*parent_chain.retained_fds, fd],
+                parent_chain=parent_chain,
             )
         except InvalidInputError:
             _close_fd(fd)
@@ -348,12 +429,15 @@ def _open_storage_target(path: Path) -> _StorageTarget:
             raise InvalidInputError("storage target metadata could not be read") from exc
     except Exception:
         _close_fd(fd)
-        _close_fd(parent_fd)
+        for item in reversed(parent_chain.retained_fds):
+            _close_fd(item)
         raise
 
 
 def _target_identity(target: _StorageTarget, *, description: str) -> None:
     try:
+        if target.parent_chain is not None:
+            _assert_directory_chain(target.parent_chain, description=description)
         parent_metadata = os.fstat(target.parent_fd)
         if (
             not stat.S_ISDIR(parent_metadata.st_mode)
@@ -518,39 +602,35 @@ def _created_record(
     path: Path,
 ) -> tuple[_CreatedDirectory | None, int | None]:
     try:
-        metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        # Open the child first relative to the retained parent.  A pathname
+        # stat followed by open could observe one inode and adopt another.
+        child_fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
     except FileNotFoundError:
         return None, None
     except OSError as exc:
-        raise InvalidInputError("approved storage path could not be inspected") from exc
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
-        raise InvalidInputError("approved storage layout contains an unsafe existing path")
-    record = _CreatedDirectory(path, parent_fd, name, metadata.st_dev, metadata.st_ino)
-    try:
-        child_fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
-    except OSError:
-        return record, None
+        raise InvalidInputError("approved storage path could not be opened safely") from exc
     try:
         child_metadata = os.fstat(child_fd)
         if (
             not stat.S_ISDIR(child_metadata.st_mode)
-            or child_metadata.st_dev != record.device
-            or child_metadata.st_ino != record.inode
+        ):
+            raise InvalidInputError("approved storage layout contains an unsafe existing path")
+        lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if (
+            stat.S_ISLNK(lexical.st_mode)
+            or not stat.S_ISDIR(lexical.st_mode)
+            or lexical.st_dev != child_metadata.st_dev
+            or lexical.st_ino != child_metadata.st_ino
         ):
             raise InvalidInputError("approved storage path changed during creation")
+        record = _CreatedDirectory(path, parent_fd, name, child_metadata.st_dev, child_metadata.st_ino)
+        return record, child_fd
     except InvalidInputError:
-        try:
-            os.close(child_fd)
-        except OSError:
-            pass
+        _close_fd(child_fd)
         raise
     except OSError as exc:
-        try:
-            os.close(child_fd)
-        except OSError:
-            pass
+        _close_fd(child_fd)
         raise InvalidInputError("approved storage path could not be inspected") from exc
-    return record, child_fd
 
 
 def _close_created(created: Sequence[_CreatedDirectory]) -> None:
@@ -575,9 +655,9 @@ def _create_directory_at(
     chmod_probe: Callable[[Path, int], Any] | None = None,
     chown_probe: Callable[[Path, int, int], Any] | None = None,
 ) -> tuple[int, bool]:
-    _reject_symlink_components(path, field_name="approved storage path")
     made = False
     record_added = False
+    record_attempted = False
     try:
         succeeded = False
         try:
@@ -596,6 +676,13 @@ def _create_directory_at(
                 child_metadata = os.fstat(child_fd)
                 if (child_metadata.st_dev, child_metadata.st_ino) != expected:
                     raise InvalidInputError("approved storage path changed during validation")
+                lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+                if (
+                    stat.S_ISLNK(lexical.st_mode)
+                    or not stat.S_ISDIR(lexical.st_mode)
+                    or (lexical.st_dev, lexical.st_ino) != expected
+                ):
+                    raise InvalidInputError("approved storage path changed during validation")
                 return child_fd, False
             except Exception:
                 _close_fd(child_fd)
@@ -610,6 +697,7 @@ def _create_directory_at(
             os.mkdir(name, mode=STORAGE_DIRECTORY_MODE, dir_fd=parent_fd)
         else:
             mkdir_probe(path, STORAGE_DIRECTORY_MODE)
+        record_attempted = True
         record, child_fd = _created_record(parent_fd, name, path)
         if record is None:
             raise InvalidInputError("approved storage layout could not be created")
@@ -625,6 +713,14 @@ def _create_directory_at(
             child_metadata = os.fstat(child_fd)
             if child_metadata.st_dev != record.device or child_metadata.st_ino != record.inode:
                 raise InvalidInputError("approved storage path changed during creation")
+            lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            if (
+                stat.S_ISLNK(lexical.st_mode)
+                or not stat.S_ISDIR(lexical.st_mode)
+                or lexical.st_dev != record.device
+                or lexical.st_ino != record.inode
+            ):
+                raise InvalidInputError("approved storage path changed during creation")
             if uid is not None or gid is not None:
                 effective_uid = uid if uid is not None else -1
                 effective_gid = gid if gid is not None else -1
@@ -634,6 +730,14 @@ def _create_directory_at(
                     os.fchown(child_fd, effective_uid, effective_gid)
                 child_metadata = os.fstat(child_fd)
                 if child_metadata.st_dev != record.device or child_metadata.st_ino != record.inode:
+                    raise InvalidInputError("approved storage path changed during ownership update")
+                lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+                if (
+                    stat.S_ISLNK(lexical.st_mode)
+                    or not stat.S_ISDIR(lexical.st_mode)
+                    or lexical.st_dev != record.device
+                    or lexical.st_ino != record.inode
+                ):
                     raise InvalidInputError("approved storage path changed during ownership update")
             succeeded = True
             return child_fd, True
@@ -648,7 +752,7 @@ def _create_directory_at(
         # A probe may model a mkdir that created its directory before
         # reporting an error.  Track that path through the stable parent
         # descriptor so rollback never follows a replacement symlink.
-        if made and not record_added:
+        if made and not record_added and not record_attempted:
             try:
                 record, child_fd = _created_record(parent_fd, name, path)
                 if child_fd is not None:

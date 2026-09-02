@@ -69,11 +69,29 @@ _DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_
 
 
 @dataclass(frozen=True)
+class _StateDirectoryChainEntry:
+    parent_fd: int
+    name: str
+    parent_device: int
+    parent_inode: int
+    device: int
+    inode: int
+
+
+@dataclass
+class _StateDirectoryChain:
+    fd: int
+    entries: tuple[_StateDirectoryChainEntry, ...]
+    retained_fds: list[int]
+
+
+@dataclass(frozen=True)
 class _StateHandles:
     repo_fd: int
     state_fd: int
     installer_fd: int
     repo_path: Path
+    repo_chain: _StateDirectoryChain | None = None
 
     @property
     def state_path(self) -> Path:
@@ -93,22 +111,105 @@ def _close_fd(fd: int | None) -> None:
         pass
 
 
-def _open_absolute_directory(path: Path, *, description: str) -> int:
-    """Walk an absolute path one component at a time without symlinks."""
+def _open_directory_chain(path: Path, *, description: str) -> _StateDirectoryChain:
+    """Open an absolute directory while retaining its component descriptors."""
 
     if not path.is_absolute():
         raise InvalidInputError(f"{description} must be an absolute path")
+    retained: list[int] = []
+    entries: list[_StateDirectoryChainEntry] = []
     try:
         fd = os.open(os.path.sep, _DIRECTORY_FLAGS)
+        retained.append(fd)
         for component in path.parts[1:]:
+            parent_metadata = os.fstat(fd)
             next_fd = os.open(component, _DIRECTORY_FLAGS, dir_fd=fd)
-            _close_fd(fd)
+            try:
+                metadata = os.fstat(next_fd)
+            except OSError:
+                _close_fd(next_fd)
+                raise
+            if not stat.S_ISDIR(metadata.st_mode):
+                _close_fd(next_fd)
+                raise InvalidInputError(f"{description} is not a directory")
+            entries.append(
+                _StateDirectoryChainEntry(
+                    fd,
+                    component,
+                    parent_metadata.st_dev,
+                    parent_metadata.st_ino,
+                    metadata.st_dev,
+                    metadata.st_ino,
+                )
+            )
             fd = next_fd
-        return fd
+            retained.append(fd)
+        return _StateDirectoryChain(fd, tuple(entries), retained)
+    except InvalidInputError:
+        for item in reversed(retained):
+            _close_fd(item)
+        raise
     except OSError as exc:
-        if "fd" in locals():
-            _close_fd(fd)
+        for item in reversed(retained):
+            _close_fd(item)
         raise InvalidInputError(f"{description} could not be opened safely") from exc
+
+
+def _open_absolute_directory(path: Path, *, description: str) -> int:
+    """Compatibility wrapper returning only the final descriptor."""
+
+    chain = _open_directory_chain(path, description=description)
+    for fd in chain.retained_fds[:-1]:
+        _close_fd(fd)
+    return chain.fd
+
+
+def _assert_state_chain(chain: _StateDirectoryChain, *, description: str) -> None:
+    """Verify each lexical component still names the retained directory."""
+
+    try:
+        for entry in chain.entries:
+            parent = os.fstat(entry.parent_fd)
+            if (
+                not stat.S_ISDIR(parent.st_mode)
+                or parent.st_dev != entry.parent_device
+                or parent.st_ino != entry.parent_inode
+            ):
+                raise InvalidInputError(f"{description} parent changed or is unsafe")
+            current = os.stat(entry.name, dir_fd=entry.parent_fd, follow_symlinks=False)
+            if (
+                stat.S_ISLNK(current.st_mode)
+                or not stat.S_ISDIR(current.st_mode)
+                or current.st_dev != entry.device
+                or current.st_ino != entry.inode
+            ):
+                raise InvalidInputError(f"{description} path component changed or is unsafe")
+    except InvalidInputError:
+        raise
+    except OSError as exc:
+        raise InvalidInputError(f"{description} path could not be inspected safely") from exc
+
+
+def _assert_state_entry(parent_fd: int, name: str, fd: int, *, description: str) -> None:
+    try:
+        current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        expected = os.fstat(fd)
+    except OSError as exc:
+        raise InvalidInputError(f"{description} changed or could not be inspected") from exc
+    if (
+        stat.S_ISLNK(current.st_mode)
+        or not stat.S_ISDIR(current.st_mode)
+        or current.st_dev != expected.st_dev
+        or current.st_ino != expected.st_ino
+    ):
+        raise InvalidInputError(f"{description} changed or is unsafe")
+
+
+def _assert_state_components_identity(handles: _StateHandles) -> None:
+    if handles.repo_chain is not None:
+        _assert_state_chain(handles.repo_chain, description="repository root")
+    _assert_state_entry(handles.repo_fd, ".state", handles.state_fd, description="installer state parent")
+    _assert_state_entry(handles.state_fd, "installer", handles.installer_fd, description="installer state directory")
 
 
 def _open_directory_child(
@@ -119,6 +220,7 @@ def _open_directory_child(
     mode: int,
     description: str,
 ) -> int | None:
+    expected: tuple[int, int] | None = None
     try:
         fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
     except FileNotFoundError:
@@ -131,6 +233,13 @@ def _open_directory_child(
         except OSError as exc:
             raise InvalidInputError(f"{description} could not be created") from exc
         try:
+            created = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        except OSError as exc:
+            raise InvalidInputError(f"{description} could not be inspected safely") from exc
+        if stat.S_ISLNK(created.st_mode) or not stat.S_ISDIR(created.st_mode):
+            raise InvalidInputError(f"{description} is not a directory")
+        expected = (created.st_dev, created.st_ino)
+        try:
             fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
         except OSError as exc:
             raise InvalidInputError(f"{description} could not be opened safely") from exc
@@ -140,6 +249,16 @@ def _open_directory_child(
         metadata = os.fstat(fd)
         if not stat.S_ISDIR(metadata.st_mode):
             raise InvalidInputError(f"{description} is not a directory")
+        if expected is not None and (metadata.st_dev, metadata.st_ino) != expected:
+            raise InvalidInputError(f"{description} changed during creation")
+        lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if (
+            stat.S_ISLNK(lexical.st_mode)
+            or not stat.S_ISDIR(lexical.st_mode)
+            or lexical.st_dev != metadata.st_dev
+            or lexical.st_ino != metadata.st_ino
+        ):
+            raise InvalidInputError(f"{description} changed during creation")
         if stat.S_IMODE(metadata.st_mode) != mode:
             os.fchmod(fd, mode)
     except InvalidInputError:
@@ -178,10 +297,12 @@ def _state_components(repo: Path, *, create: bool, correct_modes: bool):
 
     repo = _lexical_absolute(repo)
     repo_fd: int | None = None
+    repo_chain: _StateDirectoryChain | None = None
     state_fd: int | None = None
     installer_fd: int | None = None
     try:
-        repo_fd = _open_absolute_directory(repo, description="repository root")
+        repo_chain = _open_directory_chain(repo, description="repository root")
+        repo_fd = repo_chain.fd
         state_fd = _open_directory_child(
             repo_fd,
             ".state",
@@ -204,11 +325,17 @@ def _state_components(repo: Path, *, create: bool, correct_modes: bool):
             return
         if correct_modes:
             _restrict_existing_lock(installer_fd)
-        yield _StateHandles(repo_fd, state_fd, installer_fd, repo)
+        handles = _StateHandles(repo_fd, state_fd, installer_fd, repo, repo_chain)
+        _assert_state_components_identity(handles)
+        yield handles
     finally:
         _close_fd(installer_fd)
         _close_fd(state_fd)
-        _close_fd(repo_fd)
+        if repo_chain is None:
+            _close_fd(repo_fd)
+        else:
+            for item in reversed(repo_chain.retained_fds):
+                _close_fd(item)
 
 
 def _assert_state_identity(path: Path, fd: int, *, description: str) -> None:
@@ -252,6 +379,7 @@ def _open_state_file(installer_fd: int) -> int | None:
 
 
 def _read_state(handles: _StateHandles) -> str | None:
+    _assert_state_components_identity(handles)
     fd = _open_state_file(handles.installer_fd)
     if fd is None:
         return None
@@ -307,6 +435,7 @@ def _state_lock(repo: Path):
                 raise InvalidInputError("installer state lock is not regular")
             os.fchmod(fd, 0o600)
             fcntl.flock(fd, fcntl.LOCK_EX)
+            _assert_state_components_identity(handles)
             _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
             try:
                 lock_stat = os.stat(STATE_LOCK_NAME, dir_fd=handles.installer_fd, follow_symlinks=False)
@@ -594,8 +723,10 @@ def _save_state_to_handles(state: InstallerState, path: Path, handles: _StateHan
     if not path.is_absolute() or parent.name != "installer" or parent.parent.name != ".state":
         raise InvalidInputError("installer state must stay below .state/installer")
     payload = json.dumps(state.as_dict(), ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
+    _assert_state_components_identity(handles)
     _assert_state_identity(handles.state_path, handles.state_fd, description="installer state parent")
     _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
+    _assert_state_components_identity(handles)
     existing_fd = _open_state_file(handles.installer_fd)
     _close_fd(existing_fd)
     fd, temporary = _create_temp_state_file(handles.installer_fd)

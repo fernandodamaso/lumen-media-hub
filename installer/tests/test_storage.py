@@ -263,6 +263,79 @@ class StorageValidationTests(unittest.TestCase):
                 )
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched")
 
+    def test_ordinary_storage_parent_replacement_is_rejected_before_apply(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            parent = base / "storage-parent"
+            parent.mkdir()
+            root = parent / "library"
+            root.mkdir()
+            downloads = base / "downloads"
+            replacement = base / "replacement-parent"
+            replacement.mkdir()
+            sentinel = replacement / "outside-sentinel"
+            sentinel.write_text("untouched", encoding="utf-8")
+            moved = base / "storage-parent-original"
+            swapped = False
+
+            def stat_probe(path):
+                nonlocal swapped
+                metadata = path.stat()
+                if path == root and not swapped:
+                    swapped = True
+                    parent.rename(moved)
+                    replacement.rename(parent)
+                return metadata
+
+            with self.assertRaises(InvalidInputError):
+                validate_storage(
+                    root,
+                    downloads,
+                    repo_root=repo,
+                    stat_probe=stat_probe,
+                    access_probe=lambda path, mode: True,
+                )
+            self.assertEqual((parent / sentinel.name).read_text(encoding="utf-8"), "untouched")
+            self.assertFalse((parent / "library" / "media").exists())
+
+    def test_new_target_replacement_is_not_adopted_as_installer_created(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            downloads = base / "downloads"
+            outside = base / "outside"
+            outside.mkdir()
+            sentinel = outside / "outside-sentinel"
+            sentinel.write_text("untouched", encoding="utf-8")
+            moved = base / "library-original"
+            swapped = False
+            real_stat = os.stat
+
+            def stat_swap(path, *args, **kwargs):
+                nonlocal swapped
+                metadata = real_stat(path, *args, **kwargs)
+                if path == root.name and kwargs.get("dir_fd") is not None and not swapped:
+                    swapped = True
+                    root.rename(moved)
+                    outside.rename(root)
+                    metadata = real_stat(path, *args, **kwargs)
+                return metadata
+
+            with mock.patch("lumen_installer.storage.os.stat", side_effect=stat_swap):
+                with self.assertRaises(InvalidInputError):
+                    validate_storage(
+                        root,
+                        downloads,
+                        repo_root=repo,
+                        access_probe=lambda path, mode: True,
+                    )
+            self.assertEqual((root / sentinel.name).read_text(encoding="utf-8"), "untouched")
+            self.assertFalse((root / "media").exists())
+
     def test_mkdir_failure_after_creation_is_rolled_back(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)

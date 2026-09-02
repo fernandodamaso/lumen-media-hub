@@ -318,6 +318,41 @@ class InstallerStateTests(unittest.TestCase):
                 "completed_stages": [],
             }))
 
+    def test_state_creation_rejects_ordinary_state_directory_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            replacement = base / "replacement-state"
+            replacement_installer = replacement / "installer"
+            replacement_installer.mkdir(parents=True)
+            external_state = replacement_installer / "state.json"
+            external_state.write_text("outside-sentinel", encoding="utf-8")
+            moved = base / "state-original"
+            real_open = os.open
+            swapped = False
+            missing_seen = False
+
+            def open_and_replace(name, flags, mode=0o777, *, dir_fd=None):
+                nonlocal missing_seen, swapped
+                if name == ".state" and dir_fd is not None and not missing_seen:
+                    try:
+                        return real_open(name, flags, mode, dir_fd=dir_fd)
+                    except FileNotFoundError:
+                        missing_seen = True
+                        raise
+                if name == ".state" and dir_fd is not None and missing_seen and not swapped:
+                    state_parent = repo / ".state"
+                    state_parent.rename(moved)
+                    replacement.rename(state_parent)
+                    swapped = True
+                return real_open(name, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch("lumen_installer.state.os.open", side_effect=open_and_replace):
+                with self.assertRaises(InvalidInputError):
+                    InstallerState(repo_root=repo).save()
+            self.assertEqual((repo / ".state" / "installer" / "state.json").read_text(encoding="utf-8"), "outside-sentinel")
+
     def test_state_reports_and_string_forms_never_include_resource_identifier_values(self):
         sentinel = "0123456789abcdef0123456789abcdef"
         state = InstallerState(owned_resources={"resource": sentinel})

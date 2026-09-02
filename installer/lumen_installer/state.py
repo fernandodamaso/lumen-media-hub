@@ -578,58 +578,67 @@ class InstallerState:
         if parent.name != "installer" or parent.parent.name != ".state":
             raise InvalidInputError("installer state must stay below .state/installer")
         parent_root = parent.parent.parent
-        payload = json.dumps(self.as_dict(), ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
         with _state_components(parent_root, create=True, correct_modes=True) as handles:
             if handles is None:
                 raise InvalidInputError("installer state directory could not be opened")
-            _assert_state_identity(handles.state_path, handles.state_fd, description="installer state parent")
-            _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
-            existing_fd = _open_state_file(handles.installer_fd)
-            _close_fd(existing_fd)
-            fd, temporary = _create_temp_state_file(handles.installer_fd)
-            replaced = False
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8", newline="") as stream:
-                    fd = -1
-                    stream.write(payload)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                # The mode is applied to the open temporary inode before it
-                # can become visible as state.json.  No destination chmod is
-                # needed or allowed after the atomic rename.
-                os.fsync(handles.installer_fd)
-                _assert_state_identity(handles.state_path, handles.state_fd, description="installer state parent")
-                _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
-                os.replace(
-                    temporary,
-                    STATE_FILE_NAME,
-                    src_dir_fd=handles.installer_fd,
-                    dst_dir_fd=handles.installer_fd,
-                )
-                replaced = True
-                # The post-rename directory sync is best effort, matching
-                # dotenv's atomic-write contract.  The state is already
-                # installed and must not be reported as failed here.
-                try:
-                    os.fsync(handles.installer_fd)
-                except OSError:
-                    pass
-                _assert_state_identity(handles.state_path, handles.state_fd, description="installer state parent")
-                _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
-            finally:
-                _close_fd(fd)
-                if not replaced:
-                    try:
-                        os.unlink(temporary, dir_fd=handles.installer_fd)
-                    except FileNotFoundError:
-                        pass
-                    except OSError:
-                        # Cleanup is descriptor-relative and therefore cannot
-                        # remove a replacement outside this state directory.
-                        pass
+            _save_state_to_handles(self, path, handles)
         return path
 
     persist = save
+
+
+def _save_state_to_handles(state: InstallerState, path: Path, handles: _StateHandles) -> None:
+    """Persist using already-open, identity-checked state descriptors."""
+
+    parent = path.parent
+    if not path.is_absolute() or parent.name != "installer" or parent.parent.name != ".state":
+        raise InvalidInputError("installer state must stay below .state/installer")
+    payload = json.dumps(state.as_dict(), ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
+    _assert_state_identity(handles.state_path, handles.state_fd, description="installer state parent")
+    _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
+    existing_fd = _open_state_file(handles.installer_fd)
+    _close_fd(existing_fd)
+    fd, temporary = _create_temp_state_file(handles.installer_fd)
+    replaced = False
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as stream:
+            fd = -1
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # The mode is applied to the open temporary inode before it can
+        # become visible as state.json.  No destination chmod is needed or
+        # allowed after the atomic rename.
+        os.fsync(handles.installer_fd)
+        _assert_state_identity(handles.state_path, handles.state_fd, description="installer state parent")
+        _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
+        os.replace(
+            temporary,
+            STATE_FILE_NAME,
+            src_dir_fd=handles.installer_fd,
+            dst_dir_fd=handles.installer_fd,
+        )
+        replaced = True
+        # The post-rename directory sync is best effort, matching dotenv's
+        # atomic-write contract.  The state is already installed and must not
+        # be reported as failed here.
+        try:
+            os.fsync(handles.installer_fd)
+        except OSError:
+            pass
+        _assert_state_identity(handles.state_path, handles.state_fd, description="installer state parent")
+        _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
+    finally:
+        _close_fd(fd)
+        if not replaced:
+            try:
+                os.unlink(temporary, dir_fd=handles.installer_fd)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                # Cleanup is descriptor-relative and therefore cannot remove
+                # a replacement outside this state directory.
+                pass
 
 
 class StageJournal:
@@ -691,17 +700,13 @@ class StageJournal:
             raise InvalidInputError("unknown installer stage")
         if self._state.repo_root is None:
             raise InvalidInputError("stage journal has no repository root")
-        with _state_lock(self._state.repo_root):
-            with _state_components(self._state.repo_root, create=False, correct_modes=True) as handles:
-                if handles is None:
-                    current = self._state
-                else:
-                    raw = _read_state(handles)
-                    current = (
-                        self._state
-                        if raw is None
-                        else _decode_state(raw, repo_root=self._state.repo_root, allowed_stages=self.stages)
-                    )
+        with _state_lock(self._state.repo_root) as handles:
+            raw = _read_state(handles)
+            current = (
+                self._state
+                if raw is None
+                else _decode_state(raw, repo_root=self._state.repo_root, allowed_stages=self.stages)
+            )
             completed = current.completed_stages
             if any(item not in self.stages for item in completed):
                 raise InvalidInputError("installer state contains an unknown completed stage")
@@ -714,7 +719,7 @@ class StageJournal:
             if stage != expected:
                 raise InvalidInputError("installer stages must be completed in order")
             candidate = replace(current, completed_stages=completed + (stage,))
-            candidate.save()
+            _save_state_to_handles(candidate, candidate.path, handles)
             self._state = candidate
             return True
 

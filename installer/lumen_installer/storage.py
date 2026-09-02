@@ -8,7 +8,7 @@ import os
 import re
 import stat
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -246,6 +246,15 @@ def _free_gib(path: Path, probe: Callable[[Path], Any] | None) -> float:
 _DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 
 
+def _close_fd(fd: int | None) -> None:
+    if fd is None:
+        return
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+
+
 @dataclass
 class _CreatedDirectory:
     path: Path
@@ -253,6 +262,21 @@ class _CreatedDirectory:
     name: str
     device: int
     inode: int
+
+
+@dataclass
+class _StorageTarget:
+    path: Path
+    parent_fd: int
+    name: str
+    parent_device: int
+    parent_inode: int
+    fd: int | None
+    device: int | None
+    inode: int | None
+    existed: bool
+    layout_identities: dict[tuple[str, ...], tuple[int, int] | None] = field(default_factory=dict)
+    retained_fds: list[int] = field(default_factory=list)
 
 
 def _open_absolute_directory(path: Path) -> int:
@@ -273,6 +297,219 @@ def _open_absolute_directory(path: Path) -> int:
             except OSError:
                 pass
         raise InvalidInputError("storage parent could not be opened safely") from exc
+
+
+def _open_storage_target(path: Path) -> _StorageTarget:
+    parent_fd = _open_absolute_directory(path.parent)
+    fd: int | None = None
+    try:
+        parent_metadata = os.fstat(parent_fd)
+        if not stat.S_ISDIR(parent_metadata.st_mode):
+            raise InvalidInputError("storage target parent is not a directory")
+        name = path.name
+        try:
+            fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
+        except FileNotFoundError:
+            return _StorageTarget(
+                path,
+                parent_fd,
+                name,
+                parent_metadata.st_dev,
+                parent_metadata.st_ino,
+                None,
+                None,
+                None,
+                False,
+                retained_fds=[parent_fd],
+            )
+        except OSError as exc:
+            raise InvalidInputError("storage target could not be opened safely") from exc
+        try:
+            metadata = os.fstat(fd)
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise InvalidInputError("storage target is not a directory")
+            return _StorageTarget(
+                path,
+                parent_fd,
+                name,
+                parent_metadata.st_dev,
+                parent_metadata.st_ino,
+                fd,
+                metadata.st_dev,
+                metadata.st_ino,
+                True,
+                retained_fds=[parent_fd, fd],
+            )
+        except InvalidInputError:
+            _close_fd(fd)
+            raise
+        except OSError as exc:
+            _close_fd(fd)
+            raise InvalidInputError("storage target metadata could not be read") from exc
+    except Exception:
+        _close_fd(fd)
+        _close_fd(parent_fd)
+        raise
+
+
+def _target_identity(target: _StorageTarget, *, description: str) -> None:
+    try:
+        parent_metadata = os.fstat(target.parent_fd)
+        if (
+            not stat.S_ISDIR(parent_metadata.st_mode)
+            or parent_metadata.st_dev != target.parent_device
+            or parent_metadata.st_ino != target.parent_inode
+        ):
+            raise InvalidInputError(f"{description} parent changed or is unsafe")
+        try:
+            metadata = os.stat(target.name, dir_fd=target.parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            metadata = None
+        if target.existed:
+            if (
+                metadata is None
+                or stat.S_ISLNK(metadata.st_mode)
+                or not stat.S_ISDIR(metadata.st_mode)
+                or metadata.st_dev != target.device
+                or metadata.st_ino != target.inode
+            ):
+                raise InvalidInputError(f"{description} changed or is unsafe")
+            if target.fd is None:
+                raise InvalidInputError(f"{description} descriptor is missing")
+            current = os.fstat(target.fd)
+            if current.st_dev != target.device or current.st_ino != target.inode:
+                raise InvalidInputError(f"{description} descriptor changed or is unsafe")
+        elif metadata is not None:
+            raise InvalidInputError(f"{description} appeared before creation")
+    except InvalidInputError:
+        raise
+    except OSError as exc:
+        raise InvalidInputError(f"{description} changed or could not be inspected") from exc
+
+
+def _close_storage_target(target: _StorageTarget) -> None:
+    seen: set[int] = set()
+    for fd in reversed(target.retained_fds):
+        if fd in seen:
+            continue
+        seen.add(fd)
+        _close_fd(fd)
+
+
+def _capture_layout_identities(target: _StorageTarget, relatives: Sequence[Path]) -> None:
+    _target_identity(target, description="storage target")
+    if not target.existed or target.fd is None:
+        for relative in relatives:
+            for index, _component in enumerate(relative.parts):
+                target.layout_identities.setdefault(tuple(relative.parts[: index + 1]), None)
+        return
+    for relative in relatives:
+        parent_fd = target.fd
+        opened: list[int] = []
+        prefix: list[str] = []
+        try:
+            for component in relative.parts:
+                prefix.append(component)
+                key = tuple(prefix)
+                try:
+                    metadata = os.stat(component, dir_fd=parent_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    target.layout_identities[key] = None
+                    break
+                except OSError as exc:
+                    raise InvalidInputError("approved storage path could not be inspected") from exc
+                if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                    raise InvalidInputError("approved storage layout contains an unsafe existing path")
+                target.layout_identities[key] = (metadata.st_dev, metadata.st_ino)
+                if component != relative.parts[-1]:
+                    try:
+                        child_fd = os.open(component, _DIRECTORY_FLAGS, dir_fd=parent_fd)
+                    except OSError as exc:
+                        raise InvalidInputError("approved storage path could not be opened safely") from exc
+                    opened.append(child_fd)
+                    parent_fd = child_fd
+        finally:
+            for fd in reversed(opened):
+                _close_fd(fd)
+
+
+def _descriptor_access(fd: int) -> bool:
+    # Linux os.access does not accept a descriptor directly.  /proc/self/fd
+    # refers to the already-open inode and therefore cannot be redirected by a
+    # replacement of the original pathname.
+    return bool(os.access(f"/proc/self/fd/{fd}", os.W_OK))
+
+
+def _probe_target_metadata(
+    target: _StorageTarget,
+    probe: Callable[[Path], Any] | None,
+) -> tuple[Any, Path]:
+    _target_identity(target, description="storage target")
+    probe_path = target.path if target.existed else target.path.parent
+    try:
+        metadata = probe(probe_path) if probe is not None else os.fstat(target.fd or target.parent_fd)
+    except (OSError, ValueError, TypeError) as exc:
+        raise InvalidInputError("storage target metadata could not be read") from exc
+    _target_identity(target, description="storage target")
+    return metadata, probe_path
+
+
+def _check_storage_target(
+    target: _StorageTarget,
+    *,
+    field_name: str,
+    uid: int | None,
+    gid: int | None,
+    stat_probe: Callable[[Path], Any] | None,
+    access_probe: Callable[[str | os.PathLike[str], int], bool] | None,
+    warnings: list[str],
+) -> None:
+    metadata, probe_path = _probe_target_metadata(target, stat_probe)
+    mode = _stat_value(metadata, "st_mode")
+    if mode is not None and not stat.S_ISDIR(mode):
+        raise InvalidInputError(f"{field_name} is not a directory")
+    if mode is not None and not (int(mode) & 0o222):
+        raise InvalidInputError(f"{field_name} is not writable")
+    try:
+        writable = (
+            bool(access_probe(probe_path, os.W_OK))
+            if access_probe is not None
+            else _descriptor_access(target.fd or target.parent_fd)
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        raise InvalidInputError(f"{field_name} is not writable") from exc
+    _target_identity(target, description="storage target")
+    if not writable:
+        raise InvalidInputError(f"{field_name} is not writable")
+    if uid is not None or gid is not None:
+        actual_uid = _stat_value(metadata, "st_uid")
+        actual_gid = _stat_value(metadata, "st_gid")
+        if uid is not None and actual_uid is not None and actual_uid != uid:
+            raise InvalidInputError(f"{field_name} owner does not match the requested uid")
+        if gid is not None and actual_gid is not None and actual_gid != gid:
+            raise InvalidInputError(f"{field_name} group does not match the requested gid")
+    elif target.existed:
+        warnings.append(f"{field_name} ownership was not explicitly requested")
+
+
+def _free_target_gib(target: _StorageTarget, probe: Callable[[Path], Any] | None) -> float:
+    _target_identity(target, description="storage target")
+    probe_path = target.path if target.existed else target.path.parent
+    try:
+        metadata = probe(probe_path) if probe is not None else os.statvfs(target.fd or target.parent_fd)
+    except (OSError, TypeError, ValueError, OverflowError) as exc:
+        raise InvalidInputError("free storage capacity could not be read") from exc
+    _target_identity(target, description="storage target")
+    available = _stat_value(metadata, "f_bavail")
+    block = _stat_value(metadata, "f_frsize") or _stat_value(metadata, "f_bsize")
+    try:
+        available = float(available)
+        block = float(block)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise InvalidInputError("free storage capacity metadata is invalid") from exc
+    if not math.isfinite(available) or not math.isfinite(block) or available < 0 or block <= 0:
+        raise InvalidInputError("free storage capacity metadata is invalid")
+    return available * block / (1024**3)
 
 
 def _created_record(
@@ -317,28 +554,32 @@ def _created_record(
 
 
 def _close_created(created: Sequence[_CreatedDirectory]) -> None:
+    seen: set[int] = set()
     for record in created:
-        try:
-            os.close(record.parent_fd)
-        except OSError:
-            pass
+        if record.parent_fd in seen:
+            continue
+        seen.add(record.parent_fd)
+        _close_fd(record.parent_fd)
 
 
-def _create_directory(
+def _create_directory_at(
     path: Path,
     *,
+    parent_fd: int,
+    name: str,
+    expected: tuple[int, int] | None,
     uid: int | None,
     gid: int | None,
     created: list[_CreatedDirectory],
     mkdir_probe: Callable[[Path, int], Any] | None = None,
     chmod_probe: Callable[[Path, int], Any] | None = None,
     chown_probe: Callable[[Path, int, int], Any] | None = None,
-) -> None:
+) -> tuple[int, bool]:
     _reject_symlink_components(path, field_name="approved storage path")
-    parent_fd = _open_absolute_directory(path.parent)
-    name = path.name
     made = False
+    record_added = False
     try:
+        succeeded = False
         try:
             existing = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
         except FileNotFoundError:
@@ -348,7 +589,19 @@ def _create_directory(
         if existing is not None:
             if stat.S_ISLNK(existing.st_mode) or not stat.S_ISDIR(existing.st_mode):
                 raise InvalidInputError("approved storage layout contains an unsafe existing path")
-            return
+            if expected is None or (existing.st_dev, existing.st_ino) != expected:
+                raise InvalidInputError("approved storage path changed during validation")
+            child_fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
+            try:
+                child_metadata = os.fstat(child_fd)
+                if (child_metadata.st_dev, child_metadata.st_ino) != expected:
+                    raise InvalidInputError("approved storage path changed during validation")
+                return child_fd, False
+            except Exception:
+                _close_fd(child_fd)
+                raise
+        if expected is not None:
+            raise InvalidInputError("approved storage path disappeared during validation")
         # A test/integration probe may create the directory before reporting
         # an error.  Mark the attempt before invoking it so that the stable
         # parent descriptor can discover and roll back that inode.
@@ -361,7 +614,7 @@ def _create_directory(
         if record is None:
             raise InvalidInputError("approved storage layout could not be created")
         created.append(record)
-        parent_fd = -1
+        record_added = True
         if child_fd is None:
             raise InvalidInputError("approved storage path could not be opened safely")
         try:
@@ -369,6 +622,9 @@ def _create_directory(
                 chmod_probe(path, STORAGE_DIRECTORY_MODE)
             else:
                 os.fchmod(child_fd, STORAGE_DIRECTORY_MODE)
+            child_metadata = os.fstat(child_fd)
+            if child_metadata.st_dev != record.device or child_metadata.st_ino != record.inode:
+                raise InvalidInputError("approved storage path changed during creation")
             if uid is not None or gid is not None:
                 effective_uid = uid if uid is not None else -1
                 effective_gid = gid if gid is not None else -1
@@ -376,11 +632,14 @@ def _create_directory(
                     chown_probe(path, effective_uid, effective_gid)
                 else:
                     os.fchown(child_fd, effective_uid, effective_gid)
+                child_metadata = os.fstat(child_fd)
+                if child_metadata.st_dev != record.device or child_metadata.st_ino != record.inode:
+                    raise InvalidInputError("approved storage path changed during ownership update")
+            succeeded = True
+            return child_fd, True
         finally:
-            try:
-                os.close(child_fd)
-            except OSError:
-                pass
+            if not succeeded:
+                _close_fd(child_fd)
     except FileExistsError as exc:
         # A concurrent creator owns a directory that appeared between the
         # preflight check and mkdir; never claim or remove it during rollback.
@@ -389,23 +648,125 @@ def _create_directory(
         # A probe may model a mkdir that created its directory before
         # reporting an error.  Track that path through the stable parent
         # descriptor so rollback never follows a replacement symlink.
-        if made and parent_fd >= 0:
+        if made and not record_added:
             try:
                 record, child_fd = _created_record(parent_fd, name, path)
                 if child_fd is not None:
-                    os.close(child_fd)
+                    _close_fd(child_fd)
                 if record is not None:
                     created.append(record)
-                    parent_fd = -1
             except Exception:
                 pass
         raise InvalidInputError("approved storage layout could not be created") from exc
+
+
+def _create_directory(
+    path: Path,
+    *,
+    uid: int | None,
+    gid: int | None,
+    created: list[_CreatedDirectory],
+    mkdir_probe: Callable[[Path, int], Any] | None = None,
+    chmod_probe: Callable[[Path, int], Any] | None = None,
+    chown_probe: Callable[[Path, int, int], Any] | None = None,
+) -> None:
+    """Compatibility wrapper for descriptor-relative directory creation."""
+
+    parent_fd = _open_absolute_directory(path.parent)
+    original_count = len(created)
+    try:
+        try:
+            current = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            expected = None
+        except OSError as exc:
+            raise InvalidInputError("approved storage path could not be inspected") from exc
+        else:
+            if stat.S_ISLNK(current.st_mode) or not stat.S_ISDIR(current.st_mode):
+                raise InvalidInputError("approved storage layout contains an unsafe existing path")
+            expected = (current.st_dev, current.st_ino)
+        child_fd, _ = _create_directory_at(
+            path,
+            parent_fd=parent_fd,
+            name=path.name,
+            expected=expected,
+            uid=uid,
+            gid=gid,
+            created=created,
+            mkdir_probe=mkdir_probe,
+            chmod_probe=chmod_probe,
+            chown_probe=chown_probe,
+        )
+        _close_fd(child_fd)
     finally:
-        if parent_fd >= 0:
-            try:
-                os.close(parent_fd)
-            except OSError:
-                pass
+        # A newly created record owns this parent descriptor until the caller
+        # completes or rolls back the mutation.  Existing-path checks have no
+        # record and can release it here.
+        if len(created) == original_count:
+            _close_fd(parent_fd)
+
+
+def _apply_target_layout(
+    target: _StorageTarget,
+    relatives: Sequence[Path],
+    *,
+    uid: int | None,
+    gid: int | None,
+    created: list[_CreatedDirectory],
+    mkdir_probe: Callable[[Path, int], Any] | None,
+    chmod_probe: Callable[[Path, int], Any] | None,
+    chown_probe: Callable[[Path, int, int], Any] | None,
+) -> None:
+    """Create one target and its layout using only retained descriptors."""
+
+    _target_identity(target, description="storage target")
+    if not target.existed:
+        child_fd, _ = _create_directory_at(
+            target.path,
+            parent_fd=target.parent_fd,
+            name=target.name,
+            expected=None,
+            uid=uid,
+            gid=gid,
+            created=created,
+            mkdir_probe=mkdir_probe,
+            chmod_probe=chmod_probe,
+            chown_probe=chown_probe,
+        )
+        target.fd = child_fd
+        target.retained_fds.append(child_fd)
+        metadata = os.fstat(child_fd)
+        target.device = metadata.st_dev
+        target.inode = metadata.st_ino
+        target.existed = True
+    _target_identity(target, description="storage target")
+    if target.fd is None:
+        raise InvalidInputError("storage target descriptor is missing")
+    for relative in relatives:
+        parent_fd = target.fd
+        prefix: list[str] = []
+        for component in relative.parts:
+            prefix.append(component)
+            key = tuple(prefix)
+            expected = target.layout_identities.get(key)
+            child_path = target.path.joinpath(*prefix)
+            child_fd, _ = _create_directory_at(
+                child_path,
+                parent_fd=parent_fd,
+                name=component,
+                expected=expected,
+                uid=uid,
+                gid=gid,
+                created=created,
+                mkdir_probe=mkdir_probe,
+                chmod_probe=chmod_probe,
+                chown_probe=chown_probe,
+            )
+            target.retained_fds.append(child_fd)
+            child_metadata = os.fstat(child_fd)
+            target.layout_identities[key] = (child_metadata.st_dev, child_metadata.st_ino)
+            parent_fd = child_fd
+        _target_identity(target, description="storage target")
 
 
 def _rollback_created(
@@ -456,11 +817,6 @@ def _rollback_created(
                 partial.append(str(path))
         except Exception:
             partial.append(str(path))
-        finally:
-            try:
-                os.close(record.parent_fd)
-            except OSError:
-                pass
     return tuple(partial)
 
 
@@ -531,44 +887,52 @@ def validate_storage(
     if gid is not None and (type(gid) is not int or gid < 0):
         raise InvalidInputError("requested gid is invalid")
 
-    warnings: list[str] = []
-    _check_existing_or_parent(
-        root,
-        field_name="ROOT_PATH",
-        uid=uid,
-        gid=gid,
-        stat_probe=stat_probe,
-        access_probe=access_probe,
-        warnings=warnings,
-    )
-    _check_existing_or_parent(
-        downloads,
-        field_name="DOWNLOADS_PATH",
-        uid=uid,
-        gid=gid,
-        stat_probe=stat_probe,
-        access_probe=access_probe,
-        warnings=warnings,
-    )
-    free = {
-        "root": _free_gib(_nearest_existing(root), statvfs_probe),
-        "downloads": _free_gib(_nearest_existing(downloads), statvfs_probe),
-    }
-    if any(value < required for value in free.values()):
-        raise InvalidInputError("storage does not have the required free capacity")
-
     approved: list[Path] = [root, downloads]
     approved.extend(root / relative for relative in MEDIA_SUBDIRECTORIES)
     approved.extend(downloads / relative for relative in DOWNLOAD_SUBDIRECTORIES)
     # A deterministic parent-before-child order prevents partial layout
     # creation from ever requiring a broad recursive mkdir.
     approved = list(dict.fromkeys(approved))
+    root_target = _open_storage_target(root)
+    try:
+        downloads_target = _open_storage_target(downloads)
+    except Exception:
+        _close_storage_target(root_target)
+        raise
     created: list[_CreatedDirectory] = []
-    if not dry_run:
-        try:
-            for path in approved:
-                _create_directory(
-                    path,
+    warnings: list[str] = []
+    try:
+        _capture_layout_identities(root_target, MEDIA_SUBDIRECTORIES)
+        _capture_layout_identities(downloads_target, DOWNLOAD_SUBDIRECTORIES)
+        _check_storage_target(
+            root_target,
+            field_name="ROOT_PATH",
+            uid=uid,
+            gid=gid,
+            stat_probe=stat_probe,
+            access_probe=access_probe,
+            warnings=warnings,
+        )
+        _check_storage_target(
+            downloads_target,
+            field_name="DOWNLOADS_PATH",
+            uid=uid,
+            gid=gid,
+            stat_probe=stat_probe,
+            access_probe=access_probe,
+            warnings=warnings,
+        )
+        free = {
+            "root": _free_target_gib(root_target, statvfs_probe),
+            "downloads": _free_target_gib(downloads_target, statvfs_probe),
+        }
+        if any(value < required for value in free.values()):
+            raise InvalidInputError("storage does not have the required free capacity")
+        if not dry_run:
+            try:
+                _apply_target_layout(
+                    root_target,
+                    (),
                     uid=uid,
                     gid=gid,
                     created=created,
@@ -576,27 +940,60 @@ def validate_storage(
                     chmod_probe=chmod_probe,
                     chown_probe=chown_probe,
                 )
-        except Exception as exc:
-            partial = _rollback_created(created, remove_probe=remove_probe)
-            if partial:
-                raise StorageMutationError("storage layout rollback was incomplete", partial) from exc
-            if isinstance(exc, InvalidInputError):
-                raise
-            raise InvalidInputError("approved storage layout could not be created") from exc
-    else:
-        warnings.append("dry-run: approved layout was not created")
-    created_paths = tuple(record.path for record in created)
-    _close_created(created)
-    return StorageValidation(
-        root_path=root,
-        downloads_path=downloads,
-        approved_paths=tuple(approved),
-        created_paths=created_paths,
-        free_gib=free,
-        warnings=tuple(warnings),
-        decisions=(),
-        dry_run=dry_run,
-    )
+                _apply_target_layout(
+                    downloads_target,
+                    (),
+                    uid=uid,
+                    gid=gid,
+                    created=created,
+                    mkdir_probe=mkdir_probe,
+                    chmod_probe=chmod_probe,
+                    chown_probe=chown_probe,
+                )
+                _apply_target_layout(
+                    root_target,
+                    MEDIA_SUBDIRECTORIES,
+                    uid=uid,
+                    gid=gid,
+                    created=created,
+                    mkdir_probe=mkdir_probe,
+                    chmod_probe=chmod_probe,
+                    chown_probe=chown_probe,
+                )
+                _apply_target_layout(
+                    downloads_target,
+                    DOWNLOAD_SUBDIRECTORIES,
+                    uid=uid,
+                    gid=gid,
+                    created=created,
+                    mkdir_probe=mkdir_probe,
+                    chmod_probe=chmod_probe,
+                    chown_probe=chown_probe,
+                )
+            except Exception as exc:
+                partial = _rollback_created(created, remove_probe=remove_probe)
+                if partial:
+                    raise StorageMutationError("storage layout rollback was incomplete", partial) from exc
+                if isinstance(exc, InvalidInputError):
+                    raise
+                raise InvalidInputError("approved storage layout could not be created") from exc
+        else:
+            warnings.append("dry-run: approved layout was not created")
+        created_paths = tuple(record.path for record in created)
+        return StorageValidation(
+            root_path=root,
+            downloads_path=downloads,
+            approved_paths=tuple(approved),
+            created_paths=created_paths,
+            free_gib=free,
+            warnings=tuple(warnings),
+            decisions=(),
+            dry_run=dry_run,
+        )
+    finally:
+        _close_created(created)
+        _close_storage_target(root_target)
+        _close_storage_target(downloads_target)
 
 
 # ---------------------------------------------------------------------------

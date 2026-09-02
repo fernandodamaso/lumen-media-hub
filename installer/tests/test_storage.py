@@ -190,6 +190,79 @@ class StorageValidationTests(unittest.TestCase):
                     )
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched")
 
+    def test_ordinary_root_replacement_between_preflight_and_apply_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            root.mkdir()
+            downloads = base / "downloads"
+            replacement = base / "replacement"
+            replacement.mkdir()
+            sentinel = replacement / "outside-sentinel"
+            sentinel.write_text("untouched", encoding="utf-8")
+            moved = base / "library-original"
+            swapped = False
+
+            def stat_probe(path):
+                nonlocal swapped
+                metadata = path.stat()
+                if path == root and not swapped:
+                    swapped = True
+                    root.rename(moved)
+                    replacement.rename(root)
+                return metadata
+
+            with self.assertRaises(InvalidInputError):
+                validate_storage(
+                    root,
+                    downloads,
+                    repo_root=repo,
+                    stat_probe=stat_probe,
+                    access_probe=lambda path, mode: True,
+                )
+            self.assertEqual((root / sentinel.name).read_text(encoding="utf-8"), "untouched")
+            self.assertFalse((root / "media").exists())
+
+    def test_symlink_replacement_during_preflight_is_rejected_before_capacity_probe(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            root = base / "library"
+            root.mkdir()
+            downloads = base / "downloads"
+            outside = base / "outside"
+            outside.mkdir()
+            sentinel = outside / "sentinel"
+            sentinel.write_text("untouched", encoding="utf-8")
+            moved = base / "library-original"
+            swapped = False
+
+            def access_probe(path, mode):
+                nonlocal swapped
+                if path == root and not swapped:
+                    swapped = True
+                    root.rename(moved)
+                    root.symlink_to(outside, target_is_directory=True)
+                return True
+
+            def statvfs_probe(path):
+                if path == root or path == outside:
+                    sentinel.write_text("capacity-probe-followed-symlink", encoding="utf-8")
+                return type("Vfs", (), {"f_bavail": 1024, "f_frsize": 1024**3})()
+
+            with self.assertRaises(InvalidInputError):
+                validate_storage(
+                    root,
+                    downloads,
+                    repo_root=repo,
+                    access_probe=access_probe,
+                    statvfs_probe=statvfs_probe,
+                )
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched")
+
     def test_mkdir_failure_after_creation_is_rolled_back(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)

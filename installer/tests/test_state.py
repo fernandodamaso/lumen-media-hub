@@ -269,6 +269,55 @@ class InstallerStateTests(unittest.TestCase):
                     InstallerState(repo_root=repo, profiles=("ai",)).save()
             self.assertEqual(outside_state.read_text(encoding="utf-8"), "outside-sentinel")
 
+    def test_journal_rejects_ordinary_state_parent_replacement_after_lock(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            repo.mkdir()
+            (repo / ".state").mkdir()
+            (repo / ".state" / "installer").mkdir()
+            journal = StageJournal(InstallerState(repo_root=repo), stages=("host",))
+            journal.state.save()
+
+            replacement = base / "replacement-state"
+            replacement_installer = replacement / "installer"
+            replacement_installer.mkdir(parents=True)
+            external_state = replacement_installer / "state.json"
+            external_state.write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "profiles": [],
+                    "gpu_mode": "none",
+                    "owned_resources": {},
+                    "completed_stages": [],
+                }),
+                encoding="utf-8",
+            )
+            state_parent = repo / ".state"
+            moved = repo / ".state-original"
+            swapped = False
+            real_assert = __import__("lumen_installer.state", fromlist=["_assert_state_identity"])._assert_state_identity
+
+            def assert_identity(path, fd, *, description):
+                nonlocal swapped
+                result = real_assert(path, fd, description=description)
+                if description == "installer state directory" and not swapped:
+                    swapped = True
+                    state_parent.rename(moved)
+                    replacement.rename(state_parent)
+                return result
+
+            with mock.patch("lumen_installer.state._assert_state_identity", side_effect=assert_identity):
+                with self.assertRaises(InvalidInputError):
+                    journal.complete("host")
+            self.assertEqual((state_parent / "installer" / "state.json").read_text(encoding="utf-8"), json.dumps({
+                "schema_version": 1,
+                "profiles": [],
+                "gpu_mode": "none",
+                "owned_resources": {},
+                "completed_stages": [],
+            }))
+
     def test_state_reports_and_string_forms_never_include_resource_identifier_values(self):
         sentinel = "0123456789abcdef0123456789abcdef"
         state = InstallerState(owned_resources={"resource": sentinel})

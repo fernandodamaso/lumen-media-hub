@@ -24,6 +24,7 @@ from lumen_installer.services.jellyfin import (
     JellyfinAuthenticationError,
     JellyfinCapabilityError,
     JellyfinEncodingSchemaError,
+    JellyfinError,
     JellyfinLibrarySchemaError,
     JellyfinResult,
     JellyfinSchemaError,
@@ -280,6 +281,68 @@ class JellyfinAdapterTests(unittest.TestCase):
             [request[0] for request in transport.requests],
             ["POST", "GET", "GET"],
         )
+
+    def test_stale_remote_plan_is_replanned_after_network_target_changes_without_post(self):
+        adapter, transport = self.authenticated_adapter(
+            [
+                response({"EnableRemoteAccess": True}),
+                response({"EnableRemoteAccess": False}),
+                response({"EnableRemoteAccess": True}),
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        local_plan = adapter.plan_remote_access("local")
+        adapter.plan_remote_access("lan")
+        result = adapter.apply_remote_access(local_plan, confirm_drift=True)
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].code, "jellyfin-remote-access-plan-stale")
+        self.assertNotIn(("POST", f"{BASE_URL}/System/Configuration"), [request[0:2] for request in transport.requests])
+
+    def test_foreign_remote_plan_is_rejected_before_mutation(self):
+        adapter, transport = self.authenticated_adapter(
+            [response({"EnableRemoteAccess": False}), response(None, status=204)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+        foreign_plan = ServicePlan(
+            service="jellyfin",
+            actions=("enable-remote-access",),
+            mode="remote-access",
+        )
+
+        with self.assertRaises(InvalidInputError):
+            adapter.apply_remote_access(foreign_plan, confirm_drift=True)
+
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [("POST", f"{BASE_URL}/Users/AuthenticateByName")],
+        )
+
+    def test_authenticate_response_callback_failure_is_typed_and_sanitized(self):
+        secret = "private-authenticate-callback-secret"
+
+        def authenticate_response(*_args):
+            raise RuntimeError(f"callback leaked {secret}")
+
+        adapter, transport = self.adapter(
+            [response({"AccessToken": TOKEN})],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+            authenticate_response=authenticate_response,
+        )
+
+        with self.assertRaises(JellyfinError) as raised:
+            adapter.authenticate()
+
+        self.assertNotIsInstance(raised.exception, RuntimeError)
+        self.assertNotIn(secret, str(raised.exception))
+        self.assertNotIn(secret, repr(raised.exception))
+        self.assertIsNone(raised.exception.__context__)
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertEqual(len(transport.requests), 1)
 
     def test_remote_access_auth_failure_is_typed_and_redacted(self):
         secret = "remote-response-and-token-secret"

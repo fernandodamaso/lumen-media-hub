@@ -328,9 +328,12 @@ class JellyfinAdapter:
         password: str | None = None,
         server_name: str = "Lumen Media Hub",
         interactive: bool = True,
+        authenticate_response: Any | None = None,
     ) -> None:
         if transport is None or not callable(getattr(transport, "request", None)):
             raise InvalidInputError("Jellyfin transport is required")
+        if authenticate_response is not None and not callable(authenticate_response):
+            raise InvalidInputError("Jellyfin authentication response callback is invalid")
         self.base_url = _base_url(base_url)
         self._transport = transport
         self._admin_name = admin_name if admin_name is not None else username
@@ -341,7 +344,11 @@ class JellyfinAdapter:
         self._capability: JellyfinCapability | None = None
         self._startup_configuration: dict[str, str] | None = None
         self._api_key_handoff: JellyfinApiKeyHandoff | None = None
-        self._remote_access_desired: bool | None = None
+        self._authenticate_response = authenticate_response
+        self._remote_access_plan_bindings: dict[
+            int, tuple[ServicePlan, JellyfinSession, bool]
+        ] = {}
+        self._remote_access_latest_binding: tuple[ServicePlan, JellyfinSession, bool] | None = None
         self._encoding_plan_binding: tuple[ServicePlan, str | None] | None = None
 
     @property
@@ -575,6 +582,14 @@ class JellyfinAdapter:
             body=payload,
             operation="authenticate",
         )
+        callback_error: JellyfinSchemaError | None = None
+        if self._authenticate_response is not None:
+            try:
+                response = self._authenticate_response(response)
+            except Exception:
+                callback_error = JellyfinSchemaError()
+        if callback_error is not None:
+            raise callback_error from None
         auth = self._decode_json(response, operation="authenticate")
         if not isinstance(auth, Mapping) or not _nonempty_text(auth.get("AccessToken")):
             raise JellyfinSchemaError("Jellyfin authentication response is unsupported")
@@ -679,8 +694,7 @@ class JellyfinAdapter:
         current = configuration["EnableRemoteAccess"]
         actions = () if current == desired else (self._remote_access_action(desired),)
         drift = self._remote_access_drift(current, desired)
-        self._remote_access_desired = desired
-        return ServicePlan(
+        plan = ServicePlan(
             service=SERVICE_NAME,
             status="conflict" if drift else "planned",
             actions=actions,
@@ -688,6 +702,19 @@ class JellyfinAdapter:
             checkpoints=(self._remote_access_checkpoint(),) if drift else (),
             dry_run=bool(dry_run),
             mode="remote-access",
+        )
+        binding = (plan, self._session, desired)
+        self._remote_access_plan_bindings[id(plan)] = binding
+        self._remote_access_latest_binding = binding
+        return plan
+
+    @staticmethod
+    def _remote_access_replan_checkpoint() -> ServiceCheckpoint:
+        return ServiceCheckpoint(
+            code="jellyfin-remote-access-plan-stale",
+            reason="The Jellyfin remote-access plan is stale; re-read the network target and replan before applying it.",
+            action="replan",
+            severity="error",
         )
 
     def apply_remote_access(
@@ -704,17 +731,34 @@ class JellyfinAdapter:
         if self._session is None:
             raise JellyfinSessionError()
 
+        binding = self._remote_access_plan_bindings.get(id(plan))
+        if binding is None or binding[0] is not plan:
+            raise InvalidInputError("Jellyfin remote-access plan is unbound")
+        if binding[1] is not self._session:
+            return JellyfinResult(
+                service=SERVICE_NAME,
+                status="guided",
+                checkpoints=(self._remote_access_replan_checkpoint(),),
+                mode="remote-access",
+            )
+        latest_binding = self._remote_access_latest_binding
+        if latest_binding is not None and latest_binding[2] != binding[2]:
+            return JellyfinResult(
+                service=SERVICE_NAME,
+                status="guided",
+                checkpoints=(self._remote_access_replan_checkpoint(),),
+                mode="remote-access",
+            )
+
         action_targets = {
             "enable-remote-access": True,
             "disable-remote-access": False,
         }
         if len(plan.actions) > 1 or any(action not in action_targets for action in plan.actions):
             raise InvalidInputError("Jellyfin remote-access plan contains an unsupported action")
-        desired = self._remote_access_desired
-        if desired is None and plan.actions:
-            desired = action_targets[plan.actions[0]]
-        if desired is None:
-            raise InvalidInputError("Jellyfin remote-access plan is unbound")
+        desired = binding[2]
+        if plan.actions and action_targets[plan.actions[0]] != desired:
+            raise InvalidInputError("Jellyfin remote-access plan target is not approved")
 
         selected_dry_run = bool(dry_run or plan.dry_run)
         configuration = self._read_remote_access_configuration()
@@ -1681,6 +1725,7 @@ def plan_jellyfin(
     fresh: bool | None = None,
     dry_run: bool = False,
     interactive: bool = True,
+    authenticate_response: Any | None = None,
 ) -> ServicePlan:
     return JellyfinAdapter(
         base_url,
@@ -1691,6 +1736,7 @@ def plan_jellyfin(
         password=password,
         server_name=server_name,
         interactive=interactive,
+        authenticate_response=authenticate_response,
     ).plan(adopt=adopt, fresh=fresh, dry_run=dry_run)
 
 
@@ -1707,6 +1753,7 @@ def configure_jellyfin(
     fresh: bool | None = None,
     dry_run: bool = False,
     interactive: bool = True,
+    authenticate_response: Any | None = None,
 ) -> JellyfinResult:
     return JellyfinAdapter(
         base_url,
@@ -1717,6 +1764,7 @@ def configure_jellyfin(
         password=password,
         server_name=server_name,
         interactive=interactive,
+        authenticate_response=authenticate_response,
     ).configure(adopt=adopt, fresh=fresh, dry_run=dry_run)
 
 

@@ -150,7 +150,11 @@ def _setup(args: argparse.Namespace) -> int:
 
 
 def _up(args: argparse.Namespace) -> int:
-    result = run_up(options=_compose_options(args), dry_run=bool(getattr(args, "dry_run", False)))
+    result = run_up(
+        options=_compose_options(args),
+        gpu_confirm=bool(getattr(args, "gpu_confirm", False)),
+        dry_run=bool(getattr(args, "dry_run", False)),
+    )
     print(json.dumps(_redact_report(result.report), sort_keys=True))
     return int(ExitCode.OK)
 

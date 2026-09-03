@@ -267,7 +267,7 @@ def probe_nvidia(
             else _run(
                 command_runner,
                 (
-                    "docker", "run", "--rm", "--pull=never", "--gpus", "all",
+                    "docker", "run", "--rm", "--pull=missing", "--gpus", "all",
                     image.strip(), "nvidia-smi",
                 ),
                 timeout=timeout,
@@ -419,7 +419,7 @@ def probe_vaapi(
             else _run(
                 command_runner,
                 (
-                    "docker", "run", "--rm", "--pull=never",
+                    "docker", "run", "--rm", "--pull=missing",
                     "--device", f"{root}:{root}",
                     "--group-add", str(render_id), "--group-add", str(video_id),
                     image.strip(), "ffmpeg", "-hide_banner", "-hwaccels",

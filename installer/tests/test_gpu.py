@@ -14,6 +14,7 @@ from lumen_installer.commands import CommandResult
 from lumen_installer.compose import ComposeOptions
 from lumen_installer.errors import DriftError, InvalidInputError
 from lumen_installer.gpu import (
+    DEFAULT_JELLYFIN_IMAGE,
     GpuProbe,
     detect_gpu,
     gpu_environment,
@@ -62,7 +63,7 @@ class GpuProbeTests(unittest.TestCase):
     def test_nvidia_requires_host_smi_and_container_runtime_probe(self):
         runner = Runner({
             ("nvidia-smi",): CommandResult(("nvidia-smi",), 0, "GPU 0"),
-            ("docker", "run", "--rm", "--pull=never", "--gpus", "all", "nvidia/cuda:12.4.1-base-ubuntu22.04", "nvidia-smi"):
+            ("docker", "run", "--rm", "--pull=missing", "--gpus", "all", "nvidia/cuda:12.4.1-base-ubuntu22.04", "nvidia-smi"):
                 CommandResult((), 0, "GPU 0"),
         })
 
@@ -72,7 +73,7 @@ class GpuProbeTests(unittest.TestCase):
         self.assertEqual(result.status, "available")
         self.assertEqual([call[0] for call in runner.calls], [
             ("nvidia-smi",),
-            ("docker", "run", "--rm", "--pull=never", "--gpus", "all", "nvidia/cuda:12.4.1-base-ubuntu22.04", "nvidia-smi"),
+            ("docker", "run", "--rm", "--pull=missing", "--gpus", "all", "nvidia/cuda:12.4.1-base-ubuntu22.04", "nvidia-smi"),
         ])
         self.assertTrue(all(kwargs.get("timeout", 0) <= 30 for _, kwargs in runner.calls))
 
@@ -163,6 +164,66 @@ class GpuProbeTests(unittest.TestCase):
 
         self.assertTrue(result.available)
         self.assertEqual(gpu_environment(result), {"RENDER_GID": "107", "VIDEO_GID": "44"})
+
+    def test_doctor_reports_explicit_unavailable_mode_as_attention(self):
+        from lumen_installer.setup import doctor_diagnostics
+
+        with tempfile.TemporaryDirectory() as temporary:
+            report = doctor_diagnostics(
+                Path(temporary),
+                host_report={"status": "ok", "exit_code": 0},
+                gpu_mode="nvidia",
+                gpu_detector=lambda mode, **kwargs: GpuProbe("nvidia", "unavailable", False, {}),
+            )
+
+        self.assertEqual(report["gpu"]["status"], "unavailable")
+        self.assertNotEqual(report["exit_code"], 0)
+        self.assertEqual(report["status"], "needs-attention")
+        self.assertIn("GPU diagnostics need attention", report["errors"])
+
+    def test_vaapi_probe_container_uses_bounded_pull_when_image_is_missing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            dri = Path(temporary) / "dri"
+            dri.mkdir()
+            (dri / "renderD128").touch()
+            (dri / "card0").touch()
+            runner = Runner({
+                ("docker", "run", "--rm", "--pull=missing", "--device", f"{dri}:{dri}",
+                 "--group-add", "107", "--group-add", "44", DEFAULT_JELLYFIN_IMAGE,
+                 "ffmpeg", "-hide_banner", "-hwaccels"): CommandResult((), 0, "Hardware acceleration methods: vaapi"),
+            })
+            result = probe_vaapi(
+                runner=runner,
+                device_root=dri,
+                render_gid=107,
+                video_gid=44,
+                architecture="x86_64",
+                manifest_architectures=("amd64",),
+            )
+
+        self.assertTrue(result.available)
+        self.assertEqual(len(runner.calls), 1)
+
+    def test_up_validates_requested_gpu_before_starting_compose(self):
+        from lumen_installer.setup import run_up
+        from lumen_installer.state import InstallerState
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"
+            repo.mkdir()
+            InstallerState.new(repo).save()
+            runner = Runner()
+            with self.assertRaises(InvalidInputError):
+                run_up(
+                    repo,
+                    runner=runner,
+                    options=ComposeOptions(gpu="nvidia"),
+                    gpu_detector=lambda mode, **kwargs: GpuProbe("nvidia", "unavailable", False, {}),
+                    stale_finder=lambda: (),
+                )
+
+        self.assertFalse(any(call[-2:] == ("up", "-d") for call, _ in runner.calls))
+
 
 
 if __name__ == "__main__":

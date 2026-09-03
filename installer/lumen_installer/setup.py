@@ -11,6 +11,7 @@ import inspect
 import json
 import math
 import os
+import platform as stdlib_platform
 import re
 import stat
 import time
@@ -1053,6 +1054,9 @@ def run_up(
     dry_run: bool = False,
     stale_finder: Callable[..., Any] | None = None,
     compose_project: str | None = None,
+    gpu_detector: Callable[..., Any] | None = None,
+    gpu_confirm: bool | Callable[..., Any] = False,
+    gpu_architecture: str | None = None,
 ) -> FoundationResult:
     root = _repo(repo_root)
     with _lifecycle_lock(root, dry_run=dry_run):
@@ -1068,10 +1072,32 @@ def run_up(
             project = _load_document(env_path).get("COMPOSE_PROJECT_NAME")
         if isinstance(project, str):
             project = project.strip() or None
+        gpu_detail: Mapping[str, Any] = {}
+        if effective.gpu_mode != "none":
+            # ``up`` is an activation boundary too. Validate hardware before
+            # stale cleanup or Compose startup; a dry-run never saves state.
+            resolved = resolve_gpu(
+                effective.gpu_mode,
+                detector=gpu_detector,
+                confirm=gpu_confirm,
+                noninteractive=not bool(gpu_confirm),
+                runner=command_runner,
+                architecture=gpu_architecture or stdlib_platform.machine(),
+            )
+            effective = replace(effective, gpu=resolved.mode)
+            gpu_detail = resolved.report
         stale_removed = _remove_stale(_stale(command_runner, root, stale_finder, project), command_runner, dry_run=dry_run)
         if not dry_run:
             compose_up(command_runner, root, env_path, effective, redact=_secret_values(_load_document(env_path)))
-        return FoundationResult("dry-run" if dry_run else "ok", dry_run, state.completed_stages, effective, stale_removed=stale_removed, planned_commands=(effective.argv(root, env_path, "up", "-d"),))
+        return FoundationResult(
+            "dry-run" if dry_run else "ok",
+            dry_run,
+            state.completed_stages,
+            effective,
+            stale_removed=stale_removed,
+            planned_commands=(effective.argv(root, env_path, "up", "-d"),),
+            gpu=gpu_detail,
+        )
 
 
 def run_down(
@@ -1352,6 +1378,9 @@ def doctor_diagnostics(
             runner=runner,
             architecture=(host_report or {}).get("host", {}).get("arch") if isinstance(host_report, Mapping) else None,
         )
+        gpu_code = detail_code(report["gpu"], default=2)
+        if requested_gpu != "none" and gpu_code:
+            issue(InvalidInputError("GPU diagnostics need attention"), gpu_code)
     except DriftError as exc:
         report["gpu"] = {"mode": requested_gpu, "status": "needs-confirmation", "available": False, "error": str(exc)}
         issue(exc, 3)

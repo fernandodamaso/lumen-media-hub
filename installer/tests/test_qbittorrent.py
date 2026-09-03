@@ -15,6 +15,7 @@ from lumen_installer.http import HttpConnectionError, HttpResponse, HttpStatusEr
 from lumen_installer.services.qbittorrent import (
     QbittorrentAdapter,
     QbittorrentAuthenticationError,
+    QbittorrentCategoryReconciliationError,
     QbittorrentPasswordVerificationError,
     QbittorrentResult,
     QbittorrentEnvironmentUpdate,
@@ -285,6 +286,16 @@ class QbittorrentAdapterTests(unittest.TestCase):
         adapter = QbittorrentAdapter(BASE_URL, DeterministicTransport([]), logs="unrelated secret text\n", interactive=False)
         self.assertNotIn("unrelated secret text", repr(adapter))
 
+    def test_temporary_password_parser_stops_before_oversized_or_unencodable_lines(self):
+        line = (
+            "The WebUI administrator password was not set. "
+            f"A temporary password is provided for this session: {TEMPORARY_PASSWORD}\n"
+        )
+
+        self.assertIsNone(parse_temporary_password("x" * 65 + "\n" + line, max_bytes=64))
+        self.assertIsNone(parse_temporary_password("\ud800\n" + line, max_bytes=1024))
+        self.assertIsNone(parse_temporary_password(b"\xff\n" + line.encode(), max_bytes=1024))
+
     def test_banned_authentication_is_typed_redacted_and_has_no_exception_context(self):
         transport = DeterministicTransport([response("banned", status=403)])
         adapter = QbittorrentAdapter(BASE_URL, transport, interactive=False)
@@ -299,6 +310,32 @@ class QbittorrentAdapterTests(unittest.TestCase):
         self.assertNotIn("banned", str(raised.exception))
         self.assertIsNone(raised.exception.__context__)
 
+    def test_http_403_ban_stops_all_credential_retries(self):
+        temporary_line = (
+            "The WebUI administrator password was not set. "
+            f"A temporary password is provided for this session: {TEMPORARY_PASSWORD}\n"
+        )
+        transport = DeterministicTransport(
+            [
+                response("banned", status=403),
+                response("Ok.", headers={"Set-Cookie": "SID=unexpected-retry; Path=/"}),
+            ]
+        )
+        adapter = QbittorrentAdapter(
+            BASE_URL,
+            transport,
+            env={"QBT_PASSWORD": CURRENT_PASSWORD},
+            logs=temporary_line,
+            prompt=lambda: SELECTED_PASSWORD,
+        )
+
+        with self.assertRaises(QbittorrentAuthenticationError) as raised:
+            adapter.authenticate()
+
+        self.assertTrue(raised.exception.banned)
+        self.assertEqual(len(transport.requests), 1)
+        self.assertIsNone(raised.exception.__context__)
+
     def test_fails_login_body_is_typed_without_echoing_body_or_password(self):
         transport = DeterministicTransport([response("Fails.")])
         adapter = QbittorrentAdapter(BASE_URL, transport, interactive=False)
@@ -309,6 +346,17 @@ class QbittorrentAdapterTests(unittest.TestCase):
         self.assertIsNone(raised.exception.status)
         self.assertNotIn(SELECTED_PASSWORD, repr(raised.exception))
         self.assertNotIn("Fails.", str(raised.exception))
+        self.assertIsNone(raised.exception.__context__)
+
+    def test_successful_login_requires_a_valid_sid_cookie(self):
+        transport = DeterministicTransport([response("Ok.")])
+        adapter = QbittorrentAdapter(BASE_URL, transport, interactive=False)
+
+        with self.assertRaises(QbittorrentAuthenticationError) as raised:
+            adapter.authenticate(password=SELECTED_PASSWORD)
+
+        self.assertEqual(len(transport.requests), 1)
+        self.assertIsNone(adapter.session)
         self.assertIsNone(raised.exception.__context__)
 
     def test_malformed_preferences_are_invalid_typed_and_redacted(self):
@@ -380,6 +428,38 @@ class QbittorrentAdapterTests(unittest.TestCase):
         )
         self.assertNotIn("unrelated", repr(transport.requests[4]))
         self.assertNotIn("listen_port", json.loads(transport.requests[3][2]["form"]["json"]))
+
+    def test_category_failure_after_mutation_is_sanitized_partial_without_env_handoff(self):
+        transport = DeterministicTransport(
+            [
+                response("Ok.", headers={"Set-Cookie": "SID=initial-session; Path=/"}),
+                response({"save_path": "/old-downloads"}),
+                response({"sonarr": {"savePath": "/old-downloads/series"}}),
+                response(""),
+                response("category-upstream-secret", status=500),
+            ]
+        )
+        adapter = QbittorrentAdapter(BASE_URL, transport, env={"QBT_PASSWORD": CURRENT_PASSWORD})
+
+        result = adapter.configure()
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.exit_code, 4)
+        self.assertEqual(result.checkpoints[0].code, "qbittorrent-category-reconciliation")
+        self.assertIsInstance(result.error, QbittorrentCategoryReconciliationError)
+        self.assertEqual(dict(result.environment_update), {})
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/api/v2/auth/login"),
+                ("GET", f"{BASE_URL}/api/v2/app/preferences"),
+                ("GET", f"{BASE_URL}/api/v2/torrents/categories"),
+                ("POST", f"{BASE_URL}/api/v2/app/setPreferences"),
+                ("POST", f"{BASE_URL}/api/v2/torrents/editCategory"),
+            ],
+        )
+        self.assertNotIn("category-upstream-secret", repr(result))
+        self.assertIsNone(result.error.__context__)
 
     def test_missing_categories_are_created_without_touching_unrelated_category(self):
         transport = DeterministicTransport(

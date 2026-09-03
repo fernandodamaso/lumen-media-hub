@@ -8,7 +8,6 @@ results, exceptions, and representations contain only stable safe metadata.
 from __future__ import annotations
 
 import inspect
-import io
 import json
 import posixpath
 import re
@@ -118,6 +117,19 @@ class QbittorrentTransportError(QbittorrentError):
     def __init__(self) -> None:
         self.code = type(self).code
         InstallerError.__init__(self, "qBittorrent request failed")
+
+
+class QbittorrentCategoryReconciliationError(PartialError, QbittorrentError):
+    """Category reconciliation failed after qBittorrent was mutated."""
+
+    code = "qbittorrent-category-reconciliation"
+
+    def __init__(self) -> None:
+        self.code = type(self).code
+        PartialError.__init__(
+            self,
+            "qBittorrent category reconciliation was incomplete; review categories and retry",
+        )
 
 
 QbittorrentAuthError = QbittorrentAuthenticationError
@@ -282,35 +294,45 @@ def parse_temporary_password(
         raise InvalidInputError("qBittorrent log byte limit is invalid")
     if not isinstance(max_lines, int) or isinstance(max_lines, bool) or max_lines < 0:
         raise InvalidInputError("qBittorrent log line limit is invalid")
-    if isinstance(logs, bytes):
-        stream: Any = io.BytesIO(logs)
-        is_bytes = True
-    elif isinstance(logs, str):
-        stream = io.StringIO(logs)
-        is_bytes = False
-    else:
+    if not isinstance(logs, (str, bytes)):
         raise InvalidInputError("qBittorrent logs must be text or bytes")
 
     consumed = 0
+    position = 0
     for _ in range(max_lines):
-        line = stream.readline()
-        if line == b"" or line == "":
+        if position >= len(logs):
             break
-        if is_bytes:
-            line_size = len(line)
-        else:
+        if isinstance(logs, bytes):
+            line_bytes = bytearray()
+            while position < len(logs):
+                value = logs[position]
+                position += 1
+                consumed += 1
+                if consumed > max_bytes:
+                    return None
+                line_bytes.append(value)
+                if value == 0x0A:
+                    break
             try:
-                line_size = len(line.encode("utf-8"))
-            except UnicodeEncodeError:
-                continue
-        consumed += line_size
-        if consumed > max_bytes:
-            break
-        if is_bytes:
-            try:
-                line = line.decode("utf-8")
+                line = bytes(line_bytes).decode("utf-8")
             except UnicodeDecodeError:
-                continue
+                return None
+        else:
+            line_chars: list[str] = []
+            while position < len(logs):
+                value = logs[position]
+                position += 1
+                try:
+                    value_size = len(value.encode("utf-8"))
+                except UnicodeEncodeError:
+                    return None
+                if consumed + value_size > max_bytes:
+                    return None
+                consumed += value_size
+                line_chars.append(value)
+                if value == "\n":
+                    break
+            line = "".join(line_chars)
         candidate = line.strip()
         matched = _TEMPORARY_PASSWORD_LINE.fullmatch(candidate)
         if matched is not None:
@@ -436,6 +458,9 @@ def _cookie(response: Any) -> str | None:
         return None
     candidate = value.split(";", 1)[0].strip()
     if "=" not in candidate or any(ord(char) < 0x20 or ord(char) == 0x7F for char in candidate):
+        return None
+    name, cookie_value = candidate.split("=", 1)
+    if name != "SID" or not cookie_value or any(char.isspace() for char in cookie_value):
         return None
     return candidate
 
@@ -618,10 +643,13 @@ class QbittorrentAdapter:
             raise QbittorrentAuthenticationError() from None
         if body not in {"", "Ok."}:
             raise QbittorrentAuthenticationError() from None
-        self._cookie_value = _cookie(response)
+        cookie = _cookie(response)
+        if cookie is None:
+            raise QbittorrentAuthenticationError() from None
+        self._cookie_value = cookie
         if body == "":
             self._request("GET", "/api/v2/app/version", operation="authenticate")
-        return QbittorrentSession(self._cookie_value)
+        return QbittorrentSession(cookie)
 
     def _candidate_passwords(self) -> list[str]:
         candidates: list[str] = []
@@ -666,6 +694,8 @@ class QbittorrentAdapter:
             try:
                 return self._login_once(candidate)
             except QbittorrentAuthenticationError as error:
+                if error.banned:
+                    raise error from None
                 last_error = error
         if self._interactive and self._prompt is not None:
             try:
@@ -791,6 +821,7 @@ class QbittorrentAdapter:
         reason: str,
         error: QbittorrentError,
         actions: list[str],
+        action: str = "authenticate",
     ) -> QbittorrentResult:
         return QbittorrentResult(
             service=SERVICE_NAME,
@@ -800,7 +831,7 @@ class QbittorrentAdapter:
                 ServiceCheckpoint(
                     code=code,
                     reason=reason,
-                    action="authenticate",
+                    action=action,
                     severity="error",
                 ),
             ),
@@ -867,7 +898,17 @@ class QbittorrentAdapter:
         )
         actions.append("set-password")
         if category_payload is not None:
-            category_actions = self._reconcile_categories(category_payload)
+            try:
+                category_actions = self._reconcile_categories(category_payload)
+            except Exception:
+                reconciliation_error = QbittorrentCategoryReconciliationError()
+                return self._guided(
+                    code="qbittorrent-category-reconciliation",
+                    reason="Review qBittorrent categories and retry reconciliation before continuing.",
+                    error=reconciliation_error,
+                    actions=actions,
+                    action="reconcile-categories",
+                )
         if embedded_category_change or category_actions:
             actions.append("reconcile-categories")
 

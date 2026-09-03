@@ -22,6 +22,7 @@ from lumen_installer.services.jellyfin import (
     JellyfinAdapter,
     JellyfinAuthenticationError,
     JellyfinCapabilityError,
+    JellyfinLibrarySchemaError,
     JellyfinResult,
     JellyfinSessionError,
 )
@@ -133,6 +134,628 @@ class JellyfinAdapterTests(unittest.TestCase):
         adapter, transport = self.adapter([response({"AccessToken": TOKEN}), *responses], **kwargs)
         adapter.authenticate()
         return adapter, transport
+
+    def test_authenticated_empty_library_inventory_plans_only_managed_libraries(self):
+        adapter, transport = self.authenticated_adapter(
+            [response([])],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        plan = adapter.plan_libraries()
+
+        self.assertIsInstance(plan, ServicePlan)
+        self.assertEqual(plan.status, "planned")
+        self.assertEqual(
+            plan.actions,
+            ("create-library-movies", "create-library-shows"),
+        )
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+        for value in (plan, plan.report, repr(plan)):
+            self.assertNotIn(ADMIN, repr(value))
+            self.assertNotIn(PASSWORD, repr(value))
+            self.assertNotIn(TOKEN, repr(value))
+
+    def test_missing_managed_libraries_are_created_and_exact_readback_is_required(self):
+        adapter, transport = self.authenticated_adapter(
+            [
+                response([]),
+                response(None, status=204),
+                response(None, status=204),
+                response([
+                    {
+                        "Name": "Movies",
+                        "CollectionType": "movies",
+                        "Locations": ["/data/media/movies"],
+                    },
+                    {
+                        "Name": "Shows",
+                        "CollectionType": "tvshows",
+                        "Locations": ["/data/media/tv"],
+                    },
+                ]),
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_libraries()
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(
+            result.actions,
+            ("create-library-movies", "create-library-shows"),
+        )
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+                (
+                    "POST",
+                    f"{BASE_URL}/Library/VirtualFolders?name=Movies&collectionType=movies&paths=%2Fdata%2Fmedia%2Fmovies",
+                ),
+                (
+                    "POST",
+                    f"{BASE_URL}/Library/VirtualFolders?name=Shows&collectionType=tvshows&paths=%2Fdata%2Fmedia%2Ftv",
+                ),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+        for request in transport.requests[1:]:
+            self.assertEqual(
+                request[2]["headers"]["Authorization"],
+                adapter.session.headers["Authorization"],
+            )
+            self.assertNotIn("X-Emby-Authorization", request[2]["headers"])
+        for value in (result, result.report, repr(result)):
+            self.assertNotIn(ADMIN, repr(value))
+            self.assertNotIn(PASSWORD, repr(value))
+            self.assertNotIn(TOKEN, repr(value))
+
+    def test_exact_managed_libraries_are_adopted_without_mutation_or_unrelated_changes(self):
+        adapter, transport = self.authenticated_adapter(
+            [
+                response([
+                    {
+                        "Name": "Movies",
+                        "CollectionType": "movies",
+                        "Locations": ["/data/media/movies"],
+                    },
+                    {
+                        "Name": "Shows",
+                        "CollectionType": "tvshows",
+                        "Locations": ["/data/media/tv"],
+                    },
+                    {
+                        "Name": "Sonarr Imports",
+                        "CollectionType": "mixed",
+                        "Locations": ["/data/other"],
+                    },
+                ])
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_libraries()
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(
+            result.actions,
+            ("adopt-library-movies", "adopt-library-shows"),
+        )
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+        self.assertNotIn("Sonarr Imports", repr(result))
+
+    def test_duplicate_managed_library_matches_are_guided_without_mutation(self):
+        adapter, transport = self.authenticated_adapter(
+            [
+                response([
+                    {
+                        "Name": "Movies",
+                        "CollectionType": "movies",
+                        "Locations": ["/data/media/movies"],
+                    },
+                    {
+                        "Name": "Movies",
+                        "CollectionType": "movies",
+                        "Locations": ["/data/alternate-movies"],
+                    },
+                    {
+                        "Name": "Shows",
+                        "CollectionType": "tvshows",
+                        "Locations": ["/data/media/tv"],
+                    },
+                ])
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_libraries()
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].code, "jellyfin-library-conflict")
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+        self.assertNotIn("alternate-movies", repr(result))
+
+    def test_noninteractive_managed_drift_requires_confirmation_without_mutation(self):
+        adapter, transport = self.authenticated_adapter(
+            [
+                response([
+                    {
+                        "Name": "Movies",
+                        "CollectionType": "movies",
+                        "Locations": ["/data/other-movies"],
+                    }
+                ])
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+            interactive=False,
+        )
+
+        result = adapter.reconcile_libraries(confirm_drift=True)
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].code, "jellyfin-library-drift")
+        self.assertEqual(result.checkpoints[0].action, "confirm")
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+        self.assertNotIn("other-movies", repr(result))
+
+    def test_unauthorized_library_inventory_is_guided_without_mutation_or_response_leak(self):
+        response_secret = "private-library-response"
+        adapter, transport = self.authenticated_adapter(
+            [response({"error": response_secret}, status=401)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_libraries()
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].code, "jellyfin-authentication")
+        self.assertIsInstance(result.error, JellyfinAuthenticationError)
+        self.assertNotIn(response_secret, repr(result))
+        self.assertNotIn(TOKEN, repr(result))
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+
+    def test_confirmed_managed_drift_remains_guided_without_delete_or_update(self):
+        adapter, transport = self.authenticated_adapter(
+            [
+                response([
+                    {
+                        "Name": "Movies",
+                        "CollectionType": "movies",
+                        "Locations": ["/data/other-movies"],
+                    }
+                ])
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_libraries(confirm_drift=True)
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].code, "jellyfin-library-drift")
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+
+    def test_unauthorized_library_readback_after_create_is_guided(self):
+        adapter, transport = self.authenticated_adapter(
+            [
+                response([]),
+                response(None, status=204),
+                response(None, status=204),
+                response({"error": "private-readback"}, status=401),
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_libraries()
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].code, "jellyfin-authentication")
+        self.assertIsInstance(result.error, JellyfinAuthenticationError)
+        self.assertNotIn("private-readback", repr(result))
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+                (
+                    "POST",
+                    f"{BASE_URL}/Library/VirtualFolders?name=Movies&collectionType=movies&paths=%2Fdata%2Fmedia%2Fmovies",
+                ),
+                (
+                    "POST",
+                    f"{BASE_URL}/Library/VirtualFolders?name=Shows&collectionType=tvshows&paths=%2Fdata%2Fmedia%2Ftv",
+                ),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+
+    def test_dry_run_library_plan_has_no_mutation_or_handoff_changes(self):
+        adapter, transport = self.authenticated_adapter(
+            [response([])],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_libraries(dry_run=True)
+
+        self.assertEqual(result.status, "dry-run")
+        self.assertTrue(result.dry_run)
+        self.assertEqual(
+            result.actions,
+            ("create-library-movies", "create-library-shows"),
+        )
+        self.assertIsNone(adapter.api_key_handoff)
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+        for value in (result, result.report, repr(result)):
+            self.assertNotIn(PASSWORD, repr(value))
+            self.assertNotIn(TOKEN, repr(value))
+
+    def test_case_variant_managed_name_is_drift_not_a_missing_library(self):
+        adapter, transport = self.authenticated_adapter(
+            [
+                response([
+                    {
+                        "Name": "movies",
+                        "CollectionType": "movies",
+                        "Locations": ["/data/media/movies"],
+                    }
+                ])
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_libraries()
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].code, "jellyfin-library-drift")
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+
+    def test_whitespace_variant_managed_name_is_drift_not_a_missing_library(self):
+        adapter, transport = self.authenticated_adapter(
+            [
+                response([
+                    {
+                        "Name": " Movies ",
+                        "CollectionType": "movies",
+                        "Locations": ["/data/media/movies"],
+                    }
+                ])
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_libraries()
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].code, "jellyfin-library-drift")
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+
+    def test_malformed_library_inventory_fails_closed_before_mutation(self):
+        malformed_payloads = [
+            {"Items": []},
+            [{"CollectionType": "movies", "Locations": ["/data/media/movies"]}],
+            [{"Name": "Movies", "Locations": ["/data/media/movies"]}],
+            [{
+                "Name": "Movies",
+                "CollectionType": "movies",
+                "Locations": "/data/media/movies",
+            }],
+            [{
+                "Name": "Movies",
+                "CollectionType": "movies",
+                "Locations": ["/data/media/movies", 17],
+            }],
+        ]
+
+        for payload in malformed_payloads:
+            with self.subTest(payload=payload):
+                adapter, transport = self.authenticated_adapter(
+                    [response(payload)],
+                    admin_name=ADMIN,
+                    admin_password=PASSWORD,
+                )
+
+                with self.assertRaises(InvalidInputError) as raised:
+                    adapter.reconcile_libraries()
+
+                self.assertIsInstance(raised.exception, JellyfinLibrarySchemaError)
+                self.assertIsNone(raised.exception.__context__)
+                self.assertEqual(
+                    [request[0:2] for request in transport.requests],
+                    [
+                        ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                        ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+                    ],
+                )
+
+    def test_library_create_requires_both_exact_managed_definitions_in_readback(self):
+        for readback in (
+            [],
+            [{
+                "Name": "Movies",
+                "CollectionType": "movies",
+                "Locations": ["/data/media/movies"],
+            }],
+            [
+                {
+                    "Name": "Movies",
+                    "CollectionType": "movies",
+                    "Locations": ["/data/media/movies"],
+                },
+                {
+                    "Name": "Movies",
+                    "CollectionType": "movies",
+                    "Locations": ["/data/media/movies"],
+                },
+                {
+                    "Name": "Shows",
+                    "CollectionType": "tvshows",
+                    "Locations": ["/data/media/tv"],
+                },
+            ],
+        ):
+            with self.subTest(readback=readback):
+                adapter, transport = self.authenticated_adapter(
+                    [
+                        response([]),
+                        response(None, status=204),
+                        response(None, status=204),
+                        response(readback),
+                    ],
+                    admin_name=ADMIN,
+                    admin_password=PASSWORD,
+                )
+
+                result = adapter.reconcile_libraries()
+
+                self.assertEqual(result.status, "guided")
+                self.assertEqual(
+                    result.checkpoints[0].code,
+                    "jellyfin-library-readback-conflict",
+                )
+                self.assertEqual(
+                    [request[0:2] for request in transport.requests],
+                    [
+                        ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                        ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+                        (
+                            "POST",
+                            f"{BASE_URL}/Library/VirtualFolders?name=Movies&collectionType=movies&paths=%2Fdata%2Fmedia%2Fmovies",
+                        ),
+                        (
+                            "POST",
+                            f"{BASE_URL}/Library/VirtualFolders?name=Shows&collectionType=tvshows&paths=%2Fdata%2Fmedia%2Ftv",
+                        ),
+                        ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+                    ],
+                )
+
+    def test_library_dry_run_preserves_an_existing_private_api_key_handoff(self):
+        existing_key = "existing-key-must-stay-private"
+        adapter, transport = self.authenticated_adapter(
+            [
+                api_keys([{"AppName": "Lumen", "AccessToken": existing_key}]),
+                response([]),
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        adapter.reconcile_api_key()
+        handoff = adapter.api_key_handoff
+        result = adapter.reconcile_libraries(dry_run=True)
+
+        self.assertEqual(result.status, "dry-run")
+        self.assertIs(adapter.api_key_handoff, handoff)
+        self.assertEqual(handoff.consume(), existing_key)
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Auth/Keys"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+        self.assertNotIn(existing_key, repr(result))
+
+    def test_unbound_library_plan_is_reinventoried_before_any_mutation(self):
+        adapter, transport = self.authenticated_adapter(
+            [
+                response([]),
+                response(None, status=204),
+                response(None, status=204),
+                response([
+                    {
+                        "Name": "Movies",
+                        "CollectionType": "movies",
+                        "Locations": ["/data/media/movies"],
+                    },
+                    {
+                        "Name": "Shows",
+                        "CollectionType": "tvshows",
+                        "Locations": ["/data/media/tv"],
+                    },
+                ]),
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+        plan = ServicePlan(
+            service="jellyfin",
+            actions=("create-library-movies",),
+            mode="libraries",
+        )
+
+        result = adapter.apply_libraries(plan)
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+                (
+                    "POST",
+                    f"{BASE_URL}/Library/VirtualFolders?name=Movies&collectionType=movies&paths=%2Fdata%2Fmedia%2Fmovies",
+                ),
+                (
+                    "POST",
+                    f"{BASE_URL}/Library/VirtualFolders?name=Shows&collectionType=tvshows&paths=%2Fdata%2Fmedia%2Ftv",
+                ),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+
+    def test_malformed_library_json_is_typed_and_secret_free(self):
+        response_secret = "library-json-secret"
+        payload = json.dumps({"Items": response_secret}).encode("utf-8")
+        adapter, transport = self.authenticated_adapter(
+            [response(payload)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        with self.assertRaises(InvalidInputError) as raised:
+            adapter.reconcile_libraries()
+
+        self.assertIsInstance(raised.exception, JellyfinLibrarySchemaError)
+        self.assertNotIn(response_secret, str(raised.exception))
+        self.assertNotIn(response_secret, repr(raised.exception))
+        self.assertIsNone(raised.exception.__context__)
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
+
+    def test_library_transport_failure_is_typed_and_secret_free(self):
+        transport_secret = "library-transport-secret"
+        adapter, transport = self.authenticated_adapter(
+            [RuntimeError(f"socket failed: {transport_secret}")],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        with self.assertRaises(HttpConnectionError) as raised:
+            adapter.reconcile_libraries()
+
+        self.assertNotIn(transport_secret, str(raised.exception))
+        self.assertNotIn(transport_secret, repr(raised.exception))
+        self.assertIsNone(raised.exception.__context__)
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertEqual(len(transport.requests), 2)
+
+    def test_stale_library_plan_rechecks_inventory_before_creating(self):
+        adapter, transport = self.authenticated_adapter(
+            [
+                response([]),
+                response([]),
+                response(None, status=204),
+                response(None, status=204),
+                response([
+                    {
+                        "Name": "Movies",
+                        "CollectionType": "movies",
+                        "Locations": ["/data/media/movies"],
+                    },
+                    {
+                        "Name": "Shows",
+                        "CollectionType": "tvshows",
+                        "Locations": ["/data/media/tv"],
+                    },
+                ]),
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+        plan = adapter.plan_libraries()
+
+        result = adapter.apply_libraries(plan)
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+                (
+                    "POST",
+                    f"{BASE_URL}/Library/VirtualFolders?name=Movies&collectionType=movies&paths=%2Fdata%2Fmedia%2Fmovies",
+                ),
+                (
+                    "POST",
+                    f"{BASE_URL}/Library/VirtualFolders?name=Shows&collectionType=tvshows&paths=%2Fdata%2Fmedia%2Ftv",
+                ),
+                ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+            ],
+        )
 
     def test_existing_lumen_key_is_reused_without_auth_key_mutation(self):
         existing_key = "existing-lumen-api-key"

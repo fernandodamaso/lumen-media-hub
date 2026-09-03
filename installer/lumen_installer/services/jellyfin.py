@@ -1,10 +1,10 @@
 """Safe Jellyfin startup, authentication, and API-key adapter.
 
-This slice owns the public startup capability check, authentication, and the
-single named API key needed by ``homepage-actions``.  It deliberately does not
-inspect or reconcile libraries, plugins, networking, or encoding.  Credentials
-and response identities remain private to the adapter/session and never enter
-plans, results, reports, or errors.
+This slice owns the public startup capability check, authentication, the
+single named API key needed by ``homepage-actions``, and the two approved
+managed libraries.  It deliberately does not reconcile plugins, networking,
+or encoding.  Credentials and response identities remain private to the
+adapter/session and never enter plans, results, reports, or errors.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from ..http import (
     HttpTimeoutError,
     HttpTransportError,
 )
-from .base import ServiceCheckpoint, ServicePlan, ServiceResult
+from .base import ServiceCheckpoint, ServiceDrift, ServicePlan, ServiceResult
 
 
 SERVICE_NAME = "jellyfin"
@@ -32,6 +32,10 @@ _STARTUP_FIELDS = frozenset(
 )
 _STARTUP_ACTIONS = frozenset(
     {"configure-startup", "create-administrator", "complete-startup"}
+)
+_MANAGED_LIBRARIES = (
+    ("Movies", "movies", "/data/media/movies"),
+    ("Shows", "tvshows", "/data/media/tv"),
 )
 
 
@@ -102,6 +106,16 @@ class JellyfinApiKeySchemaError(JellyfinCapabilityError):
     def __init__(self) -> None:
         self.code = type(self).code
         InvalidInputError.__init__(self, "Jellyfin API-key response schema is unsupported")
+
+
+class JellyfinLibrarySchemaError(JellyfinCapabilityError):
+    """The runtime virtual-folder endpoint does not match its contract."""
+
+    code = "jellyfin-library-schema"
+
+    def __init__(self) -> None:
+        self.code = type(self).code
+        InvalidInputError.__init__(self, "Jellyfin library response schema is unsupported")
 
 
 class JellyfinApiKeyHandoff:
@@ -235,6 +249,19 @@ def _safe_mapping_value(mapping: Mapping[str, Any], key: str) -> Any:
     return value
 
 
+def _safe_library_mapping_value(mapping: Mapping[str, Any], key: str) -> Any:
+    """Read library response mappings without retaining foreign exceptions."""
+
+    mapping_error: JellyfinLibrarySchemaError | None = None
+    try:
+        value = mapping.get(key)
+    except Exception:
+        mapping_error = JellyfinLibrarySchemaError()
+    if mapping_error is not None:
+        raise mapping_error from None
+    return value
+
+
 def _base_url(value: Any) -> str:
     if not isinstance(value, str) or not value.strip():
         raise InvalidInputError("Jellyfin URL is required")
@@ -266,7 +293,7 @@ def _quote_header_value(value: str) -> str:
 
 
 class JellyfinAdapter:
-    """Plan and apply supported Jellyfin startup/authentication operations."""
+    """Plan and apply supported Jellyfin startup, auth, and library operations."""
 
     def __init__(
         self,
@@ -541,6 +568,295 @@ class JellyfinAdapter:
         """
 
         return self._authenticate()
+
+    @staticmethod
+    def _library_items(payload: Any) -> list[Mapping[str, Any]]:
+        if not isinstance(payload, list):
+            raise JellyfinLibrarySchemaError()
+        items: list[Mapping[str, Any]] = []
+        for item in payload:
+            if not isinstance(item, Mapping):
+                raise JellyfinLibrarySchemaError()
+            name = _safe_library_mapping_value(item, "Name")
+            collection_type = _safe_library_mapping_value(item, "CollectionType")
+            locations = _safe_library_mapping_value(item, "Locations")
+            if not _nonempty_text(name) or not _nonempty_text(collection_type):
+                raise JellyfinLibrarySchemaError()
+            if not isinstance(locations, list) or any(
+                not _nonempty_text(location) for location in locations
+            ):
+                raise JellyfinLibrarySchemaError()
+            items.append(
+                {
+                    "Name": name,
+                    "CollectionType": collection_type,
+                    "Locations": tuple(locations),
+                }
+            )
+        return items
+
+    def _read_libraries(self) -> list[Mapping[str, Any]]:
+        if self._session is None:
+            raise JellyfinSessionError()
+        return self._library_items(
+            self._decode_json(
+                self._request(
+                    "GET",
+                    "/Library/VirtualFolders",
+                    authenticated=True,
+                    operation="libraries",
+                ),
+                operation="libraries",
+            )
+        )
+
+    def plan_libraries(self, *, dry_run: bool = False) -> ServicePlan:
+        """Inventory and plan only the two approved managed libraries."""
+
+        items = self._read_libraries()
+        actions: list[str] = []
+        drifts: list[ServiceDrift] = []
+        checkpoints: list[ServiceCheckpoint] = []
+        for name, collection_type, path in _MANAGED_LIBRARIES:
+            matches = [
+                item
+                for item in items
+                if item["Name"].strip().casefold() == name.casefold()
+            ]
+            slug = name.casefold()
+            if not matches:
+                actions.append(f"create-library-{slug}")
+                continue
+            if len(matches) > 1:
+                actions.append(f"review-library-{slug}")
+                checkpoints.append(
+                    ServiceCheckpoint(
+                        code="jellyfin-library-conflict",
+                        reason="Multiple managed Jellyfin libraries match; resolve the duplicate manually and retry.",
+                        action="review",
+                        severity="error",
+                    )
+                )
+                continue
+            if (
+                matches[0]["Name"] == name
+                and matches[0]["CollectionType"] == collection_type
+                and matches[0]["Locations"] == (path,)
+            ):
+                actions.append(f"adopt-library-{slug}")
+                continue
+            actions.append(f"review-library-{slug}")
+            drifts.append(
+                ServiceDrift(
+                    resource=name,
+                    field="definition",
+                    reason="Managed Jellyfin library differs from the approved definition.",
+                    action="confirm",
+                )
+            )
+            checkpoints.append(
+                ServiceCheckpoint(
+                    code="jellyfin-library-drift",
+                    reason="A managed Jellyfin library differs from the approved definition; confirm explicitly before changing it.",
+                    action="confirm",
+                    severity="error",
+                )
+            )
+        plan = ServicePlan(
+            service=SERVICE_NAME,
+            status="conflict" if checkpoints else "planned",
+            actions=tuple(actions),
+            drift=tuple(drifts),
+            checkpoints=tuple(checkpoints),
+            dry_run=bool(dry_run),
+            mode="libraries",
+        )
+        return plan
+
+    @staticmethod
+    def _library_create_url(name: str, collection_type: str, path: str) -> str:
+        query = urllib.parse.urlencode(
+            {
+                "name": name,
+                "collectionType": collection_type,
+                "paths": path,
+            }
+        )
+        return f"/Library/VirtualFolders?{query}"
+
+    @staticmethod
+    def _library_definition(action: str) -> tuple[str, str, str] | None:
+        for name, collection_type, path in _MANAGED_LIBRARIES:
+            action_name = action.removeprefix("create-library-").removeprefix("adopt-library-")
+            if action_name == name.casefold():
+                return name, collection_type, path
+        return None
+
+    def _library_guided(
+        self,
+        *,
+        actions: tuple[str, ...],
+        code: str,
+        reason: str,
+        drift: tuple[ServiceDrift, ...] = (),
+        error: BaseException | None = None,
+        checkpoint_action: str = "review",
+    ) -> JellyfinResult:
+        return JellyfinResult(
+            service=SERVICE_NAME,
+            status="guided",
+            actions=actions,
+            drift=drift,
+            checkpoints=(
+                ServiceCheckpoint(
+                    code=code,
+                    reason=reason,
+                    action=checkpoint_action,
+                    severity="error",
+                ),
+            ),
+            error=error,
+            mode="libraries",
+        )
+
+    def apply_libraries(
+        self,
+        plan: ServicePlan,
+        *,
+        confirm_drift: bool = False,
+        dry_run: bool | None = None,
+        _inventory_checked: bool = False,
+    ) -> JellyfinResult:
+        if not isinstance(plan, ServicePlan) or plan.service != SERVICE_NAME or plan.mode != "libraries":
+            raise InvalidInputError("Jellyfin library plan is invalid")
+        if self._session is None:
+            raise JellyfinSessionError()
+        selected_dry_run = plan.dry_run if dry_run is None else bool(dry_run)
+        if not _inventory_checked:
+            plan = self.plan_libraries(dry_run=selected_dry_run)
+        if selected_dry_run:
+            return JellyfinResult(
+                service=SERVICE_NAME,
+                status="dry-run",
+                actions=plan.actions,
+                drift=plan.drift,
+                checkpoints=plan.checkpoints,
+                dry_run=True,
+                mode="libraries",
+            )
+
+        if plan.checkpoints and not plan.drift:
+            return JellyfinResult(
+                service=SERVICE_NAME,
+                status="guided",
+                actions=(),
+                checkpoints=plan.checkpoints,
+                mode="libraries",
+            )
+
+        if plan.drift:
+            reason = (
+                "A managed Jellyfin library differs from the approved definition; "
+                "confirm explicitly before changing it."
+            )
+            if confirm_drift and self._interactive:
+                reason = (
+                    "Managed Jellyfin library drift was confirmed, but this slice "
+                    "does not modify existing library definitions; resolve it manually."
+                )
+            return self._library_guided(
+                actions=(),
+                code="jellyfin-library-drift",
+                reason=reason,
+                drift=plan.drift,
+                checkpoint_action="confirm",
+            )
+
+        completed: list[str] = []
+        created: list[str] = []
+        for action in plan.actions:
+            definition = self._library_definition(action)
+            if definition is None:
+                raise InvalidInputError("Jellyfin library plan contains an unsupported action")
+            if action.startswith("adopt-library-"):
+                completed.append(action)
+                continue
+            name, collection_type, path = definition
+            try:
+                self._request(
+                    "POST",
+                    self._library_create_url(name, collection_type, path),
+                    authenticated=True,
+                    operation="mutation",
+                )
+            except HttpStatusError as error:
+                if error.status in {401, 403}:
+                    return self._library_guided(
+                        actions=tuple(completed),
+                        code="jellyfin-authentication",
+                        reason="Verify the current Jellyfin administrator credentials and retry.",
+                    )
+                raise
+            completed.append(action)
+            created.append(action)
+
+        if created:
+            try:
+                readback = self._read_libraries()
+            except HttpStatusError as error:
+                if error.status not in {401, 403}:
+                    raise
+                auth_error = JellyfinAuthenticationError(error.status)
+                return self._library_guided(
+                    actions=tuple(completed),
+                    code="jellyfin-authentication",
+                    reason="Verify the current Jellyfin administrator credentials and retry.",
+                    error=auth_error,
+                )
+            for name, collection_type, path in _MANAGED_LIBRARIES:
+                matches = [item for item in readback if item["Name"] == name]
+                if len(matches) != 1 or (
+                    matches[0]["CollectionType"] != collection_type
+                    or matches[0]["Locations"] != (path,)
+                ):
+                    return self._library_guided(
+                        actions=tuple(completed),
+                        code="jellyfin-library-readback-conflict",
+                        reason="Managed Jellyfin library readback is incomplete or does not match the approved definition.",
+                    )
+
+        return JellyfinResult(
+            service=SERVICE_NAME,
+            status="ok",
+            actions=tuple(completed),
+            mode="libraries",
+        )
+
+    def reconcile_libraries(
+        self,
+        *,
+        confirm_drift: bool = False,
+        dry_run: bool = False,
+    ) -> JellyfinResult:
+        """Create missing approved libraries and guide all existing drift."""
+
+        try:
+            plan = self.plan_libraries(dry_run=dry_run)
+        except HttpStatusError as error:
+            if error.status not in {401, 403}:
+                raise
+            auth_error = JellyfinAuthenticationError(error.status)
+            return self._library_guided(
+                actions=(),
+                code="jellyfin-authentication",
+                reason="Verify the current Jellyfin administrator credentials and retry.",
+                error=auth_error,
+            )
+        return self.apply_libraries(
+            plan,
+            confirm_drift=confirm_drift,
+            _inventory_checked=True,
+        )
 
     @staticmethod
     def _api_key_items(payload: Any) -> list[Mapping[str, Any]]:
@@ -952,6 +1268,7 @@ __all__ = [
     "JellyfinAuthenticationError",
     "JellyfinApiKeyHandoff",
     "JellyfinApiKeySchemaError",
+    "JellyfinLibrarySchemaError",
     "JellyfinCapability",
     "JellyfinCapabilityError",
     "JellyfinError",

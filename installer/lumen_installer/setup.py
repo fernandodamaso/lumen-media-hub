@@ -261,6 +261,36 @@ def _secret_values(document: DotEnvDocument) -> tuple[str, ...]:
     return tuple(values)
 
 
+def _commit_gpu_environment(
+    path: Path,
+    values: Mapping[str, str],
+    *,
+    writer: Callable[..., Any] = write_atomic,
+) -> DotEnvDocument:
+    """Atomically add GPU-only Compose values before an activation boundary."""
+
+    document = _load_document(path)
+    for key, value in values.items():
+        document.set(key, value)
+    rendered = document.render()
+    try:
+        current = path.read_text(encoding="utf-8") if path.exists() else None
+        metadata = path.lstat() if path.exists() else None
+        mode_needs_fix = (
+            metadata is None
+            or not stat.S_ISREG(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+        )
+    except OSError as exc:
+        raise InvalidInputError("GPU environment could not be read before commit") from exc
+    if current != rendered or mode_needs_fix:
+        try:
+            writer(path, rendered, mode=0o600)
+        except (OSError, ValueError) as exc:
+            raise InvalidInputError("GPU environment could not be committed atomically") from exc
+    return document
+
+
 def _storage_target_input(
     key: str,
     planned: Any,
@@ -1057,6 +1087,7 @@ def run_up(
     gpu_detector: Callable[..., Any] | None = None,
     gpu_confirm: bool | Callable[..., Any] = False,
     gpu_architecture: str | None = None,
+    env_writer: Callable[..., Any] = write_atomic,
 ) -> FoundationResult:
     root = _repo(repo_root)
     with _lifecycle_lock(root, dry_run=dry_run):
@@ -1073,10 +1104,11 @@ def run_up(
         if isinstance(project, str):
             project = project.strip() or None
         gpu_detail: Mapping[str, Any] = {}
+        gpu_environment_values: Mapping[str, str] = {}
         if effective.gpu_mode != "none":
             # ``up`` is an activation boundary too. Validate hardware before
             # stale cleanup or Compose startup; a dry-run never saves state.
-            if dry_run:
+            if dry_run and gpu_detector is None:
                 # A lifecycle dry-run is discovery-only.  Running ``docker
                 # run`` here could pull a probe image and make a supposedly
                 # read-only preview mutate the host image cache.  Keep the
@@ -1104,6 +1136,24 @@ def run_up(
                 )
                 effective = replace(effective, gpu=resolved.mode)
                 gpu_detail = resolved.report
+                gpu_environment_values = gpu_environment(resolved)
+
+            if gpu_environment_values:
+                gpu_detail = {**gpu_detail, "environment": dict(gpu_environment_values)}
+                if not dry_run:
+                    _commit_gpu_environment(env_path, gpu_environment_values, writer=env_writer)
+
+        # Persist explicit lifecycle choices just as setup does.  Dry-runs
+        # intentionally keep both the environment and state untouched.
+        if not dry_run and options is not None and (
+            options.gpu is not None or options.profiles is not None
+        ):
+            state = replace(
+                state,
+                gpu_mode=effective.gpu_mode,
+                profiles=effective.selected_profiles,
+            )
+            state.save()
         stale_removed = _remove_stale(_stale(command_runner, root, stale_finder, project), command_runner, dry_run=dry_run)
         if not dry_run:
             compose_up(command_runner, root, env_path, effective, redact=_secret_values(_load_document(env_path)))

@@ -248,6 +248,64 @@ class GpuProbeTests(unittest.TestCase):
         self.assertEqual(result.gpu["mode"], "nvidia")
         self.assertEqual(result.gpu["overlay"], "docker-compose.gpu.yml")
 
+    def test_up_vaapi_persists_numeric_groups_before_compose_and_saves_override(self):
+        from lumen_installer.setup import run_up
+        from lumen_installer.state import InstallerState
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"
+            repo.mkdir()
+            env_path = repo / ".env"
+            env_path.write_text("ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/downloads\n", encoding="utf-8")
+            InstallerState.new(repo).save()
+            runner = Runner()
+            result = run_up(
+                repo,
+                runner=runner,
+                options=ComposeOptions(gpu="vaapi"),
+                gpu_detector=lambda mode, **kwargs: GpuProbe(
+                    "vaapi", "available", True, {}, render_gid=107, video_gid=44
+                ),
+                stale_finder=lambda: (),
+            )
+            rendered_env = env_path.read_text(encoding="utf-8")
+            saved_state = InstallerState.load(repo)
+
+        self.assertIn("RENDER_GID=107", rendered_env)
+        self.assertIn("VIDEO_GID=44", rendered_env)
+        self.assertEqual(saved_state.gpu_mode, "vaapi")
+        self.assertEqual(result.gpu["environment"], {"RENDER_GID": "107", "VIDEO_GID": "44"})
+        self.assertTrue(any(call[-2:] == ("up", "-d") for call, _ in runner.calls))
+
+    def test_up_vaapi_dry_run_reports_groups_without_writing_env_or_state(self):
+        from lumen_installer.setup import run_up
+        from lumen_installer.state import InstallerState
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"
+            repo.mkdir()
+            env_path = repo / ".env"
+            env_path.write_text("ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/downloads\n", encoding="utf-8")
+            InstallerState.new(repo).save()
+            before_env = env_path.read_text(encoding="utf-8")
+            runner = Runner()
+            result = run_up(
+                repo,
+                runner=runner,
+                options=ComposeOptions(gpu="vaapi"),
+                gpu_detector=lambda mode, **kwargs: GpuProbe(
+                    "vaapi", "available", True, {}, render_gid=107, video_gid=44
+                ),
+                dry_run=True,
+                stale_finder=lambda: (),
+            )
+            after_env = env_path.read_text(encoding="utf-8")
+            after_state = InstallerState.load(repo)
+
+        self.assertEqual(after_env, before_env)
+        self.assertEqual(after_state.gpu_mode, "none")
+        self.assertEqual(result.gpu["environment"], {"RENDER_GID": "107", "VIDEO_GID": "44"})
+
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ from lumen_installer.services.jellyfin import (
     JellyfinAdapter,
     JellyfinAuthenticationError,
     JellyfinCapabilityError,
+    JellyfinResult,
 )
 
 
@@ -88,7 +89,17 @@ class JellyfinAdapterTests(unittest.TestCase):
 
     def test_supported_fresh_startup_sequence_and_authentication(self):
         adapter, transport = self.adapter(
-            [response(system_info(False)), response({"ServerName": "private-old-name"}), response(None), response(None), response(None), response({"AccessToken": TOKEN, "User": {"Id": SERVER_ID}})],
+            [
+                response(system_info(False)),
+                response({"ServerName": "private-old-name"}),
+                response(system_info(False)),
+                response({"ServerName": "private-old-name"}),
+                response(None),
+                response({"Name": "bootstrap-user"}),
+                response(None),
+                response(None),
+                response({"AccessToken": TOKEN, "User": {"Id": SERVER_ID}}),
+            ],
             admin_name=ADMIN,
             admin_password=PASSWORD,
             server_name="private-new-name",
@@ -101,14 +112,22 @@ class JellyfinAdapterTests(unittest.TestCase):
         self.assertEqual([request[0:2] for request in transport.requests], [
             ("GET", f"{BASE_URL}/System/Info/Public"),
             ("GET", f"{BASE_URL}/Startup/Configuration"),
+            ("GET", f"{BASE_URL}/System/Info/Public"),
+            ("GET", f"{BASE_URL}/Startup/Configuration"),
             ("POST", f"{BASE_URL}/Startup/Configuration"),
+            ("GET", f"{BASE_URL}/Startup/User"),
             ("POST", f"{BASE_URL}/Startup/User"),
             ("POST", f"{BASE_URL}/Startup/Complete"),
             ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
         ])
-        self.assertEqual(transport.requests[2][2]["json_body"], {"ServerName": "private-new-name"})
-        self.assertEqual(transport.requests[3][2]["json_body"], {"Name": ADMIN, "Password": PASSWORD})
-        self.assertEqual(transport.requests[5][2]["json_body"], {"Username": ADMIN, "Pw": PASSWORD})
+        self.assertEqual(transport.requests[4][2]["json_body"], {
+            "ServerName": "private-new-name",
+            "UICulture": "",
+            "MetadataCountryCode": "",
+            "PreferredMetadataLanguage": "",
+        })
+        self.assertEqual(transport.requests[6][2]["json_body"], {"Name": ADMIN, "Password": PASSWORD})
+        self.assertEqual(transport.requests[8][2]["json_body"], {"Username": ADMIN, "Pw": PASSWORD})
         self.assertEqual(adapter.session.token, TOKEN)
         for value in (result, result.report, repr(result), repr(result.report), repr(result.error)):
             self.assertNotIn(ADMIN, repr(value))
@@ -237,6 +256,7 @@ class JellyfinAdapterTests(unittest.TestCase):
                 response(system_info(False)),
                 response({}),
                 response(None),
+                response({"Name": "bootstrap-user"}),
                 response(None),
                 response(None),
                 response({"AccessToken": TOKEN}),
@@ -257,6 +277,7 @@ class JellyfinAdapterTests(unittest.TestCase):
             ("GET", f"{BASE_URL}/System/Info/Public"),
             ("GET", f"{BASE_URL}/Startup/Configuration"),
             ("POST", f"{BASE_URL}/Startup/Configuration"),
+            ("GET", f"{BASE_URL}/Startup/User"),
             ("POST", f"{BASE_URL}/Startup/User"),
             ("POST", f"{BASE_URL}/Startup/Complete"),
             ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
@@ -275,6 +296,168 @@ class JellyfinAdapterTests(unittest.TestCase):
         with self.assertRaises(InvalidInputError):
             adapter.apply(plan)
         self.assertEqual(transport.requests, [])
+
+    def test_fresh_startup_gets_initial_user_before_posting_it(self):
+        adapter, transport = self.adapter(
+            [
+                response(system_info(False)),
+                response({
+                    "ServerName": "old-server",
+                    "UICulture": "en-US",
+                    "MetadataCountryCode": "US",
+                    "PreferredMetadataLanguage": "en",
+                }),
+                response(system_info(False)),
+                response({
+                    "ServerName": "old-server",
+                    "UICulture": "en-US",
+                    "MetadataCountryCode": "US",
+                    "PreferredMetadataLanguage": "en",
+                }),
+                response(None),
+                response({"Name": "bootstrap-user", "Password": "must-not-be-used"}),
+                response(None),
+                response(None),
+                response({"AccessToken": TOKEN}),
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.configure()
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual([request[0:2] for request in transport.requests], [
+            ("GET", f"{BASE_URL}/System/Info/Public"),
+            ("GET", f"{BASE_URL}/Startup/Configuration"),
+            ("GET", f"{BASE_URL}/System/Info/Public"),
+            ("GET", f"{BASE_URL}/Startup/Configuration"),
+            ("POST", f"{BASE_URL}/Startup/Configuration"),
+            ("GET", f"{BASE_URL}/Startup/User"),
+            ("POST", f"{BASE_URL}/Startup/User"),
+            ("POST", f"{BASE_URL}/Startup/Complete"),
+            ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+        ])
+        self.assertNotIn("bootstrap-user", repr(result))
+        self.assertNotIn("must-not-be-used", repr(result))
+
+    def test_malformed_initial_user_response_fails_before_user_mutation(self):
+        adapter, transport = self.adapter(
+            [
+                response(system_info(False)),
+                response({"ServerName": "old-server"}),
+                response(system_info(False)),
+                response({"ServerName": "old-server"}),
+                response(None),
+                response({"Password": "response-secret"}),
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        with self.assertRaises(JellyfinCapabilityError) as raised:
+            adapter.configure()
+
+        self.assertNotIn("response-secret", str(raised.exception))
+        self.assertEqual([request[0:2] for request in transport.requests], [
+            ("GET", f"{BASE_URL}/System/Info/Public"),
+            ("GET", f"{BASE_URL}/Startup/Configuration"),
+            ("GET", f"{BASE_URL}/System/Info/Public"),
+            ("GET", f"{BASE_URL}/Startup/Configuration"),
+            ("POST", f"{BASE_URL}/Startup/Configuration"),
+            ("GET", f"{BASE_URL}/Startup/User"),
+        ])
+
+    def test_authenticated_requests_use_quoted_modern_authorization_header(self):
+        token = 'auth-"token"\\must-not-escape'
+        adapter, transport = self.adapter(
+            [response({"AccessToken": token, "User": {"Id": SERVER_ID}})],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        session = adapter.authenticate()
+
+        headers = session.headers
+        escaped_token = token.replace("\\", "\\\\").replace('"', '\\"')
+        self.assertEqual(
+            headers["Authorization"],
+            f'MediaBrowser Token="{escaped_token}", '
+            'Client="Lumen Installer", Device="installer", '
+            'DeviceId="lumen-installer", Version="1.0"',
+        )
+        self.assertNotIn("X-Emby-Authorization", headers)
+        guided = JellyfinResult(
+            service="jellyfin",
+            status="guided",
+            error=JellyfinAuthenticationError(401),
+        )
+        for value in (session, adapter, guided, guided.report, guided.error):
+            self.assertNotIn(token, repr(value))
+
+    def test_startup_configuration_preserves_existing_fields_when_changing_server_name(self):
+        adapter, transport = self.adapter(
+            [
+                response(system_info(False)),
+                response({
+                    "ServerName": "private-old-name",
+                    "UICulture": "pt-BR",
+                    "MetadataCountryCode": "BR",
+                    "PreferredMetadataLanguage": "pt",
+                }),
+                response(system_info(False)),
+                response({
+                    "ServerName": "private-old-name",
+                    "UICulture": "pt-BR",
+                    "MetadataCountryCode": "BR",
+                    "PreferredMetadataLanguage": "pt",
+                }),
+                response(None),
+                response({"Name": "bootstrap-user"}),
+                response(None),
+                response(None),
+                response({"AccessToken": TOKEN}),
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+            server_name="Lumen Media Hub",
+        )
+
+        adapter.configure()
+
+        self.assertEqual(
+            transport.requests[4][2]["json_body"],
+            {
+                "ServerName": "Lumen Media Hub",
+                "UICulture": "pt-BR",
+                "MetadataCountryCode": "BR",
+                "PreferredMetadataLanguage": "pt",
+            },
+        )
+
+    def test_stale_fresh_plan_rechecks_server_before_startup_mutation(self):
+        adapter, transport = self.adapter(
+            [
+                response(system_info(False)),
+                response({"ServerName": "old-server"}),
+                response(system_info(True)),
+                response({"AccessToken": TOKEN}),
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        plan = adapter.plan()
+        result = adapter.apply(plan)
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.actions, ("authenticate",))
+        self.assertEqual([request[0:2] for request in transport.requests], [
+            ("GET", f"{BASE_URL}/System/Info/Public"),
+            ("GET", f"{BASE_URL}/Startup/Configuration"),
+            ("GET", f"{BASE_URL}/System/Info/Public"),
+            ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+        ])
 
 
 if __name__ == "__main__":

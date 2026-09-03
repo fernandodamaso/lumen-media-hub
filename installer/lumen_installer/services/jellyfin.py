@@ -32,12 +32,6 @@ _STARTUP_FIELDS = frozenset(
 _STARTUP_ACTIONS = frozenset(
     {"configure-startup", "create-administrator", "complete-startup"}
 )
-_AUTHORIZATION = (
-    'MediaBrowser Client="Lumen Installer", Device="installer", '
-    'DeviceId="lumen-installer", Version="1.0"'
-)
-
-
 class JellyfinError(InstallerError):
     """Base class for sanitized Jellyfin adapter failures."""
 
@@ -122,11 +116,17 @@ class JellyfinSession:
 
     @property
     def authorization(self) -> str:
-        return f"{_AUTHORIZATION}, Token={self._token}"
+        return (
+            f"MediaBrowser Token={_quote_header_value(self._token)}, "
+            f"Client={_quote_header_value('Lumen Installer')}, "
+            f"Device={_quote_header_value('installer')}, "
+            f"DeviceId={_quote_header_value('lumen-installer')}, "
+            f"Version={_quote_header_value('1.0')}"
+        )
 
     @property
     def headers(self) -> dict[str, str]:
-        return {"X-Emby-Authorization": self.authorization}
+        return {"Authorization": self.authorization}
 
     def __repr__(self) -> str:
         return "JellyfinSession(authenticated=True)"
@@ -164,6 +164,12 @@ def _safe_public_text(value: Any) -> str | None:
     return str(value) if _nonempty_text(value) else None
 
 
+def _quote_header_value(value: str) -> str:
+    """Quote a MediaBrowser header value without allowing escapes through."""
+
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 class JellyfinAdapter:
     """Plan and apply supported Jellyfin startup/authentication operations."""
 
@@ -189,6 +195,7 @@ class JellyfinAdapter:
         self._interactive = bool(interactive)
         self._session: JellyfinSession | None = None
         self._capability: JellyfinCapability | None = None
+        self._startup_configuration: dict[str, str] | None = None
 
     @property
     def session(self) -> JellyfinSession | None:
@@ -304,13 +311,21 @@ class JellyfinAdapter:
         return JellyfinCapability(completed, _safe_public_text(version))
 
     @classmethod
-    def _startup_capability(cls, payload: Any) -> Mapping[str, Any]:
+    def _startup_capability(cls, payload: Any) -> dict[str, str]:
         if not isinstance(payload, Mapping):
             raise JellyfinCapabilityError()
+        values: dict[str, str] = {}
         for field in _STARTUP_FIELDS:
-            if field in payload and payload[field] is not None and not _nonempty_text(payload[field]):
+            value = payload.get(field)
+            if value is not None and not isinstance(value, str):
                 raise JellyfinCapabilityError()
-        return payload
+            values[field] = value or ""
+        return values
+
+    @staticmethod
+    def _startup_user_capability(payload: Any) -> None:
+        if not isinstance(payload, Mapping) or not _nonempty_text(payload.get("Name")):
+            raise JellyfinCapabilityError()
 
     def _check_capability(self) -> JellyfinCapability:
         system = self._decode_json(
@@ -318,8 +333,9 @@ class JellyfinAdapter:
             operation="system",
         )
         capability = self._system_capability(system)
+        self._startup_configuration = None
         if not capability.initialized:
-            self._startup_capability(
+            self._startup_configuration = self._startup_capability(
                 self._decode_json(
                     self._request("GET", "/Startup/Configuration"),
                     operation="startup",
@@ -406,7 +422,7 @@ class JellyfinAdapter:
 
         actions = plan.actions
         mode = plan.mode
-        if self._capability is None:
+        if _STARTUP_ACTIONS.intersection(actions):
             capability = self._check_capability()
             if capability.initialized:
                 actions = tuple(action for action in actions if action not in _STARTUP_ACTIONS)
@@ -415,14 +431,23 @@ class JellyfinAdapter:
         completed: list[str] = []
         try:
             if "configure-startup" in actions:
+                startup_configuration = dict(self._startup_configuration or {})
+                startup_configuration["ServerName"] = self._server_name
+                for field in _STARTUP_FIELDS:
+                    startup_configuration.setdefault(field, "")
                 self._request(
                     "POST",
                     "/Startup/Configuration",
-                    body={"ServerName": self._server_name},
+                    body=startup_configuration,
                     operation="mutation",
                 )
                 completed.append("configure-startup")
             if "create-administrator" in actions:
+                initial_user = self._decode_json(
+                    self._request("GET", "/Startup/User", operation="startup"),
+                    operation="startup",
+                )
+                self._startup_user_capability(initial_user)
                 self._request(
                     "POST",
                     "/Startup/User",

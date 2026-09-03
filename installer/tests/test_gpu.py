@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 INSTALLER_ROOT = Path(__file__).resolve().parents[1]
 if str(INSTALLER_ROOT) not in sys.path:
@@ -12,6 +13,7 @@ if str(INSTALLER_ROOT) not in sys.path:
 
 from lumen_installer.commands import CommandResult
 from lumen_installer.compose import ComposeOptions
+from lumen_installer.docker import DockerPreflight
 from lumen_installer.errors import DriftError, InvalidInputError
 from lumen_installer.gpu import (
     DEFAULT_JELLYFIN_IMAGE,
@@ -22,6 +24,7 @@ from lumen_installer.gpu import (
     probe_vaapi,
     resolve_gpu,
 )
+from lumen_installer.platform import HostFacts
 
 
 class Runner:
@@ -36,6 +39,20 @@ class Runner:
         if isinstance(value, BaseException):
             raise value
         return value
+
+
+HOST = HostFacts(
+    uid=os.getuid(),
+    gid=os.getgid(),
+    timezone="UTC",
+    distro_id="ubuntu",
+    distro_like=("debian",),
+    arch="x86_64",
+    euid=os.geteuid(),
+    sudo_uid=None,
+    sudo_gid=None,
+    codename="jammy",
+)
 
 
 class GpuProbeTests(unittest.TestCase):
@@ -181,6 +198,45 @@ class GpuProbeTests(unittest.TestCase):
         self.assertEqual(report["status"], "needs-attention")
         self.assertIn("GPU diagnostics need attention", report["errors"])
 
+    def test_doctor_reports_healthy_explicit_gpu_without_attention(self):
+        from lumen_installer.setup import doctor_diagnostics
+        from lumen_installer.state import InstallerState
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            media = root / "media"
+            downloads = root / "downloads"
+            media.mkdir()
+            downloads.mkdir()
+            (repo / ".env").write_text(
+                f"ROOT_PATH={media}\nDOWNLOADS_PATH={downloads}\n"
+                "ACTIONS_TOKEN=present\nJELLYFIN_BIND_ADDRESS=127.0.0.1\n",
+                encoding="utf-8",
+            )
+            InstallerState.new(
+                repo,
+                gpu_mode="nvidia",
+                completed_stages=("host", "environment", "network", "storage", "preflight", "compose"),
+            ).save()
+            with mock.patch(
+                "lumen_installer.setup.validate_storage",
+                return_value=SimpleNamespace(report={"status": "ok"}),
+            ):
+                report = doctor_diagnostics(
+                    repo,
+                    host_report={"status": "ok", "exit_code": 0},
+                    gpu_mode="nvidia",
+                    gpu_detector=lambda mode, **kwargs: GpuProbe(
+                        "nvidia", "available", True, {"nvidia_smi": True, "container_runtime": True}
+                    ),
+                )
+
+        self.assertEqual(report["gpu"]["status"], "available")
+        self.assertEqual(report["status"], "ok")
+        self.assertEqual(report["exit_code"], 0)
+
     def test_vaapi_probe_container_uses_bounded_pull_when_image_is_missing(self):
         with tempfile.TemporaryDirectory() as temporary:
             dri = Path(temporary) / "dri"
@@ -304,7 +360,50 @@ class GpuProbeTests(unittest.TestCase):
 
         self.assertEqual(after_env, before_env)
         self.assertEqual(after_state.gpu_mode, "none")
+        self.assertEqual(result.gpu["status"], "unverified")
         self.assertEqual(result.gpu["environment"], {"RENDER_GID": "107", "VIDEO_GID": "44"})
+
+    def test_foundation_gpu_dry_run_skips_real_probes_for_requested_modes(self):
+        from lumen_installer.setup import run_foundation
+
+        class FoundationRunner(Runner):
+            def run(self, argv, **kwargs):
+                key = tuple(argv)
+                self.calls.append((key, kwargs))
+                if key[-3:] == ("config", "--format", "json"):
+                    return CommandResult(key, 0, '{"services":{"jellyfin":{"image":"x"}}}')
+                return CommandResult(key, 0, "")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for mode in ("nvidia", "vaapi"):
+                with self.subTest(mode=mode):
+                    repo = root / mode
+                    repo.mkdir()
+                    media = root / f"{mode}-media"
+                    downloads = root / f"{mode}-downloads"
+                    runner = FoundationRunner()
+                    result = run_foundation(
+                        repo,
+                        runner=runner,
+                        host=HOST,
+                        options=ComposeOptions(gpu=mode),
+                        answers={"ROOT_PATH": str(media), "DOWNLOADS_PATH": str(downloads)},
+                        dry_run=True,
+                        preflight_checker=lambda runner: DockerPreflight(status="ok"),
+                        storage_validator=lambda *args, **kwargs: SimpleNamespace(report={}),
+                        stale_finder=lambda: (),
+                    )
+
+                    probe_calls = [
+                        call
+                        for call, _ in runner.calls
+                        if call and (call[0] == "nvidia-smi" or call[:2] == ("docker", "run"))
+                    ]
+                    self.assertEqual(probe_calls, [])
+                    self.assertEqual(result.status, "dry-run")
+                    self.assertEqual(result.gpu["status"], "unverified")
+                    self.assertEqual(result.gpu["mode"], mode)
 
 
 

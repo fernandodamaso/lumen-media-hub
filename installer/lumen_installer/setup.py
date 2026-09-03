@@ -932,24 +932,48 @@ def _run_foundation_unlocked(
     # without the caller's explicit confirmation.
     gpu_detail: Mapping[str, Any] = {}
     if effective.gpu_mode != "none":
-        facts_arch = facts.arch
-        resolved = resolve_gpu(
-            effective.gpu_mode,
-            detector=gpu_detector,
-            confirm=gpu_confirm,
-            noninteractive=not interactive,
-            runner=command_runner,
-            architecture=facts_arch,
-        )
-        effective = replace(effective, gpu=resolved.mode)
-        gpu_detail = resolved.report
-        if resolved.mode == "vaapi":
-            for key, value in gpu_environment(resolved).items():
-                env_plan.document.set(key, value)
-        # A successful hardware resolution is persisted together with the
-        # next ordered stage.  Dry-runs retain the caller's state untouched.
-        if not dry_run and active_journal.state.gpu_mode != resolved.mode:
-            active_journal._state = replace(active_journal.state, gpu_mode=resolved.mode)
+        if dry_run and gpu_detector is None:
+            # A foundation dry-run is discovery-only.  Running a Docker GPU
+            # probe here can pull an image and mutate the host image cache.
+            # Keep the requested overlay visible in the planned command while
+            # making its capability explicitly unverified.
+            gpu_detail = {
+                "requested_mode": effective.gpu_mode,
+                "mode": effective.gpu_mode,
+                "detected_mode": "none",
+                "status": "unverified",
+                "available": False,
+                "checks": {},
+                "overlay": overlay_for_mode(effective.gpu_mode),
+                "reason": "GPU probes are skipped during dry-run",
+            }
+        else:
+            facts_arch = facts.arch
+            resolved = resolve_gpu(
+                effective.gpu_mode,
+                detector=gpu_detector,
+                confirm=gpu_confirm,
+                noninteractive=not interactive,
+                runner=command_runner,
+                architecture=facts_arch,
+            )
+            effective = replace(effective, gpu=resolved.mode)
+            gpu_detail = resolved.report
+            if dry_run:
+                gpu_detail = {
+                    **gpu_detail,
+                    "status": "unverified",
+                    "available": False,
+                    "overlay": overlay_for_mode(resolved.mode),
+                    "reason": "GPU activation is skipped during dry-run",
+                }
+            if resolved.mode == "vaapi":
+                for key, value in gpu_environment(resolved).items():
+                    env_plan.document.set(key, value)
+            # A successful hardware resolution is persisted together with the
+            # next ordered stage.  Dry-runs retain the caller's state untouched.
+            if not dry_run and active_journal.state.gpu_mode != resolved.mode:
+                active_journal._state = replace(active_journal.state, gpu_mode=resolved.mode)
 
     project = compose_project
     if project is None:
@@ -1137,6 +1161,14 @@ def run_up(
                 effective = replace(effective, gpu=resolved.mode)
                 gpu_detail = resolved.report
                 gpu_environment_values = gpu_environment(resolved)
+                if dry_run:
+                    gpu_detail = {
+                        **gpu_detail,
+                        "status": "unverified",
+                        "available": False,
+                        "overlay": overlay_for_mode(resolved.mode),
+                        "reason": "GPU activation is skipped during dry-run",
+                    }
 
             if gpu_environment_values:
                 gpu_detail = {**gpu_detail, "environment": dict(gpu_environment_values)}
@@ -1360,7 +1392,7 @@ def doctor_diagnostics(
             "missing", "unavailable", "needs-attention",
         } or detail.get("error"):
             status_code = default or 2
-        elif status and status not in {"ok", "supported", "healthy"}:
+        elif status and status not in {"ok", "supported", "healthy", "available", "disabled"}:
             status_code = default
         return max(nested_code, status_code)
 

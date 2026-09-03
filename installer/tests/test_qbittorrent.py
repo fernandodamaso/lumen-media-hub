@@ -396,6 +396,44 @@ class QbittorrentAdapterTests(unittest.TestCase):
         self.assertEqual(dict(result.environment_update), {})
         self.assertNotIn(SELECTED_PASSWORD, repr(result))
 
+    def test_post_mutation_reauthentication_status_failure_is_sanitized_partial(self):
+        transport = DeterministicTransport(
+            [
+                response("Ok.", headers={"Set-Cookie": "SID=initial-session; Path=/"}),
+                response({"save_path": "/downloads"}),
+                response(
+                    {
+                        "sonarr": {"savePath": "/downloads/sonarr"},
+                        "radarr": {"savePath": "/downloads/radarr"},
+                    }
+                ),
+                response(""),
+                response("reauth-upstream-secret", status=500),
+            ]
+        )
+        adapter = QbittorrentAdapter(
+            BASE_URL,
+            transport,
+            env={"QBT_PASSWORD": CURRENT_PASSWORD},
+            selected_password=SELECTED_PASSWORD,
+        )
+
+        result = adapter.configure()
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.exit_code, 4)
+        self.assertEqual(result.checkpoints[0].code, "qbittorrent-password-verification")
+        self.assertIsInstance(result.error, QbittorrentPasswordVerificationError)
+        self.assertEqual(dict(result.environment_update), {})
+        self.assertIsNone(result.error.__cause__)
+        self.assertIsNone(result.error.__context__)
+        self.assertIsNone(getattr(result.error, "status", None))
+        self.assertIsNone(getattr(result.error, "url", None))
+        for rendered in (str(result.error), repr(result), repr(result.report), repr(result.error)):
+            self.assertNotIn("500", rendered)
+            self.assertNotIn(BASE_URL, rendered)
+            self.assertNotIn("reauth-upstream-secret", rendered)
+
     def test_category_drift_changes_only_managed_category_save_path_and_default_path(self):
         transport = DeterministicTransport(
             [

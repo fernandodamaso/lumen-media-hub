@@ -915,8 +915,8 @@ class QbittorrentAdapter:
         self._cookie_value = None
         try:
             self._login_once(selected)
-        except QbittorrentAuthenticationError as error:
-            verification_error = QbittorrentPasswordVerificationError(error.status)
+        except (QbittorrentError, HttpTransportError):
+            verification_error = QbittorrentPasswordVerificationError()
             return self._guided(
                 code="qbittorrent-password-verification",
                 reason="The selected password was not verified; retain the existing credential and retry.",

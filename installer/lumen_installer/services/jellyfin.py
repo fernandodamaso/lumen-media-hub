@@ -222,6 +222,19 @@ def _nonempty_text(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _safe_mapping_value(mapping: Mapping[str, Any], key: str) -> Any:
+    """Read injected response mappings without retaining foreign exceptions."""
+
+    mapping_error: JellyfinApiKeySchemaError | None = None
+    try:
+        value = mapping.get(key)
+    except Exception:
+        mapping_error = JellyfinApiKeySchemaError()
+    if mapping_error is not None:
+        raise mapping_error from None
+    return value
+
+
 def _base_url(value: Any) -> str:
     if not isinstance(value, str) or not value.strip():
         raise InvalidInputError("Jellyfin URL is required")
@@ -376,12 +389,15 @@ class JellyfinAdapter:
             # Lightweight deterministic transports may return an already
             # decoded payload.  A mapping with a body key is treated as a raw
             # response only when that is the sole explicit response value.
+            mapping_error: JellyfinSchemaError | None = None
             try:
                 if "body" not in response:
                     return response
                 raw = response.get("body")
             except Exception:
-                raise JellyfinSchemaError() from None
+                mapping_error = JellyfinSchemaError()
+            if mapping_error is not None:
+                raise mapping_error from None
             if isinstance(raw, (bytes, str)):
                 decode_error: JellyfinSchemaError | None = None
                 try:
@@ -530,14 +546,30 @@ class JellyfinAdapter:
     def _api_key_items(payload: Any) -> list[Mapping[str, Any]]:
         """Validate only the stable fields used by API-key reconciliation."""
 
-        if not isinstance(payload, Mapping) or not isinstance(payload.get("Items"), list):
+        if not isinstance(payload, Mapping):
+            raise JellyfinApiKeySchemaError()
+        raw_items = _safe_mapping_value(payload, "Items")
+        if not isinstance(raw_items, list):
+            raise JellyfinApiKeySchemaError()
+        total_record_count = _safe_mapping_value(payload, "TotalRecordCount")
+        start_index = _safe_mapping_value(payload, "StartIndex")
+        if (
+            type(total_record_count) is not int
+            or type(start_index) is not int
+            or total_record_count < 0
+            or start_index < 0
+            or start_index != 0
+            or total_record_count != len(raw_items)
+        ):
             raise JellyfinApiKeySchemaError()
         items: list[Mapping[str, Any]] = []
-        for item in payload["Items"]:
+        for item in raw_items:
             if not isinstance(item, Mapping):
                 raise JellyfinApiKeySchemaError()
-            app_name = item.get("AppName")
-            access_token = item.get("AccessToken")
+            app_name = _safe_mapping_value(item, "AppName")
+            access_token = _safe_mapping_value(item, "AccessToken")
+            is_active = _safe_mapping_value(item, "IsActive")
+            date_revoked = _safe_mapping_value(item, "DateRevoked")
             # AppName is required for safe classification.  In particular,
             # accepting an item without it would silently classify a malformed
             # response as "no Lumen key" and create another key.
@@ -549,12 +581,23 @@ class JellyfinAdapter:
             # without being copied into a public value.
             if access_token is not None and not isinstance(access_token, str):
                 raise JellyfinApiKeySchemaError()
+            if is_active is not None and not isinstance(is_active, bool):
+                raise JellyfinApiKeySchemaError()
+            if date_revoked is not None and not isinstance(date_revoked, str):
+                raise JellyfinApiKeySchemaError()
             if app_name == "Lumen" and not _nonempty_text(access_token):
                 raise JellyfinApiKeySchemaError()
             # Keep only the validated fields needed by this slice.  The full
             # server response (including unrelated key metadata) never enters
             # a result, checkpoint, or public report surface.
-            items.append({"AppName": app_name, "AccessToken": access_token})
+            items.append(
+                {
+                    "AppName": app_name,
+                    "AccessToken": access_token,
+                    "IsActive": is_active,
+                    "DateRevoked": date_revoked,
+                }
+            )
         return items
 
     def _read_api_keys(self) -> list[Mapping[str, Any]]:
@@ -632,7 +675,32 @@ class JellyfinAdapter:
                 ),
             )
         if len(matches) == 1:
-            access_token = matches[0].get("AccessToken")
+            match = matches[0]
+            if match.get("DateRevoked") is not None:
+                return self._api_key_guided(
+                    actions=(),
+                    checkpoint=self._api_key_checkpoint(
+                        "jellyfin-api-key-revoked",
+                        "The existing Lumen API key is revoked; resolve it manually and retry.",
+                    ),
+                )
+            if match.get("IsActive") is False:
+                return self._api_key_guided(
+                    actions=(),
+                    checkpoint=self._api_key_checkpoint(
+                        "jellyfin-api-key-inactive",
+                        "The existing Lumen API key is inactive; resolve it manually and retry.",
+                    ),
+                )
+            access_token = match.get("AccessToken")
+            if dry_run:
+                return JellyfinResult(
+                    service=SERVICE_NAME,
+                    status="dry-run",
+                    actions=("reuse-api-key",),
+                    dry_run=True,
+                    mode="adopted",
+                )
             # _api_key_items guarantees this is a non-empty string for a
             # matching item; retain this guard as a defense at the handoff.
             if not _nonempty_text(access_token):

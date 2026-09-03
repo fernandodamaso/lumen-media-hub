@@ -28,6 +28,44 @@ DEFAULT_HTTP_TIMEOUT = 30.0
 _UNSET = object()
 _METHOD_RE = re.compile(r"^[A-Za-z][A-Za-z0-9!#$%&'*+.^_`|~-]*$")
 _HEADER_RE = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+_SENSITIVE_PATH_MARKERS = (
+    "api-key",
+    "apikey",
+    "api_key",
+    "authorization",
+    "bearer",
+    "credential",
+    "password",
+    "passwd",
+    "secret",
+    "token",
+)
+
+
+def _has_url_control(value: str) -> bool:
+    return any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F for char in value)
+
+
+def _safe_path(path: str) -> str:
+    """Keep useful endpoint context while removing credential-like segments."""
+
+    segments = path.split("/")
+    safe_segments: list[str] = []
+    redact_next = False
+    for segment in segments:
+        if not segment:
+            continue
+        decoded = urllib.parse.unquote(segment)
+        folded = decoded.casefold()
+        sensitive = (
+            redact_next
+            or any(marker in folded for marker in _SENSITIVE_PATH_MARKERS)
+            or "=" in decoded
+            or ":" in decoded
+        )
+        safe_segments.append("<redacted>" if sensitive else segment)
+        redact_next = any(marker in folded for marker in _SENSITIVE_PATH_MARKERS)
+    return "/" + "/".join(safe_segments) if safe_segments else "/"
 
 
 def _safe_url(url: Any) -> str:
@@ -35,7 +73,7 @@ def _safe_url(url: Any) -> str:
 
     if not isinstance(url, str) or not url:
         return "<invalid-url>"
-    if any(char.isspace() or ord(char) == 0x7F for char in url):
+    if any(char.isspace() for char in url) or _has_url_control(url):
         return "<invalid-url>"
     try:
         parsed = urllib.parse.urlsplit(url)
@@ -53,10 +91,7 @@ def _safe_url(url: Any) -> str:
             port = ""
         if ":" in host and not host.startswith("["):
             host = f"[{host}]"
-        path = parsed.path or "/"
-        # Control characters are never useful context and can make terminal
-        # output misleading.  Keep the error itself safe even for bad input.
-        path = "".join(char if ord(char) >= 0x20 and ord(char) != 0x7F else "?" for char in path)
+        path = _safe_path(parsed.path or "/")
         return f"{scheme}://{host}{port}{path}"
     except Exception:
         return "<invalid-url>"
@@ -236,7 +271,7 @@ def _validate_method(method: Any) -> str:
 def _validate_url(method: str, url: Any) -> str:
     if not isinstance(url, str) or not url:
         raise HttpUrlError(method=method, url=url)
-    if any(char.isspace() or ord(char) == 0x7F for char in url):
+    if any(char.isspace() for char in url) or _has_url_control(url):
         raise HttpUrlError(method=method, url=url)
     try:
         parsed = urllib.parse.urlsplit(url)
@@ -368,26 +403,29 @@ class HttpTransport:
             raise InvalidInputError("HTTP request body was provided more than once")
 
         encoded_body: bytes | None
+        encoding_error: HttpRequestError | None = None
         if json_body is not _UNSET:
             try:
                 encoded_body = jsonlib.dumps(json_body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             except (TypeError, ValueError, UnicodeError):
-                raise HttpRequestError(
+                encoding_error = HttpRequestError(
                     "HTTP JSON body could not be encoded",
                     method=normalized_method,
                     url=request_url,
-                ) from None
+                )
+                encoded_body = None
             if not _header_present(request_headers, "Content-Type"):
                 request_headers["Content-Type"] = "application/json"
         elif form is not None:
             try:
                 encoded_body = urllib.parse.urlencode(form, doseq=True).encode("ascii")
             except (TypeError, ValueError, UnicodeError):
-                raise HttpRequestError(
+                encoding_error = HttpRequestError(
                     "HTTP form body could not be encoded",
                     method=normalized_method,
                     url=request_url,
-                ) from None
+                )
+                encoded_body = None
             if not _header_present(request_headers, "Content-Type"):
                 request_headers["Content-Type"] = "application/x-www-form-urlencoded"
         elif body is None:
@@ -398,6 +436,9 @@ class HttpTransport:
             encoded_body = body.encode("utf-8")
         else:
             raise InvalidInputError("HTTP request body must be bytes or text")
+
+        if encoding_error is not None:
+            raise encoding_error from None
 
         try:
             request = self._request_factory(
@@ -417,6 +458,7 @@ class HttpTransport:
         if request_error is not None:
             raise request_error
 
+        opener_error: HttpTransportError | None = None
         try:
             raw_response = _invoke_opener(self._opener, request, selected_timeout)
         except urllib.error.HTTPError as exc:
@@ -425,26 +467,34 @@ class HttpTransport:
                 status = int(status)
             except (TypeError, ValueError):
                 status = 0
-            raise HttpStatusError(method=normalized_method, url=request_url, status=status) from None
+            opener_error = HttpStatusError(method=normalized_method, url=request_url, status=status)
         except TimeoutError:
-            raise HttpTimeoutError(
+            opener_error = HttpTimeoutError(
                 method=normalized_method, url=request_url, timeout=selected_timeout
-            ) from None
+            )
         except http.client.InvalidURL:
-            raise HttpUrlError(method=normalized_method, url=request_url) from None
+            opener_error = HttpUrlError(method=normalized_method, url=request_url)
         except http.client.HTTPException:
-            raise HttpConnectionError(method=normalized_method, url=request_url) from None
+            opener_error = HttpConnectionError(method=normalized_method, url=request_url)
         except urllib.error.URLError as exc:
             # URLError is intentionally reduced to a generic category: its
             # reason can contain the URL, credentials, or service internals.
             if _is_timeout(exc):
-                raise HttpTimeoutError(
+                opener_error = HttpTimeoutError(
                     method=normalized_method, url=request_url, timeout=selected_timeout
-                ) from None
-            raise HttpConnectionError(method=normalized_method, url=request_url) from None
+                )
+            else:
+                opener_error = HttpConnectionError(method=normalized_method, url=request_url)
         except OSError:
-            raise HttpConnectionError(method=normalized_method, url=request_url) from None
+            opener_error = HttpConnectionError(method=normalized_method, url=request_url)
 
+        if opener_error is not None:
+            raise opener_error from None
+
+        response_error: HttpTransportError | None = None
+        response_status: int
+        response_headers: Mapping[str, str]
+        response_body: bytes
         try:
             try:
                 response_status = getattr(raw_response, "status", None)
@@ -465,29 +515,33 @@ class HttpTransport:
                     else:
                         raise TypeError
             except TimeoutError:
-                raise HttpTimeoutError(
+                response_error = HttpTimeoutError(
                     method=normalized_method, url=request_url, timeout=selected_timeout
-                ) from None
+                )
             except http.client.HTTPException:
-                raise HttpConnectionError(method=normalized_method, url=request_url) from None
+                response_error = HttpConnectionError(method=normalized_method, url=request_url)
             except urllib.error.URLError as exc:
                 if _is_timeout(exc):
-                    raise HttpTimeoutError(
+                    response_error = HttpTimeoutError(
                         method=normalized_method, url=request_url, timeout=selected_timeout
-                    ) from None
-                raise HttpConnectionError(method=normalized_method, url=request_url) from None
+                    )
+                else:
+                    response_error = HttpConnectionError(method=normalized_method, url=request_url)
             except OSError:
-                raise HttpConnectionError(method=normalized_method, url=request_url) from None
+                response_error = HttpConnectionError(method=normalized_method, url=request_url)
             except (AttributeError, TypeError, ValueError):
-                raise HttpRequestError(
+                response_error = HttpRequestError(
                     "HTTP response was invalid",
                     method=normalized_method,
                     url=request_url,
-                ) from None
+                )
         finally:
             close = getattr(raw_response, "close", None)
             if callable(close):
                 close()
+
+        if response_error is not None:
+            raise response_error from None
 
         response = HttpResponse(
             response_status,

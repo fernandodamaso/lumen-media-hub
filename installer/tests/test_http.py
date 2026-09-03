@@ -181,6 +181,7 @@ class HttpTransportTests(unittest.TestCase):
             )
         self.assertEqual(raised.exception.status, 401)
         self.assertNotIn(secret, str(raised.exception))
+        self.assertIsNone(raised.exception.__context__)
 
     def test_timeout_during_response_read_is_typed_as_timeout(self):
         class ReadTimeout(_Response):
@@ -192,6 +193,7 @@ class HttpTransportTests(unittest.TestCase):
                 "http://127.0.0.1:8096/api/items"
             )
         self.assertNotIn("secret", str(raised.exception))
+        self.assertIsNone(raised.exception.__context__)
 
     def test_connection_failure_during_response_read_is_typed_as_connection(self):
         class ReadFailure(_Response):
@@ -203,6 +205,7 @@ class HttpTransportTests(unittest.TestCase):
                 "http://127.0.0.1:8096/api/items"
             )
         self.assertNotIn("secret", str(raised.exception))
+        self.assertIsNone(raised.exception.__context__)
 
     def test_timeout_is_typed_and_the_configured_timeout_is_always_passed(self):
         observed = []
@@ -235,6 +238,7 @@ class HttpTransportTests(unittest.TestCase):
         with self.assertRaises(HttpTimeoutError) as raised:
             HttpTransport(opener=opener).get(f"http://127.0.0.1:8096/api/items?token={secret}")
         self.assertNotIn(secret, str(raised.exception))
+        self.assertIsNone(raised.exception.__context__)
 
     def test_connection_failure_is_typed_without_exception_text(self):
         secret = "connection-secret"
@@ -247,6 +251,15 @@ class HttpTransportTests(unittest.TestCase):
                 f"http://127.0.0.1:8096/api/items?token={secret}"
             )
         self.assertNotIn(secret, str(raised.exception))
+        self.assertIsNone(raised.exception.__context__)
+
+    def test_json_encoding_failure_drops_the_sensitive_cause(self):
+        with self.assertRaises(HttpRequestError) as raised:
+            HttpTransport(opener=lambda request, *, timeout: _Response(b"ok")).post(
+                "http://127.0.0.1:8096/api/items",
+                json_body=object(),
+            )
+        self.assertIsNone(raised.exception.__context__)
 
     def test_newline_injection_is_rejected_without_echoing_input(self):
         secret = "header-secret"
@@ -270,6 +283,37 @@ class HttpTransportTests(unittest.TestCase):
             transport.get(f"https://user:{secret}@bad host/api?token={secret}")
         self.assertNotIn(secret, str(raised.exception))
         self.assertIn("GET <invalid-url>", str(raised.exception))
+
+    def test_all_c0_url_controls_are_rejected_and_never_reported(self):
+        transport = HttpTransport(opener=lambda request, *, timeout: _Response(b"ok"))
+        for url, control in (
+            ("http://bad\x00host/api/items", "\x00"),
+            ("http://example.test/api/\x01items", "\x01"),
+            ("http://example.test/api/\x1fitems", "\x1f"),
+            ("http://example.test/api/items\x7f", "\x7f"),
+        ):
+            with self.subTest(control=repr(control)):
+                with self.assertRaises(HttpUrlError) as raised:
+                    transport.get(url)
+                self.assertNotIn(control, str(raised.exception))
+                self.assertIsNone(raised.exception.__context__)
+
+    def test_safe_url_reduction_removes_sensitive_path_and_url_components(self):
+        secret = "path-secret"
+        transport = HttpTransport(
+            opener=lambda request, *, timeout: _StatusResponse(500, b"service failure")
+        )
+
+        with self.assertRaises(HttpStatusError) as raised:
+            transport.get(
+                f"https://user:{secret}@example.test/api/{secret}?token={secret}#{secret}",
+                headers={"Authorization": f"Bearer {secret}"},
+            )
+
+        message = str(raised.exception)
+        self.assertNotIn(secret, message)
+        self.assertNotIn("user", message)
+        self.assertIn("GET https://example.test/api", message)
 
     def test_timeout_must_be_positive_and_finite(self):
         for value in (0, -1, float("inf"), float("nan"), "not-a-number"):

@@ -56,6 +56,7 @@ DEFAULT_HEALTH_INTERVAL = 5.0
 DEFAULT_ROOT_PATH = "/srv/lumen-media"
 DEFAULT_DOWNLOADS_PATH = "/srv/lumen-downloads"
 _ID = re.compile(r"^[0-9a-fA-F]{12,64}$")
+_GPU_GID = re.compile(r"^[0-9]+$")
 _SECRET_KEY = re.compile(
     r"(?:password|secret|token|api[_-]?key|credential|cookie|account[_-]?id|private[_-]?key|oauth)",
     re.IGNORECASE,
@@ -290,6 +291,28 @@ def _commit_gpu_environment(
         except (OSError, ValueError) as exc:
             raise InvalidInputError("GPU environment could not be committed atomically") from exc
     return document
+
+
+def _planning_gpu_environment(result: Any) -> dict[str, str]:
+    """Copy only already-numeric VA-API IDs into a disposable plan.
+
+    Dry-runs intentionally do not call :func:`gpu_environment`: that helper
+    enforces activation-time requirements and would reject an injected probe
+    that omits host group IDs.  A preview can retain complete injected IDs,
+    while the planning environment supplies placeholders for anything absent.
+    """
+
+    if getattr(result, "mode", None) != "vaapi":
+        return {}
+    values: dict[str, str] = {}
+    for key, attribute in (("RENDER_GID", "render_gid"), ("VIDEO_GID", "video_gid")):
+        value = getattr(result, attribute, None)
+        if value is None or isinstance(value, bool):
+            continue
+        text = str(value).strip()
+        if _GPU_GID.fullmatch(text):
+            values[key] = text
+    return values
 
 
 @contextmanager
@@ -1035,7 +1058,12 @@ def _run_foundation_unlocked(
                         "reason": "GPU activation is skipped during dry-run",
                     }
                 if resolved.mode == "vaapi":
-                    for key, value in gpu_environment(resolved).items():
+                    planned_gpu_environment = (
+                        _planning_gpu_environment(resolved)
+                        if dry_run
+                        else gpu_environment(resolved)
+                    )
+                    for key, value in planned_gpu_environment.items():
                         env_plan.document.set(key, value)
                 # Save the resolved mode before the next journal stage reads
                 # the durable state.  This is especially important for a
@@ -1257,7 +1285,11 @@ def run_up(
                 else:
                     effective = replace(effective, gpu=resolved.mode)
                     gpu_detail = resolved.report
-                    gpu_environment_values = gpu_environment(resolved)
+                    gpu_environment_values = (
+                        _planning_gpu_environment(resolved)
+                        if dry_run
+                        else gpu_environment(resolved)
+                    )
                     if dry_run:
                         gpu_detail = {
                             **gpu_detail,

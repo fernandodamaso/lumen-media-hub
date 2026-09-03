@@ -225,6 +225,52 @@ class JellyfinAdapterTests(unittest.TestCase):
             self.assertTrue(authorization.startswith("MediaBrowser Token="))
             self.assertNotIn("X-Emby-Authorization", request[2]["headers"])
 
+    def test_post_create_inactive_or_revoked_lumen_readback_is_guided_without_handoff(self):
+        for item, checkpoint_code in (
+            (
+                {
+                    "AppName": "Lumen",
+                    "AccessToken": "inactive-created-lumen-key",
+                    "IsActive": False,
+                },
+                "jellyfin-api-key-inactive",
+            ),
+            (
+                {
+                    "AppName": "Lumen",
+                    "AccessToken": "revoked-created-lumen-key",
+                    "DateRevoked": "2026-09-03T00:00:00Z",
+                },
+                "jellyfin-api-key-revoked",
+            ),
+        ):
+            with self.subTest(checkpoint_code=checkpoint_code):
+                adapter, transport = self.authenticated_adapter(
+                    [
+                        api_keys([]),
+                        response(None, status=204),
+                        api_keys([item]),
+                    ],
+                    admin_name=ADMIN,
+                    admin_password=PASSWORD,
+                )
+
+                result = adapter.reconcile_api_key()
+
+                self.assertEqual(result.status, "guided")
+                self.assertEqual(result.checkpoints[0].code, checkpoint_code)
+                self.assertIsNone(adapter.api_key_handoff)
+                self.assertEqual(
+                    [request[0:2] for request in transport.requests],
+                    [
+                        ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                        ("GET", f"{BASE_URL}/Auth/Keys"),
+                        ("POST", f"{BASE_URL}/Auth/Keys?app=Lumen"),
+                        ("GET", f"{BASE_URL}/Auth/Keys"),
+                    ],
+                )
+                self.assertNotIn(item["AccessToken"], repr(result))
+
     def test_duplicate_lumen_keys_are_guided_without_mutation_or_handoff(self):
         adapter, transport = self.authenticated_adapter(
             [api_keys([

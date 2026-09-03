@@ -769,7 +769,24 @@ class JellyfinAdapter:
                     "Readback contains multiple Lumen API keys; resolve the duplicate manually.",
                 ),
             )
-        access_token = readback_matches[0].get("AccessToken")
+        readback_match = readback_matches[0]
+        if readback_match.get("DateRevoked") is not None:
+            return self._api_key_guided(
+                actions=("create-api-key",),
+                checkpoint=self._api_key_checkpoint(
+                    "jellyfin-api-key-revoked",
+                    "The created Lumen API key is revoked; resolve it manually and retry.",
+                ),
+            )
+        if readback_match.get("IsActive") is False:
+            return self._api_key_guided(
+                actions=("create-api-key",),
+                checkpoint=self._api_key_checkpoint(
+                    "jellyfin-api-key-inactive",
+                    "The created Lumen API key is inactive; resolve it manually and retry.",
+                ),
+            )
+        access_token = readback_match.get("AccessToken")
         if not _nonempty_text(access_token):
             raise JellyfinApiKeySchemaError()
         self._api_key_handoff = JellyfinApiKeyHandoff(access_token)

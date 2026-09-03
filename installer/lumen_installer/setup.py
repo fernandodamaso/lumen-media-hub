@@ -325,7 +325,7 @@ def _compose_planning_environment(
 ):
     """Provide a disposable, safe Compose env for uncommitted GPU previews."""
 
-    if not dry_run or gpu_mode != "vaapi":
+    if not dry_run or (gpu_mode != "vaapi" and path.exists()):
         yield path
         return
 
@@ -333,13 +333,13 @@ def _compose_planning_environment(
     # Compose's VA-API overlay requires numeric values even when this is only
     # a preview.  Prefer discovered values, otherwise use inert placeholders
     # solely in the disposable planning file.
-    if planning.get("RENDER_GID") is None:
-        planning.set("RENDER_GID", "0")
-    if planning.get("VIDEO_GID") is None:
-        planning.set("VIDEO_GID", "0")
-    for key in tuple(planning.keys()):
-        if _SECRET_KEY.search(key):
-            planning.set(key, "redacted")
+    if gpu_mode == "vaapi":
+        render_gid = planning.get("RENDER_GID")
+        if not isinstance(render_gid, str) or not _GPU_GID.fullmatch(render_gid.strip()):
+            planning.set("RENDER_GID", "65534")
+        video_gid = planning.get("VIDEO_GID")
+        if not isinstance(video_gid, str) or not _GPU_GID.fullmatch(video_gid.strip()):
+            planning.set("VIDEO_GID", "65533")
 
     fd, temporary_name = tempfile.mkstemp(prefix=".lumen-gpu-dry-run-", suffix=".env")
     temporary_path = Path(temporary_name)

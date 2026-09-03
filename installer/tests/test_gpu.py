@@ -1,5 +1,6 @@
 import json
 import os
+import stat
 import sys
 import tempfile
 import unittest
@@ -561,8 +562,10 @@ class GpuProbeTests(unittest.TestCase):
                 if key[-3:] == ("config", "--format", "json"):
                     env_path = Path(key[key.index("--env-file") + 1])
                     content = env_path.read_text(encoding="utf-8")
-                    if "RENDER_GID=0" not in content or "VIDEO_GID=0" not in content:
+                    if "RENDER_GID=65534" not in content or "VIDEO_GID=65533" not in content:
                         raise AssertionError("VA-API dry-run omitted disposable group placeholders")
+                    if "RENDER_GID=0" in content or "VIDEO_GID=0" in content:
+                        raise AssertionError("VA-API dry-run reused duplicate root group placeholders")
                     return CommandResult(key, 0, '{"services":{"jellyfin":{"image":"x"}}}')
                 return CommandResult(key, 0, "")
 
@@ -595,6 +598,89 @@ class GpuProbeTests(unittest.TestCase):
         self.assertEqual(result.gpu["status"], "unverified")
         self.assertFalse(result.gpu["available"])
         self.assertEqual(after, before)
+
+    def test_foundation_dry_run_fresh_env_uses_disposable_plan_for_every_gpu_mode(self):
+        from lumen_installer.setup import run_foundation
+
+        class PlanningRunner(Runner):
+            def __init__(self):
+                super().__init__()
+                self.plans = []
+
+            def run(self, argv, **kwargs):
+                key = tuple(argv)
+                self.calls.append((key, kwargs))
+                if key[-3:] == ("config", "--format", "json"):
+                    plan_path = Path(key[key.index("--env-file") + 1])
+                    self.plans.append(
+                        (
+                            plan_path,
+                            stat.S_IMODE(plan_path.stat().st_mode),
+                            plan_path.read_text(encoding="utf-8"),
+                            tuple(kwargs.get("redact", ())),
+                        )
+                    )
+                    return CommandResult(key, 0, '{"services":{"jellyfin":{"image":"x"}}}')
+                return CommandResult(key, 0, "")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            template = root / "repo"
+            template.mkdir()
+            (template / ".env.example").write_text(
+                "PUID=1000\nPGID=1000\nTZ=UTC\n"
+                "ROOT_PATH=/template/media\nDOWNLOADS_PATH=/template/downloads\n"
+                "QBT_PASSWORD=template-secret\nACTIONS_TOKEN=template-token\n"
+                "JELLYFIN_BIND_ADDRESS=127.0.0.1\nMANAGEMENT_BIND_ADDRESS=127.0.0.1\n"
+                "QBITTORRENT_WEBUI_PORT=8080\nQBITTORRENT_PEER_PORT=6881\n"
+                "RADARR_PORT=7878\nSONARR_PORT=8989\nPROWLARR_PORT=9696\n",
+                encoding="utf-8",
+            )
+            media = root / "media"
+            downloads = root / "downloads"
+            for mode in ("none", "nvidia", "vaapi"):
+                with self.subTest(mode=mode):
+                    runner = PlanningRunner()
+                    detector = (
+                        (lambda requested, **kwargs: GpuProbe("vaapi", "available", True, {}))
+                        if mode == "vaapi"
+                        else None
+                    )
+                    result = run_foundation(
+                        template,
+                        runner=runner,
+                        host=HOST,
+                        options=ComposeOptions(gpu=mode),
+                        gpu_detector=detector,
+                        answers={
+                            "ROOT_PATH": str(media),
+                            "DOWNLOADS_PATH": str(downloads),
+                            "QBT_PASSWORD": "fresh-secret",
+                        },
+                        dry_run=True,
+                        preflight_checker=lambda runner: DockerPreflight(status="ok"),
+                        storage_validator=lambda *args, **kwargs: SimpleNamespace(report={}),
+                        stale_finder=lambda: (),
+                    )
+
+                    self.assertEqual(result.status, "dry-run")
+                    self.assertEqual(len(runner.plans), 1)
+                    plan_path, mode_bits, content, redactions = runner.plans[0]
+                    self.assertNotEqual(plan_path, template / ".env")
+                    self.assertEqual(mode_bits, 0o600)
+                    self.assertIn(f"ROOT_PATH={media}", content)
+                    self.assertIn(f"DOWNLOADS_PATH={downloads}", content)
+                    self.assertIn("QBT_PASSWORD=fresh-secret", content)
+                    self.assertIn("fresh-secret", redactions)
+                    if mode != "vaapi":
+                        self.assertNotIn("RENDER_GID=", content)
+                        self.assertNotIn("VIDEO_GID=", content)
+                    self.assertFalse(plan_path.exists())
+                    self.assertFalse((template / ".env").exists())
+
+            self.assertFalse((template / ".state").exists())
+            self.assertFalse(media.exists())
+            self.assertFalse(downloads.exists())
 
     def test_saved_auto_up_vaapi_persists_concrete_mode_and_group_ids(self):
         from lumen_installer.setup import run_up

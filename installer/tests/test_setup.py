@@ -1,10 +1,13 @@
 import os
+import json
 import subprocess
+import stat
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 INSTALLER_ROOT = Path(__file__).resolve().parents[1]
@@ -16,9 +19,16 @@ from lumen_installer.compose import ComposeOptions
 from lumen_installer.docker import DockerPreflight
 from lumen_installer.errors import DriftError, InvalidInputError, PartialError
 from lumen_installer.platform import HostFacts
-from lumen_installer.setup import doctor_diagnostics, node_satisfies, run_foundation
-from lumen_installer.setup import _lifecycle_lock
-from lumen_installer.state import InstallerState
+from lumen_installer.setup import (
+    doctor_diagnostics,
+    node_satisfies,
+    run_down,
+    run_foundation,
+    run_redeploy_dashboard,
+    run_up,
+)
+from lumen_installer.setup import _compose_project_name, _lifecycle_lock
+from lumen_installer.state import InstallerState, StageJournal
 
 
 HOST = HostFacts(
@@ -215,12 +225,47 @@ class SetupFoundationTests(unittest.TestCase):
                 answers={"ROOT_PATH": str(media), "DOWNLOADS_PATH": str(downloads)},
                 preflight_checker=lambda runner: DockerPreflight(status="ok"),
                 stale_finder=lambda: (), health_probe=lambda: True,
+                storage_validator=lambda *args, **kwargs: {},
             )
             content = (repo / ".env").read_text(encoding="utf-8")
             self.assertIn("# required compose value", content)
             self.assertIn("# local note", content)
             self.assertIn("JELLYFIN_BIND_ADDRESS=127.0.0.1", content)
             self.assertIn("UNKNOWN=keep", content)
+
+    def test_fresh_seeded_template_uses_detected_owner_facts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
+            (repo / ".env.example").write_text(
+                "PUID=1000\nPGID=1000\nTZ=America/Sao_Paulo\n"
+                "JELLYFIN_BIND_ADDRESS=127.0.0.1\n",
+                encoding="utf-8",
+            )
+            (repo / ".env").write_text("# preserve this note\n", encoding="utf-8")
+            media = root / "media"; downloads = root / "downloads"
+            detected = HostFacts(
+                uid=4321, gid=5432, timezone="Europe/London", distro_id="ubuntu",
+                distro_like=("debian",), arch="x86_64", euid=4321,
+                sudo_uid=None, sudo_gid=None, codename="jammy",
+            )
+
+            class Runner:
+                def run(self, argv, **kwargs):
+                    if tuple(argv[-3:]) == ("config", "--format", "json"):
+                        return CommandResult(tuple(argv), 0, '{"services":{"jellyfin":{"image":"x"}}}')
+                    return CommandResult(tuple(argv), 0, "")
+
+            result = run_foundation(
+                repo, runner=Runner(), host=detected,
+                answers={"ROOT_PATH": str(media), "DOWNLOADS_PATH": str(downloads)},
+                preflight_checker=lambda runner: DockerPreflight(status="ok"),
+                stale_finder=lambda: (), health_probe=lambda: True,
+                storage_validator=lambda *args, **kwargs: {},
+            )
+            values = result.environment["values"]
+            self.assertEqual(values["PUID"], "4321")
+            self.assertEqual(values["PGID"], "5432")
+            self.assertEqual(values["TZ"], "Europe/London")
 
     def test_interactive_resolver_fills_missing_paths_and_noninteractive_rejects(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -242,6 +287,185 @@ class SetupFoundationTests(unittest.TestCase):
             with self.assertRaises(InvalidInputError):
                 run_foundation(missing_repo, runner=Runner(), host=HOST, interactive=False, dry_run=True,
                                preflight_checker=lambda runner: DockerPreflight(status="ok"), stale_finder=lambda: ())
+
+    def test_completed_setup_direct_answers_revalidate_changed_storage(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
+            old_media = root / "old-media"; old_downloads = root / "old-downloads"
+            new_downloads = root / "new-downloads"
+            (repo / ".env").write_text(
+                f"ROOT_PATH={old_media}\nDOWNLOADS_PATH={old_downloads}\n"
+                "JELLYFIN_BIND_ADDRESS=127.0.0.1\nMANAGEMENT_BIND_ADDRESS=127.0.0.1\n"
+                "PUBLIC_HOST=127.0.0.1\n",
+                encoding="utf-8",
+            )
+            os.chmod(repo / ".env", 0o600)
+            InstallerState.new(
+                repo,
+                completed_stages=("host", "environment", "network", "storage", "preflight", "compose"),
+            ).save()
+
+            class Runner:
+                def run(self, argv, **kwargs):
+                    if tuple(argv[-3:]) == ("config", "--format", "json"):
+                        return CommandResult(tuple(argv), 0, '{"services":{"jellyfin":{"image":"x"}}}')
+                    return CommandResult(tuple(argv), 0, "")
+
+            with self.assertRaises(InvalidInputError):
+                run_foundation(
+                    repo, runner=Runner(), host=HOST,
+                    answers={"ROOT_PATH": "/", "DOWNLOADS_PATH": str(new_downloads)},
+                    preflight_checker=lambda runner: DockerPreflight(status="ok"),
+                    stale_finder=lambda: (), health_probe=lambda: True,
+                )
+
+    def test_completed_setup_same_answers_file_is_a_noop_but_changed_file_revalidates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
+            media = root / "media"; downloads = root / "downloads"
+            answers_path = root / "answers.json"
+            answers_path.write_text(
+                json.dumps({"schema_version": 1, "answers": {
+                    "ROOT_PATH": str(media), "DOWNLOADS_PATH": str(downloads),
+                }}),
+                encoding="utf-8",
+            )
+            calls = []
+
+            class Runner:
+                def run(self, argv, **kwargs):
+                    calls.append(tuple(argv))
+                    if tuple(argv[-3:]) == ("config", "--format", "json"):
+                        return CommandResult(tuple(argv), 0, '{"services":{"jellyfin":{"image":"x"}}}')
+                    return CommandResult(tuple(argv), 0, "")
+
+            kwargs = dict(
+                runner=Runner(), host=HOST, answers_path=answers_path,
+                preflight_checker=lambda runner: DockerPreflight(status="ok"),
+                stale_finder=lambda: (), health_probe=lambda: True,
+                storage_validator=lambda *args, **kwargs: {},
+            )
+            run_foundation(repo, **kwargs)
+            first_calls = len(calls)
+            result = run_foundation(repo, **kwargs)
+            self.assertEqual(result.health, "already-complete")
+            self.assertEqual(len(calls), first_calls)
+
+            answers_path.write_text(
+                json.dumps({"schema_version": 1, "answers": {
+                    "ROOT_PATH": "/", "DOWNLOADS_PATH": str(downloads),
+                }}),
+                encoding="utf-8",
+            )
+            with self.assertRaises(InvalidInputError):
+                run_foundation(repo, **kwargs)
+
+    def test_supplied_journal_reconciles_changed_answers_and_storage(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
+            old_media = root / "old-media"; old_downloads = root / "old-downloads"
+            new_downloads = root / "new-downloads"
+            (repo / ".env").write_text(
+                f"ROOT_PATH={old_media}\nDOWNLOADS_PATH={old_downloads}\n"
+                "JELLYFIN_BIND_ADDRESS=127.0.0.1\nMANAGEMENT_BIND_ADDRESS=127.0.0.1\n"
+                "PUBLIC_HOST=127.0.0.1\n",
+                encoding="utf-8",
+            )
+            os.chmod(repo / ".env", 0o600)
+            InstallerState.new(
+                repo,
+                completed_stages=("host", "environment", "network", "storage", "preflight", "compose"),
+            ).save()
+            journal = StageJournal(InstallerState.load(repo), stages=("host", "environment", "network", "storage", "preflight", "compose"))
+            validated = []
+
+            class Runner:
+                def run(self, argv, **kwargs):
+                    if tuple(argv[-3:]) == ("config", "--format", "json"):
+                        return CommandResult(tuple(argv), 0, '{"services":{"jellyfin":{"image":"x"}}}')
+                    return CommandResult(tuple(argv), 0, "")
+
+            result = run_foundation(
+                repo, runner=Runner(), host=HOST, stage_journal=journal,
+                answers={"ROOT_PATH": str(old_media), "DOWNLOADS_PATH": str(new_downloads)},
+                storage_validator=lambda media, downloads, **kwargs: validated.append((media, downloads)) or {},
+                preflight_checker=lambda runner: DockerPreflight(status="ok"),
+                stale_finder=lambda: (), health_probe=lambda: True,
+            )
+            self.assertEqual(result.status, "ok")
+            self.assertEqual(validated, [(str(old_media), str(new_downloads))])
+
+    def test_supplied_journal_persists_explicit_profile_override(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
+            media = root / "media"; downloads = root / "downloads"
+            (repo / ".env").write_text(
+                f"ROOT_PATH={media}\nDOWNLOADS_PATH={downloads}\n"
+                "JELLYFIN_BIND_ADDRESS=127.0.0.1\nMANAGEMENT_BIND_ADDRESS=127.0.0.1\n"
+                "PUBLIC_HOST=127.0.0.1\n",
+                encoding="utf-8",
+            )
+            os.chmod(repo / ".env", 0o600)
+            InstallerState.new(
+                repo, profiles=("subtitles",),
+                completed_stages=("host", "environment", "network", "storage", "preflight", "compose"),
+            ).save()
+            journal = StageJournal(InstallerState.load(repo), stages=("host", "environment", "network", "storage", "preflight", "compose"))
+
+            class Runner:
+                def run(self, argv, **kwargs):
+                    if tuple(argv[-3:]) == ("config", "--format", "json"):
+                        return CommandResult(tuple(argv), 0, '{"services":{"jellyfin":{"image":"x"}}}')
+                    return CommandResult(tuple(argv), 0, "")
+
+            run_foundation(
+                repo, runner=Runner(), host=HOST, stage_journal=journal,
+                options=ComposeOptions(profiles=("requests",)),
+                storage_validator=lambda *args, **kwargs: {},
+                preflight_checker=lambda runner: DockerPreflight(status="ok"),
+                stale_finder=lambda: (), health_probe=lambda: True,
+            )
+            self.assertEqual(InstallerState.load(repo).profiles, ("requests",))
+
+    def test_supplied_journal_unchanged_completed_state_is_a_noop(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
+            media = root / "media"; downloads = root / "downloads"
+            (repo / ".env").write_text(
+                f"ROOT_PATH={media}\nDOWNLOADS_PATH={downloads}\n"
+                "ACTIONS_TOKEN=actions\nJELLYFIN_BIND_ADDRESS=127.0.0.1\n"
+                "MANAGEMENT_BIND_ADDRESS=127.0.0.1\nPUBLIC_HOST=127.0.0.1\n",
+                encoding="utf-8",
+            )
+            os.chmod(repo / ".env", 0o600)
+            InstallerState.new(
+                repo,
+                completed_stages=("host", "environment", "network", "storage", "preflight", "compose"),
+            ).save()
+            journal = StageJournal(InstallerState.load(repo), stages=("host", "environment", "network", "storage", "preflight", "compose"))
+            result = run_foundation(repo, host=HOST, stage_journal=journal)
+            self.assertEqual(result.health, "already-complete")
+
+    def test_lifecycle_dry_run_preserves_existing_state_modes(self):
+        for lifecycle in (run_up, run_down, run_redeploy_dashboard):
+            with self.subTest(lifecycle=lifecycle.__name__), tempfile.TemporaryDirectory() as temporary:
+                repo = Path(temporary) / "repo"; repo.mkdir(); (repo / ".git").mkdir()
+                installer = repo / ".state" / "installer"; installer.mkdir(parents=True)
+                state_path = installer / "state.json"
+                state_path.write_text(
+                    json.dumps({
+                        "completed_stages": [], "gpu_mode": "none", "owned_resources": {},
+                        "profiles": [], "schema_version": 1,
+                    }),
+                    encoding="utf-8",
+                )
+                os.chmod(repo / ".state", 0o755)
+                os.chmod(installer, 0o755)
+                os.chmod(state_path, 0o644)
+                lifecycle(repo, dry_run=True, stale_finder=lambda: ()) if lifecycle is run_up else lifecycle(repo, dry_run=True)
+                self.assertEqual(stat.S_IMODE((repo / ".state").stat().st_mode), 0o755)
+                self.assertEqual(stat.S_IMODE(installer.stat().st_mode), 0o755)
+                self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o644)
 
     def test_task7_gpu_modes_do_not_activate_overlay(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -273,6 +497,93 @@ class SetupFoundationTests(unittest.TestCase):
                 report = doctor_diagnostics(repo)
             self.assertEqual(report["status"], "needs-attention")
             self.assertEqual(report["exit_code"], 3)
+
+    def test_doctor_aggregates_nested_exit_codes_and_incomplete_state(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"; repo.mkdir(); (repo / ".git").mkdir()
+            (repo / ".env").write_text(
+                "ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/downloads\n"
+                "JELLYFIN_BIND_ADDRESS=127.0.0.1\nPUBLIC_HOST=127.0.0.1\n",
+                encoding="utf-8",
+            )
+            os.chmod(repo / ".env", 0o600)
+            InstallerState.new(repo, completed_stages=("host",)).save()
+            with mock.patch(
+                "lumen_installer.setup.plan_network",
+                return_value=SimpleNamespace(report={"status": "ok", "drift": [{"key": "PUBLIC_HOST"}]}),
+            ), mock.patch(
+                "lumen_installer.setup.validate_storage",
+                return_value=SimpleNamespace(report={"status": "ok", "exit_code": 4}),
+            ):
+                report = doctor_diagnostics(repo, host_report={"status": "ok", "exit_code": 3})
+            self.assertEqual(report["status"], "needs-attention")
+            self.assertEqual(report["exit_code"], 4)
+            self.assertEqual(report["state"]["status"], "incomplete")
+
+    def test_doctor_missing_environment_and_storage_is_invalid(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"; repo.mkdir(); (repo / ".git").mkdir()
+            report = doctor_diagnostics(repo, host_report={"status": "ok", "exit_code": 0})
+            self.assertEqual(report["status"], "needs-attention")
+            self.assertEqual(report["exit_code"], 2)
+
+    def test_doctor_cli_maps_nested_host_attention(self):
+        from lumen_installer import cli
+        with mock.patch.object(cli, "run_host_doctor", return_value={"status": "ok", "exit_code": 3}), \
+             mock.patch.object(cli, "doctor_diagnostics", return_value={"status": "needs-attention", "exit_code": 4}):
+            self.assertEqual(cli._doctor(mock.Mock()), 4)
+
+    def test_stale_project_uses_compose_environment_before_dotenv(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "_worktree"; repo.mkdir(); (repo / ".git").mkdir()
+            (repo / ".env").write_text("COMPOSE_PROJECT_NAME=from-file\n", encoding="utf-8")
+            observed = []
+
+            def finder(*, project_name=None):
+                observed.append(project_name)
+                return ()
+
+            with mock.patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": "from-process"}):
+                run_up(repo, dry_run=True, stale_finder=finder)
+            self.assertEqual(observed, ["from-process"])
+
+            run_up(repo, dry_run=True, compose_project="explicit", stale_finder=finder)
+            self.assertEqual(observed[-1], "explicit")
+
+    def test_fresh_stale_project_uses_seeded_compose_project_name(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
+            (repo / ".env.example").write_text(
+                "COMPOSE_PROJECT_NAME=template-project\nJELLYFIN_BIND_ADDRESS=127.0.0.1\n",
+                encoding="utf-8",
+            )
+            (repo / ".env").write_text("# empty local env\n", encoding="utf-8")
+            observed = []
+            media = root / "media"; downloads = root / "downloads"
+
+            def finder(*, project_name=None):
+                observed.append(project_name)
+                return ()
+
+            class Runner:
+                def run(self, argv, **kwargs):
+                    if tuple(argv[-3:]) == ("config", "--format", "json"):
+                        return CommandResult(tuple(argv), 0, '{"services":{"jellyfin":{"image":"x"}}}')
+                    return CommandResult(tuple(argv), 0, "")
+
+            run_foundation(
+                repo, runner=Runner(), host=HOST,
+                answers={"ROOT_PATH": str(media), "DOWNLOADS_PATH": str(downloads)},
+                storage_validator=lambda *args, **kwargs: {},
+                preflight_checker=lambda runner: DockerPreflight(status="ok"),
+                stale_finder=finder, health_probe=lambda: True,
+            )
+            self.assertEqual(observed, ["template-project"])
+
+    def test_compose_project_name_strips_leading_separators(self):
+        self.assertEqual(_compose_project_name(Path("/tmp/_foo")), "foo")
+        self.assertEqual(_compose_project_name(Path("/tmp/-foo")), "foo")
+        self.assertEqual(_compose_project_name(Path("/tmp/___")), "media")
 
     def test_lifecycle_lock_serializes_mutating_runs(self):
         with tempfile.TemporaryDirectory() as temporary:

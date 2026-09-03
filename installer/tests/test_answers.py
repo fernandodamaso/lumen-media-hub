@@ -91,6 +91,13 @@ class AnswersTests(unittest.TestCase):
             "from-prompt",
         )
 
+    def test_resolver_accepts_case_insensitive_answer_keys(self):
+        answers = Answers(1, {"root_path": "/srv/media", "Downloads_Path": "/srv/downloads"})
+        resolver = Resolver(noninteractive=True)
+
+        self.assertEqual(resolver.get("ROOT_PATH", {}, {}, answers, None), "/srv/media")
+        self.assertEqual(resolver.get("DOWNLOADS_PATH", {}, {}, answers, None), "/srv/downloads")
+
     def test_secret_answer_resolves_only_an_environment_reference(self):
         secret = "do-not-put-this-in-a-report"
         answers = Answers(1, {"password": {"env": "QBT_PASSWORD"}})

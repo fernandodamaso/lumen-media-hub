@@ -492,6 +492,39 @@ class ComposeNetworkBindingTests(unittest.TestCase):
 
 
 class WindowsNetworkMigrationSourceTests(unittest.TestCase):
+    def test_windows_production_compose_invocations_do_not_remove_orphans(self):
+        source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
+        self.assertNotIn("--remove-orphans", source)
+
+    def test_windows_stale_guard_validates_docker_ids_before_inspection(self):
+        source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
+        start = source.index("function Clear-StaleComposeContainers")
+        end = source.index("function Invoke-StackUp", start)
+        body = source[start:end]
+        self.assertIn("$id -notmatch '^[0-9a-fA-F]{12,64}$'", body)
+        validation = body.index("$id -notmatch '^[0-9a-fA-F]{12,64}$'")
+        inspection = body.index("docker inspect $id")
+        self.assertLess(validation, inspection)
+        self.assertIn("continue", body[validation:inspection])
+
+    def test_windows_stack_start_paths_run_confirmed_stale_guard_first(self):
+        source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
+        for function_name in ("Invoke-Stack", "Invoke-StackUp"):
+            start = source.index(f"function {function_name}")
+            next_function = source.find("function ", start + 1)
+            body = source[start:] if next_function < 0 else source[start:next_function]
+            self.assertIn("Clear-StaleComposeContainers", body, function_name)
+            guard = body.index("Clear-StaleComposeContainers")
+            compose = body.index("docker compose")
+            self.assertLess(guard, compose, function_name)
+
+    def test_windows_dashboard_redeploy_does_not_scan_or_remove_other_stack_containers(self):
+        source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
+        start = source.index("function Invoke-RedeployDashboard")
+        end = source.index("function Invoke-Stack", start)
+        body = source[start:end]
+        self.assertNotIn("Clear-StaleComposeContainers", body)
+
     def test_windows_existing_env_migration_preserves_legacy_network_before_compose(self):
         source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
         merge_start = source.index("function Merge-MissingEnvKeys")

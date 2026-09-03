@@ -641,7 +641,7 @@ def _assert_state_identity(path: Path, fd: int, *, description: str) -> None:
         raise InvalidInputError(f"{description} changed or is unsafe")
 
 
-def _open_state_file(installer_fd: int) -> int | None:
+def _open_state_file(installer_fd: int, *, correct_mode: bool = True) -> int | None:
     flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         lexical = os.stat(STATE_FILE_NAME, dir_fd=installer_fd, follow_symlinks=False)
@@ -671,7 +671,7 @@ def _open_state_file(installer_fd: int) -> int | None:
             or (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino)
         ):
             raise InvalidInputError("installer state file changed during opening")
-        if stat.S_IMODE(metadata.st_mode) != 0o600:
+        if correct_mode and stat.S_IMODE(metadata.st_mode) != 0o600:
             os.fchmod(fd, 0o600)
     except InvalidInputError:
         _close_fd(fd)
@@ -682,9 +682,9 @@ def _open_state_file(installer_fd: int) -> int | None:
     return fd
 
 
-def _read_state(handles: _StateHandles) -> str | None:
+def _read_state(handles: _StateHandles, *, correct_mode: bool = True) -> str | None:
     _assert_state_components_identity(handles)
-    fd = _open_state_file(handles.installer_fd)
+    fd = _open_state_file(handles.installer_fd, correct_mode=correct_mode)
     if fd is None:
         return None
     try:
@@ -1006,7 +1006,7 @@ class InstallerState:
                 return cls(repo_root=repo)
             _assert_state_identity(handles.state_path, handles.state_fd, description="installer state parent")
             _assert_state_identity(handles.installer_path, handles.installer_fd, description="installer state directory")
-            raw = _read_state(handles)
+            raw = _read_state(handles, correct_mode=correct_modes)
         if raw is None:
             return cls(repo_root=repo)
         return _decode_state(raw, repo_root=repo, allowed_stages=allowed_stages)

@@ -111,6 +111,65 @@ def _answers(path: str | Path | None, value: Answers | Mapping[str, Any] | None)
     return Answers.load(path).values
 
 
+def _direct_answer_value(answers: Mapping[str, Any] | None, key: str) -> tuple[bool, Any]:
+    if answers is None:
+        return False, None
+    for name, value in answers.items():
+        if str(name).upper() == key:
+            return True, value
+    return False, None
+
+
+def _answer_secret_reference(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return any(
+            candidate in value and value[candidate]
+            for candidate in ("env", "environment", "env_var", "env_var_name", "secret_env")
+        )
+    return isinstance(value, str) and value.startswith("env:")
+
+
+def _direct_answers_changed(answers: Mapping[str, Any] | None, env_path: Path) -> bool:
+    """Detect effective direct-answer changes without exposing secret values."""
+
+    if answers is None:
+        return False
+    existing = _load_document(env_path).values
+    for key in (
+        "ROOT_PATH",
+        "DOWNLOADS_PATH",
+        "PUID",
+        "PGID",
+        "TZ",
+        "QBT_PASSWORD",
+        "STACK_PASSWORD",
+        "NETWORK_MODE",
+        "PUBLIC_HOST",
+    ):
+        present, value = _direct_answer_value(answers, key)
+        if not present or value is None or (isinstance(value, str) and not value.strip()):
+            continue
+        # Secret references may resolve from process state and therefore cannot
+        # be compared to the persisted value without coupling this read-only
+        # invalidation check to credential resolution.  Reconcile safely.
+        if key in {"QBT_PASSWORD", "STACK_PASSWORD"} and _answer_secret_reference(value):
+            return True
+        current = existing.get(key)
+        if current is None:
+            return True
+        if key in {"ROOT_PATH", "DOWNLOADS_PATH"}:
+            try:
+                candidate = Path(os.path.abspath(os.path.expanduser(os.path.expandvars(str(value)))))
+                persisted = Path(os.path.abspath(os.path.expanduser(os.path.expandvars(str(current)))))
+            except (TypeError, ValueError, OSError):
+                return True
+            if candidate != persisted:
+                return True
+        elif str(value).strip() != str(current).strip():
+            return True
+    return False
+
+
 def _inputs(
     answers: Mapping[str, Any],
     *,
@@ -427,6 +486,9 @@ def _compose_project_name(root: Path) -> str:
     """Mirror Compose's default project-name normalization for stale checks."""
 
     name = re.sub(r"[^a-z0-9_-]", "", root.name.lower())
+    # Compose project names must begin with an alphanumeric character.  Its
+    # normalization removes leading separators rather than retaining them.
+    name = name.lstrip("_-")
     return name or "media"
 
 
@@ -644,6 +706,7 @@ def _run_foundation_unlocked(
     command_runner = runner if runner is not None else CommandRunner()
     requested = options if options is not None else ComposeOptions()
     process_environment = environment if environment is not None else os.environ
+    answer_values = _answers(answers_path, answers)
     environment_override = environment is not None or any(
         f"LUMEN_{key}" in process_environment
         for key in (
@@ -655,51 +718,12 @@ def _run_foundation_unlocked(
             "NETWORK_MODE",
         )
     )
-    answers_credential_override = answers is not None and any(
-        str(key).upper() == "QBT_PASSWORD" for key in answers
-    )
-    if stage_journal is not None and journal is not None:
-        raise InvalidInputError("provide only one stage journal")
-    if stage_journal is not None or journal is not None:
-        active_journal = stage_journal or journal
-        assert active_journal is not None
-        state = active_journal.state
-    else:
-        explicit_override = any(
-            value is not None
-            for value in (
-                requested.profiles,
-                requested.gpu,
-                answers_path,
-                environment if environment is not None else None,
-                env_file,
-                uid,
-                gid,
-                timezone,
-                root_path,
-                downloads_path,
-                qbt_password,
-                network_mode,
-                public_host,
-            )
-        ) or requested.dev or environment_override or answers_credential_override
-        state, active_journal = _state_and_journal(
-            root,
-            requested,
-            dry_run,
-            state=state,
-            reset_on_change=explicit_override,
-        )
-    effective = _effective_options(requested, state)
-    # A completed foundation with its environment still present is safely
-    # idempotent.  Explicit overrides are the caller's request to reconcile
-    # again; otherwise avoid repeating pull/build/up mutations.
+    direct_answers_changed = _direct_answers_changed(answer_values, env_path)
     explicit_override = any(
         value is not None
         for value in (
             requested.profiles,
             requested.gpu,
-            answers_path,
             environment if environment is not None else None,
             env_file,
             uid,
@@ -711,7 +735,38 @@ def _run_foundation_unlocked(
             network_mode,
             public_host,
         )
-    ) or requested.dev or environment_override or answers_credential_override
+    ) or requested.dev or environment_override or direct_answers_changed
+    if stage_journal is not None and journal is not None:
+        raise InvalidInputError("provide only one stage journal")
+    if stage_journal is not None or journal is not None:
+        active_journal = stage_journal or journal
+        assert active_journal is not None
+        state = active_journal.state
+        if explicit_override:
+            profiles = state.profiles if requested.profiles is None else requested.selected_profiles
+            gpu_mode = state.gpu_mode
+            if requested.gpu is not None:
+                gpu_mode = "nvidia" if requested.gpu else "none"
+            state = replace(state, profiles=profiles, gpu_mode=gpu_mode, completed_stages=())
+            # A dry run gets a private reconciled view.  Mutating runs keep the
+            # caller's journal in sync; the first completed stage then persists
+            # this state through the normal atomic path.
+            if dry_run:
+                active_journal = StageJournal(state, stages=active_journal.stages)
+            else:
+                active_journal._state = state
+    else:
+        state, active_journal = _state_and_journal(
+            root,
+            requested,
+            dry_run,
+            state=state,
+            reset_on_change=explicit_override,
+        )
+    effective = _effective_options(requested, state)
+    # A completed foundation with its environment still present is safely
+    # idempotent.  Explicit overrides are the caller's request to reconcile
+    # again; otherwise avoid repeating pull/build/up mutations.
     try:
         env_metadata = env_path.lstat()
         env_permissions_ok = (
@@ -759,7 +814,6 @@ def _run_foundation_unlocked(
                 raise InvalidInputError("environment could not be read before seeding") from exc
             separator = "" if template_text.endswith(("\n", "\r")) or not existing_text else "\n"
             seeded_doc = DotEnvDocument.parse(template_text + separator + existing_text)
-    answer_values = _answers(answers_path, answers)
     input_values = _inputs(
         answer_values,
         environment=process_environment,
@@ -776,7 +830,10 @@ def _run_foundation_unlocked(
         facts,
         input_values,
         fresh_setup=not bool(original_doc.values),
-        force_host_facts=any(value is not None for value in (uid, gid, timezone)),
+        force_host_facts=(
+            not bool(original_doc.values)
+            or any(value is not None for value in (uid, gid, timezone))
+        ),
         force_credentials=(
             qbt_password is not None
             or any(str(key).upper() == "QBT_PASSWORD" for key in input_values)
@@ -834,9 +891,11 @@ def _run_foundation_unlocked(
 
     project = compose_project
     if project is None:
-        project = original_doc.get("COMPOSE_PROJECT_NAME")
-    if project is None:
         project = process_environment.get("COMPOSE_PROJECT_NAME")
+    if project is None:
+        project = env_plan.document.get("COMPOSE_PROJECT_NAME")
+    if project is None:
+        project = original_doc.get("COMPOSE_PROJECT_NAME")
     if isinstance(project, str):
         project = project.strip() or None
     stale = _stale(command_runner, root, stale_finder, project)
@@ -938,9 +997,18 @@ def run_foundation(*args: Any, **kwargs: Any) -> FoundationResult:
         return _run_foundation_unlocked(*args, **kwargs)
 
 
-def _load_lifecycle(root: Path, options: ComposeOptions | None) -> tuple[Path, InstallerState, ComposeOptions]:
+def _load_lifecycle(
+    root: Path,
+    options: ComposeOptions | None,
+    *,
+    dry_run: bool = False,
+) -> tuple[Path, InstallerState, ComposeOptions]:
     env_path = root / ".env"
-    state = InstallerState.load(root, allowed_stages=FOUNDATION_STAGES)
+    state = InstallerState.load(
+        root,
+        allowed_stages=FOUNDATION_STAGES,
+        correct_modes=not dry_run,
+    )
     return env_path, state, _effective_options(options, state)
 
 
@@ -956,16 +1024,16 @@ def run_up(
 ) -> FoundationResult:
     root = _repo(repo_root)
     with _lifecycle_lock(root, dry_run=dry_run):
-        default_env, state, effective = _load_lifecycle(root, options)
+        default_env, state, effective = _load_lifecycle(root, options, dry_run=dry_run)
         env_path = Path(env_file) if env_file is not None else default_env
         if not env_path.is_absolute():
             env_path = root / env_path
         command_runner = runner if runner is not None else CommandRunner()
         project = compose_project
         if project is None:
-            project = _load_document(env_path).get("COMPOSE_PROJECT_NAME")
-        if project is None:
             project = os.environ.get("COMPOSE_PROJECT_NAME")
+        if project is None:
+            project = _load_document(env_path).get("COMPOSE_PROJECT_NAME")
         if isinstance(project, str):
             project = project.strip() or None
         stale_removed = _remove_stale(_stale(command_runner, root, stale_finder, project), command_runner, dry_run=dry_run)
@@ -984,7 +1052,7 @@ def run_down(
 ) -> FoundationResult:
     root = _repo(repo_root)
     with _lifecycle_lock(root, dry_run=dry_run):
-        default_env, state, effective = _load_lifecycle(root, options)
+        default_env, state, effective = _load_lifecycle(root, options, dry_run=dry_run)
         env_path = Path(env_file) if env_file is not None else default_env
         if not env_path.is_absolute():
             env_path = root / env_path
@@ -1004,7 +1072,7 @@ def run_redeploy_dashboard(
 ) -> FoundationResult:
     root = _repo(repo_root)
     with _lifecycle_lock(root, dry_run=dry_run):
-        default_env, state, effective = _load_lifecycle(root, options)
+        default_env, state, effective = _load_lifecycle(root, options, dry_run=dry_run)
         env_path = Path(env_file) if env_file is not None else default_env
         if not env_path.is_absolute():
             env_path = root / env_path
@@ -1139,9 +1207,36 @@ def doctor_diagnostics(
         report["exit_code"] = max(int(report.get("exit_code", 0)), code)
         report.setdefault("errors", []).append(str(error))
 
-    if isinstance(host_report, Mapping) and str(host_report.get("status", "ok")) not in {"ok", "supported"}:
-        host_status = str(host_report.get("status", "")).lower()
-        host_code = 4 if "partial" in host_status or "health" in host_status else 3 if "drift" in host_status else 2
+    def detail_code(detail: Any, *, default: int = 0) -> int:
+        """Map nested diagnostic detail to the public severity codes."""
+
+        if not isinstance(detail, Mapping):
+            return 0
+        nested = detail.get("exit_code")
+        nested_code = 0
+        if isinstance(nested, int) and not isinstance(nested, bool) and nested > 0:
+            nested_code = nested if nested in {2, 3, 4} else 2
+        status = str(detail.get("status", "")).strip().lower()
+        if detail.get("drift"):
+            return max(nested_code, 3)
+        status_code = 0
+        if status in {"partial", "incomplete", "degraded", "health", "unhealthy"}:
+            status_code = 4
+        elif "health" in status or "partial" in status or "incomplete" in status:
+            status_code = 4
+        elif status in {"drift", "warning", "needs-approval", "unapproved"}:
+            status_code = 3
+        elif status in {
+            "invalid", "error", "failed", "failure", "unsupported", "not-configured",
+            "missing", "unavailable", "needs-attention",
+        } or detail.get("error"):
+            status_code = default or 2
+        elif status and status not in {"ok", "supported", "healthy"}:
+            status_code = default
+        return max(nested_code, status_code)
+
+    host_code = detail_code(host_report, default=2)
+    if host_code:
         issue(InvalidInputError("host or Docker preflight needs attention"), host_code)
     try:
         document = _load_document(env_path)
@@ -1151,8 +1246,18 @@ def doctor_diagnostics(
             "keys": sorted(values),
             "configured": {key: key in values and bool(values[key]) for key in ("ROOT_PATH", "DOWNLOADS_PATH", "ACTIONS_TOKEN")},
         }
+        if not env_path.exists():
+            report["environment"]["status"] = "not-configured"
+            issue(InvalidInputError(".env is not configured"), 2)
+        elif any(not values.get(key) for key in ("ROOT_PATH", "DOWNLOADS_PATH", "ACTIONS_TOKEN")):
+            report["environment"]["status"] = "invalid"
+            issue(InvalidInputError(".env is missing required installer values"), 2)
         try:
-            report["network"] = plan_network(values, None, None, False).report
+            network_detail = plan_network(values, None, None, False).report
+            report["network"] = network_detail
+            network_code = detail_code(network_detail, default=2)
+            if network_code:
+                issue(InvalidInputError("network diagnostics need attention"), network_code)
         except DriftError as exc:
             report["network"] = {"status": "needs-attention", "error": str(exc)}
             issue(exc, 3)
@@ -1163,7 +1268,11 @@ def doctor_diagnostics(
         if all(storage_values):
             try:
                 checked = validate_storage(*storage_values, repo_root=root, dry_run=True)
-                report["storage"] = checked.report
+                storage_detail = checked.report
+                report["storage"] = storage_detail
+                storage_code = detail_code(storage_detail, default=2)
+                if storage_code:
+                    issue(InvalidInputError("storage diagnostics need attention"), storage_code)
             except DriftError as exc:
                 report["storage"] = {"status": "needs-attention", "error": str(exc)}
                 issue(exc, 3)
@@ -1175,12 +1284,26 @@ def doctor_diagnostics(
                 issue(exc, 2)
         else:
             report["storage"] = {"status": "not-configured"}
+            issue(InvalidInputError("storage paths are not configured"), 2)
     except InvalidInputError as exc:
         issue(exc, 2)
         report["environment"] = {"status": "needs-attention", "error": str(exc)}
     try:
         state = InstallerState.load(root, allowed_stages=FOUNDATION_STAGES, correct_modes=False)
-        report["state"] = state.report
+        state_detail = state.report
+        state_file_present = (root / ".state" / "installer" / "state.json").is_file()
+        missing_stages = [stage for stage in FOUNDATION_STAGES if stage not in state.completed_stages]
+        if not state_file_present:
+            state_detail = {**state_detail, "status": "not-configured"}
+            issue(InvalidInputError("installer state is not configured"), 2)
+        elif missing_stages:
+            state_detail = {
+                **state_detail,
+                "status": "incomplete",
+                "missing_stages": missing_stages,
+            }
+            issue(InvalidInputError("installer state is incomplete"), 4)
+        report["state"] = state_detail
     except InvalidInputError as exc:
         issue(exc, 2)
         report["state"] = {"status": "needs-attention", "error": str(exc)}

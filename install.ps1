@@ -259,6 +259,7 @@ function Invoke-RedeployDashboard {
 function Invoke-Stack {
   Assert-Docker
   Initialize-EnvFile
+  Clear-StaleComposeContainers
 
   $envContent = Get-Content $EnvFile -Raw
   if ($envContent -match '(?m)^DOWNLOADS_PATH=(?:"([^"]*)"|([^\r\n]+))') {
@@ -273,9 +274,9 @@ function Invoke-Stack {
 
   Write-Step 'Building the dashboard and starting the stack'
   if ($Gpu) {
-    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d --build --remove-orphans
+    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d --build
   } else {
-    docker compose --env-file $EnvFile -f $ComposeFile up -d --build --remove-orphans
+    docker compose --env-file $EnvFile -f $ComposeFile up -d --build
   }
   Assert-ExitCode 'docker compose up --build'
 
@@ -332,6 +333,8 @@ function Clear-StaleComposeContainers {
   if (-not $raw) { return }
   $ids = $raw -split "`n" | Where-Object { $_.Trim() }
   foreach ($id in $ids) {
+    $id = $id.Trim()
+    if ($id -notmatch '^[0-9a-fA-F]{12,64}$') { continue }
     $name = (docker inspect $id --format '{{.Name}}').TrimStart('/')
     if ($knownNames -notcontains $name) { continue }
     $wd = docker inspect $id --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'
@@ -354,7 +357,7 @@ function Invoke-StackUp {
   if ($Gpu) { $composeArgs += '-f', $ComposeGpuFile }
   if ($Dev) { $composeArgs += '-f', (Join-Path $RepoRoot 'docker-compose.dev.yml') }
   foreach ($p in $Profile) { $composeArgs += '--profile', $p }
-  $composeArgs += 'up', '-d', '--remove-orphans'
+  $composeArgs += 'up', '-d'
   docker compose @composeArgs
   Assert-ExitCode 'docker compose up'
 }

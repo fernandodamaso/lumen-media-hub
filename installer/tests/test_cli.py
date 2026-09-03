@@ -150,7 +150,7 @@ class CliContractTests(unittest.TestCase):
             with contextlib.redirect_stdout(output):
                 result = cli.main(["doctor"])
 
-        self.assertEqual(result, int(ExitCode.OK))
+        self.assertEqual(result, int(ExitCode.INVALID))
         self.assertNotIn("must-not-appear", output.getvalue())
         self.assertIn("compose_version", output.getvalue())
 
@@ -184,7 +184,7 @@ class CliContractTests(unittest.TestCase):
                     ]
                 )
 
-        self.assertEqual(result, int(ExitCode.OK))
+        self.assertEqual(result, int(ExitCode.INVALID))
         run_host_doctor.assert_called_once_with(
             uid=1001,
             gid=1002,

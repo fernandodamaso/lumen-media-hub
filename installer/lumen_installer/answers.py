@@ -90,6 +90,9 @@ def _mapping_value(container: Any, name: str) -> Any:
         upper = name.upper()
         if upper in container:
             return container[upper]
+        for key, value in container.items():
+            if str(key).upper() == upper:
+                return value
         return None
     try:
         value = getattr(container, name)

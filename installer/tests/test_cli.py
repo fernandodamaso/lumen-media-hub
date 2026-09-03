@@ -23,6 +23,7 @@ from lumen_installer.errors import (
     InvalidInputError,
     PartialError,
 )
+from lumen_installer.compose import ComposeOptions
 
 
 class CliContractTests(unittest.TestCase):
@@ -131,6 +132,43 @@ class CliContractTests(unittest.TestCase):
         run_configure.assert_called_once()
         self.assertIn("foundation", output.getvalue())
         self.assertIn("configure", output.getvalue())
+
+    def test_setup_passes_foundation_effective_options_to_real_configure_boundary(self):
+        import lumen_installer.configure as configure_module
+
+        effective_options = ComposeOptions(
+            profiles=("requests",),
+            gpu="vaapi",
+            dev=True,
+        )
+        foundation = type(
+            "FoundationResult",
+            (),
+            {"report": {"status": "ok"}, "options": effective_options},
+        )()
+        configured_options = []
+
+        def configure_boundary(*, options, interactive, dry_run):
+            configured_options.append(options)
+            with tempfile.TemporaryDirectory() as temporary:
+                return configure_module.run_configure(
+                    Path(temporary),
+                    options=options,
+                    reconcile=lambda service: {"service": service, "status": "ok"},
+                    env_commit=lambda: None,
+                    restart=lambda: None,
+                    direct_health=lambda: True,
+                    proxy_health=lambda: True,
+                    interactive=interactive,
+                    dry_run=dry_run,
+                )
+
+        with mock.patch.object(cli, "run_foundation", return_value=foundation), \
+             mock.patch.object(cli, "run_configure", side_effect=configure_boundary):
+            result = cli.main(["setup"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(configured_options, [effective_options])
 
     def test_exit_codes_are_stable(self):
         self.assertEqual(int(ExitCode.OK), 0)

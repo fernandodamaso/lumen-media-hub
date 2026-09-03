@@ -28,7 +28,11 @@ from .http import HttpTransport
 from .services.base import ServiceCheckpoint, ServiceResult
 from .services.jellyfin import JellyfinAdapter
 from .services.prowlarr import ProwlarrAdapter, read_prowlarr_api_key
-from .services.qbittorrent import QbittorrentAdapter
+from .services.qbittorrent import (
+    DEFAULT_LOG_MAX_BYTES,
+    DEFAULT_LOG_MAX_LINES,
+    QbittorrentAdapter,
+)
 from .services.servarr import RadarrAdapter, SonarrAdapter, read_servarr_api_key
 
 
@@ -65,6 +69,7 @@ _TRANSIENT_ENV_KEYS = frozenset(
         "JELLYFIN_ADMIN_PASSWORD",
         "JELLYFIN_USERNAME",
         "JELLYFIN_PASSWORD",
+        "QBT_CURRENT_PASSWORD",
     }
 )
 
@@ -93,7 +98,14 @@ def _result_report(result: Any) -> dict[str, Any]:
     return {"status": _result_status(result)}
 
 
-def _status_code(status: str) -> ExitCode:
+def _result_has_drift(result: Any) -> bool:
+    drift = result.get("drift") if isinstance(result, Mapping) else getattr(result, "drift", ())
+    return bool(drift)
+
+
+def _status_code(status: str, *, has_drift: bool = False) -> ExitCode:
+    if status == "guided" and has_drift:
+        return ExitCode.DRIFT
     if status in {"drift", "conflict", "needs-approval", "unapproved"}:
         return ExitCode.DRIFT
     if status in {"guided", "partial", "degraded", "unhealthy", "health"}:
@@ -477,6 +489,11 @@ def build_adapter_factory(
     confirm: bool = False,
     jellyfin_admin_name: str | None = None,
     jellyfin_admin_password: str | None = None,
+    qbt_current_password: str | None = None,
+    qbt_logs: str | bytes | None = None,
+    qbt_container_logs: str | bytes | None = None,
+    qbt_log_max_bytes: int = DEFAULT_LOG_MAX_BYTES,
+    qbt_log_max_lines: int = DEFAULT_LOG_MAX_LINES,
     prompt: Callable[..., Any] | None = None,
 ) -> Callable[..., Any]:
     """Build the ordered service-adapter factory used by ``configure``."""
@@ -531,6 +548,15 @@ def build_adapter_factory(
                 _configured_value(environment, "QBITTORRENT_URL") or DEFAULT_SERVICE_URLS[service],
                 selected_transport,
                 env=environment,
+                current_password=(
+                    qbt_current_password
+                    if qbt_current_password is not None
+                    else _configured_value(environment, "QBT_CURRENT_PASSWORD")
+                ),
+                logs=qbt_logs,
+                container_logs=qbt_container_logs,
+                log_max_bytes=qbt_log_max_bytes,
+                log_max_lines=qbt_log_max_lines,
                 prompt=prompt,
                 interactive=interactive,
             )
@@ -636,6 +662,11 @@ def run_configure(
     interactive: bool = True,
     jellyfin_admin_name: str | None = None,
     jellyfin_admin_password: str | None = None,
+    qbt_current_password: str | None = None,
+    qbt_logs: str | bytes | None = None,
+    qbt_container_logs: str | bytes | None = None,
+    qbt_log_max_bytes: int = DEFAULT_LOG_MAX_BYTES,
+    qbt_log_max_lines: int = DEFAULT_LOG_MAX_LINES,
     prompt: Callable[..., Any] | None = None,
     dry_run: bool = False,
     reconcile: Callable[..., Any] | None = None,
@@ -692,6 +723,7 @@ def run_configure(
     for key in (
         "QBT_PASSWORD",
         "STACK_PASSWORD",
+        "QBT_CURRENT_PASSWORD",
         "JELLYFIN_ADMIN_NAME",
         "JELLYFIN_ADMIN_PASSWORD",
         "TORZNAB_URL",
@@ -711,6 +743,11 @@ def run_configure(
                 confirm=confirm,
                 jellyfin_admin_name=jellyfin_admin_name,
                 jellyfin_admin_password=jellyfin_admin_password,
+                qbt_current_password=qbt_current_password,
+                qbt_logs=qbt_logs,
+                qbt_container_logs=qbt_container_logs,
+                qbt_log_max_bytes=qbt_log_max_bytes,
+                qbt_log_max_lines=qbt_log_max_lines,
                 prompt=prompt,
             )
         def reconcile(service: str, *, environment, dry_run):
@@ -775,7 +812,10 @@ def run_configure(
                     document.set(key, value)
         services[service] = _result_report(result)
         status = _result_status(result)
-        code = _status_code(status)
+        code = _status_code(
+            status,
+            has_drift=not interactive and _result_has_drift(result),
+        )
         if code is not ExitCode.OK:
             result_status = {
                 ExitCode.DRIFT: "drift",
@@ -854,7 +894,8 @@ def run_configure(
         ("direct", "direct-health", direct_health),
         ("proxy", "proxy-health", proxy_health),
     ):
-        if active_journal.is_complete(stage):
+        stage_complete = active_journal.is_complete(stage)
+        if stage_complete:
             healthy = True
         else:
             selected_probe = probe or default_probes[name]
@@ -876,9 +917,10 @@ def run_configure(
                 restarted=restarted,
                 health=health,
             )
-        if not dry_run:
-            active_journal.complete(stage)
-        completed.append(stage)
+        if not stage_complete:
+            if not dry_run:
+                active_journal.complete(stage)
+            completed.append(stage)
 
     return ConfigureResult(
         status="dry-run" if dry_run else "ok",

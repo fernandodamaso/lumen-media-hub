@@ -10,6 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from lumen_installer.services.base import ServiceDrift, ServiceResult
+
 
 class ConfigureFlowTests(unittest.TestCase):
     def test_apply_orders_core_reconciliation_before_single_env_commit_and_health(self):
@@ -243,6 +245,70 @@ class ConfigureFlowTests(unittest.TestCase):
 
         self.assertTrue(reconciler.confirm)
 
+    def test_real_qbittorrent_factory_forwards_adoption_credentials_and_bounded_logs(self):
+        configure = importlib.import_module("lumen_installer.configure")
+        current_password = "current-password-must-stay-private"
+        logs = "bounded qBittorrent logs"
+        captured = {}
+
+        class Adapter:
+            def __init__(self, *args, **kwargs):
+                captured.update(kwargs)
+
+        with mock.patch.object(configure, "QbittorrentAdapter", Adapter):
+            with tempfile.TemporaryDirectory() as temporary:
+                environment = {
+                    "QBT_PASSWORD": "configured-password",
+                    "QBT_CURRENT_PASSWORD": current_password,
+                }
+                factory = configure.build_adapter_factory(
+                    Path(temporary),
+                    environment=environment,
+                    qbt_logs=logs,
+                    qbt_log_max_bytes=128,
+                    qbt_log_max_lines=4,
+                )
+                factory("qbittorrent", environment=environment)
+
+        self.assertEqual(captured["current_password"], current_password)
+        self.assertIs(captured["logs"], logs)
+        self.assertEqual(captured["log_max_bytes"], 128)
+        self.assertEqual(captured["log_max_lines"], 4)
+
+    def test_lumen_qbittorrent_current_password_is_in_memory_only_at_configure_boundary(self):
+        configure = importlib.import_module("lumen_installer.configure")
+        current_password = "lumen-current-password-must-stay-private"
+        captured = []
+
+        class Adapter:
+            def configure(self, **kwargs):
+                return {"status": "ok"}
+
+        def factory_builder(root, *, environment, **kwargs):
+            captured.append(dict(environment))
+            return lambda service, **factory_kwargs: Adapter()
+
+        writes = []
+        with mock.patch.dict(
+            os.environ,
+            {"LUMEN_QBT_CURRENT_PASSWORD": current_password},
+            clear=False,
+        ), mock.patch.object(configure, "build_adapter_factory", factory_builder):
+            with tempfile.TemporaryDirectory() as temporary:
+                result = configure.run_configure(
+                    Path(temporary),
+                    env_writer=lambda path, content, *, mode: writes.append(content),
+                    restart=lambda: None,
+                    direct_health=lambda: True,
+                    proxy_health=lambda: True,
+                )
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(captured[0]["QBT_CURRENT_PASSWORD"], current_password)
+        self.assertTrue(writes)
+        self.assertNotIn(current_password, writes[0])
+        self.assertNotIn("QBT_CURRENT_PASSWORD", writes[0])
+
     def test_configure_public_api_is_exported_from_installer_package(self):
         package = importlib.import_module("lumen_installer")
         self.assertIs(package.run_configure, importlib.import_module("lumen_installer.configure").run_configure)
@@ -330,6 +396,40 @@ class ConfigureFlowTests(unittest.TestCase):
                 self.assertEqual(result.exit_code, expected_code)
                 self.assertEqual(commits, [])
                 self.assertNotIn("must-not-escape", repr(result.report))
+
+    def test_noninteractive_guided_result_with_real_drift_records_is_exit_three(self):
+        configure = importlib.import_module("lumen_installer.configure")
+
+        def reconcile(service: str):
+            if service == "jellyfin":
+                return ServiceResult(
+                    service=service,
+                    status="guided",
+                    drift=(
+                        ServiceDrift(
+                            resource="library",
+                            field="path",
+                            reason="managed path differs",
+                        ),
+                    ),
+                )
+            return ServiceResult(service=service, status="ok")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            result = configure.run_configure(
+                Path(temporary),
+                reconcile=reconcile,
+                interactive=False,
+                env_commit=lambda: self.fail("drift must stop before env commit"),
+                restart=lambda: self.fail("drift must stop before restart"),
+            )
+
+        self.assertEqual(result.status, "drift")
+        self.assertEqual(result.exit_code, 3)
+        self.assertEqual(
+            result.report["services"]["jellyfin"]["drift"][0]["field"],
+            "path",
+        )
 
     def test_successful_rerun_uses_the_completed_journal_without_mutations(self):
         configure = importlib.import_module("lumen_installer.configure")
@@ -624,6 +724,29 @@ class ConfigureFlowTests(unittest.TestCase):
             )
 
         self.assertEqual(result.status, "ok")
+
+    def test_resume_keeps_completed_direct_health_checkpoint_in_order_once(self):
+        configure = importlib.import_module("lumen_installer.configure")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            journal = configure.ConfigureJournal(Path(temporary))
+            for stage in configure.CONFIGURE_ORDER[:-1]:
+                journal.complete(stage)
+
+            result = configure.run_configure(
+                Path(temporary),
+                journal=journal,
+                adapter_factory=lambda service, **kwargs: SimpleNamespace(
+                    configure=lambda **configure_kwargs: {"status": "ok"}
+                ),
+                restart=lambda: None,
+                direct_health=lambda: True,
+                proxy_health=lambda: True,
+            )
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.stages_completed, configure.CONFIGURE_ORDER)
+        self.assertEqual(result.stages_completed.count("direct-health"), 1)
 
 
 if __name__ == "__main__":

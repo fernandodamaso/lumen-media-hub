@@ -132,8 +132,9 @@ def _compose_options(args: argparse.Namespace) -> ComposeOptions:
 
 
 def _setup(args: argparse.Namespace) -> int:
+    requested_options = _compose_options(args)
     foundation = run_foundation(
-        options=_compose_options(args),
+        options=requested_options,
         answers_path=getattr(args, "answers", None),
         uid=getattr(args, "uid", None),
         gid=getattr(args, "gid", None),
@@ -147,7 +148,7 @@ def _setup(args: argparse.Namespace) -> int:
         dry_run=bool(getattr(args, "dry_run", False)),
     )
     configured = run_configure(
-        options=_compose_options(args),
+        options=getattr(foundation, "options", requested_options),
         interactive=not bool(getattr(args, "noninteractive", False)),
         dry_run=bool(getattr(args, "dry_run", False)),
     )

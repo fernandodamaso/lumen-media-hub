@@ -110,6 +110,79 @@ class ConfigureFlowTests(unittest.TestCase):
         self.assertEqual(environment, {"QBT_PASSWORD": "original-secret"})
         self.assertEqual(events, [(service, True) for service in configure.CORE_ORDER])
 
+    def test_dry_run_skips_injected_health_callbacks_and_reports_unverified_stages(self):
+        configure = importlib.import_module("lumen_installer.configure")
+        health_calls: list[str] = []
+
+        def reconcile(service: str):
+            return {"service": service, "status": "dry-run"}
+
+        def direct_health():
+            health_calls.append("direct")
+            return True
+
+        def proxy_health():
+            health_calls.append("proxy")
+            return True
+
+        with tempfile.TemporaryDirectory() as temporary:
+            result = configure.run_configure(
+                Path(temporary),
+                reconcile=reconcile,
+                dry_run=True,
+                direct_health=direct_health,
+                proxy_health=proxy_health,
+            )
+
+        self.assertEqual(result.status, "dry-run")
+        self.assertTrue(result.dry_run)
+        self.assertEqual(
+            result.stages_completed,
+            configure.CORE_ORDER + ("direct-health", "proxy-health"),
+        )
+        self.assertEqual(health_calls, [])
+        self.assertEqual(
+            result.health,
+            {
+                "direct": {"status": "unverified"},
+                "proxy": {"status": "unverified"},
+            },
+        )
+
+    def test_dry_run_skips_default_http_health_probes(self):
+        configure = importlib.import_module("lumen_installer.configure")
+        probe_calls: list[str] = []
+
+        def reconcile(service: str):
+            return {"service": service, "status": "dry-run"}
+
+        def opener(request, *, timeout):
+            probe_calls.append(request.full_url)
+            return None
+
+        with tempfile.TemporaryDirectory() as temporary:
+            result = configure.run_configure(
+                Path(temporary),
+                reconcile=reconcile,
+                dry_run=True,
+                health_opener=opener,
+                health_timeout=0,
+            )
+
+        self.assertEqual(result.status, "dry-run")
+        self.assertEqual(
+            result.stages_completed,
+            configure.CORE_ORDER + ("direct-health", "proxy-health"),
+        )
+        self.assertEqual(probe_calls, [])
+        self.assertEqual(
+            result.health,
+            {
+                "direct": {"status": "unverified"},
+                "proxy": {"status": "unverified"},
+            },
+        )
+
     def test_environment_commit_is_one_mode_six_hundred_atomic_write(self):
         configure = importlib.import_module("lumen_installer.configure")
         commit_environment = getattr(configure, "commit_environment", None)
@@ -324,6 +397,36 @@ class ConfigureFlowTests(unittest.TestCase):
         self.assertLessEqual(len(captured["container_logs"].encode("utf-8")), 512)
         self.assertEqual(captured["container_logs"].splitlines()[0], temporary_line.rstrip())
         self.assertNotIn(temporary_password, repr(captured.get("report", {})))
+
+    def test_dry_run_factory_does_not_gather_qbittorrent_container_logs(self):
+        configure = importlib.import_module("lumen_installer.configure")
+        calls = []
+        captured = {}
+
+        class Runner:
+            def run(self, argv, **kwargs):
+                calls.append((tuple(argv), dict(kwargs)))
+                return CommandResult(tuple(argv), 0, "temporary password must not be collected")
+
+        class Adapter:
+            def __init__(self, *args, **kwargs):
+                captured.update(kwargs)
+
+        with mock.patch.object(configure, "QbittorrentAdapter", Adapter):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                environment = {}
+                factory = configure.build_adapter_factory(
+                    root,
+                    environment=environment,
+                    runner=Runner(),
+                    options=ComposeOptions(),
+                    env_file=root / ".env",
+                )
+                factory("qbittorrent", environment=environment, dry_run=True)
+
+        self.assertEqual(calls, [])
+        self.assertIsNone(captured["container_logs"])
 
     def test_failed_qbittorrent_log_collection_does_not_forward_command_output(self):
         configure = importlib.import_module("lumen_installer.configure")

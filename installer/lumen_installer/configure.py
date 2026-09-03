@@ -733,7 +733,7 @@ def build_adapter_factory(
             )
         if service == "qbittorrent":
             selected_container_logs = qbt_container_logs
-            if qbt_logs is None and selected_container_logs is None and runner is not None:
+            if not dry_run and qbt_logs is None and selected_container_logs is None and runner is not None:
                 selected_container_logs = _gather_qbittorrent_container_logs(
                     runner,
                     root,
@@ -887,7 +887,10 @@ def _run_configure_unlocked(
             dry_run=dry_run,
             stages_completed=CONFIGURE_ORDER,
             services={stage: {"status": "already-complete"} for stage in CORE_ORDER},
-            health={"direct": {"status": "healthy"}, "proxy": {"status": "healthy"}},
+            health={
+                "direct": {"status": "unverified" if dry_run else "healthy"},
+                "proxy": {"status": "unverified" if dry_run else "healthy"},
+            },
         )
     env_path = Path(env_file) if env_file is not None else root / ".env"
     if not env_path.is_absolute():
@@ -1085,6 +1088,11 @@ def _run_configure_unlocked(
         ("proxy", "proxy-health", proxy_health),
     ):
         stage_complete = active_journal.is_complete(stage)
+        if dry_run:
+            health[name] = {"status": "unverified"}
+            if not stage_complete:
+                completed.append(stage)
+            continue
         if stage_complete:
             healthy = True
         else:

@@ -791,10 +791,12 @@ class JellyfinAdapter:
                 )
             except HttpStatusError as error:
                 if error.status in {401, 403}:
+                    auth_error = JellyfinAuthenticationError(error.status)
                     return self._library_guided(
                         actions=tuple(completed),
                         code="jellyfin-authentication",
                         reason="Verify the current Jellyfin administrator credentials and retry.",
+                        error=auth_error,
                     )
                 raise
             completed.append(action)
@@ -814,7 +816,11 @@ class JellyfinAdapter:
                     error=auth_error,
                 )
             for name, collection_type, path in _MANAGED_LIBRARIES:
-                matches = [item for item in readback if item["Name"] == name]
+                matches = [
+                    item
+                    for item in readback
+                    if item["Name"].strip().casefold() == name.casefold()
+                ]
                 if len(matches) != 1 or (
                     matches[0]["CollectionType"] != collection_type
                     or matches[0]["Locations"] != (path,)

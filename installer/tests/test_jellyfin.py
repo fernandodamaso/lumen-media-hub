@@ -413,6 +413,95 @@ class JellyfinAdapterTests(unittest.TestCase):
             ],
         )
 
+    def test_post_create_readback_rejects_case_or_whitespace_normalized_duplicates(self):
+        for duplicate_name in ("movies", " Movies "):
+            with self.subTest(duplicate_name=duplicate_name):
+                adapter, transport = self.authenticated_adapter(
+                    [
+                        response([]),
+                        response(None, status=204),
+                        response(None, status=204),
+                        response([
+                            {
+                                "Name": "Movies",
+                                "CollectionType": "movies",
+                                "Locations": ["/data/media/movies"],
+                            },
+                            {
+                                "Name": duplicate_name,
+                                "CollectionType": "movies",
+                                "Locations": ["/data/media/movies"],
+                            },
+                            {
+                                "Name": "Shows",
+                                "CollectionType": "tvshows",
+                                "Locations": ["/data/media/tv"],
+                            },
+                        ]),
+                    ],
+                    admin_name=ADMIN,
+                    admin_password=PASSWORD,
+                )
+
+                result = adapter.reconcile_libraries()
+
+                self.assertEqual(result.status, "guided")
+                self.assertEqual(
+                    result.checkpoints[0].code,
+                    "jellyfin-library-readback-conflict",
+                )
+                self.assertEqual(
+                    [request[0:2] for request in transport.requests],
+                    [
+                        ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                        ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+                        (
+                            "POST",
+                            f"{BASE_URL}/Library/VirtualFolders?name=Movies&collectionType=movies&paths=%2Fdata%2Fmedia%2Fmovies",
+                        ),
+                        (
+                            "POST",
+                            f"{BASE_URL}/Library/VirtualFolders?name=Shows&collectionType=tvshows&paths=%2Fdata%2Fmedia%2Ftv",
+                        ),
+                        ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+                    ],
+                )
+
+    def test_library_creation_unauthorized_is_typed_without_follow_up_mutation(self):
+        for status in (401, 403):
+            response_secret = f"private-create-response-{status}"
+            with self.subTest(status=status):
+                adapter, transport = self.authenticated_adapter(
+                    [
+                        response([]),
+                        response({"error": response_secret}, status=status),
+                    ],
+                    admin_name=ADMIN,
+                    admin_password=PASSWORD,
+                )
+
+                result = adapter.reconcile_libraries()
+
+                self.assertEqual(result.status, "guided")
+                self.assertEqual(result.checkpoints[0].code, "jellyfin-authentication")
+                self.assertIsInstance(result.error, JellyfinAuthenticationError)
+                self.assertEqual(result.error.status, status)
+                self.assertIsNone(result.error.__context__)
+                self.assertNotIn(response_secret, repr(result))
+                self.assertNotIn(PASSWORD, repr(result))
+                self.assertNotIn(TOKEN, repr(result))
+                self.assertEqual(
+                    [request[0:2] for request in transport.requests],
+                    [
+                        ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                        ("GET", f"{BASE_URL}/Library/VirtualFolders"),
+                        (
+                            "POST",
+                            f"{BASE_URL}/Library/VirtualFolders?name=Movies&collectionType=movies&paths=%2Fdata%2Fmedia%2Fmovies",
+                        ),
+                    ],
+                )
+
     def test_dry_run_library_plan_has_no_mutation_or_handoff_changes(self):
         adapter, transport = self.authenticated_adapter(
             [response([])],

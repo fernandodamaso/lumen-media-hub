@@ -24,6 +24,7 @@ from lumen_installer.services.jellyfin import (
     JellyfinCapabilityError,
     JellyfinLibrarySchemaError,
     JellyfinResult,
+    JellyfinSchemaError,
     JellyfinSessionError,
 )
 
@@ -134,6 +135,200 @@ class JellyfinAdapterTests(unittest.TestCase):
         adapter, transport = self.adapter([response({"AccessToken": TOKEN}), *responses], **kwargs)
         adapter.authenticate()
         return adapter, transport
+
+    def test_local_network_plan_disables_remote_access(self):
+        adapter, transport = self.authenticated_adapter(
+            [response({"EnableRemoteAccess": True, "EnableAutomaticPortMapping": True})],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        plan = adapter.plan_remote_access("127.0.0.1")
+
+        self.assertEqual(plan.mode, "remote-access")
+        self.assertEqual(plan.actions, ("disable-remote-access",))
+        self.assertEqual(plan.drift[0].field, "EnableRemoteAccess")
+        self.assertEqual(plan.checkpoints[0].code, "jellyfin-remote-access-drift")
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/System/Configuration"),
+            ],
+        )
+
+    def test_lan_network_plan_enables_remote_access(self):
+        adapter, transport = self.authenticated_adapter(
+            [response({"EnableRemoteAccess": False})],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        plan = adapter.plan_remote_access("0.0.0.0")
+
+        self.assertEqual(plan.actions, ("enable-remote-access",))
+        self.assertEqual(plan.drift[0].resource, "remote-access")
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/System/Configuration"),
+            ],
+        )
+
+    def test_exact_adopted_remote_access_is_a_noop(self):
+        adapter, transport = self.authenticated_adapter(
+            [
+                response({
+                    "EnableRemoteAccess": False,
+                    "EncodingConfiguration": {"EnableHardwareEncoding": True},
+                }),
+                response({
+                    "EnableRemoteAccess": False,
+                    "EncodingConfiguration": {"EnableHardwareEncoding": True},
+                }),
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        plan = adapter.plan_remote_access("local")
+        result = adapter.apply_remote_access(plan)
+
+        self.assertEqual(plan.actions, ())
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.actions, ())
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/System/Configuration"),
+                ("GET", f"{BASE_URL}/System/Configuration"),
+            ],
+        )
+
+    def test_confirmed_remote_access_drift_changes_only_remote_policy(self):
+        current = {
+            "EnableRemoteAccess": True,
+            "EnableAutomaticPortMapping": True,
+            "EncodingConfiguration": {
+                "EnableHardwareEncoding": True,
+                "Codec": "h264",
+            },
+        }
+        adapter, transport = self.authenticated_adapter(
+            [response(current), response(current), response(None, status=204)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        plan = adapter.plan_remote_access("127.0.0.1")
+        result = adapter.apply_remote_access(plan, confirm_drift=True)
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.actions, ("disable-remote-access",))
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/System/Configuration"),
+                ("GET", f"{BASE_URL}/System/Configuration"),
+                ("POST", f"{BASE_URL}/System/Configuration"),
+            ],
+        )
+        self.assertEqual(
+            transport.requests[-1][2]["json_body"],
+            {
+                **current,
+                "EnableRemoteAccess": False,
+            },
+        )
+
+    def test_noninteractive_remote_access_drift_is_guided_without_mutation(self):
+        current = {"EnableRemoteAccess": True, "EncodingConfiguration": {"Codec": "h264"}}
+        adapter, transport = self.authenticated_adapter(
+            [response(current), response(current)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+            interactive=False,
+        )
+
+        plan = adapter.plan_remote_access("127.0.0.1")
+        result = adapter.apply_remote_access(plan, confirm_drift=True)
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].code, "jellyfin-remote-access-drift")
+        self.assertEqual(result.checkpoints[0].action, "confirm")
+        self.assertNotIn(("POST", f"{BASE_URL}/System/Configuration"), [request[0:2] for request in transport.requests])
+
+    def test_dry_run_discovers_remote_access_with_get_only(self):
+        adapter, transport = self.authenticated_adapter(
+            [response({"EnableRemoteAccess": False}), response({"EnableRemoteAccess": False})],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        plan = adapter.plan_remote_access("lan", dry_run=True)
+        result = adapter.apply_remote_access(plan, dry_run=True)
+
+        self.assertEqual(result.status, "dry-run")
+        self.assertTrue(result.dry_run)
+        self.assertEqual(result.actions, ("enable-remote-access",))
+        self.assertEqual(
+            [request[0] for request in transport.requests],
+            ["POST", "GET", "GET"],
+        )
+
+    def test_remote_access_auth_failure_is_typed_and_redacted(self):
+        secret = "remote-response-and-token-secret"
+        adapter, transport = self.authenticated_adapter(
+            [response({"error": secret}, status=401)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        with self.assertRaises(JellyfinAuthenticationError) as raised:
+            adapter.plan_remote_access("lan")
+
+        self.assertEqual(raised.exception.status, 401)
+        self.assertNotIn(secret, repr(raised.exception))
+        self.assertNotIn(TOKEN, repr(raised.exception))
+        self.assertEqual(len(transport.requests), 2)
+
+    def test_remote_access_malformed_or_unsupported_response_fails_closed(self):
+        secret = "private-encoding-and-response-secret"
+        for payload in (
+            {"EnableRemoteAccess": "true", "EncodingConfiguration": secret},
+            {"Unexpected": secret},
+        ):
+            with self.subTest(payload=payload):
+                adapter, transport = self.authenticated_adapter(
+                    [response(payload)],
+                    admin_name=ADMIN,
+                    admin_password=PASSWORD,
+                )
+
+                with self.assertRaises(JellyfinSchemaError) as raised:
+                    adapter.plan_remote_access("lan")
+
+                self.assertNotIn(secret, repr(raised.exception))
+                self.assertNotIn(TOKEN, repr(raised.exception))
+                self.assertEqual(len(transport.requests), 2)
+
+    def test_remote_access_transport_failure_is_typed_and_redacted(self):
+        secret = "transport-body-and-credential-secret"
+        adapter, transport = self.authenticated_adapter(
+            [RuntimeError(secret)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        with self.assertRaises(HttpConnectionError) as raised:
+            adapter.plan_remote_access("lan")
+
+        self.assertNotIn(secret, repr(raised.exception))
+        self.assertNotIn(TOKEN, repr(raised.exception))
+        self.assertEqual(len(transport.requests), 2)
 
     def test_authenticated_empty_library_inventory_plans_only_managed_libraries(self):
         adapter, transport = self.authenticated_adapter(

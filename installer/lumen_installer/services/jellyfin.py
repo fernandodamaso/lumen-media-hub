@@ -319,6 +319,7 @@ class JellyfinAdapter:
         self._capability: JellyfinCapability | None = None
         self._startup_configuration: dict[str, str] | None = None
         self._api_key_handoff: JellyfinApiKeyHandoff | None = None
+        self._remote_access_desired: bool | None = None
 
     @property
     def session(self) -> JellyfinSession | None:
@@ -568,6 +569,197 @@ class JellyfinAdapter:
         """
 
         return self._authenticate()
+
+    @staticmethod
+    def _remote_access_target(network_state: Any) -> bool:
+        if not isinstance(network_state, str):
+            raise InvalidInputError("Jellyfin network state is invalid")
+        state = network_state.strip().casefold()
+        if state in {"local", "127.0.0.1"}:
+            return False
+        if state in {"lan", "0.0.0.0"}:
+            return True
+        raise InvalidInputError("Jellyfin network state is invalid")
+
+    @staticmethod
+    def _remote_access_configuration(payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, Mapping):
+            raise JellyfinSchemaError()
+        try:
+            enabled = payload.get("EnableRemoteAccess")
+            configuration = dict(payload)
+        except Exception:
+            raise JellyfinSchemaError() from None
+        if not isinstance(enabled, bool):
+            raise JellyfinSchemaError()
+        return configuration
+
+    def _read_remote_access_configuration(self) -> dict[str, Any]:
+        if self._session is None:
+            raise JellyfinSessionError()
+        try:
+            payload = self._decode_json(
+                self._request(
+                    "GET",
+                    "/System/Configuration",
+                    authenticated=True,
+                    operation="remote-access",
+                ),
+                operation="remote-access",
+            )
+        except HttpStatusError as error:
+            if error.status in {401, 403}:
+                raise JellyfinAuthenticationError(error.status) from None
+            raise
+        return self._remote_access_configuration(payload)
+
+    @staticmethod
+    def _remote_access_action(enabled: bool) -> str:
+        return "enable-remote-access" if enabled else "disable-remote-access"
+
+    @classmethod
+    def _remote_access_drift(
+        cls,
+        current: bool,
+        desired: bool,
+    ) -> tuple[ServiceDrift, ...]:
+        if current == desired:
+            return ()
+        return (
+            ServiceDrift(
+                resource="remote-access",
+                field="EnableRemoteAccess",
+                reason="Jellyfin remote-access policy differs from the selected network state.",
+                action="confirm",
+            ),
+        )
+
+    @staticmethod
+    def _remote_access_checkpoint() -> ServiceCheckpoint:
+        return ServiceCheckpoint(
+            code="jellyfin-remote-access-drift",
+            reason="Jellyfin remote-access policy differs from the selected network state; confirm explicitly before changing it.",
+            action="confirm",
+            severity="error",
+        )
+
+    def plan_remote_access(
+        self,
+        network_state: str,
+        *,
+        dry_run: bool = False,
+    ) -> ServicePlan:
+        """Plan the remote-access policy for the selected network state."""
+
+        desired = self._remote_access_target(network_state)
+        configuration = self._read_remote_access_configuration()
+        current = configuration["EnableRemoteAccess"]
+        actions = () if current == desired else (self._remote_access_action(desired),)
+        drift = self._remote_access_drift(current, desired)
+        self._remote_access_desired = desired
+        return ServicePlan(
+            service=SERVICE_NAME,
+            status="conflict" if drift else "planned",
+            actions=actions,
+            drift=drift,
+            checkpoints=(self._remote_access_checkpoint(),) if drift else (),
+            dry_run=bool(dry_run),
+            mode="remote-access",
+        )
+
+    def apply_remote_access(
+        self,
+        plan: ServicePlan,
+        *,
+        confirm_drift: bool = False,
+        dry_run: bool = False,
+    ) -> JellyfinResult:
+        """Apply a remote-access plan after re-reading the live configuration."""
+
+        if not isinstance(plan, ServicePlan) or plan.service != SERVICE_NAME or plan.mode != "remote-access":
+            raise InvalidInputError("Jellyfin remote-access plan is invalid")
+        if self._session is None:
+            raise JellyfinSessionError()
+
+        action_targets = {
+            "enable-remote-access": True,
+            "disable-remote-access": False,
+        }
+        if len(plan.actions) > 1 or any(action not in action_targets for action in plan.actions):
+            raise InvalidInputError("Jellyfin remote-access plan contains an unsupported action")
+        desired = self._remote_access_desired
+        if desired is None and plan.actions:
+            desired = action_targets[plan.actions[0]]
+        if desired is None:
+            raise InvalidInputError("Jellyfin remote-access plan is unbound")
+
+        selected_dry_run = bool(dry_run or plan.dry_run)
+        configuration = self._read_remote_access_configuration()
+        current = configuration["EnableRemoteAccess"]
+        if current == desired:
+            return JellyfinResult(
+                service=SERVICE_NAME,
+                status="dry-run" if selected_dry_run else "ok",
+                actions=() if not selected_dry_run else plan.actions,
+                dry_run=selected_dry_run,
+                mode="remote-access",
+            )
+
+        action = self._remote_access_action(desired)
+        drift = self._remote_access_drift(current, desired)
+        checkpoint = self._remote_access_checkpoint()
+        if selected_dry_run:
+            return JellyfinResult(
+                service=SERVICE_NAME,
+                status="dry-run",
+                actions=(action,),
+                drift=drift,
+                checkpoints=(checkpoint,),
+                dry_run=True,
+                mode="remote-access",
+            )
+        if not confirm_drift or not self._interactive:
+            return JellyfinResult(
+                service=SERVICE_NAME,
+                status="guided",
+                drift=drift,
+                checkpoints=(checkpoint,),
+                mode="remote-access",
+            )
+
+        configuration["EnableRemoteAccess"] = desired
+        try:
+            self._request(
+                "POST",
+                "/System/Configuration",
+                body=configuration,
+                authenticated=True,
+                operation="mutation",
+            )
+        except HttpStatusError as error:
+            if error.status in {401, 403}:
+                auth_error = JellyfinAuthenticationError(error.status)
+                return JellyfinResult(
+                    service=SERVICE_NAME,
+                    status="guided",
+                    checkpoints=(
+                        ServiceCheckpoint(
+                            code="jellyfin-authentication",
+                            reason="Verify the current Jellyfin administrator credentials and retry.",
+                            action="authenticate",
+                            severity="error",
+                        ),
+                    ),
+                    error=auth_error,
+                    mode="remote-access",
+                )
+            raise
+        return JellyfinResult(
+            service=SERVICE_NAME,
+            status="ok",
+            actions=(action,),
+            mode="remote-access",
+        )
 
     @staticmethod
     def _library_items(payload: Any) -> list[Mapping[str, Any]]:

@@ -291,6 +291,134 @@ class ProwlarrAdapterTests(unittest.TestCase):
         self.assertIn("reuse-radarr-application", result.actions)
         self.assertIn("reuse-generic-torznab", result.actions)
 
+    def test_similarly_named_unrelated_clients_and_applications_are_not_adopted_or_updated(self):
+        unrelated_qbit = {
+            "id": 101,
+            "name": "qBittorrent backup",
+            "implementation": "OtherTorrentClient",
+            "implementationName": "OtherTorrentClient",
+            "configContract": "OtherTorrentClientSettings",
+            "fields": [
+                {"name": "host", "value": "backup-qbittorrent"},
+                {"name": "port", "value": 8081},
+                {"name": "username", "value": "backup-user"},
+                {"name": "password", "value": ""},
+            ],
+        }
+        unrelated_applications = [
+            {
+                "id": 102,
+                "name": "Sonarr backup",
+                "implementation": "OtherApplication",
+                "implementationName": "OtherApplication",
+                "configContract": "OtherApplicationSettings",
+                "fields": [
+                    {"name": "baseUrl", "value": "http://backup-sonarr:8989"},
+                    {"name": "apiKey", "value": ""},
+                    {"name": "syncLevel", "value": "addOnly"},
+                ],
+            },
+            {
+                "id": 103,
+                "name": "Radarr backup",
+                "implementation": "OtherApplication",
+                "implementationName": "OtherApplication",
+                "configContract": "OtherApplicationSettings",
+                "fields": [
+                    {"name": "baseUrl", "value": "http://backup-radarr:7878"},
+                    {"name": "apiKey", "value": ""},
+                    {"name": "syncLevel", "value": "addOnly"},
+                ],
+            },
+        ]
+        adapter, transport = self.adapter(
+            fresh_responses(
+                qbit_existing=unrelated_qbit,
+                applications_existing=unrelated_applications,
+            )
+        )
+
+        result = adapter.configure(confirm=True)
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(
+            [(request[0], request[1]) for request in transport.requests[7:]],
+            [
+                ("POST", f"{BASE_URL}/api/v1/downloadclient/test"),
+                ("POST", f"{BASE_URL}/api/v1/downloadclient"),
+                ("POST", f"{BASE_URL}/api/v1/applications/test"),
+                ("POST", f"{BASE_URL}/api/v1/applications"),
+                ("POST", f"{BASE_URL}/api/v1/applications/test"),
+                ("POST", f"{BASE_URL}/api/v1/applications"),
+                ("POST", f"{BASE_URL}/api/v1/indexer/test"),
+                ("POST", f"{BASE_URL}/api/v1/indexer"),
+            ],
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                "create-download-client",
+                "create-sonarr-application",
+                "create-radarr-application",
+                "create-generic-torznab",
+            ),
+        )
+
+    def test_generic_name_with_wrong_implementation_is_preserved_and_not_adopted(self):
+        wrong_generic = torznab_schema(
+            fields=[
+                {"name": "baseUrl", "value": "https://unrelated.example.test"},
+                {"name": "apiKey", "value": ""},
+                {"name": "categories", "value": "5000"},
+            ]
+        )
+        wrong_generic.update(
+            {
+                "id": 88,
+                "name": "Lumen Generic Torznab",
+                "implementation": "OtherIndexer",
+                "implementationName": "OtherIndexer",
+                "configContract": "OtherIndexerSettings",
+            }
+        )
+        adapter, transport = self.adapter(fresh_responses(indexers=[wrong_generic]))
+
+        result = adapter.configure(confirm=True)
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.actions[-1], "create-generic-torznab")
+        self.assertEqual(
+            [(request[0], request[1]) for request in transport.requests[-2:]],
+            [
+                ("POST", f"{BASE_URL}/api/v1/indexer/test"),
+                ("POST", f"{BASE_URL}/api/v1/indexer"),
+            ],
+        )
+        self.assertNotIn("/api/v1/indexer/88", [request[1] for request in transport.requests])
+
+    def test_substring_matching_generic_schema_falls_back_without_mutation(self):
+        unsupported_schema = torznab_schema()
+        unsupported_schema.update(
+            {
+                "name": "Generic Torznab legacy",
+                "implementation": "Custom Generic Torznab",
+                "implementationName": "Custom Generic Torznab",
+                "configContract": "CustomGenericTorznabSettings",
+            }
+        )
+        adapter, transport = self.adapter(
+            fresh_responses(indexer_schemas=[unsupported_schema], indexers=[])
+        )
+
+        result = adapter.configure()
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].code, "prowlarr-indexer-guided")
+        self.assertEqual(result.checkpoints[0].action, "open-prowlarr-ui")
+        self.assertEqual(len(transport.requests), 7)
+        self.assertTrue(all(request[0] == "GET" for request in transport.requests))
+        self.assertNotIn(TORZNAB_KEY, repr(result))
+
     def test_managed_conflict_requires_confirmation_before_any_mutation(self):
         qbit = qbit_schema(
             fields=[

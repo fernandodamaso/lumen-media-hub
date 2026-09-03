@@ -37,6 +37,38 @@ PROWLARR_CONFIG_PATH = Path("config/prowlarr/config.xml")
 
 _MISSING = object()
 
+_QBIT_IDENTITY = {
+    "name": "qbittorrent",
+    "implementation": "qbittorrent",
+    "implementationName": "qbittorrent",
+    "configContract": "qbittorrentsettings",
+}
+_APPLICATION_IDENTITIES = {
+    "sonarr": {
+        "name": "sonarr",
+        "implementation": "sonarr",
+        "implementationName": "sonarr",
+        "configContract": "sonarrsettings",
+    },
+    "radarr": {
+        "name": "radarr",
+        "implementation": "radarr",
+        "implementationName": "radarr",
+        "configContract": "radarrsettings",
+    },
+}
+_GENERIC_TORZNAB_IDENTITY = {
+    "name": "generic torznab",
+    "implementation": "torznab",
+    "implementationName": "generic torznab",
+    "configContract": "torznabsettings",
+}
+_GENERIC_TORZNAB_TYPE_IDENTITY = {
+    "implementation": "torznab",
+    "implementationName": "generic torznab",
+    "configContract": "torznabsettings",
+}
+
 
 class ProwlarrError(InstallerError):
     """Base class for sanitized Prowlarr adapter failures."""
@@ -293,27 +325,89 @@ def _collection(payload: Any, wrapper: str) -> list[Mapping[str, Any]]:
     return list(values)
 
 
+def _exact_identity_matches(
+    candidate: Mapping[str, Any],
+    identity: Mapping[str, str],
+    *,
+    required: tuple[str, ...],
+) -> bool:
+    if not isinstance(candidate, Mapping):
+        return False
+    for field in required:
+        if _service_text(candidate.get(field)) != identity[field]:
+            return False
+    for field, expected in identity.items():
+        if field in required or field not in candidate:
+            continue
+        if _service_text(candidate.get(field)) != expected:
+            return False
+    return True
+
+
 def _kind_matches(candidate: Mapping[str, Any], *needles: str) -> bool:
-    values = (
-        candidate.get("name"),
-        candidate.get("implementation"),
-        candidate.get("implementationName"),
-        candidate.get("configContract"),
-    )
-    folded = " ".join(value.casefold() for value in values if isinstance(value, str))
-    return all(needle.casefold() in folded for needle in needles)
+    normalized_needles = tuple(_service_text(needle) for needle in needles)
+    if normalized_needles in {("qbit",), ("qbittorrent",)}:
+        return _exact_identity_matches(candidate, _QBIT_IDENTITY, required=tuple(_QBIT_IDENTITY))
+    if normalized_needles in {("sonarr",), ("radarr",)}:
+        identity = _APPLICATION_IDENTITIES[normalized_needles[0]]
+        return _exact_identity_matches(candidate, identity, required=tuple(identity))
+    if set(normalized_needles) == {"generic", "torznab"} and len(normalized_needles) == 2:
+        return _exact_identity_matches(
+            candidate,
+            _GENERIC_TORZNAB_IDENTITY,
+            required=tuple(_GENERIC_TORZNAB_IDENTITY),
+        )
+    return False
 
 
 def _is_service_application(candidate: Mapping[str, Any], service: str) -> bool:
-    return _kind_matches(candidate, service)
+    identity = _APPLICATION_IDENTITIES.get(_service_text(service))
+    return identity is not None and _exact_identity_matches(
+        candidate,
+        identity,
+        required=("name", "implementation"),
+    )
+
+
+def _is_service_application_schema(candidate: Mapping[str, Any], service: str) -> bool:
+    identity = _APPLICATION_IDENTITIES.get(_service_text(service))
+    return identity is not None and _exact_identity_matches(
+        candidate,
+        identity,
+        required=tuple(identity),
+    )
 
 
 def _is_qbit(candidate: Mapping[str, Any]) -> bool:
-    return _kind_matches(candidate, "qbit")
+    return _exact_identity_matches(candidate, _QBIT_IDENTITY, required=("name", "implementation"))
+
+
+def _is_qbit_schema(candidate: Mapping[str, Any]) -> bool:
+    return _exact_identity_matches(candidate, _QBIT_IDENTITY, required=tuple(_QBIT_IDENTITY))
 
 
 def _is_generic_torznab(candidate: Mapping[str, Any]) -> bool:
-    return _kind_matches(candidate, "generic") and _kind_matches(candidate, "torznab")
+    return _exact_identity_matches(
+        candidate,
+        _GENERIC_TORZNAB_IDENTITY,
+        required=("name", "implementation"),
+    )
+
+
+def _is_generic_torznab_schema(candidate: Mapping[str, Any]) -> bool:
+    return _exact_identity_matches(
+        candidate,
+        _GENERIC_TORZNAB_IDENTITY,
+        required=tuple(_GENERIC_TORZNAB_IDENTITY),
+    )
+
+
+def _is_generic_torznab_type(candidate: Mapping[str, Any]) -> bool:
+    return _exact_identity_matches(
+        candidate,
+        _GENERIC_TORZNAB_TYPE_IDENTITY,
+        required=("implementation",),
+    )
 
 
 def _response_status(response: Any) -> int:
@@ -574,7 +668,7 @@ class ProwlarrAdapter:
     @classmethod
     def _qbit_schema(cls, schemas: list[Mapping[str, Any]]) -> dict[str, Any]:
         for candidate in schemas:
-            if not _is_qbit(candidate):
+            if not _is_qbit_schema(candidate):
                 continue
             fields = candidate.get("fields")
             cls._require_fields(
@@ -592,7 +686,7 @@ class ProwlarrAdapter:
     @classmethod
     def _application_schema(cls, schemas: list[Mapping[str, Any]], service: str) -> dict[str, Any]:
         for candidate in schemas:
-            if not _is_service_application(candidate, service):
+            if not _is_service_application_schema(candidate, service):
                 continue
             fields = candidate.get("fields")
             cls._require_fields(
@@ -608,7 +702,7 @@ class ProwlarrAdapter:
     @classmethod
     def _generic_schema(cls, schemas: list[Mapping[str, Any]]) -> dict[str, Any]:
         for candidate in schemas:
-            if not _is_generic_torznab(candidate):
+            if not _is_generic_torznab_schema(candidate):
                 continue
             fields = candidate.get("fields")
             cls._require_fields(
@@ -623,7 +717,7 @@ class ProwlarrAdapter:
 
     @staticmethod
     def _is_supported_definition(definition: Mapping[str, Any]) -> bool:
-        return _is_generic_torznab(definition)
+        return _is_generic_torznab_schema(definition)
 
     @staticmethod
     def _payload_from_schema(
@@ -664,11 +758,19 @@ class ProwlarrAdapter:
         return next((item for item in items if _is_service_application(item, service)), None)
 
     def _find_managed_indexer(self, items: list[Mapping[str, Any]]) -> Mapping[str, Any] | None:
-        named = next((item for item in items if item.get("name") == GENERIC_TORZNAB_NAME), None)
+        named = next(
+            (
+                item
+                for item in items
+                if _is_generic_torznab(item)
+                and _service_text(item.get("name")) == _service_text(GENERIC_TORZNAB_NAME)
+            ),
+            None,
+        )
         if named is not None:
             return named
         for item in items:
-            if not _is_generic_torznab(item):
+            if not _is_generic_torznab_type(item):
                 continue
             fields = item.get("fields")
             if fields is None or self._generic_torznab_url is None:

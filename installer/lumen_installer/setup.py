@@ -41,7 +41,7 @@ from .docker import DockerPreflight, docker_preflight
 from .dotenv import DotEnvDocument, write_atomic
 from .environment import EnvironmentPlan, plan_environment
 from .errors import DriftError, InvalidInputError, PartialError
-from .gpu import gpu_diagnostics, gpu_environment, overlay_for_mode, resolve_gpu
+from .gpu import GpuCapabilityError, gpu_diagnostics, gpu_environment, overlay_for_mode, resolve_gpu
 from .platform import HostFacts, detect_host
 from .state import DEFAULT_STAGES, InstallerState, StageJournal
 from .storage import KNOWN_STACK_CONTAINER_NAMES, StaleContainer, find_stale_containers, validate_storage
@@ -949,31 +949,49 @@ def _run_foundation_unlocked(
             }
         else:
             facts_arch = facts.arch
-            resolved = resolve_gpu(
-                effective.gpu_mode,
-                detector=gpu_detector,
-                confirm=gpu_confirm,
-                noninteractive=not interactive,
-                runner=command_runner,
-                architecture=facts_arch,
-            )
-            effective = replace(effective, gpu=resolved.mode)
-            gpu_detail = resolved.report
-            if dry_run:
+            try:
+                resolved = resolve_gpu(
+                    effective.gpu_mode,
+                    detector=gpu_detector,
+                    confirm=gpu_confirm,
+                    noninteractive=not interactive,
+                    runner=command_runner,
+                    architecture=facts_arch,
+                )
+            except (DriftError, GpuCapabilityError):
+                if not dry_run:
+                    raise
                 gpu_detail = {
-                    **gpu_detail,
+                    "requested_mode": effective.gpu_mode,
+                    "mode": effective.gpu_mode,
+                    "detected_mode": "none",
                     "status": "unverified",
                     "available": False,
-                    "overlay": overlay_for_mode(resolved.mode),
+                    "checks": {},
+                    "overlay": overlay_for_mode(effective.gpu_mode),
                     "reason": "GPU activation is skipped during dry-run",
                 }
-            if resolved.mode == "vaapi":
-                for key, value in gpu_environment(resolved).items():
-                    env_plan.document.set(key, value)
-            # A successful hardware resolution is persisted together with the
-            # next ordered stage.  Dry-runs retain the caller's state untouched.
-            if not dry_run and active_journal.state.gpu_mode != resolved.mode:
-                active_journal._state = replace(active_journal.state, gpu_mode=resolved.mode)
+            else:
+                effective = replace(effective, gpu=resolved.mode)
+                gpu_detail = resolved.report
+                if dry_run:
+                    gpu_detail = {
+                        **gpu_detail,
+                        "status": "unverified",
+                        "available": False,
+                        "overlay": overlay_for_mode(resolved.mode),
+                        "reason": "GPU activation is skipped during dry-run",
+                    }
+                if resolved.mode == "vaapi":
+                    for key, value in gpu_environment(resolved).items():
+                        env_plan.document.set(key, value)
+                # Save the resolved mode before the next journal stage reads
+                # the durable state.  This is especially important for a
+                # confirmed ``auto`` choice, which must not remain ``auto``
+                # and ask for confirmation on the next lifecycle run.
+                if not dry_run and active_journal.state.gpu_mode != resolved.mode:
+                    active_journal._state = replace(active_journal.state, gpu_mode=resolved.mode)
+                    active_journal._state.save()
 
     project = compose_project
     if project is None:
@@ -1150,25 +1168,40 @@ def run_up(
                     "reason": "GPU probes are skipped during dry-run",
                 }
             else:
-                resolved = resolve_gpu(
-                    effective.gpu_mode,
-                    detector=gpu_detector,
-                    confirm=gpu_confirm,
-                    noninteractive=not bool(gpu_confirm),
-                    runner=command_runner,
-                    architecture=gpu_architecture or stdlib_platform.machine(),
-                )
-                effective = replace(effective, gpu=resolved.mode)
-                gpu_detail = resolved.report
-                gpu_environment_values = gpu_environment(resolved)
-                if dry_run:
+                try:
+                    resolved = resolve_gpu(
+                        effective.gpu_mode,
+                        detector=gpu_detector,
+                        confirm=gpu_confirm,
+                        noninteractive=not bool(gpu_confirm),
+                        runner=command_runner,
+                        architecture=gpu_architecture or stdlib_platform.machine(),
+                    )
+                except (DriftError, GpuCapabilityError):
+                    if not dry_run:
+                        raise
                     gpu_detail = {
-                        **gpu_detail,
+                        "requested_mode": effective.gpu_mode,
+                        "mode": effective.gpu_mode,
+                        "detected_mode": "none",
                         "status": "unverified",
                         "available": False,
-                        "overlay": overlay_for_mode(resolved.mode),
+                        "checks": {},
+                        "overlay": overlay_for_mode(effective.gpu_mode),
                         "reason": "GPU activation is skipped during dry-run",
                     }
+                else:
+                    effective = replace(effective, gpu=resolved.mode)
+                    gpu_detail = resolved.report
+                    gpu_environment_values = gpu_environment(resolved)
+                    if dry_run:
+                        gpu_detail = {
+                            **gpu_detail,
+                            "status": "unverified",
+                            "available": False,
+                            "overlay": overlay_for_mode(resolved.mode),
+                            "reason": "GPU activation is skipped during dry-run",
+                        }
 
             if gpu_environment_values:
                 gpu_detail = {**gpu_detail, "environment": dict(gpu_environment_values)}

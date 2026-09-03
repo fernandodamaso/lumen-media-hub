@@ -405,6 +405,106 @@ class GpuProbeTests(unittest.TestCase):
                     self.assertEqual(result.gpu["status"], "unverified")
                     self.assertEqual(result.gpu["mode"], mode)
 
+    def test_lifecycle_dry_run_injected_unavailable_or_unconfirmed_gpu_never_raises(self):
+        from lumen_installer.setup import run_foundation, run_up
+        from lumen_installer.state import InstallerState
+
+        class FoundationRunner(Runner):
+            def run(self, argv, **kwargs):
+                key = tuple(argv)
+                self.calls.append((key, kwargs))
+                if key[-3:] == ("config", "--format", "json"):
+                    return CommandResult(key, 0, '{"services":{"jellyfin":{"image":"x"}}}')
+                return CommandResult(key, 0, "")
+
+        candidates = {
+            "nvidia": GpuProbe("nvidia", "unavailable", False, {}),
+            "auto": GpuProbe("nvidia", "available", True, {}),
+        }
+        for lifecycle in (run_up, run_foundation):
+            for mode, candidate in candidates.items():
+                with self.subTest(lifecycle=lifecycle.__name__, mode=mode), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    repo = root / "repo"
+                    repo.mkdir()
+                    InstallerState.new(repo).save()
+                    runner = FoundationRunner()
+                    kwargs = {
+                        "runner": runner,
+                        "options": ComposeOptions(gpu=mode),
+                        "gpu_detector": lambda requested, candidate=candidate, **extra: candidate,
+                        "dry_run": True,
+                        "stale_finder": lambda: (),
+                    }
+                    if lifecycle is run_foundation:
+                        kwargs.update(
+                            {
+                                "host": HOST,
+                                "answers": {
+                                    "ROOT_PATH": str(root / "media"),
+                                    "DOWNLOADS_PATH": str(root / "downloads"),
+                                },
+                                "preflight_checker": lambda runner: DockerPreflight(status="ok"),
+                                "storage_validator": lambda *args, **extra: SimpleNamespace(report={}),
+                            }
+                        )
+                    result = lifecycle(repo, **kwargs)
+
+                    self.assertEqual(result.status, "dry-run")
+                    self.assertEqual(result.gpu["status"], "unverified")
+                    self.assertFalse(result.gpu["available"])
+                    self.assertEqual(
+                        [call for call, _ in runner.calls if call and (call[0] == "nvidia-smi" or call[:2] == ("docker", "run"))],
+                        [],
+                    )
+                    self.assertFalse((repo / ".env").exists())
+
+    def test_confirmed_auto_foundation_saves_resolved_gpu_mode_for_future_up(self):
+        from lumen_installer.setup import run_foundation, run_up
+        from lumen_installer.state import InstallerState
+
+        class FoundationRunner(Runner):
+            def run(self, argv, **kwargs):
+                key = tuple(argv)
+                self.calls.append((key, kwargs))
+                if key[-3:] == ("config", "--format", "json"):
+                    return CommandResult(key, 0, '{"services":{"jellyfin":{"image":"x"}}}')
+                return CommandResult(key, 0, "")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            media = root / "media"
+            downloads = root / "downloads"
+            runner = FoundationRunner()
+            detector = lambda mode, **kwargs: GpuProbe("nvidia", "available", True, {})
+            run_foundation(
+                repo,
+                runner=runner,
+                host=HOST,
+                options=ComposeOptions(gpu="auto"),
+                gpu_detector=detector,
+                gpu_confirm=True,
+                answers={"ROOT_PATH": str(media), "DOWNLOADS_PATH": str(downloads)},
+                preflight_checker=lambda runner: DockerPreflight(status="ok"),
+                storage_validator=lambda *args, **kwargs: SimpleNamespace(report={}),
+                stale_finder=lambda: (),
+                health_probe=lambda: True,
+            )
+            saved = InstallerState.load(repo)
+            self.assertEqual(saved.gpu_mode, "nvidia")
+
+            result = run_up(
+                repo,
+                runner=runner,
+                gpu_detector=detector,
+                stale_finder=lambda: (),
+            )
+
+        self.assertEqual(result.options.gpu_mode, "nvidia")
+        self.assertEqual(result.gpu["status"], "available")
+
 
 
 if __name__ == "__main__":

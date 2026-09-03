@@ -18,6 +18,7 @@ from .errors import (
 )
 from .docker import run_host_doctor
 from .compose import ComposeOptions
+from .configure import run_configure
 from .gpu import GPU_MODES
 from .setup import (
     doctor_diagnostics,
@@ -131,7 +132,7 @@ def _compose_options(args: argparse.Namespace) -> ComposeOptions:
 
 
 def _setup(args: argparse.Namespace) -> int:
-    result = run_foundation(
+    foundation = run_foundation(
         options=_compose_options(args),
         answers_path=getattr(args, "answers", None),
         uid=getattr(args, "uid", None),
@@ -145,8 +146,21 @@ def _setup(args: argparse.Namespace) -> int:
         gpu_confirm=bool(getattr(args, "gpu_confirm", False)),
         dry_run=bool(getattr(args, "dry_run", False)),
     )
-    print(json.dumps(_redact_report(result.report), sort_keys=True))
-    return int(ExitCode.OK)
+    configured = run_configure(
+        options=_compose_options(args),
+        interactive=not bool(getattr(args, "noninteractive", False)),
+        dry_run=bool(getattr(args, "dry_run", False)),
+    )
+    print(
+        json.dumps(
+            {
+                "foundation": _redact_report(foundation.report),
+                "configure": _redact_report(configured.report),
+            },
+            sort_keys=True,
+        )
+    )
+    return int(configured.exit_code)
 
 
 def _up(args: argparse.Namespace) -> int:
@@ -175,6 +189,17 @@ def _frontend_dev(args: argparse.Namespace) -> int:
     result = run_frontend_dev(dry_run=bool(getattr(args, "dry_run", False)))
     print(json.dumps(_redact_report(result.report), sort_keys=True))
     return int(ExitCode.OK)
+
+
+def _configure(args: argparse.Namespace) -> int:
+    result = run_configure(
+        options=_compose_options(args),
+        interactive=not bool(getattr(args, "noninteractive", False)),
+        confirm=bool(getattr(args, "confirm", False)),
+        dry_run=bool(getattr(args, "dry_run", False)),
+    )
+    print(json.dumps(_redact_report(result.report), sort_keys=True))
+    return int(result.exit_code)
 
 
 def _owner_id(value: str) -> int:
@@ -340,6 +365,15 @@ def build_parser() -> InstallerArgumentParser:
                 metavar="RUN_ID",
                 help="Roll back a recorded update run.",
             )
+        if command == "configure":
+            subparser.add_argument(
+                "--confirm",
+                "--confirm-drift",
+                dest="confirm",
+                action="store_true",
+                default=argparse.SUPPRESS,
+                help="approve managed configuration drift",
+            )
 
     return parser
 
@@ -353,6 +387,7 @@ COMMAND_HANDLERS["up"] = _up
 COMMAND_HANDLERS["down"] = _down
 COMMAND_HANDLERS["frontend-dev"] = _frontend_dev
 COMMAND_HANDLERS["redeploy-dashboard"] = _redeploy_dashboard
+COMMAND_HANDLERS["configure"] = _configure
 
 
 def dispatch(args: argparse.Namespace) -> int | ExitCode | None:

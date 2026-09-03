@@ -108,6 +108,15 @@ from .setup import (
     redeploy_dashboard,
     wait_for_health,
 )
+from .configure import (
+    CONFIGURE_ORDER,
+    CORE_ORDER,
+    ConfigureJournal,
+    ConfigureResult,
+    build_adapter_factory,
+    commit_environment,
+    run_configure,
+)
 from .gpu import (
     DEFAULT_GPU_PROBE_TIMEOUT,
     DEFAULT_JELLYFIN_IMAGE,
@@ -229,6 +238,13 @@ __all__ = [
     "frontend_dev",
     "redeploy_dashboard",
     "wait_for_health",
+    "CONFIGURE_ORDER",
+    "CORE_ORDER",
+    "ConfigureJournal",
+    "ConfigureResult",
+    "build_adapter_factory",
+    "commit_environment",
+    "run_configure",
     "DEFAULT_GPU_PROBE_TIMEOUT",
     "DEFAULT_JELLYFIN_IMAGE",
     "DEFAULT_NVIDIA_PROBE_IMAGE",

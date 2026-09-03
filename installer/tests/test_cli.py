@@ -93,6 +93,45 @@ class CliContractTests(unittest.TestCase):
         self.assertEqual(after.timezone, "Europe/Lisbon")
         self.assertTrue(after.noninteractive)
 
+    def test_configure_accepts_explicit_drift_confirmation(self):
+        parser = cli.build_parser()
+        args = parser.parse_args(["configure", "--confirm"])
+        self.assertTrue(args.confirm)
+
+    def test_configure_dispatch_prints_redacted_report_and_returns_result_code(self):
+        fake_result = type(
+            "ConfigureResult",
+            (),
+            {"report": {"status": "drift", "api_key": "must-not-escape"}, "exit_code": 3},
+        )()
+        output = io.StringIO()
+        with mock.patch.object(cli, "run_configure", return_value=fake_result) as run_configure:
+            with contextlib.redirect_stdout(output):
+                result = cli.main(["configure", "--non-interactive"])
+
+        self.assertEqual(result, 3)
+        self.assertIn("redacted", output.getvalue())
+        self.assertNotIn("must-not-escape", output.getvalue())
+        run_configure.assert_called_once()
+
+    def test_setup_runs_core_configure_after_foundation(self):
+        foundation = type("FoundationResult", (), {"report": {"status": "ok"}})()
+        configured = type(
+            "ConfigureResult",
+            (),
+            {"report": {"status": "partial"}, "exit_code": 4},
+        )()
+        output = io.StringIO()
+        with mock.patch.object(cli, "run_foundation", return_value=foundation), \
+             mock.patch.object(cli, "run_configure", return_value=configured) as run_configure:
+            with contextlib.redirect_stdout(output):
+                result = cli.main(["setup"])
+
+        self.assertEqual(result, 4)
+        run_configure.assert_called_once()
+        self.assertIn("foundation", output.getvalue())
+        self.assertIn("configure", output.getvalue())
+
     def test_exit_codes_are_stable(self):
         self.assertEqual(int(ExitCode.OK), 0)
         self.assertEqual(int(ExitCode.INVALID), 2)

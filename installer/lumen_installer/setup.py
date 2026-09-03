@@ -41,7 +41,7 @@ from .docker import DockerPreflight, docker_preflight
 from .dotenv import DotEnvDocument, write_atomic
 from .environment import EnvironmentPlan, plan_environment
 from .errors import DriftError, InvalidInputError, PartialError
-from .gpu import gpu_diagnostics, gpu_environment, resolve_gpu
+from .gpu import gpu_diagnostics, gpu_environment, overlay_for_mode, resolve_gpu
 from .platform import HostFacts, detect_host
 from .state import DEFAULT_STAGES, InstallerState, StageJournal
 from .storage import KNOWN_STACK_CONTAINER_NAMES, StaleContainer, find_stale_containers, validate_storage
@@ -1076,16 +1076,34 @@ def run_up(
         if effective.gpu_mode != "none":
             # ``up`` is an activation boundary too. Validate hardware before
             # stale cleanup or Compose startup; a dry-run never saves state.
-            resolved = resolve_gpu(
-                effective.gpu_mode,
-                detector=gpu_detector,
-                confirm=gpu_confirm,
-                noninteractive=not bool(gpu_confirm),
-                runner=command_runner,
-                architecture=gpu_architecture or stdlib_platform.machine(),
-            )
-            effective = replace(effective, gpu=resolved.mode)
-            gpu_detail = resolved.report
+            if dry_run:
+                # A lifecycle dry-run is discovery-only.  Running ``docker
+                # run`` here could pull a probe image and make a supposedly
+                # read-only preview mutate the host image cache.  Keep the
+                # requested overlay in the planned argv, but mark capability
+                # as unverified so the report cannot be mistaken for a green
+                # activation check.
+                gpu_detail = {
+                    "requested_mode": effective.gpu_mode,
+                    "mode": effective.gpu_mode,
+                    "detected_mode": "none",
+                    "status": "unverified",
+                    "available": False,
+                    "checks": {},
+                    "overlay": overlay_for_mode(effective.gpu_mode),
+                    "reason": "GPU probes are skipped during dry-run",
+                }
+            else:
+                resolved = resolve_gpu(
+                    effective.gpu_mode,
+                    detector=gpu_detector,
+                    confirm=gpu_confirm,
+                    noninteractive=not bool(gpu_confirm),
+                    runner=command_runner,
+                    architecture=gpu_architecture or stdlib_platform.machine(),
+                )
+                effective = replace(effective, gpu=resolved.mode)
+                gpu_detail = resolved.report
         stale_removed = _remove_stale(_stale(command_runner, root, stale_finder, project), command_runner, dry_run=dry_run)
         if not dry_run:
             compose_up(command_runner, root, env_path, effective, redact=_secret_values(_load_document(env_path)))

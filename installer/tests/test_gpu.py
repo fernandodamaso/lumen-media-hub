@@ -224,6 +224,30 @@ class GpuProbeTests(unittest.TestCase):
 
         self.assertFalse(any(call[-2:] == ("up", "-d") for call, _ in runner.calls))
 
+    def test_up_dry_run_does_not_execute_gpu_probe_or_pull_images(self):
+        from lumen_installer.setup import run_up
+        from lumen_installer.state import InstallerState
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"
+            repo.mkdir()
+            InstallerState.new(repo).save()
+            runner = Runner()
+            result = run_up(
+                repo,
+                runner=runner,
+                options=ComposeOptions(gpu="nvidia"),
+                dry_run=True,
+                stale_finder=lambda: (),
+            )
+
+        probed = [call for call, _ in runner.calls if call and (call[0] == "nvidia-smi" or call[0:2] == ("docker", "run"))]
+        self.assertEqual(probed, [])
+        self.assertEqual(result.status, "dry-run")
+        self.assertEqual(result.gpu["status"], "unverified")
+        self.assertEqual(result.gpu["mode"], "nvidia")
+        self.assertEqual(result.gpu["overlay"], "docker-compose.gpu.yml")
+
 
 
 if __name__ == "__main__":

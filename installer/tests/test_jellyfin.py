@@ -2066,6 +2066,54 @@ class JellyfinAdapterTests(unittest.TestCase):
         self.assertEqual(transport.requests[-1][2]["json_body"]["ChangedAfterPlan"], "fresh")
         self.assertEqual(transport.requests[-1][2]["json_body"]["EncodingConfiguration"]["EncoderPreset"], "fast")
 
+    def test_encoding_configuration_post_auth_failure_is_guided_and_sanitized(self):
+        gpu = GpuProbe("nvidia", "available", True, {"nvidia_smi": True, "container_runtime": True})
+        for status in (401, 403):
+            config_secret = f"private-encoding-config-{status}"
+            response_secret = f"private-encoding-response-{status}"
+            configuration = {
+                "EncodingConfiguration": {
+                    "EnableHardwareEncoding": False,
+                    "HardwareAccelerationType": "none",
+                },
+                "PrivateConfiguration": config_secret,
+            }
+            with self.subTest(status=status):
+                adapter, transport = self.authenticated_adapter(
+                    [
+                        response(configuration),
+                        response(configuration),
+                        response({"error": response_secret}, status=status),
+                    ],
+                    admin_name=ADMIN,
+                    admin_password=PASSWORD,
+                )
+
+                plan = adapter.plan_encoding(gpu)
+                result = adapter.apply_encoding(plan, confirm_drift=True)
+
+                self.assertEqual(result.status, "guided")
+                self.assertEqual(result.actions, ("configure-encoding",))
+                self.assertEqual(result.checkpoints[0].code, "jellyfin-authentication")
+                self.assertEqual(result.checkpoints[0].action, "authenticate")
+                self.assertIsInstance(result.error, JellyfinAuthenticationError)
+                self.assertEqual(result.error.status, status)
+                self.assertIsNone(result.error.__context__)
+                for value in (result, result.report, result.error, result.checkpoints[0]):
+                    self.assertNotIn(config_secret, repr(value))
+                    self.assertNotIn(response_secret, repr(value))
+                    self.assertNotIn(PASSWORD, repr(value))
+                    self.assertNotIn(TOKEN, repr(value))
+                self.assertEqual(
+                    [request[0:2] for request in transport.requests],
+                    [
+                        ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                        ("GET", f"{BASE_URL}/System/Configuration"),
+                        ("GET", f"{BASE_URL}/System/Configuration"),
+                        ("POST", f"{BASE_URL}/System/Configuration"),
+                    ],
+                )
+
     def test_malformed_encoding_response_is_typed_and_does_not_leak_config(self):
         secret = "private-encoding-and-response-secret"
         adapter, transport = self.authenticated_adapter(

@@ -1534,6 +1534,25 @@ class JellyfinAdapter:
             )
         except JellyfinAuthenticationError as error:
             return self._encoding_guided(mode=mode, error=error)
+        except HttpStatusError as error:
+            if error.status in {401, 403}:
+                auth_error = JellyfinAuthenticationError(error.status)
+                return JellyfinResult(
+                    service=SERVICE_NAME,
+                    status="guided",
+                    actions=(_ENCODING_ACTION,),
+                    checkpoints=(
+                        ServiceCheckpoint(
+                            code="jellyfin-authentication",
+                            reason="Verify the current Jellyfin administrator credentials and retry.",
+                            action="authenticate",
+                            severity="error",
+                        ),
+                    ),
+                    error=auth_error,
+                    mode=mode,
+                )
+            raise
         return JellyfinResult(
             service=SERVICE_NAME,
             status="ok",

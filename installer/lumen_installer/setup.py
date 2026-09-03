@@ -14,6 +14,7 @@ import os
 import platform as stdlib_platform
 import re
 import stat
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -289,6 +290,57 @@ def _commit_gpu_environment(
         except (OSError, ValueError) as exc:
             raise InvalidInputError("GPU environment could not be committed atomically") from exc
     return document
+
+
+@contextmanager
+def _compose_planning_environment(
+    path: Path,
+    document: DotEnvDocument,
+    *,
+    gpu_mode: str,
+    dry_run: bool,
+):
+    """Provide a disposable, safe Compose env for uncommitted GPU previews."""
+
+    if not dry_run or gpu_mode != "vaapi":
+        yield path
+        return
+
+    planning = DotEnvDocument.parse(document.render())
+    # Compose's VA-API overlay requires numeric values even when this is only
+    # a preview.  Prefer discovered values, otherwise use inert placeholders
+    # solely in the disposable planning file.
+    if planning.get("RENDER_GID") is None:
+        planning.set("RENDER_GID", "0")
+    if planning.get("VIDEO_GID") is None:
+        planning.set("VIDEO_GID", "0")
+    for key in tuple(planning.keys()):
+        if _SECRET_KEY.search(key):
+            planning.set(key, "redacted")
+
+    fd, temporary_name = tempfile.mkstemp(prefix=".lumen-gpu-dry-run-", suffix=".env")
+    temporary_path = Path(temporary_name)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            fd = -1
+            stream.write(planning.render())
+            stream.flush()
+        yield temporary_path
+    except (OSError, ValueError) as exc:
+        raise InvalidInputError("GPU planning environment could not be prepared") from exc
+    finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            temporary_path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
 
 
 def _storage_target_input(
@@ -1027,7 +1079,19 @@ def _run_foundation_unlocked(
             except (OSError, ValueError) as exc:
                 raise InvalidInputError("environment could not be committed atomically") from exc
 
-    config_payload = compose_config(command_runner, root, env_path, effective, redact=secret_values)
+    with _compose_planning_environment(
+        env_path,
+        env_plan.document,
+        gpu_mode=effective.gpu_mode,
+        dry_run=dry_run,
+    ) as planning_env_path:
+        config_payload = compose_config(
+            command_runner,
+            root,
+            planning_env_path,
+            effective,
+            redact=secret_values,
+        )
     pull_services = derive_pull_services(config_payload)
     build_services = derive_build_services(config_payload)
     planned = [effective.argv(root, env_path, "pull", *pull_services)]
@@ -1210,8 +1274,10 @@ def run_up(
 
         # Persist explicit lifecycle choices just as setup does.  Dry-runs
         # intentionally keep both the environment and state untouched.
-        if not dry_run and options is not None and (
-            options.gpu is not None or options.profiles is not None
+        if not dry_run and (
+            state.gpu_mode != effective.gpu_mode
+            or options is not None
+            and (options.gpu is not None or options.profiles is not None)
         ):
             state = replace(
                 state,

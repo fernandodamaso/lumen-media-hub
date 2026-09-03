@@ -505,6 +505,83 @@ class GpuProbeTests(unittest.TestCase):
         self.assertEqual(result.options.gpu_mode, "nvidia")
         self.assertEqual(result.gpu["status"], "available")
 
+    def test_foundation_vaapi_dry_run_uses_temporary_planning_groups(self):
+        from lumen_installer.setup import run_foundation
+
+        class PlanningRunner(Runner):
+            def run(self, argv, **kwargs):
+                key = tuple(argv)
+                self.calls.append((key, kwargs))
+                if key[-3:] == ("config", "--format", "json"):
+                    env_path = Path(key[key.index("--env-file") + 1])
+                    content = env_path.read_text(encoding="utf-8")
+                    if "RENDER_GID=107" not in content or "VIDEO_GID=44" not in content:
+                        raise AssertionError("VA-API planning environment omitted discovered groups")
+                    return CommandResult(key, 0, '{"services":{"jellyfin":{"image":"x"}}}')
+                return CommandResult(key, 0, "")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            env_path = repo / ".env"
+            env_path.write_text(
+                "ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/downloads\n"
+                "ACTIONS_TOKEN=present\nJELLYFIN_BIND_ADDRESS=127.0.0.1\n",
+                encoding="utf-8",
+            )
+            before = env_path.read_text(encoding="utf-8")
+            runner = PlanningRunner()
+            result = run_foundation(
+                repo,
+                runner=runner,
+                host=HOST,
+                options=ComposeOptions(gpu="vaapi"),
+                gpu_detector=lambda mode, **kwargs: GpuProbe(
+                    "vaapi", "available", True, {}, render_gid=107, video_gid=44
+                ),
+                dry_run=True,
+                preflight_checker=lambda runner: DockerPreflight(status="ok"),
+                storage_validator=lambda *args, **kwargs: SimpleNamespace(report={}),
+                stale_finder=lambda: (),
+            )
+            after = env_path.read_text(encoding="utf-8")
+
+        self.assertEqual(result.status, "dry-run")
+        self.assertEqual(result.gpu["status"], "unverified")
+        self.assertEqual(after, before)
+
+    def test_saved_auto_up_persists_resolved_mode_and_avoids_reconfirmation(self):
+        from lumen_installer.setup import run_up
+        from lumen_installer.state import InstallerState
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"
+            repo.mkdir()
+            InstallerState.new(repo, gpu_mode="auto").save()
+            runner = Runner()
+            detector = lambda mode, **kwargs: GpuProbe("nvidia", "available", True, {})
+
+            first = run_up(
+                repo,
+                runner=runner,
+                gpu_detector=detector,
+                gpu_confirm=True,
+                stale_finder=lambda: (),
+            )
+            self.assertEqual(InstallerState.load(repo).gpu_mode, "nvidia")
+
+            second = run_up(
+                repo,
+                runner=runner,
+                gpu_detector=detector,
+                stale_finder=lambda: (),
+            )
+
+        self.assertEqual(first.options.gpu_mode, "nvidia")
+        self.assertEqual(second.options.gpu_mode, "nvidia")
+        self.assertEqual(second.gpu["status"], "available")
+
 
 
 if __name__ == "__main__":

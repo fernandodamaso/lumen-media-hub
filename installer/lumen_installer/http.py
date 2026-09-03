@@ -85,10 +85,13 @@ def _safe_url(url: Any) -> str:
         # port only when parsing it is safe.
         port = ""
         try:
-            if parsed.port is not None:
-                port = f":{parsed.port}"
+            parsed_port = parsed.port
         except ValueError:
-            port = ""
+            return "<invalid-url>"
+        if parsed_port is not None:
+            port = f":{parsed_port}"
+        if "%" in host:
+            return "<invalid-url>"
         if ":" in host and not host.startswith("["):
             host = f"[{host}]"
         path = _safe_path(parsed.path or "/")
@@ -273,16 +276,19 @@ def _validate_url(method: str, url: Any) -> str:
         raise HttpUrlError(method=method, url=url)
     if any(char.isspace() for char in url) or _has_url_control(url):
         raise HttpUrlError(method=method, url=url)
+    url_error: HttpUrlError | None = None
     try:
         parsed = urllib.parse.urlsplit(url)
         if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
             raise ValueError
         # Force validation of malformed ports and bracketed hostnames.
         _ = parsed.port
-        if parsed.hostname is None:
+        if parsed.hostname is None or "%" in parsed.hostname:
             raise ValueError
     except (TypeError, ValueError):
-        raise HttpUrlError(method=method, url=url) from None
+        url_error = HttpUrlError(method=method, url=url)
+    if url_error is not None:
+        raise url_error from None
     return url
 
 

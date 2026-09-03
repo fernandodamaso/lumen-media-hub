@@ -315,6 +315,23 @@ class HttpTransportTests(unittest.TestCase):
         self.assertNotIn("user", message)
         self.assertIn("GET https://example.test/api", message)
 
+    def test_malformed_port_urls_are_fully_redacted_without_exception_context(self):
+        transport = HttpTransport(opener=lambda request, *, timeout: _Response(b"ok"))
+        cases = (
+            ("https://example.test:port-secret/api", "port-secret"),
+            ("https://host-secret:foo/api", "host-secret"),
+            ("https://%68ost-secret:foo/api", "%68ost-secret"),
+        )
+
+        for url, forbidden in cases:
+            with self.subTest(url=url):
+                with self.assertRaises(HttpUrlError) as raised:
+                    transport.get(url)
+                self.assertIsNone(raised.exception.__context__)
+                self.assertNotIn(forbidden, str(raised.exception))
+                self.assertNotIn(forbidden, repr(raised.exception.report))
+                self.assertIn("GET <invalid-url>", str(raised.exception))
+
     def test_timeout_must_be_positive_and_finite(self):
         for value in (0, -1, float("inf"), float("nan"), "not-a-number"):
             with self.subTest(value=value):

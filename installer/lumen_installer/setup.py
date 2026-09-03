@@ -40,6 +40,7 @@ from .docker import DockerPreflight, docker_preflight
 from .dotenv import DotEnvDocument, write_atomic
 from .environment import EnvironmentPlan, plan_environment
 from .errors import DriftError, InvalidInputError, PartialError
+from .gpu import gpu_diagnostics, gpu_environment, resolve_gpu
 from .platform import HostFacts, detect_host
 from .state import DEFAULT_STAGES, InstallerState, StageJournal
 from .storage import KNOWN_STACK_CONTAINER_NAMES, StaleContainer, find_stale_containers, validate_storage
@@ -299,7 +300,7 @@ def _state_and_journal(
     profiles = current.profiles if options.profiles is None else options.selected_profiles
     gpu_mode = current.gpu_mode
     if options.gpu is not None:
-        gpu_mode = "nvidia" if options.gpu else "none"
+        gpu_mode = options.gpu_mode
     candidate = replace(current, profiles=profiles, gpu_mode=gpu_mode)
     if reset_on_change and candidate.completed_stages:
         # Answers/host/storage changes invalidate the ordered mutations.  The
@@ -623,6 +624,7 @@ class FoundationResult:
     host: Mapping[str, Any] | None = None
     network: Mapping[str, Any] | None = None
     preflight: Mapping[str, Any] | None = None
+    gpu: Mapping[str, Any] | None = None
 
     @property
     def stages(self) -> tuple[str, ...]:
@@ -640,6 +642,7 @@ class FoundationResult:
             "stages_completed": list(self.stages_completed),
             "profiles": list(self.options.selected_profiles),
             "gpu": self.options.gpu_enabled,
+            "gpu_mode": self.options.gpu_mode,
             "dev": self.options.dev,
             "pulled_services": list(self.pulled_services),
             "build_services": list(self.build_services),
@@ -655,6 +658,7 @@ class FoundationResult:
             "host": _safe_projection(self.host or {}),
             "network": _safe_projection(self.network or {}),
             "preflight": _safe_projection(self.preflight or {}),
+            "gpu_details": _safe_projection(self.gpu or {}),
         }
 
     @property
@@ -693,6 +697,8 @@ def _run_foundation_unlocked(
     health_timeout: float = DEFAULT_HEALTH_TIMEOUT,
     health_interval: float = DEFAULT_HEALTH_INTERVAL,
     sleep: Callable[[float], Any] = time.sleep,
+    gpu_detector: Callable[..., Any] | None = None,
+    gpu_confirm: bool | Callable[..., Any] = False,
     state: InstallerState | None = None,
     stage_journal: StageJournal | None = None,
     journal: StageJournal | None = None,
@@ -746,7 +752,7 @@ def _run_foundation_unlocked(
             profiles = state.profiles if requested.profiles is None else requested.selected_profiles
             gpu_mode = state.gpu_mode
             if requested.gpu is not None:
-                gpu_mode = "nvidia" if requested.gpu else "none"
+                gpu_mode = requested.gpu_mode
             state = replace(state, profiles=profiles, gpu_mode=gpu_mode, completed_stages=())
             # A dry run gets a private reconciled view.  Mutating runs keep the
             # caller's journal in sync; the first completed stage then persists
@@ -889,6 +895,31 @@ def _run_foundation_unlocked(
         if not dry_run:
             active_journal.complete("preflight")
 
+    # GPU probing is read-only and runs after Docker preflight so the NVIDIA
+    # container runtime and VA-API ffmpeg checks can use the same injected
+    # command boundary.  A detected ``auto`` candidate is never selected
+    # without the caller's explicit confirmation.
+    gpu_detail: Mapping[str, Any] = {}
+    if effective.gpu_mode != "none":
+        facts_arch = facts.arch
+        resolved = resolve_gpu(
+            effective.gpu_mode,
+            detector=gpu_detector,
+            confirm=gpu_confirm,
+            noninteractive=not interactive,
+            runner=command_runner,
+            architecture=facts_arch,
+        )
+        effective = replace(effective, gpu=resolved.mode)
+        gpu_detail = resolved.report
+        if resolved.mode == "vaapi":
+            for key, value in gpu_environment(resolved).items():
+                env_plan.document.set(key, value)
+        # A successful hardware resolution is persisted together with the
+        # next ordered stage.  Dry-runs retain the caller's state untouched.
+        if not dry_run and active_journal.state.gpu_mode != resolved.mode:
+            active_journal._state = replace(active_journal.state, gpu_mode=resolved.mode)
+
     project = compose_project
     if project is None:
         project = process_environment.get("COMPOSE_PROJECT_NAME")
@@ -968,6 +999,7 @@ def _run_foundation_unlocked(
         },
         network=network_plan.report,
         preflight=preflight.report,
+        gpu=gpu_detail,
     )
     return result
 
@@ -1189,6 +1221,9 @@ def doctor_diagnostics(
     *,
     host_report: Mapping[str, Any] | None = None,
     environment: Mapping[str, str] | None = None,
+    gpu_mode: str | None = None,
+    gpu_detector: Callable[..., Any] | None = None,
+    runner: CommandRunner | Any | None = None,
 ) -> dict[str, Any]:
     """Read-only env/network/storage/state diagnostics for ``doctor``."""
 
@@ -1238,6 +1273,7 @@ def doctor_diagnostics(
     host_code = detail_code(host_report, default=2)
     if host_code:
         issue(InvalidInputError("host or Docker preflight needs attention"), host_code)
+    state_mode = "none"
     try:
         document = _load_document(env_path)
         values = document.values
@@ -1290,6 +1326,7 @@ def doctor_diagnostics(
         report["environment"] = {"status": "needs-attention", "error": str(exc)}
     try:
         state = InstallerState.load(root, allowed_stages=FOUNDATION_STAGES, correct_modes=False)
+        state_mode = state.gpu_mode
         state_detail = state.report
         state_file_present = (root / ".state" / "installer" / "state.json").is_file()
         missing_stages = [stage for stage in FOUNDATION_STAGES if stage not in state.completed_stages]
@@ -1307,6 +1344,20 @@ def doctor_diagnostics(
     except InvalidInputError as exc:
         issue(exc, 2)
         report["state"] = {"status": "needs-attention", "error": str(exc)}
+    requested_gpu = gpu_mode if gpu_mode is not None else state_mode
+    try:
+        report["gpu"] = gpu_diagnostics(
+            requested_gpu,
+            detector=gpu_detector,
+            runner=runner,
+            architecture=(host_report or {}).get("host", {}).get("arch") if isinstance(host_report, Mapping) else None,
+        )
+    except DriftError as exc:
+        report["gpu"] = {"mode": requested_gpu, "status": "needs-confirmation", "available": False, "error": str(exc)}
+        issue(exc, 3)
+    except InvalidInputError as exc:
+        report["gpu"] = {"mode": requested_gpu, "status": "needs-attention", "available": False, "error": str(exc)}
+        issue(exc, 2)
     return report
 
 

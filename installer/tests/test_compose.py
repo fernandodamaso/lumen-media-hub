@@ -31,15 +31,15 @@ class ComposeOptionsTests(unittest.TestCase):
             ),
         )
 
-    def test_rejects_malformed_profiles_and_options(self):
+    def test_rejects_malformed_profiles_and_accepts_gpu_modes(self):
         with self.assertRaises(InvalidInputError):
             ComposeOptions(profiles=("requests; echo bad",))
         with self.assertRaises(InvalidInputError):
             ComposeOptions(profiles=("unknown",))
+        self.assertEqual(ComposeOptions(gpu="nvidia").gpu_mode, "nvidia")
+        self.assertEqual(ComposeOptions(gpu="vaapi").gpu_mode, "vaapi")
         with self.assertRaises(InvalidInputError):
             ComposeOptions(gpu="yes")
-        with self.assertRaises(InvalidInputError):
-            ComposeOptions(gpu="nvidia")
 
     def test_up_never_adds_remove_orphans(self):
         class Runner:
@@ -85,7 +85,7 @@ class ComposeOptionsTests(unittest.TestCase):
             saved_profiles=saved.selected_profiles, saved_gpu=saved.gpu
         )
         self.assertEqual(inherited.selected_profiles, ("requests",))
-        self.assertFalse(inherited.gpu_enabled)
+        self.assertTrue(inherited.gpu_enabled)
         self.assertEqual(overridden.selected_profiles, ())
         self.assertFalse(overridden.gpu_enabled)
 

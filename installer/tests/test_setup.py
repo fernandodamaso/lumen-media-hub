@@ -467,7 +467,7 @@ class SetupFoundationTests(unittest.TestCase):
                 self.assertEqual(stat.S_IMODE(installer.stat().st_mode), 0o755)
                 self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o644)
 
-    def test_task7_gpu_modes_do_not_activate_overlay(self):
+    def test_saved_gpu_mode_activates_validated_overlay(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
             media = root / "media"; downloads = root / "downloads"
@@ -483,8 +483,8 @@ class SetupFoundationTests(unittest.TestCase):
             result = run_foundation(repo, runner=runner, host=HOST, state=state,
                                     answers={"ROOT_PATH": str(media), "DOWNLOADS_PATH": str(downloads)},
                                     preflight_checker=lambda runner: DockerPreflight(status="ok"), stale_finder=lambda: (), health_probe=lambda: True)
-            self.assertFalse(any("docker-compose.gpu.yml" in call for call in runner.calls))
-            self.assertFalse(result.options.gpu_enabled)
+            self.assertTrue(any(any("docker-compose.gpu.yml" in item for item in call) for call in runner.calls))
+            self.assertTrue(result.options.gpu_enabled)
 
     def test_semver_exact_and_spaced_ranges(self):
         self.assertFalse(node_satisfies("22.22.4", "=22.22.3"))

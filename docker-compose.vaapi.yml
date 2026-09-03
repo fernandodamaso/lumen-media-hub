@@ -1,0 +1,11 @@
+# Optional VA-API passthrough for Jellyfin.  RENDER_GID and VIDEO_GID are
+# discovered from the host device nodes by the Linux installer and are kept
+# as numeric values so Compose does not depend on host group names.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d
+services:
+  jellyfin:
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${RENDER_GID:?RENDER_GID must be set for VA-API}"
+      - "${VIDEO_GID:?VIDEO_GID must be set for VA-API}"

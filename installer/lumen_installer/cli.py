@@ -18,6 +18,7 @@ from .errors import (
 )
 from .docker import run_host_doctor
 from .compose import ComposeOptions
+from .gpu import GPU_MODES
 from .setup import (
     doctor_diagnostics,
     run_down,
@@ -109,16 +110,22 @@ def _doctor(args: argparse.Namespace) -> int:
     # Keep the host preflight call at this boundary for compatibility with
     # callers that inject only the Docker portion, then add safe local
     # environment/network/storage/state diagnostics from the lifecycle layer.
-    diagnostics = doctor_diagnostics(host_report=report)
+    requested_gpu = getattr(args, "gpu_mode", None)
+    if requested_gpu is None:
+        requested_gpu = getattr(args, "gpu", None)
+    diagnostics = doctor_diagnostics(host_report=report, gpu_mode=requested_gpu)
     report = {**report, **diagnostics}
     print(json.dumps(_redact_report(report), sort_keys=True))
     return int(report.get("exit_code", ExitCode.OK))
 
 
 def _compose_options(args: argparse.Namespace) -> ComposeOptions:
+    requested_gpu = getattr(args, "gpu_mode", None)
+    if requested_gpu is None:
+        requested_gpu = getattr(args, "gpu", None)
     return ComposeOptions(
         profiles=getattr(args, "profiles", None),
-        gpu=getattr(args, "gpu", None),
+        gpu=requested_gpu,
         dev=bool(getattr(args, "dev", False)),
     )
 
@@ -135,6 +142,7 @@ def _setup(args: argparse.Namespace) -> int:
         network_mode=getattr(args, "network_mode", None),
         public_host=getattr(args, "public_host", None),
         interactive=not bool(getattr(args, "noninteractive", False)),
+        gpu_confirm=bool(getattr(args, "gpu_confirm", False)),
         dry_run=bool(getattr(args, "dry_run", False)),
     )
     print(json.dumps(_redact_report(result.report), sort_keys=True))
@@ -236,9 +244,18 @@ def _add_shared_options(parser: argparse.ArgumentParser, *, suppress_defaults: b
     parser.add_argument(
         "--gpu",
         dest="gpu",
-        action="store_true",
+        nargs="?",
+        const="nvidia",
+        choices=GPU_MODES,
         default=argparse.SUPPRESS,
-        help="enable the NVIDIA Compose overlay when available",
+        help="select GPU mode (auto, none, nvidia, or vaapi); bare flag means nvidia",
+    )
+    parser.add_argument(
+        "--gpu-mode",
+        dest="gpu_mode",
+        choices=GPU_MODES,
+        default=argparse.SUPPRESS,
+        help="select GPU mode (auto, none, nvidia, or vaapi)",
     )
     parser.add_argument(
         "--no-gpu",
@@ -246,6 +263,14 @@ def _add_shared_options(parser: argparse.ArgumentParser, *, suppress_defaults: b
         action="store_false",
         default=argparse.SUPPRESS,
         help="disable the saved GPU Compose overlay",
+    )
+    parser.add_argument(
+        "--confirm-gpu",
+        "--gpu-confirm",
+        dest="gpu_confirm",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="confirm activation of a detected GPU in auto mode",
     )
     parser.add_argument(
         "--dev",

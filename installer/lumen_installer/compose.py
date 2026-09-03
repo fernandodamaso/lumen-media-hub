@@ -51,15 +51,12 @@ def _gpu(value: Any) -> bool | None:
     if value is None:
         return None
     if type(value) is bool:
-        if value:
-            raise InvalidInputError("GPU overlay is unavailable until the GPU phase")
-        return False
-    # State from the later GPU phase stores a mode, but Task 7 must not turn
-    # any non-none mode into an NVIDIA overlay before that phase runs.
-    if isinstance(value, str) and value in KNOWN_GPU_MODES:
-        if value != "none":
-            raise InvalidInputError("GPU mode is unavailable until the GPU phase")
-        return False
+        # ``--gpu`` from the original Linux installer was a boolean NVIDIA
+        # switch.  Keep that input compatible while allowing the explicit
+        # mode names owned by the GPU phase.
+        return "nvidia" if value else "none"
+    if isinstance(value, str) and value.strip().lower() in KNOWN_GPU_MODES:
+        return value.strip().lower()
     raise InvalidInputError("gpu must be a boolean or a known GPU mode")
 
 
@@ -88,20 +85,23 @@ class ComposeOptions:
 
     @property
     def gpu_enabled(self) -> bool:
-        return bool(self.gpu)
+        return self.gpu_mode in {"nvidia", "vaapi"}
+
+    @property
+    def gpu_mode(self) -> str:
+        """Return the normalized requested/selected GPU mode."""
+
+        return self.gpu or "none"
 
     def resolved(
         self,
         *,
         saved_profiles: Sequence[str] = (),
-        saved_gpu: bool | str = False,
+        saved_gpu: bool | str = "none",
         saved_dev: bool = False,
     ) -> "ComposeOptions":
         profiles = self.profiles if self.profiles is not None else tuple(saved_profiles)
-        # Task 7 deliberately does not select a hardware overlay.  Persisted
-        # choices from the later GPU phase are therefore ignored until that
-        # phase owns detection and validation.
-        gpu = self.gpu if self.gpu is not None else False
+        gpu = self.gpu if self.gpu is not None else saved_gpu
         dev = self.dev if self.dev is not False else bool(saved_dev)
         # ``dev`` is not currently persisted, so callers normally leave the
         # saved value false.  This method still supports a future state field.
@@ -128,8 +128,12 @@ class ComposeOptions:
         root = _path(repo_root, name="repository root")
         env = _path(env_file, name="environment file")
         argv: list[str] = ["docker", "compose", "--env-file", env, "-f", str(Path(root) / "docker-compose.yml")]
-        if self.gpu_enabled:
-            argv.extend(("-f", str(Path(root) / "docker-compose.gpu.yml")))
+        overlay = {
+            "nvidia": "docker-compose.gpu.yml",
+            "vaapi": "docker-compose.vaapi.yml",
+        }.get(self.gpu_mode)
+        if overlay is not None:
+            argv.extend(("-f", str(Path(root) / overlay)))
         if self.dev:
             argv.extend(("-f", str(Path(root) / "docker-compose.dev.yml")))
         for profile in self.selected_profiles:

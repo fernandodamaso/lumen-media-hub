@@ -1,9 +1,10 @@
-"""Safe Jellyfin startup and administrator authentication adapter.
+"""Safe Jellyfin startup, authentication, and API-key adapter.
 
-This slice owns only the public startup capability check and authentication.
-It deliberately does not inspect or reconcile libraries, plugins, networking,
-encoding, or API keys.  Credentials and response identities remain private to
-the adapter/session and never enter plans, results, reports, or errors.
+This slice owns the public startup capability check, authentication, and the
+single named API key needed by ``homepage-actions``.  It deliberately does not
+inspect or reconcile libraries, plugins, networking, or encoding.  Credentials
+and response identities remain private to the adapter/session and never enter
+plans, results, reports, or errors.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from ..http import (
     HttpResponse,
     HttpStatusError,
     HttpTimeoutError,
-    MalformedJsonError,
+    HttpTransportError,
 )
 from .base import ServiceCheckpoint, ServicePlan, ServiceResult
 
@@ -32,6 +33,8 @@ _STARTUP_FIELDS = frozenset(
 _STARTUP_ACTIONS = frozenset(
     {"configure-startup", "create-administrator", "complete-startup"}
 )
+
+
 class JellyfinError(InstallerError):
     """Base class for sanitized Jellyfin adapter failures."""
 
@@ -79,6 +82,67 @@ class JellyfinAuthenticationError(PartialError, JellyfinError):
 
 
 JellyfinAuthError = JellyfinAuthenticationError
+
+
+class JellyfinSessionError(PartialError, JellyfinError):
+    """An authenticated Jellyfin session is required for admin operations."""
+
+    code = "jellyfin-session"
+
+    def __init__(self) -> None:
+        self.code = type(self).code
+        PartialError.__init__(self, "Jellyfin authenticated session is required; authenticate and retry")
+
+
+class JellyfinApiKeySchemaError(JellyfinCapabilityError):
+    """The runtime API-key endpoint does not match its supported contract."""
+
+    code = "jellyfin-api-key-schema"
+
+    def __init__(self) -> None:
+        self.code = type(self).code
+        InvalidInputError.__init__(self, "Jellyfin API-key response schema is unsupported")
+
+
+class JellyfinApiKeyHandoff:
+    """Private in-memory handoff for the selected key.
+
+    The key can only be obtained by an explicit :meth:`consume` call.  All
+    ordinary object and report surfaces intentionally describe availability,
+    never the secret itself.
+    """
+
+    __slots__ = ("_value",)
+    env_key_name = "JELLYFIN_API_KEY"
+
+    def __init__(self, value: str) -> None:
+        if not _nonempty_text(value):
+            raise ValueError("Jellyfin API key handoff requires a value")
+        self._value = value
+
+    def consume(self) -> str:
+        """Explicitly release the private value to the next orchestrator."""
+
+        return self._value
+
+    @property
+    def report(self) -> dict[str, object]:
+        return {"env_key_name": self.env_key_name, "available": True}
+
+    def __repr__(self) -> str:
+        return "JellyfinApiKeyHandoff(available=True)"
+
+    def __str__(self) -> str:
+        return "Jellyfin API key handoff (available)"
+
+    def __eq__(self, other: object) -> bool:
+        # Equality is intentionally identity-only.  A value comparison would
+        # turn this wrapper into a secret equality oracle for callers that can
+        # guess candidate keys, while the handoff's only value-bearing
+        # operation is the explicit ``consume`` call owned by Task 13.
+        return self is other
+
+    __hash__ = None
 
 
 @dataclass(frozen=True)
@@ -134,6 +198,24 @@ class JellyfinSession:
 
 class JellyfinResult(ServiceResult):
     """Jellyfin-specific result alias with secret-free inherited reporting."""
+
+
+def _detach_exception(error: BaseException) -> BaseException:
+    """Drop foreign exception links before exposing a typed service error."""
+
+    # Exceptions raised by an injected transport can already carry a cause or
+    # context.  Exception links are mutable, and clearing them here prevents a
+    # caller from reaching raw response/credential detail through the typed
+    # error even when the injected boundary was careless.
+    try:
+        error.__cause__ = None
+        error.__context__ = None
+        error.__suppress_context__ = True
+    except Exception:
+        # Built-in exception objects permit these assignments; retain the
+        # typed object if a custom exception does not.
+        pass
+    return error
 
 
 def _nonempty_text(value: Any) -> bool:
@@ -196,6 +278,7 @@ class JellyfinAdapter:
         self._session: JellyfinSession | None = None
         self._capability: JellyfinCapability | None = None
         self._startup_configuration: dict[str, str] | None = None
+        self._api_key_handoff: JellyfinApiKeyHandoff | None = None
 
     @property
     def session(self) -> JellyfinSession | None:
@@ -204,6 +287,12 @@ class JellyfinAdapter:
     @property
     def capability(self) -> JellyfinCapability | None:
         return self._capability
+
+    @property
+    def api_key_handoff(self) -> JellyfinApiKeyHandoff | None:
+        """Return the redacted private handoff for the selected API key."""
+
+        return self._api_key_handoff
 
     def __repr__(self) -> str:
         return "JellyfinAdapter(configured=True)"
@@ -240,21 +329,41 @@ class JellyfinAdapter:
         kwargs: dict[str, Any] = {"headers": self._headers(authenticated=authenticated)}
         if body is not None:
             kwargs["json_body"] = body
+        request_error: BaseException | None = None
         try:
             response = self._transport.request(method, url, **kwargs)
         except HttpStatusError as error:
             if operation == "authenticate" and error.status in {401, 403}:
-                raise JellyfinAuthenticationError(error.status) from None
-            raise
+                request_error = JellyfinAuthenticationError(error.status)
+            else:
+                request_error = _detach_exception(error)
+        except HttpTransportError as error:
+            # The standard transport already reduces response/request detail;
+            # removing any injected cause here keeps this adapter boundary
+            # equally safe for deterministic transports.
+            request_error = _detach_exception(error)
         except TimeoutError:
-            raise HttpTimeoutError(method=method, url=url) from None
+            request_error = HttpTimeoutError(method=method, url=url)
         except OSError:
-            raise HttpConnectionError(method=method, url=url) from None
-        status = getattr(response, "status", 200)
+            request_error = HttpConnectionError(method=method, url=url)
+        except Exception:
+            # An injected transport is an external boundary.  Do not retain
+            # arbitrary exception text, which may contain a response body,
+            # token, or service identity.
+            request_error = HttpConnectionError(method=method, url=url)
+        if request_error is not None:
+            # Raise after leaving the catch block so ``__context__`` cannot
+            # retain an arbitrary injected exception alongside the sanitized
+            # typed failure.
+            raise request_error from None
+        response_error: JellyfinSchemaError | None = None
         try:
+            status = getattr(response, "status", 200)
             status = int(status)
-        except (TypeError, ValueError):
-            raise JellyfinSchemaError() from None
+        except Exception:
+            response_error = JellyfinSchemaError()
+        if response_error is not None:
+            raise response_error from None
         if not 200 <= status < 300:
             if operation == "authenticate" and status in {401, 403}:
                 raise JellyfinAuthenticationError(status) from None
@@ -267,32 +376,49 @@ class JellyfinAdapter:
             # Lightweight deterministic transports may return an already
             # decoded payload.  A mapping with a body key is treated as a raw
             # response only when that is the sole explicit response value.
-            if "body" not in response:
-                return response
-            raw = response.get("body")
+            try:
+                if "body" not in response:
+                    return response
+                raw = response.get("body")
+            except Exception:
+                raise JellyfinSchemaError() from None
             if isinstance(raw, (bytes, str)):
                 decode_error: JellyfinSchemaError | None = None
                 try:
                     return json.loads(raw)
-                except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+                except Exception:
                     decode_error = JellyfinSchemaError()
                 if decode_error is not None:
                     raise decode_error from None
-        decoder = getattr(response, "json", None)
+        decoder_error: JellyfinSchemaError | None = None
+        try:
+            decoder = getattr(response, "json", None)
+        except Exception:
+            decoder = None
+            decoder_error = JellyfinSchemaError()
+        if decoder_error is not None:
+            raise decoder_error from None
         if callable(decoder):
             decode_error = None
             try:
                 return decoder()
-            except (MalformedJsonError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+            except Exception:
                 decode_error = JellyfinSchemaError()
             if decode_error is not None:
                 raise decode_error from None
-        body = getattr(response, "body", None)
+        body_error: JellyfinSchemaError | None = None
+        try:
+            body = getattr(response, "body", None)
+        except Exception:
+            body = None
+            body_error = JellyfinSchemaError()
+        if body_error is not None:
+            raise body_error from None
         if isinstance(body, (bytes, str)):
             decode_error = None
             try:
                 return json.loads(body)
-            except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+            except Exception:
                 decode_error = JellyfinSchemaError()
             if decode_error is not None:
                 raise decode_error from None
@@ -399,6 +525,193 @@ class JellyfinAdapter:
         """
 
         return self._authenticate()
+
+    @staticmethod
+    def _api_key_items(payload: Any) -> list[Mapping[str, Any]]:
+        """Validate only the stable fields used by API-key reconciliation."""
+
+        if not isinstance(payload, Mapping) or not isinstance(payload.get("Items"), list):
+            raise JellyfinApiKeySchemaError()
+        items: list[Mapping[str, Any]] = []
+        for item in payload["Items"]:
+            if not isinstance(item, Mapping):
+                raise JellyfinApiKeySchemaError()
+            app_name = item.get("AppName")
+            access_token = item.get("AccessToken")
+            # AppName is required for safe classification.  In particular,
+            # accepting an item without it would silently classify a malformed
+            # response as "no Lumen key" and create another key.
+            if not _nonempty_text(app_name):
+                raise JellyfinApiKeySchemaError()
+            # Some Jellyfin versions omit a token on an unrelated item, which
+            # this slice never consumes.  A Lumen item must always provide a
+            # usable token, while any present unrelated token is type-checked
+            # without being copied into a public value.
+            if access_token is not None and not isinstance(access_token, str):
+                raise JellyfinApiKeySchemaError()
+            if app_name == "Lumen" and not _nonempty_text(access_token):
+                raise JellyfinApiKeySchemaError()
+            # Keep only the validated fields needed by this slice.  The full
+            # server response (including unrelated key metadata) never enters
+            # a result, checkpoint, or public report surface.
+            items.append({"AppName": app_name, "AccessToken": access_token})
+        return items
+
+    def _read_api_keys(self) -> list[Mapping[str, Any]]:
+        if self._session is None:
+            raise JellyfinSessionError()
+        return self._api_key_items(
+            self._decode_json(
+                self._request("GET", "/Auth/Keys", authenticated=True, operation="api-keys"),
+                operation="api-keys",
+            )
+        )
+
+    @staticmethod
+    def _api_key_matches(items: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+        return [item for item in items if item.get("AppName") == "Lumen"]
+
+    @staticmethod
+    def _api_key_checkpoint(code: str, reason: str) -> ServiceCheckpoint:
+        return ServiceCheckpoint(
+            code=code,
+            reason=reason,
+            action="review",
+            severity="error",
+        )
+
+    def _api_key_guided(
+        self,
+        *,
+        actions: tuple[str, ...],
+        checkpoint: ServiceCheckpoint,
+        error: BaseException | None = None,
+    ) -> JellyfinResult:
+        return JellyfinResult(
+            service=SERVICE_NAME,
+            status="guided",
+            actions=actions,
+            checkpoints=(checkpoint,),
+            dry_run=False,
+            error=error,
+            mode="adopted",
+        )
+
+    def reconcile_api_key(self, *, dry_run: bool = False) -> JellyfinResult:
+        """Reuse or create exactly one admin API key named ``Lumen``.
+
+        This method requires the session produced by :meth:`authenticate` or
+        :meth:`configure`; it never authenticates implicitly and never writes
+        environment or state files.
+        """
+
+        if self._session is None:
+            raise JellyfinSessionError()
+        self._api_key_handoff = None
+        try:
+            items = self._read_api_keys()
+        except HttpStatusError as error:
+            if error.status in {401, 403}:
+                auth_error = JellyfinAuthenticationError(error.status)
+                checkpoint = self._api_key_checkpoint(
+                    "jellyfin-authentication",
+                    "Verify the current Jellyfin administrator credentials and retry.",
+                )
+                return self._api_key_guided(
+                    actions=(), checkpoint=checkpoint, error=auth_error
+                )
+            raise
+
+        matches = self._api_key_matches(items)
+        if len(matches) > 1:
+            return self._api_key_guided(
+                actions=(),
+                checkpoint=self._api_key_checkpoint(
+                    "jellyfin-api-key-conflict",
+                    "Multiple Lumen API keys exist; resolve the duplicate manually and retry.",
+                ),
+            )
+        if len(matches) == 1:
+            access_token = matches[0].get("AccessToken")
+            # _api_key_items guarantees this is a non-empty string for a
+            # matching item; retain this guard as a defense at the handoff.
+            if not _nonempty_text(access_token):
+                raise JellyfinApiKeySchemaError()
+            self._api_key_handoff = JellyfinApiKeyHandoff(access_token)
+            return JellyfinResult(
+                service=SERVICE_NAME,
+                status="ok",
+                actions=("reuse-api-key",),
+                dry_run=bool(dry_run),
+                mode="adopted",
+            )
+
+        if dry_run:
+            return JellyfinResult(
+                service=SERVICE_NAME,
+                status="dry-run",
+                actions=("create-api-key",),
+                dry_run=True,
+                mode="adopted",
+            )
+
+        create_path = "/Auth/Keys?" + urllib.parse.urlencode({"app": "Lumen"})
+        try:
+            self._request("POST", create_path, authenticated=True, operation="api-keys")
+        except HttpStatusError as error:
+            if error.status in {401, 403}:
+                auth_error = JellyfinAuthenticationError(error.status)
+                checkpoint = self._api_key_checkpoint(
+                    "jellyfin-authentication",
+                    "Verify the current Jellyfin administrator credentials and retry.",
+                )
+                return self._api_key_guided(
+                    actions=("create-api-key",), checkpoint=checkpoint, error=auth_error
+                )
+            raise
+
+        try:
+            readback = self._read_api_keys()
+        except HttpStatusError as error:
+            if error.status in {401, 403}:
+                auth_error = JellyfinAuthenticationError(error.status)
+                checkpoint = self._api_key_checkpoint(
+                    "jellyfin-authentication",
+                    "Verify the current Jellyfin administrator credentials and retry.",
+                )
+                return self._api_key_guided(
+                    actions=("create-api-key",), checkpoint=checkpoint, error=auth_error
+                )
+            raise
+
+        readback_matches = self._api_key_matches(readback)
+        if not readback_matches:
+            return self._api_key_guided(
+                actions=("create-api-key",),
+                checkpoint=self._api_key_checkpoint(
+                    "jellyfin-api-key-readback-missing",
+                    "The created Lumen API key was not visible in readback; verify Jellyfin and retry.",
+                ),
+            )
+        if len(readback_matches) > 1:
+            return self._api_key_guided(
+                actions=("create-api-key",),
+                checkpoint=self._api_key_checkpoint(
+                    "jellyfin-api-key-readback-ambiguous",
+                    "Readback contains multiple Lumen API keys; resolve the duplicate manually.",
+                ),
+            )
+        access_token = readback_matches[0].get("AccessToken")
+        if not _nonempty_text(access_token):
+            raise JellyfinApiKeySchemaError()
+        self._api_key_handoff = JellyfinApiKeyHandoff(access_token)
+        return JellyfinResult(
+            service=SERVICE_NAME,
+            status="ok",
+            actions=("create-api-key",),
+            dry_run=False,
+            mode="adopted",
+        )
 
     def apply(self, plan: ServicePlan, *, dry_run: bool | None = None) -> JellyfinResult:
         if not isinstance(plan, ServicePlan) or plan.service != SERVICE_NAME:
@@ -552,12 +865,15 @@ __all__ = [
     "JellyfinAdapter",
     "JellyfinAuthError",
     "JellyfinAuthenticationError",
+    "JellyfinApiKeyHandoff",
+    "JellyfinApiKeySchemaError",
     "JellyfinCapability",
     "JellyfinCapabilityError",
     "JellyfinError",
     "JellyfinResult",
     "JellyfinSchemaError",
     "JellyfinSession",
+    "JellyfinSessionError",
     "configure_jellyfin",
     "plan_jellyfin",
 ]

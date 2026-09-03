@@ -22,6 +22,7 @@ from lumen_installer.services.jellyfin import (
     JellyfinAuthenticationError,
     JellyfinCapabilityError,
     JellyfinResult,
+    JellyfinSessionError,
 )
 
 
@@ -65,6 +66,10 @@ def system_info(initialized):
     }
 
 
+def api_keys(items):
+    return response({"Items": items, "TotalRecordCount": len(items), "StartIndex": 0})
+
+
 class SharedServiceTypeTests(unittest.TestCase):
     def test_shared_public_types_are_immutable_and_have_no_credential_fields(self):
         plan = ServicePlan(service="jellyfin", actions=("authenticate",))
@@ -86,6 +91,250 @@ class JellyfinAdapterTests(unittest.TestCase):
         transport = DeterministicTransport(responses)
         adapter = JellyfinAdapter(BASE_URL, transport, **kwargs)
         return adapter, transport
+
+    def authenticated_adapter(self, responses, **kwargs):
+        adapter, transport = self.adapter([response({"AccessToken": TOKEN}), *responses], **kwargs)
+        adapter.authenticate()
+        return adapter, transport
+
+    def test_existing_lumen_key_is_reused_without_auth_key_mutation(self):
+        existing_key = "existing-lumen-api-key"
+        unrelated_key = "unrelated-api-key"
+        adapter, transport = self.authenticated_adapter(
+            [api_keys([
+                {"AppName": "Lumen", "AccessToken": existing_key},
+                {"AppName": "Sonarr", "AccessToken": unrelated_key},
+            ])],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_api_key()
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.actions, ("reuse-api-key",))
+        self.assertEqual([request[0:2] for request in transport.requests], [
+            ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+            ("GET", f"{BASE_URL}/Auth/Keys"),
+        ])
+        handoff = adapter.api_key_handoff
+        self.assertEqual(type(handoff).__name__, "JellyfinApiKeyHandoff")
+        self.assertEqual(handoff.env_key_name, "JELLYFIN_API_KEY")
+        self.assertEqual(handoff.consume(), existing_key)
+        for value in (result, result.report, repr(result), handoff, repr(handoff), handoff.report):
+            self.assertNotIn(existing_key, repr(value))
+            self.assertNotIn(unrelated_key, repr(value))
+
+    def test_missing_lumen_key_is_created_once_and_exact_readback_is_required(self):
+        generated_key = "generated-lumen-api-key"
+        adapter, transport = self.authenticated_adapter(
+            [
+                api_keys([]),
+                response(None, status=204),
+                api_keys([{"AppName": "Lumen", "AccessToken": generated_key}]),
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_api_key()
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.actions, ("create-api-key",))
+        self.assertEqual([request[0:2] for request in transport.requests], [
+            ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+            ("GET", f"{BASE_URL}/Auth/Keys"),
+            ("POST", f"{BASE_URL}/Auth/Keys?app=Lumen"),
+            ("GET", f"{BASE_URL}/Auth/Keys"),
+        ])
+        self.assertNotIn("json_body", transport.requests[2][2])
+        self.assertEqual(adapter.api_key_handoff.consume(), generated_key)
+
+        for request in transport.requests[1:]:
+            authorization = request[2]["headers"].get("Authorization")
+            self.assertTrue(authorization.startswith("MediaBrowser Token="))
+            self.assertNotIn("X-Emby-Authorization", request[2]["headers"])
+
+    def test_duplicate_lumen_keys_are_guided_without_mutation_or_handoff(self):
+        adapter, transport = self.authenticated_adapter(
+            [api_keys([
+                {"AppName": "Lumen", "AccessToken": "first-lumen-key"},
+                {"AppName": "Lumen", "AccessToken": "second-lumen-key"},
+            ])],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_api_key()
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].code, "jellyfin-api-key-conflict")
+        self.assertIsNone(adapter.api_key_handoff)
+        self.assertEqual([request[0:2] for request in transport.requests], [
+            ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+            ("GET", f"{BASE_URL}/Auth/Keys"),
+        ])
+        self.assertNotIn("first-lumen-key", repr(result))
+        self.assertNotIn("second-lumen-key", repr(result))
+
+    def test_post_create_missing_or_ambiguous_readback_is_guided_partial(self):
+        for readback in ([], [
+            {"AppName": "Lumen", "AccessToken": "first-lumen-key"},
+            {"AppName": "Lumen", "AccessToken": "second-lumen-key"},
+        ]):
+            with self.subTest(readback=readback):
+                adapter, transport = self.authenticated_adapter(
+                    [api_keys([]), response(None, status=204), api_keys(readback)],
+                    admin_name=ADMIN,
+                    admin_password=PASSWORD,
+                )
+
+                result = adapter.reconcile_api_key()
+
+                self.assertEqual(result.status, "guided")
+                self.assertIn(result.checkpoints[0].code, {
+                    "jellyfin-api-key-readback-missing",
+                    "jellyfin-api-key-readback-ambiguous",
+                })
+                self.assertIsNone(adapter.api_key_handoff)
+                self.assertEqual(
+                    [request[0:2] for request in transport.requests],
+                    [
+                        ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                        ("GET", f"{BASE_URL}/Auth/Keys"),
+                        ("POST", f"{BASE_URL}/Auth/Keys?app=Lumen"),
+                        ("GET", f"{BASE_URL}/Auth/Keys"),
+                    ],
+                )
+
+    def test_malformed_key_collection_and_item_fail_closed_before_creation(self):
+        malformed_payloads = [
+            {"Items": "not-a-list"},
+            {"Items": [{"AccessToken": "orphan-key"}]},
+            {"Items": [{"AppName": "Lumen"}]},
+            {"Items": [{"AppName": "Lumen", "AccessToken": []}]},
+            {"Items": ["not-an-object"]},
+        ]
+        for payload in malformed_payloads:
+            with self.subTest(payload=payload):
+                adapter, transport = self.authenticated_adapter(
+                    [response(payload)],
+                    admin_name=ADMIN,
+                    admin_password=PASSWORD,
+                )
+
+                with self.assertRaises(InvalidInputError) as raised:
+                    adapter.reconcile_api_key()
+
+                self.assertEqual(type(raised.exception).__name__, "JellyfinApiKeySchemaError")
+                self.assertIsNone(raised.exception.__context__)
+                self.assertNotIn("not-a-list", repr(raised.exception))
+                self.assertEqual(len(transport.requests), 2)
+
+    def test_unauthorized_key_request_is_guided_and_sanitized(self):
+        response_secret = "private-response-body"
+        adapter, transport = self.authenticated_adapter(
+            [response({"error": response_secret}, status=401)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_api_key()
+
+        self.assertEqual(result.status, "guided")
+        self.assertIsInstance(result.error, JellyfinAuthenticationError)
+        self.assertEqual(result.error.status, 401)
+        self.assertNotIn(response_secret, repr(result))
+        self.assertNotIn(TOKEN, repr(result))
+        self.assertIsNone(result.error.__context__)
+        self.assertEqual(len(transport.requests), 2)
+
+    def test_untyped_transport_failure_is_reduced_without_secret_context(self):
+        transport_secret = "transport-secret"
+        adapter, transport = self.authenticated_adapter(
+            [RuntimeError(f"socket failed: {transport_secret}")],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        with self.assertRaises(HttpConnectionError) as raised:
+            adapter.reconcile_api_key()
+
+        self.assertNotIn(transport_secret, str(raised.exception))
+        self.assertNotIn(transport_secret, repr(raised.exception))
+        self.assertIsNone(raised.exception.__context__)
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertEqual(len(transport.requests), 2)
+
+    def test_dry_run_plans_missing_key_without_post_or_fabricated_secret(self):
+        adapter, transport = self.authenticated_adapter(
+            [api_keys([])],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_api_key(dry_run=True)
+
+        self.assertEqual(result.status, "dry-run")
+        self.assertTrue(result.dry_run)
+        self.assertEqual(result.actions, ("create-api-key",))
+        self.assertIsNone(adapter.api_key_handoff)
+        self.assertEqual([request[0:2] for request in transport.requests], [
+            ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+            ("GET", f"{BASE_URL}/Auth/Keys"),
+        ])
+        self.assertNotIn("fabricated", repr(result).lower())
+
+    def test_handoff_is_explicitly_consumable_but_all_normal_surfaces_are_redacted(self):
+        api_key = "secret-key-for-private-handoff"
+        adapter, _ = self.authenticated_adapter(
+            [api_keys([{"AppName": "Lumen", "AccessToken": api_key}])],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        adapter.reconcile_api_key()
+        handoff = adapter.api_key_handoff
+
+        self.assertEqual(handoff.report, {
+            "env_key_name": "JELLYFIN_API_KEY",
+            "available": True,
+        })
+        self.assertEqual(handoff.consume(), api_key)
+        self.assertEqual(handoff, adapter.api_key_handoff)
+        for value in (handoff, str(handoff), repr(handoff), handoff.report):
+            self.assertNotIn(api_key, repr(value))
+
+        other = type(handoff)(api_key)
+        self.assertNotEqual(handoff, other)
+        self.assertNotIn(api_key, repr(handoff == other))
+
+    def test_api_key_reconciliation_requires_an_authenticated_session(self):
+        adapter, transport = self.adapter(
+            [], admin_name=ADMIN, admin_password=PASSWORD
+        )
+
+        with self.assertRaises(JellyfinSessionError) as raised:
+            adapter.reconcile_api_key()
+
+        self.assertIsNone(raised.exception.__context__)
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertEqual(transport.requests, [])
+
+    def test_malformed_post_create_readback_fails_closed_without_handoff(self):
+        adapter, transport = self.authenticated_adapter(
+            [api_keys([]), response(None, status=204), response({"Items": [{"AppName": "Lumen"}]})],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        with self.assertRaises(InvalidInputError) as raised:
+            adapter.reconcile_api_key()
+
+        self.assertEqual(type(raised.exception).__name__, "JellyfinApiKeySchemaError")
+        self.assertIsNone(raised.exception.__context__)
+        self.assertIsNone(adapter.api_key_handoff)
+        self.assertEqual(len(transport.requests), 4)
 
     def test_supported_fresh_startup_sequence_and_authentication(self):
         adapter, transport = self.adapter(

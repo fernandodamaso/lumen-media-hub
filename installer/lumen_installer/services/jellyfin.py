@@ -822,7 +822,8 @@ class JellyfinAdapter:
                     if item["Name"].strip().casefold() == name.casefold()
                 ]
                 if len(matches) != 1 or (
-                    matches[0]["CollectionType"] != collection_type
+                    matches[0]["Name"] != name
+                    or matches[0]["CollectionType"] != collection_type
                     or matches[0]["Locations"] != (path,)
                 ):
                     return self._library_guided(

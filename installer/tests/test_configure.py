@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import importlib
 import os
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from lumen_installer.commands import CommandResult
+from lumen_installer.compose import ComposeOptions
+from lumen_installer.errors import InvalidInputError
 from lumen_installer.services.base import ServiceDrift, ServiceResult
 
 
@@ -274,6 +280,241 @@ class ConfigureFlowTests(unittest.TestCase):
         self.assertIs(captured["logs"], logs)
         self.assertEqual(captured["log_max_bytes"], 128)
         self.assertEqual(captured["log_max_lines"], 4)
+
+    def test_real_configure_factory_gathers_bounded_first_run_qbittorrent_logs_without_reporting_them(self):
+        configure = importlib.import_module("lumen_installer.configure")
+        temporary_password = "first-run-temporary-password-must-stay-private"
+        temporary_line = (
+            "The WebUI administrator password was not set. "
+            f"A temporary password is provided for this session: {temporary_password}\n"
+        )
+        calls = []
+        captured = {}
+
+        class Runner:
+            def run(self, argv, **kwargs):
+                calls.append((tuple(argv), dict(kwargs)))
+                return CommandResult(tuple(argv), 0, temporary_line + "x" * 4096)
+
+        class Adapter:
+            def __init__(self, *args, **kwargs):
+                captured.update(kwargs)
+
+        with mock.patch.object(configure, "QbittorrentAdapter", Adapter):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                environment = {}
+                factory = configure.build_adapter_factory(
+                    root,
+                    environment=environment,
+                    runner=Runner(),
+                    options=ComposeOptions(),
+                    env_file=root / ".env",
+                    qbt_log_max_bytes=512,
+                    qbt_log_max_lines=4,
+                )
+                factory("qbittorrent", environment=environment)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(
+            calls[0][0][-6:],
+            ("logs", "--no-color", "--no-log-prefix", "--tail", "4", "qbittorrent"),
+        )
+        self.assertNotIn("--remove-orphans", calls[0][0])
+        self.assertLessEqual(len(captured["container_logs"].encode("utf-8")), 512)
+        self.assertEqual(captured["container_logs"].splitlines()[0], temporary_line.rstrip())
+        self.assertNotIn(temporary_password, repr(captured.get("report", {})))
+
+    def test_failed_qbittorrent_log_collection_does_not_forward_command_output(self):
+        configure = importlib.import_module("lumen_installer.configure")
+        temporary_password = "failed-log-command-secret-must-stay-private"
+        captured = {}
+
+        class Runner:
+            def run(self, argv, **kwargs):
+                return CommandResult(
+                    tuple(argv),
+                    1,
+                    f"temporary password: {temporary_password}",
+                    f"diagnostic: {temporary_password}",
+                )
+
+        class Adapter:
+            def __init__(self, *args, **kwargs):
+                captured.update(kwargs)
+
+        with mock.patch.object(configure, "QbittorrentAdapter", Adapter):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                factory = configure.build_adapter_factory(
+                    root,
+                    environment={},
+                    runner=Runner(),
+                    options=ComposeOptions(),
+                    env_file=root / ".env",
+                )
+                factory("qbittorrent", environment={})
+
+        self.assertIsNone(captured["container_logs"])
+
+    def test_real_factory_uses_validated_configured_service_ports_without_url_overrides(self):
+        configure = importlib.import_module("lumen_installer.configure")
+        captured_urls = {}
+
+        def capture(service):
+            def constructor(base_url, *args, **kwargs):
+                captured_urls[service] = base_url
+                return object()
+
+            return constructor
+
+        with mock.patch.object(configure, "JellyfinAdapter", side_effect=capture("jellyfin")), \
+             mock.patch.object(configure, "QbittorrentAdapter", side_effect=capture("qbittorrent")), \
+             mock.patch.object(configure, "SonarrAdapter", side_effect=capture("sonarr")), \
+             mock.patch.object(configure, "RadarrAdapter", side_effect=capture("radarr")), \
+             mock.patch.object(configure, "ProwlarrAdapter", side_effect=capture("prowlarr")), \
+             mock.patch.object(configure, "read_servarr_api_key", return_value="servarr-key"), \
+             mock.patch.object(configure, "read_prowlarr_api_key", return_value="prowlarr-key"):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                environment = {
+                    "JELLYFIN_PORT": "18096",
+                    "QBITTORRENT_WEBUI_PORT": "18081",
+                    "SONARR_PORT": "18989",
+                    "RADARR_PORT": "17878",
+                    "PROWLARR_PORT": "19696",
+                    "QBT_PASSWORD": "qbt-secret",
+                }
+                factory = configure.build_adapter_factory(root, environment=environment)
+                for service in configure.CORE_ORDER[:-1]:
+                    factory(service, environment=environment)
+
+        self.assertEqual(
+            captured_urls,
+            {
+                "jellyfin": "http://127.0.0.1:18096",
+                "qbittorrent": "http://127.0.0.1:18081",
+                "sonarr": "http://127.0.0.1:18989",
+                "radarr": "http://127.0.0.1:17878",
+                "prowlarr": "http://127.0.0.1:19696",
+            },
+        )
+
+    def test_real_factory_rejects_invalid_configured_service_ports(self):
+        configure = importlib.import_module("lumen_installer.configure")
+
+        with mock.patch.object(configure, "QbittorrentAdapter"):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                for value in ("0", "65536", "not-a-port", "8081:8081"):
+                    with self.subTest(value=value):
+                        factory = configure.build_adapter_factory(
+                            root,
+                            environment={"QBITTORRENT_WEBUI_PORT": value},
+                        )
+                        with self.assertRaises(InvalidInputError):
+                            factory("qbittorrent", environment={"QBITTORRENT_WEBUI_PORT": value})
+
+    def test_configure_runs_generic_torznab_only_in_the_declared_torznab_stage(self):
+        configure = importlib.import_module("lumen_installer.configure")
+        calls = []
+
+        class Prowlarr:
+            def configure(self, **kwargs):
+                calls.append(("prowlarr", dict(kwargs)))
+                return {"service": "prowlarr", "status": "ok", "actions": ["core"]}
+
+            def configure_generic_torznab(self, **kwargs):
+                calls.append(("torznab", dict(kwargs)))
+                return {
+                    "service": "torznab",
+                    "status": "ok",
+                    "actions": ["reconcile-generic-torznab"],
+                }
+
+        class Noop:
+            def configure(self, **kwargs):
+                return {"status": "ok"}
+
+        with mock.patch.object(configure, "ProwlarrAdapter", return_value=Prowlarr()), \
+             mock.patch.object(configure, "read_prowlarr_api_key", return_value="prowlarr-key"):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                environment = {
+                    "QBT_PASSWORD": "qbt-secret",
+                    "SONARR_API_KEY": "sonarr-key",
+                    "RADARR_API_KEY": "radarr-key",
+                    "TORZNAB_URL": "https://indexer.example.test/torznab",
+                    "TORZNAB_API_KEY": "torznab-key",
+                }
+                real_factory = configure.build_adapter_factory(root, environment=environment)
+
+                def factory(service, **kwargs):
+                    if service in {"prowlarr", "torznab"}:
+                        return real_factory(service, **kwargs)
+                    return Noop()
+
+                result = configure.run_configure(
+                    root,
+                    environment=environment,
+                    adapter_factory=factory,
+                    env_commit=lambda: None,
+                    restart=lambda: None,
+                    direct_health=lambda: True,
+                    proxy_health=lambda: True,
+                )
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual([name for name, _ in calls], ["prowlarr", "torznab"])
+        self.assertFalse(calls[0][1]["include_generic_torznab"])
+        self.assertEqual(calls[1][1], {"confirm": False, "dry_run": False})
+        self.assertEqual(
+            result.services["torznab"]["actions"],
+            ["reconcile-generic-torznab"],
+        )
+
+    def test_configure_serializes_mutating_runs_with_the_shared_state_lock(self):
+        configure = importlib.import_module("lumen_installer.configure")
+        child_code = (
+            "import sys\n"
+            "from pathlib import Path\n"
+            "from lumen_installer.configure import run_configure\n"
+            "def reconcile(service):\n"
+            "    return {'status': 'ok'}\n"
+            "run_configure(Path(sys.argv[1]), reconcile=reconcile, "
+            "env_commit=lambda: None, restart=lambda: None, "
+            "direct_health=lambda: True, proxy_health=lambda: True)\n"
+            "print('ready', flush=True)\n"
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            child = None
+            try:
+                with configure._configure_lock(root, dry_run=False):
+                    child = subprocess.Popen(
+                        [sys.executable, "-c", child_code, str(root)],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
+                    )
+                    time.sleep(0.15)
+                    self.assertIsNone(child.poll())
+            finally:
+                if child is not None:
+                    stdout, stderr = child.communicate(timeout=5)
+
+        self.assertEqual(child.returncode, 0, stderr)
+        self.assertEqual(stdout.strip(), "ready")
+
+    def test_configure_lock_does_not_rewrite_external_reconciliation_errors(self):
+        configure = importlib.import_module("lumen_installer.configure")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaises(FileNotFoundError):
+                with configure._configure_lock(Path(temporary), dry_run=False):
+                    raise FileNotFoundError("external service disappeared")
 
     def test_lumen_qbittorrent_current_password_is_in_memory_only_at_configure_boundary(self):
         configure = importlib.import_module("lumen_installer.configure")
@@ -705,25 +946,35 @@ class ConfigureFlowTests(unittest.TestCase):
             "TORZNAB_URL": "http://indexer.test/api",
             "TORZNAB_API_KEY": "torznab-secret",
         }
+        calls = []
+
+        class Prowlarr:
+            def configure_generic_torznab(self, **kwargs):
+                calls.append(dict(kwargs))
+                return {"service": "torznab", "status": "ok", "actions": ["generic"]}
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             journal = configure.ConfigureJournal(root)
             for stage in configure.CORE_ORDER[:5]:
                 journal.complete(stage)
-            factory = configure.build_adapter_factory(root, environment=environment)
-            result = configure.run_configure(
-                root,
-                environment=environment,
-                adapter_factory=factory,
-                journal=journal,
-                env_commit=lambda: None,
-                restart=lambda: None,
-                direct_health=lambda: True,
-                proxy_health=lambda: True,
-            )
+            with mock.patch.object(configure, "ProwlarrAdapter", return_value=Prowlarr()), \
+                 mock.patch.object(configure, "read_prowlarr_api_key", return_value="prowlarr-key"):
+                factory = configure.build_adapter_factory(root, environment=environment)
+                result = configure.run_configure(
+                    root,
+                    environment=environment,
+                    adapter_factory=factory,
+                    journal=journal,
+                    env_commit=lambda: None,
+                    restart=lambda: None,
+                    direct_health=lambda: True,
+                    proxy_health=lambda: True,
+                )
 
         self.assertEqual(result.status, "ok")
+        self.assertEqual(calls, [{"confirm": False, "dry_run": False}])
+        self.assertEqual(journal.completed, configure.CONFIGURE_ORDER)
 
     def test_resume_keeps_completed_direct_health_checkpoint_in_order_once(self):
         configure = importlib.import_module("lumen_installer.configure")

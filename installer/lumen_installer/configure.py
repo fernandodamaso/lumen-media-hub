@@ -13,9 +13,11 @@ import stat
 import inspect
 import os
 import time
+import fcntl
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -58,6 +60,20 @@ DEFAULT_SERVICE_URLS = {
     "sonarr": "http://127.0.0.1:8989",
     "radarr": "http://127.0.0.1:7878",
     "prowlarr": "http://127.0.0.1:9696",
+}
+_SERVICE_URL_KEYS = {
+    "jellyfin": "JELLYFIN_URL",
+    "qbittorrent": "QBITTORRENT_URL",
+    "sonarr": "SONARR_URL",
+    "radarr": "RADARR_URL",
+    "prowlarr": "PROWLARR_URL",
+}
+_SERVICE_PORT_KEYS = {
+    "jellyfin": "JELLYFIN_PORT",
+    "qbittorrent": "QBITTORRENT_WEBUI_PORT",
+    "sonarr": "SONARR_PORT",
+    "radarr": "RADARR_PORT",
+    "prowlarr": "PROWLARR_PORT",
 }
 DEFAULT_DIRECT_HEALTH_URL = "http://127.0.0.1:8085/health"
 DEFAULT_PROXY_HEALTH_URL = "http://127.0.0.1:3000/api/health"
@@ -362,6 +378,149 @@ def _configured_value(environment: Mapping[str, Any], *keys: str) -> str | None:
     return None
 
 
+def _service_port(environment: Mapping[str, Any], service: str) -> int:
+    key = _SERVICE_PORT_KEYS[service]
+    raw = environment.get(key)
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return int(DEFAULT_SERVICE_URLS[service].rsplit(":", 1)[1])
+    if not isinstance(raw, str) or re.fullmatch(r"[0-9]+", raw.strip()) is None:
+        raise InvalidInputError(f"{key} is invalid")
+    value = int(raw.strip())
+    if not 1 <= value <= 65535:
+        raise InvalidInputError(f"{key} is invalid")
+    return value
+
+
+def _service_url(environment: Mapping[str, Any], service: str) -> str:
+    override = _configured_value(environment, _SERVICE_URL_KEYS[service])
+    if override is not None:
+        return override
+    return f"http://127.0.0.1:{_service_port(environment, service)}"
+
+
+def _bounded_log_text(
+    value: Any,
+    *,
+    max_bytes: int,
+    max_lines: int,
+) -> str:
+    """Keep service logs bounded before they reach an adapter."""
+
+    if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 0:
+        raise InvalidInputError("qBittorrent log byte limit is invalid")
+    if not isinstance(max_lines, int) or isinstance(max_lines, bool) or max_lines < 0:
+        raise InvalidInputError("qBittorrent log line limit is invalid")
+    if not isinstance(value, (str, bytes)) or max_lines == 0 or max_bytes == 0:
+        return ""
+    if isinstance(value, bytes):
+        bounded = value[:max_bytes]
+        text = bounded.decode("utf-8", errors="replace")
+    else:
+        bounded_bytes = value.encode("utf-8")[:max_bytes]
+        text = bounded_bytes.decode("utf-8", errors="replace")
+    return "".join(text.splitlines(keepends=True)[:max_lines])
+
+
+def _gather_qbittorrent_container_logs(
+    runner: Any,
+    root: Path,
+    env_path: Path,
+    options: ComposeOptions,
+    *,
+    max_bytes: int,
+    max_lines: int,
+) -> str | None:
+    """Read bounded first-run logs without persisting or reporting them."""
+
+    # Validate limits before invoking Docker so malformed bounds cannot turn
+    # into an unbounded command or an adapter-side surprise.
+    _bounded_log_text("", max_bytes=max_bytes, max_lines=max_lines)
+    argv = options.argv(
+        root,
+        env_path,
+        "logs",
+        "--no-color",
+        "--no-log-prefix",
+        "--tail",
+        str(max_lines),
+        "qbittorrent",
+    )
+    try:
+        result = runner.run(argv)
+    except Exception:
+        # A missing/stopped container has no temporary credential to adopt;
+        # preserve the adapter's normal guided credential path without
+        # retaining the command's potentially sensitive failure streams.
+        return None
+    if getattr(result, "returncode", 0) != 0:
+        return None
+    output = getattr(result, "stdout", getattr(result, "output", ""))
+    return _bounded_log_text(output, max_bytes=max_bytes, max_lines=max_lines)
+
+
+@contextmanager
+def _configure_lock(root: Path, *, dry_run: bool):
+    """Serialize configure's journal and external reconciliation boundary."""
+
+    lock_directory = root / ".state" / "installer"
+    lock_path = lock_directory / "lifecycle.lock"
+    if dry_run and not lock_path.exists():
+        # A read-only preview must not create the ignored state tree merely to
+        # acquire a lock that cannot protect a mutating run yet.
+        yield
+        return
+    fd: int | None = None
+    try:
+        try:
+            if not dry_run:
+                for directory in (lock_directory.parent, lock_directory):
+                    try:
+                        metadata = directory.lstat()
+                    except FileNotFoundError:
+                        try:
+                            directory.mkdir(mode=0o700)
+                        except FileExistsError:
+                            pass
+                        metadata = directory.lstat()
+                    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                        raise InvalidInputError("installer lifecycle lock directory is unsafe")
+                    os.chmod(directory, 0o700)
+            try:
+                metadata = lock_path.lstat()
+            except FileNotFoundError:
+                metadata = None
+            if metadata is not None and (
+                stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode)
+            ):
+                raise InvalidInputError("installer lifecycle lock is not a regular file")
+            fd = os.open(
+                lock_path,
+                os.O_RDWR | (os.O_CREAT if not dry_run else 0) | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+            if not dry_run:
+                os.fchmod(fd, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_SH if dry_run else fcntl.LOCK_EX)
+        except FileNotFoundError:
+            if not dry_run:
+                raise InvalidInputError("installer lifecycle lock could not be created")
+            yield
+            return
+        except OSError as exc:
+            raise InvalidInputError("installer lifecycle lock could not be acquired") from exc
+        yield
+    finally:
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
 def _service_status(result: Any) -> str:
     return _result_status(result)
 
@@ -440,12 +599,28 @@ class _ProwlarrReconciler:
         self.last_result: Any = None
 
     def configure(self, *, dry_run: bool = False, confirm: bool = False) -> Any:
-        result = self.adapter.configure(
+        result = _call_with_keywords(
+            self.adapter.configure,
             confirm=bool(confirm or self.confirm),
             dry_run=dry_run,
+            include_generic_torznab=False,
         )
         self.last_result = result
         return result
+
+    def configure_generic_torznab(self, *, dry_run: bool = False, confirm: bool = False) -> Any:
+        method = getattr(self.adapter, "configure_generic_torznab", None)
+        if not callable(method):
+            return _guided(
+                "torznab",
+                "torznab-adapter-missing",
+                "The Prowlarr Generic Torznab operation is unavailable; retry configure.",
+            )
+        return _call_with_keywords(
+            method,
+            confirm=bool(confirm or self.confirm),
+            dry_run=dry_run,
+        )
 
 
 class _TorznabReconciler:
@@ -454,30 +629,22 @@ class _TorznabReconciler:
         self.configured = configured
 
     def configure(self, *, dry_run: bool = False, confirm: bool = False) -> Any:
-        if dry_run:
-            return ServiceResult(
-                service="torznab",
-                status="dry-run",
-                actions=("reconcile-generic-torznab",),
-                dry_run=True,
-            )
         if not self.configured:
             return _guided(
                 "torznab",
                 "torznab-credentials",
                 "Provide the Generic Torznab URL and API key, then retry configure.",
             )
-        if self.prowlarr is not None and self.prowlarr.last_result is None:
+        if self.prowlarr is None:
             return _guided(
                 "torznab",
                 "torznab-prowlarr-order",
                 "Prowlarr must be reconciled before its Generic Torznab indexer.",
             )
-        return {
-            "service": "torznab",
-            "status": "ok",
-            "actions": ["reconcile-generic-torznab"],
-        }
+        return self.prowlarr.configure_generic_torznab(
+            dry_run=dry_run,
+            confirm=confirm,
+        )
 
 
 def build_adapter_factory(
@@ -494,6 +661,9 @@ def build_adapter_factory(
     qbt_container_logs: str | bytes | None = None,
     qbt_log_max_bytes: int = DEFAULT_LOG_MAX_BYTES,
     qbt_log_max_lines: int = DEFAULT_LOG_MAX_LINES,
+    runner: Any | None = None,
+    options: ComposeOptions | None = None,
+    env_file: str | Path | None = None,
     prompt: Callable[..., Any] | None = None,
 ) -> Callable[..., Any]:
     """Build the ordered service-adapter factory used by ``configure``."""
@@ -514,8 +684,26 @@ def build_adapter_factory(
     )
     torznab_configured = torznab_url is not None and torznab_key is not None
 
-    def factory(service: str, *, environment: MutableMapping[str, Any], dry_run: bool = False, confirm: bool = False) -> Any:
+    def prowlarr_reconciler(current_environment: MutableMapping[str, Any]) -> _ProwlarrReconciler:
         nonlocal p_wrapped
+        if p_wrapped is None:
+            api_key = read_prowlarr_api_key(root)
+            current_environment["PROWLARR_API_KEY"] = api_key
+            password = _configured_value(current_environment, "QBT_PASSWORD", "STACK_PASSWORD")
+            adapter = ProwlarrAdapter(
+                _service_url(current_environment, "prowlarr"),
+                selected_transport,
+                api_key=api_key,
+                qbit_password=password,
+                sonarr_api_key=_configured_value(current_environment, "SONARR_API_KEY"),
+                radarr_api_key=_configured_value(current_environment, "RADARR_API_KEY"),
+                generic_torznab_url=torznab_url if torznab_configured else None,
+                generic_torznab_api_key=torznab_key if torznab_configured else None,
+            )
+            p_wrapped = _ProwlarrReconciler(adapter, confirm=confirm)
+        return p_wrapped
+
+    def factory(service: str, *, environment: MutableMapping[str, Any], dry_run: bool = False, confirm: bool = False) -> Any:
         if service == "jellyfin":
             name = jellyfin_admin_name or _configured_value(
                 environment,
@@ -534,7 +722,7 @@ def build_adapter_factory(
                 network_state = "lan"
             return _JellyfinReconciler(
                 JellyfinAdapter(
-                    _configured_value(environment, "JELLYFIN_URL") or DEFAULT_SERVICE_URLS[service],
+                    _service_url(environment, service),
                     selected_transport,
                     admin_name=name,
                     admin_password=password,
@@ -544,8 +732,18 @@ def build_adapter_factory(
                 confirm=bool(confirm or selected_confirm),
             )
         if service == "qbittorrent":
+            selected_container_logs = qbt_container_logs
+            if qbt_logs is None and selected_container_logs is None and runner is not None:
+                selected_container_logs = _gather_qbittorrent_container_logs(
+                    runner,
+                    root,
+                    Path(env_file) if env_file is not None else root / ".env",
+                    options if options is not None else ComposeOptions(),
+                    max_bytes=qbt_log_max_bytes,
+                    max_lines=qbt_log_max_lines,
+                )
             return QbittorrentAdapter(
-                _configured_value(environment, "QBITTORRENT_URL") or DEFAULT_SERVICE_URLS[service],
+                _service_url(environment, service),
                 selected_transport,
                 env=environment,
                 current_password=(
@@ -554,7 +752,7 @@ def build_adapter_factory(
                     else _configured_value(environment, "QBT_CURRENT_PASSWORD")
                 ),
                 logs=qbt_logs,
-                container_logs=qbt_container_logs,
+                container_logs=selected_container_logs,
                 log_max_bytes=qbt_log_max_bytes,
                 log_max_lines=qbt_log_max_lines,
                 prompt=prompt,
@@ -566,29 +764,18 @@ def build_adapter_factory(
             password = _configured_value(environment, "QBT_PASSWORD", "STACK_PASSWORD")
             adapter_type = SonarrAdapter if service == "sonarr" else RadarrAdapter
             return adapter_type(
-                _configured_value(environment, f"{service.upper()}_URL") or DEFAULT_SERVICE_URLS[service],
+                _service_url(environment, service),
                 selected_transport,
                 api_key=api_key,
                 qbit_password=password or "",
             )
         if service == "prowlarr":
-            api_key = read_prowlarr_api_key(root)
-            environment["PROWLARR_API_KEY"] = api_key
-            password = _configured_value(environment, "QBT_PASSWORD", "STACK_PASSWORD")
-            adapter = ProwlarrAdapter(
-                _configured_value(environment, "PROWLARR_URL") or DEFAULT_SERVICE_URLS[service],
-                selected_transport,
-                api_key=api_key,
-                qbit_password=password,
-                sonarr_api_key=_configured_value(environment, "SONARR_API_KEY"),
-                radarr_api_key=_configured_value(environment, "RADARR_API_KEY"),
-                generic_torznab_url=torznab_url if torznab_configured else None,
-                generic_torznab_api_key=torznab_key if torznab_configured else None,
-            )
-            p_wrapped = _ProwlarrReconciler(adapter, confirm=confirm)
-            return p_wrapped
+            return prowlarr_reconciler(environment)
         if service == "torznab":
-            return _TorznabReconciler(p_wrapped, configured=torznab_configured)
+            return _TorznabReconciler(
+                prowlarr_reconciler(environment),
+                configured=torznab_configured,
+            )
         raise InvalidInputError("unknown configure service")
 
     return factory
@@ -650,7 +837,7 @@ def _wait_health(
         sleep(min(pause, max(0.0, limit - elapsed)))
 
 
-def run_configure(
+def _run_configure_unlocked(
     repo_root: str | Path | None = None,
     *,
     env_file: str | Path | None = None,
@@ -720,6 +907,8 @@ def run_configure(
             working_environment.update(document.values)
     if not isinstance(interactive, bool):
         raise InvalidInputError("interactive must be a boolean")
+    command_runner = runner if runner is not None else CommandRunner()
+    compose_options = options if options is not None else ComposeOptions()
     for key in (
         "QBT_PASSWORD",
         "STACK_PASSWORD",
@@ -748,6 +937,9 @@ def run_configure(
                 qbt_container_logs=qbt_container_logs,
                 qbt_log_max_bytes=qbt_log_max_bytes,
                 qbt_log_max_lines=qbt_log_max_lines,
+                runner=command_runner,
+                options=compose_options,
+                env_file=env_path,
                 prompt=prompt,
             )
         def reconcile(service: str, *, environment, dry_run):
@@ -774,8 +966,6 @@ def run_configure(
                 ):
                     document.set(key, value)
             return commit_environment(env_path, document, writer=env_writer)
-    command_runner = runner if runner is not None else CommandRunner()
-    compose_options = options if options is not None else ComposeOptions()
     if restart is None:
         def restart() -> Any:
             return run_compose(
@@ -931,6 +1121,20 @@ def run_configure(
         restarted=restarted,
         health=health,
     )
+
+
+def run_configure(*args: Any, **kwargs: Any) -> ConfigureResult:
+    """Run configure while serializing its journal and service mutations."""
+
+    repo_value = kwargs.get("repo_root", args[0] if args else None)
+    root = Path(repo_value) if repo_value is not None else Path(__file__).resolve().parents[2]
+    if not root.is_absolute():
+        raise InvalidInputError("repository root must be an absolute path")
+    dry_run = kwargs.get("dry_run", False)
+    if not isinstance(dry_run, bool):
+        raise InvalidInputError("dry_run must be a boolean")
+    with _configure_lock(root, dry_run=dry_run):
+        return _run_configure_unlocked(*args, **kwargs)
 
 
 __all__ = [

@@ -995,7 +995,35 @@ class ProwlarrAdapter:
             api_key=self._api_key,
         )
 
-    def _load_state(self) -> tuple[_ResourcePlan, ...] | ProwlarrResult:
+    def _generic_plans(self) -> tuple[_ResourcePlan, ...] | ProwlarrResult:
+        if self._generic_torznab_url is None:
+            return ()
+        indexer_schemas = self._schemas(f"{self.api_prefix}/indexer/schema")
+        indexer_existing = self._items(f"{self.api_prefix}/indexer")
+        if any(not self._is_supported_definition(definition) for definition in self._indexer_definitions):
+            return self._guided(
+                code="prowlarr-indexer-guided",
+                reason="Configure the unsupported indexer definition in the Prowlarr UI, then retry.",
+                action="open-prowlarr-ui",
+                error=ProwlarrGuidedError(code="prowlarr-indexer-guided"),
+            )
+        try:
+            generic_schema = self._generic_schema(indexer_schemas)
+        except ProwlarrSchemaError:
+            return self._guided(
+                code="prowlarr-indexer-guided",
+                reason="Configure the requested indexer in the Prowlarr UI, then retry.",
+                action="open-prowlarr-ui",
+                error=ProwlarrGuidedError(code="prowlarr-indexer-guided"),
+            )
+        generic_existing = self._find_managed_indexer(indexer_existing)
+        return (self._generic_plan(generic_schema, generic_existing),)
+
+    def _load_state(
+        self,
+        *,
+        include_generic_torznab: bool = True,
+    ) -> tuple[_ResourcePlan, ...] | ProwlarrResult:
         qbit_schema = self._qbit_schema(self._schemas(f"{self.api_prefix}/downloadclient/schema"))
         qbit_existing = self._find_qbit(self._items(f"{self.api_prefix}/downloadclient"))
 
@@ -1006,36 +1034,16 @@ class ProwlarrAdapter:
             application_schemas = self._schemas(f"{self.api_prefix}/applications/schema")
             application_existing = self._items(f"{self.api_prefix}/applications")
 
-        generic_schema: dict[str, Any] | None = None
-        generic_existing: Mapping[str, Any] | None = None
-        if self._generic_torznab_url is not None:
-            indexer_schemas = self._schemas(f"{self.api_prefix}/indexer/schema")
-            indexer_existing = self._items(f"{self.api_prefix}/indexer")
-            if any(not self._is_supported_definition(definition) for definition in self._indexer_definitions):
-                return self._guided(
-                    code="prowlarr-indexer-guided",
-                    reason="Configure the unsupported indexer definition in the Prowlarr UI, then retry.",
-                    action="open-prowlarr-ui",
-                    error=ProwlarrGuidedError(code="prowlarr-indexer-guided"),
-                )
-            try:
-                generic_schema = self._generic_schema(indexer_schemas)
-            except ProwlarrSchemaError:
-                return self._guided(
-                    code="prowlarr-indexer-guided",
-                    reason="Configure the requested indexer in the Prowlarr UI, then retry.",
-                    action="open-prowlarr-ui",
-                    error=ProwlarrGuidedError(code="prowlarr-indexer-guided"),
-                )
-            generic_existing = self._find_managed_indexer(indexer_existing)
-
         plans: list[_ResourcePlan] = [self._qbit_plan(qbit_schema, qbit_existing)]
         for service in application_targets:
             schema = self._application_schema(application_schemas, service)
             existing = self._find_application(application_existing, service)
             plans.append(self._application_plan(service, schema, existing))
-        if generic_schema is not None:
-            plans.append(self._generic_plan(generic_schema, generic_existing))
+        if include_generic_torznab:
+            generic = self._generic_plans()
+            if isinstance(generic, ProwlarrResult):
+                return generic
+            plans.extend(generic)
         return tuple(plans)
 
     def _apply_plan(self, resource_plan: _ResourcePlan) -> None:
@@ -1057,26 +1065,12 @@ class ProwlarrAdapter:
             raise test_error from None
         self._request(method, path, body=resource_plan.payload)
 
-    def configure(self, *, confirm: bool = False, dry_run: bool = False) -> ProwlarrResult:
-        if dry_run:
-            return ProwlarrResult(
-                service=SERVICE_NAME,
-                status="dry-run",
-                actions=(
-                    "check-capability",
-                    "reconcile-download-client",
-                    "reconcile-applications",
-                    "reconcile-generic-torznab",
-                ),
-                dry_run=True,
-                api_key=self._api_key,
-            )
-
-        self._check_capability()
-        loaded = self._load_state()
-        if isinstance(loaded, ProwlarrResult):
-            return loaded
-        plans = loaded
+    def _apply_plans(
+        self,
+        plans: tuple[_ResourcePlan, ...],
+        *,
+        confirm: bool,
+    ) -> ProwlarrResult:
         drift = tuple(record for resource_plan in plans for record in resource_plan.drift)
         actions = tuple(resource_plan.action for resource_plan in plans)
         if drift and not confirm:
@@ -1112,6 +1106,55 @@ class ProwlarrAdapter:
             actions=tuple(completed),
             api_key=self._api_key,
         )
+
+    def configure(
+        self,
+        *,
+        confirm: bool = False,
+        dry_run: bool = False,
+        include_generic_torznab: bool = True,
+    ) -> ProwlarrResult:
+        if dry_run:
+            actions = [
+                "check-capability",
+                "reconcile-download-client",
+                "reconcile-applications",
+            ]
+            if include_generic_torznab:
+                actions.append("reconcile-generic-torznab")
+            return ProwlarrResult(
+                service=SERVICE_NAME,
+                status="dry-run",
+                actions=tuple(actions),
+                dry_run=True,
+                api_key=self._api_key,
+            )
+
+        self._check_capability()
+        loaded = self._load_state(include_generic_torznab=include_generic_torznab)
+        if isinstance(loaded, ProwlarrResult):
+            return loaded
+        return self._apply_plans(loaded, confirm=confirm)
+
+    def configure_generic_torznab(
+        self,
+        *,
+        confirm: bool = False,
+        dry_run: bool = False,
+    ) -> ProwlarrResult:
+        if dry_run:
+            return ProwlarrResult(
+                service=SERVICE_NAME,
+                status="dry-run",
+                actions=("reconcile-generic-torznab",),
+                dry_run=True,
+                api_key=self._api_key,
+            )
+        self._check_capability()
+        loaded = self._generic_plans()
+        if isinstance(loaded, ProwlarrResult):
+            return loaded
+        return self._apply_plans(loaded, confirm=confirm)
 
     def plan(self, *, dry_run: bool = False) -> ServicePlan:
         return ServicePlan(

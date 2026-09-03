@@ -394,6 +394,17 @@ def _is_generic_torznab(candidate: Mapping[str, Any]) -> bool:
     )
 
 
+def _is_managed_generic_torznab(candidate: Mapping[str, Any]) -> bool:
+    return (
+        _service_text(candidate.get("name")) == _service_text(GENERIC_TORZNAB_NAME)
+        and _exact_identity_matches(
+            candidate,
+            _GENERIC_TORZNAB_TYPE_IDENTITY,
+            required=("implementation",),
+        )
+    )
+
+
 def _is_generic_torznab_schema(candidate: Mapping[str, Any]) -> bool:
     return _exact_identity_matches(
         candidate,
@@ -717,7 +728,7 @@ class ProwlarrAdapter:
 
     @staticmethod
     def _is_supported_definition(definition: Mapping[str, Any]) -> bool:
-        return _is_generic_torznab_schema(definition)
+        return _is_generic_torznab(definition)
 
     @staticmethod
     def _payload_from_schema(
@@ -762,8 +773,7 @@ class ProwlarrAdapter:
             (
                 item
                 for item in items
-                if _is_generic_torznab(item)
-                and _service_text(item.get("name")) == _service_text(GENERIC_TORZNAB_NAME)
+                if _is_managed_generic_torznab(item)
             ),
             None,
         )

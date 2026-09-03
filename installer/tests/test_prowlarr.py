@@ -291,6 +291,65 @@ class ProwlarrAdapterTests(unittest.TestCase):
         self.assertIn("reuse-radarr-application", result.actions)
         self.assertIn("reuse-generic-torznab", result.actions)
 
+    def test_exact_managed_torznab_name_with_endpoint_drift_is_tested_then_updated(self):
+        qbit = qbit_schema(
+            fields=[
+                {"name": "host", "value": "qbittorrent"},
+                {"name": "port", "value": 8081},
+                {"name": "username", "value": "admin"},
+                {"name": "password", "value": ""},
+            ]
+        )
+        applications = [
+            application_schema(
+                "sonarr",
+                fields=[
+                    {"name": "baseUrl", "value": "http://sonarr:8989"},
+                    {"name": "apiKey", "value": SONARR_KEY},
+                    {"name": "syncLevel", "value": "fullSync"},
+                ],
+            ),
+            application_schema(
+                "radarr",
+                fields=[
+                    {"name": "baseUrl", "value": "http://radarr:7878"},
+                    {"name": "apiKey", "value": RADARR_KEY},
+                    {"name": "syncLevel", "value": "fullSync"},
+                ],
+            ),
+        ]
+        managed_indexer = torznab_schema(
+            fields=[
+                {"name": "baseUrl", "value": "https://old.example.test/torznab"},
+                {"name": "apiKey", "value": ""},
+                {"name": "categories", "value": "5000"},
+            ]
+        )
+        managed_indexer.update({"id": 314, "name": "Lumen Generic Torznab"})
+        adapter, transport = self.adapter(
+            fresh_responses(
+                qbit=qbit,
+                qbit_existing={"id": 7, "name": "qBittorrent", "implementation": "QBittorrent", "fields": qbit["fields"]},
+                applications=applications,
+                applications_existing=applications,
+                indexers=[managed_indexer],
+            )
+        )
+
+        result = adapter.configure(confirm=True)
+
+        self.assertEqual(result.status, "ok")
+        self.assertIn("update-generic-torznab", result.actions)
+        self.assertEqual(
+            [(request[0], request[1]) for request in transport.requests[7:]],
+            [
+                ("POST", f"{BASE_URL}/api/v1/indexer/test"),
+                ("PUT", f"{BASE_URL}/api/v1/indexer/314"),
+            ],
+        )
+        self.assertEqual(fields_by_name(transport.requests[8][2]["json_body"])["baseUrl"], TORZNAB_URL)
+
+
     def test_similarly_named_unrelated_clients_and_applications_are_not_adopted_or_updated(self):
         unrelated_qbit = {
             "id": 101,
@@ -418,6 +477,34 @@ class ProwlarrAdapterTests(unittest.TestCase):
         self.assertEqual(len(transport.requests), 7)
         self.assertTrue(all(request[0] == "GET" for request in transport.requests))
         self.assertNotIn(TORZNAB_KEY, repr(result))
+
+    def test_indexer_definition_accepts_minimal_exact_type_but_guides_substring_name(self):
+        exact_adapter, exact_transport = self.adapter(
+            fresh_responses(),
+            indexer_definitions=[{"name": "Generic Torznab", "implementation": "Torznab"}],
+        )
+
+        exact_result = exact_adapter.configure()
+
+        self.assertEqual(exact_result.status, "ok")
+        self.assertEqual(
+            [(request[0], request[1]) for request in exact_transport.requests[-2:]],
+            [
+                ("POST", f"{BASE_URL}/api/v1/indexer/test"),
+                ("POST", f"{BASE_URL}/api/v1/indexer"),
+            ],
+        )
+
+        substring_adapter, substring_transport = self.adapter(
+            fresh_responses(),
+            indexer_definitions=[{"name": "Generic Torznab legacy", "implementation": "Torznab"}],
+        )
+
+        substring_result = substring_adapter.configure()
+
+        self.assertEqual(substring_result.status, "guided")
+        self.assertEqual(substring_result.checkpoints[0].code, "prowlarr-indexer-guided")
+        self.assertEqual(len(substring_transport.requests), 7)
 
     def test_managed_conflict_requires_confirmation_before_any_mutation(self):
         qbit = qbit_schema(

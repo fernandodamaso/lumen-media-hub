@@ -11,6 +11,7 @@ if str(INSTALLER_ROOT) not in sys.path:
     sys.path.insert(0, str(INSTALLER_ROOT))
 
 from lumen_installer.errors import InvalidInputError, PartialError
+from lumen_installer.gpu import GpuDetection, GpuProbe
 from lumen_installer.http import (
     HttpConnectionError,
     HttpResponse,
@@ -22,6 +23,7 @@ from lumen_installer.services.jellyfin import (
     JellyfinAdapter,
     JellyfinAuthenticationError,
     JellyfinCapabilityError,
+    JellyfinEncodingSchemaError,
     JellyfinLibrarySchemaError,
     JellyfinResult,
     JellyfinSchemaError,
@@ -1868,6 +1870,274 @@ class JellyfinAdapterTests(unittest.TestCase):
             ("GET", f"{BASE_URL}/System/Info/Public"),
             ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
         ])
+
+
+    def test_verified_nvidia_reconciliation_updates_only_gpu_owned_encoding_fields(self):
+        current = {
+            "EnableRemoteAccess": True,
+            "EncodingConfiguration": {
+                "EnableHardwareEncoding": False,
+                "HardwareAccelerationType": "none",
+                "EncoderPreset": "slow",
+                "EnableThrottling": True,
+            },
+            "UnrelatedConfiguration": {"Keep": "intact"},
+        }
+        adapter, transport = self.authenticated_adapter(
+            [response(current), response(current), response(None)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+        gpu = GpuProbe(
+            mode="nvidia",
+            status="available",
+            available=True,
+            checks={"nvidia_smi": True, "container_runtime": True},
+        )
+
+        result = adapter.reconcile_encoding(gpu=gpu, confirm_drift=True)
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/System/Configuration"),
+                ("GET", f"{BASE_URL}/System/Configuration"),
+                ("POST", f"{BASE_URL}/System/Configuration"),
+            ],
+        )
+        self.assertEqual(transport.requests[-1][2]["json_body"], {
+            **current,
+            "EncodingConfiguration": {
+                **current["EncodingConfiguration"],
+                "EnableHardwareEncoding": True,
+                "HardwareAccelerationType": "nvenc",
+            },
+        })
+
+    def test_verified_vaapi_reconciliation_updates_only_gpu_owned_encoding_fields(self):
+        current = {
+            "EnableRemoteAccess": True,
+            "EncodingConfiguration": {
+                "EnableHardwareEncoding": False,
+                "HardwareAccelerationType": "none",
+                "VaapiDevice": "/dev/dri/renderD129",
+                "EncoderPreset": "slow",
+            },
+            "UnrelatedConfiguration": {"Keep": "intact"},
+        }
+        adapter, transport = self.authenticated_adapter(
+            [response(current), response(current), response(None)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+        gpu = GpuProbe(
+            mode="vaapi",
+            status="available",
+            available=True,
+            checks={"device": True, "groups": True, "architecture": True, "ffmpeg": True},
+        )
+
+        result = adapter.reconcile_encoding(gpu=gpu, confirm_drift=True)
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(
+            transport.requests[-1][2]["json_body"],
+            {
+                **current,
+                "EncodingConfiguration": {
+                    **current["EncodingConfiguration"],
+                    "EnableHardwareEncoding": True,
+                    "HardwareAccelerationType": "vaapi",
+                },
+            },
+        )
+
+    def test_exact_verified_encoding_is_a_fresh_read_noop(self):
+        current = {
+            "EncodingConfiguration": {
+                "EnableHardwareEncoding": True,
+                "HardwareAccelerationType": "nvenc",
+                "EncoderPreset": "slow",
+            },
+            "UnrelatedConfiguration": {"Keep": "intact"},
+        }
+        adapter, transport = self.authenticated_adapter(
+            [response(current), response(current)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+        gpu = GpuProbe("nvidia", "available", True, {"nvidia_smi": True, "container_runtime": True})
+
+        result = adapter.reconcile_encoding(gpu=gpu)
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.actions, ())
+        self.assertEqual([request[0] for request in transport.requests], ["POST", "GET", "GET"])
+
+    def test_none_unverified_and_auto_unresolved_results_preserve_encoding_without_reads(self):
+        candidates = (
+            GpuProbe("none", "disabled", False),
+            GpuProbe("nvidia", "failed", False, {"nvidia_smi": False, "container_runtime": False}),
+            GpuDetection("auto", "none", "unavailable", False),
+        )
+        for candidate in candidates:
+            with self.subTest(candidate=candidate):
+                adapter, transport = self.authenticated_adapter([], admin_name=ADMIN, admin_password=PASSWORD)
+
+                result = adapter.reconcile_encoding(gpu=candidate, confirm_drift=True)
+
+                self.assertEqual(result.status, "ok")
+                self.assertEqual(result.actions, ())
+                self.assertEqual([request[0] for request in transport.requests], ["POST"])
+
+    def test_encoding_drift_requires_confirmation_and_noninteractive_mode_never_posts(self):
+        current = {
+            "EncodingConfiguration": {
+                "EnableHardwareEncoding": False,
+                "HardwareAccelerationType": "none",
+                "EncoderPreset": "slow",
+            },
+            "UnrelatedConfiguration": {"Keep": "intact"},
+        }
+        adapter, transport = self.authenticated_adapter(
+            [response(current), response(current)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+            interactive=False,
+        )
+        gpu = GpuProbe("nvidia", "available", True, {"nvidia_smi": True, "container_runtime": True})
+
+        result = adapter.reconcile_encoding(gpu=gpu, confirm_drift=True)
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].action, "confirm")
+        self.assertNotIn(("POST", f"{BASE_URL}/System/Configuration"), [request[0:2] for request in transport.requests])
+
+    def test_dry_run_reads_during_planning_and_cannot_mutate_when_applied_later(self):
+        current = {
+            "EncodingConfiguration": {
+                "EnableHardwareEncoding": False,
+                "HardwareAccelerationType": "none",
+            },
+        }
+        adapter, transport = self.authenticated_adapter(
+            [response(current)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+        gpu = GpuProbe("nvidia", "available", True, {"nvidia_smi": True, "container_runtime": True})
+
+        plan = adapter.plan_encoding(gpu, dry_run=True)
+        result = adapter.apply_encoding(plan, confirm_drift=True)
+
+        self.assertEqual(result.status, "dry-run")
+        self.assertTrue(result.dry_run)
+        self.assertEqual([request[0] for request in transport.requests], ["POST", "GET"])
+
+    def test_apply_re_reads_fresh_configuration_before_confirmed_post(self):
+        planned = {
+            "EncodingConfiguration": {
+                "EnableHardwareEncoding": False,
+                "HardwareAccelerationType": "none",
+            },
+            "ChangedAfterPlan": "stale",
+        }
+        fresh = {
+            "EncodingConfiguration": {
+                "EnableHardwareEncoding": False,
+                "HardwareAccelerationType": "none",
+                "EncoderPreset": "fast",
+            },
+            "ChangedAfterPlan": "fresh",
+        }
+        adapter, transport = self.authenticated_adapter(
+            [response(planned), response(fresh), response(None)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+        gpu = GpuProbe("nvidia", "available", True, {"nvidia_smi": True, "container_runtime": True})
+
+        plan = adapter.plan_encoding(gpu)
+        result = adapter.apply_encoding(plan, confirm_drift=True)
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(transport.requests[-1][2]["json_body"]["ChangedAfterPlan"], "fresh")
+        self.assertEqual(transport.requests[-1][2]["json_body"]["EncodingConfiguration"]["EncoderPreset"], "fast")
+
+    def test_malformed_encoding_response_is_typed_and_does_not_leak_config(self):
+        secret = "private-encoding-and-response-secret"
+        adapter, transport = self.authenticated_adapter(
+            [SecretBearingSchemaMapping(secret)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+        gpu = GpuProbe("nvidia", "available", True, {"nvidia_smi": True, "container_runtime": True})
+
+        with self.assertRaises(JellyfinEncodingSchemaError) as raised:
+            adapter.plan_encoding(gpu)
+
+        self.assertNotIn(secret, str(raised.exception))
+        self.assertNotIn(secret, repr(raised.exception))
+        self.assertIsNone(raised.exception.__context__)
+        self.assertEqual([request[0] for request in transport.requests], ["POST", "GET"])
+
+    def test_encoding_plan_and_result_do_not_expose_unrelated_configuration(self):
+        secret = "private-unrelated-encoding-secret"
+        current = {
+            "EncodingConfiguration": {
+                "EnableHardwareEncoding": False,
+                "HardwareAccelerationType": "none",
+            },
+            "UnrelatedConfiguration": {"PrivateValue": secret},
+        }
+        adapter, transport = self.authenticated_adapter(
+            [response(current), response(current)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+        gpu = GpuProbe("nvidia", "available", True, {"nvidia_smi": True, "container_runtime": True})
+
+        plan = adapter.plan_encoding(gpu)
+        result = adapter.apply_encoding(plan)
+
+        self.assertEqual(result.status, "guided")
+        for value in (plan, plan.report, result, result.report, result.checkpoints[0]):
+            self.assertNotIn(secret, repr(value))
+        self.assertEqual([request[0] for request in transport.requests], ["POST", "GET", "GET"])
+
+    def test_encoding_auth_and_transport_failures_are_typed_and_sanitized(self):
+        gpu = GpuProbe("nvidia", "available", True, {"nvidia_smi": True, "container_runtime": True})
+        auth_adapter, _ = self.authenticated_adapter(
+            [response({}, status=401)],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+        with self.assertRaises(JellyfinAuthenticationError):
+            auth_adapter.plan_encoding(gpu)
+
+        transport_secret = "private-encoding-transport-secret"
+        transport_adapter, transport = self.authenticated_adapter(
+            [RuntimeError(f"socket failed: {transport_secret}")],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+        with self.assertRaises(HttpConnectionError) as raised:
+            transport_adapter.plan_encoding(gpu)
+        self.assertNotIn(transport_secret, str(raised.exception))
+        self.assertNotIn(transport_secret, repr(raised.exception))
+        self.assertIsNone(raised.exception.__context__)
+        self.assertEqual([request[0] for request in transport.requests], ["POST", "GET"])
+
+    def test_unbound_encoding_plan_is_rejected_without_mutation(self):
+        adapter, transport = self.authenticated_adapter([], admin_name=ADMIN, admin_password=PASSWORD)
+        plan = ServicePlan(service="jellyfin", actions=("configure-encoding",), mode="nvidia")
+
+        with self.assertRaises(InvalidInputError):
+            adapter.apply_encoding(plan, confirm_drift=True)
+
+        self.assertEqual([request[0] for request in transport.requests], ["POST"])
 
 
 if __name__ == "__main__":

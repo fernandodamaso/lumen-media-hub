@@ -1,9 +1,9 @@
 """Safe Jellyfin startup, authentication, and API-key adapter.
 
 This slice owns the public startup capability check, authentication, the
-single named API key needed by ``homepage-actions``, and the two approved
-managed libraries.  It deliberately does not reconcile plugins, networking,
-or encoding.  Credentials and response identities remain private to the
+single named API key needed by ``homepage-actions``, the two approved managed
+libraries, and verified GPU encoding reconciliation.  Credentials, response
+identities, and full configuration payloads remain private to the
 adapter/session and never enter plans, results, reports, or errors.
 """
 
@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..errors import InstallerError, InvalidInputError, PartialError
+from ..gpu import GpuDetection, GpuProbe
 from ..http import (
     HttpConnectionError,
     HttpResponse,
@@ -37,6 +38,17 @@ _MANAGED_LIBRARIES = (
     ("Movies", "movies", "/data/media/movies"),
     ("Shows", "tvshows", "/data/media/tv"),
 )
+_GPU_ENCODING_FIELDS = {
+    "nvidia": {
+        "EnableHardwareEncoding": True,
+        "HardwareAccelerationType": "nvenc",
+    },
+    "vaapi": {
+        "EnableHardwareEncoding": True,
+        "HardwareAccelerationType": "vaapi",
+    },
+}
+_ENCODING_ACTION = "configure-encoding"
 
 
 class JellyfinError(InstallerError):
@@ -116,6 +128,16 @@ class JellyfinLibrarySchemaError(JellyfinCapabilityError):
     def __init__(self) -> None:
         self.code = type(self).code
         InvalidInputError.__init__(self, "Jellyfin library response schema is unsupported")
+
+
+class JellyfinEncodingSchemaError(JellyfinCapabilityError):
+    """The runtime system-configuration encoding contract is unsupported."""
+
+    code = "jellyfin-encoding-schema"
+
+    def __init__(self) -> None:
+        self.code = type(self).code
+        InvalidInputError.__init__(self, "Jellyfin encoding response schema is unsupported")
 
 
 class JellyfinApiKeyHandoff:
@@ -320,6 +342,7 @@ class JellyfinAdapter:
         self._startup_configuration: dict[str, str] | None = None
         self._api_key_handoff: JellyfinApiKeyHandoff | None = None
         self._remote_access_desired: bool | None = None
+        self._encoding_plan_binding: tuple[ServicePlan, str | None] | None = None
 
     @property
     def session(self) -> JellyfinSession | None:
@@ -1313,6 +1336,223 @@ class JellyfinAdapter:
             mode="adopted",
         )
 
+    @staticmethod
+    def _verified_encoding_mode(gpu: Any) -> str | None:
+        """Return a concrete, successful Task 8 mode or disable encoding work."""
+
+        if not isinstance(gpu, (GpuProbe, GpuDetection)):
+            raise JellyfinCapabilityError("Jellyfin GPU capability result is unsupported")
+        try:
+            mode = gpu.mode
+            available = gpu.available
+            status = gpu.status.strip().lower()
+            requested_mode = getattr(gpu, "requested_mode", mode)
+            detected_mode = getattr(gpu, "detected_mode", mode)
+        except Exception:
+            raise JellyfinCapabilityError("Jellyfin GPU capability result is unsupported") from None
+        if mode not in _GPU_ENCODING_FIELDS:
+            return None
+        if requested_mode == "auto" and detected_mode != mode:
+            return None
+        if type(available) is not bool or not available:
+            return None
+        if status not in {"available", "verified", "supported", "ok"}:
+            return None
+        return mode
+
+    @staticmethod
+    def _encoding_checkpoint() -> ServiceCheckpoint:
+        return ServiceCheckpoint(
+            code="jellyfin-encoding-drift",
+            reason="Managed Jellyfin encoding differs from the verified GPU capability; confirm explicitly before changing it.",
+            action="confirm",
+            severity="warning",
+        )
+
+    @staticmethod
+    def _encoding_configuration(payload: Any) -> dict[str, Any]:
+        """Copy the validated full config while keeping schema errors secret-free."""
+
+        try:
+            if not isinstance(payload, Mapping):
+                raise JellyfinEncodingSchemaError()
+            encoding = payload.get("EncodingConfiguration")
+            if not isinstance(encoding, Mapping):
+                raise JellyfinEncodingSchemaError()
+            configuration = dict(payload)
+            configuration["EncodingConfiguration"] = dict(encoding)
+            return configuration
+        except JellyfinEncodingSchemaError:
+            raise
+        except Exception:
+            raise JellyfinEncodingSchemaError() from None
+
+    def _read_encoding_configuration(self) -> dict[str, Any]:
+        if self._session is None:
+            raise JellyfinSessionError()
+        try:
+            payload = self._decode_json(
+                self._request(
+                    "GET",
+                    "/System/Configuration",
+                    authenticated=True,
+                    operation="encoding",
+                ),
+                operation="encoding",
+            )
+        except JellyfinSchemaError:
+            raise JellyfinEncodingSchemaError() from None
+        except HttpStatusError as error:
+            if error.status in {401, 403}:
+                raise JellyfinAuthenticationError(error.status) from None
+            raise
+        return self._encoding_configuration(payload)
+
+    @staticmethod
+    def _encoding_target(configuration: Mapping[str, Any], mode: str) -> dict[str, Any]:
+        try:
+            target = dict(configuration)
+            encoding = target.get("EncodingConfiguration")
+            if not isinstance(encoding, Mapping):
+                raise JellyfinEncodingSchemaError()
+            target_encoding = dict(encoding)
+            target_encoding.update(_GPU_ENCODING_FIELDS[mode])
+            target["EncodingConfiguration"] = target_encoding
+            return target
+        except JellyfinEncodingSchemaError:
+            raise
+        except Exception:
+            raise JellyfinEncodingSchemaError() from None
+
+    @staticmethod
+    def _encoding_is_exact(configuration: Mapping[str, Any], mode: str) -> bool:
+        try:
+            encoding = configuration["EncodingConfiguration"]
+            return isinstance(encoding, Mapping) and all(
+                encoding.get(field) == value
+                for field, value in _GPU_ENCODING_FIELDS[mode].items()
+            )
+        except Exception:
+            raise JellyfinEncodingSchemaError() from None
+
+    def plan_encoding(self, gpu: Any, *, dry_run: bool = False) -> ServicePlan:
+        """Plan safe encoding changes from a verified concrete GPU result."""
+
+        mode = self._verified_encoding_mode(gpu)
+        if mode is None:
+            plan = ServicePlan(
+                service=SERVICE_NAME,
+                actions=(),
+                dry_run=bool(dry_run),
+                mode="none",
+            )
+            self._encoding_plan_binding = (plan, None)
+            return plan
+
+        configuration = self._read_encoding_configuration()
+        drifted = not self._encoding_is_exact(configuration, mode)
+        plan = ServicePlan(
+            service=SERVICE_NAME,
+            actions=(_ENCODING_ACTION,) if drifted else (),
+            checkpoints=(self._encoding_checkpoint(),) if drifted else (),
+            dry_run=bool(dry_run),
+            mode=mode,
+        )
+        self._encoding_plan_binding = (plan, mode)
+        return plan
+
+    def _encoding_guided(
+        self,
+        *,
+        mode: str,
+        error: BaseException | None = None,
+    ) -> JellyfinResult:
+        return JellyfinResult(
+            service=SERVICE_NAME,
+            status="guided",
+            actions=(_ENCODING_ACTION,),
+            checkpoints=(self._encoding_checkpoint(),),
+            error=error,
+            mode=mode,
+        )
+
+    def apply_encoding(
+        self,
+        plan: ServicePlan,
+        *,
+        confirm_drift: bool = False,
+        dry_run: bool | None = None,
+    ) -> JellyfinResult:
+        """Apply an encoding plan after a fresh capability/configuration read."""
+
+        if not isinstance(plan, ServicePlan) or plan.service != SERVICE_NAME:
+            raise InvalidInputError("Jellyfin encoding plan is invalid")
+        if any(action != _ENCODING_ACTION for action in plan.actions):
+            raise InvalidInputError("Jellyfin encoding plan contains an unsupported action")
+        binding = self._encoding_plan_binding
+        if binding is None or binding[0] is not plan:
+            raise InvalidInputError("Jellyfin encoding plan is unbound")
+        selected_dry_run = plan.dry_run or bool(dry_run)
+        mode = binding[1]
+        if mode is None:
+            return JellyfinResult(
+                service=SERVICE_NAME,
+                status="dry-run" if selected_dry_run else "ok",
+                actions=plan.actions,
+                checkpoints=plan.checkpoints,
+                dry_run=selected_dry_run,
+                mode="none",
+            )
+        if selected_dry_run:
+            return JellyfinResult(
+                service=SERVICE_NAME,
+                status="dry-run",
+                actions=plan.actions,
+                checkpoints=plan.checkpoints,
+                dry_run=True,
+                mode=mode,
+            )
+
+        try:
+            configuration = self._read_encoding_configuration()
+            if self._encoding_is_exact(configuration, mode):
+                return JellyfinResult(
+                    service=SERVICE_NAME,
+                    status="ok",
+                    actions=(),
+                    mode=mode,
+                )
+            if not confirm_drift or not self._interactive:
+                return self._encoding_guided(mode=mode)
+            target = self._encoding_target(configuration, mode)
+            self._request(
+                "POST",
+                "/System/Configuration",
+                body=target,
+                authenticated=True,
+                operation="mutation",
+            )
+        except JellyfinAuthenticationError as error:
+            return self._encoding_guided(mode=mode, error=error)
+        return JellyfinResult(
+            service=SERVICE_NAME,
+            status="ok",
+            actions=(_ENCODING_ACTION,),
+            mode=mode,
+        )
+
+    def reconcile_encoding(
+        self,
+        *,
+        gpu: Any,
+        confirm_drift: bool = False,
+        dry_run: bool = False,
+    ) -> JellyfinResult:
+        """Plan and reconcile Jellyfin encoding from one Task 8 GPU result."""
+
+        plan = self.plan_encoding(gpu, dry_run=dry_run)
+        return self.apply_encoding(plan, confirm_drift=confirm_drift)
+
     def apply(self, plan: ServicePlan, *, dry_run: bool | None = None) -> JellyfinResult:
         if not isinstance(plan, ServicePlan) or plan.service != SERVICE_NAME:
             raise InvalidInputError("Jellyfin plan is invalid")
@@ -1470,6 +1710,7 @@ __all__ = [
     "JellyfinLibrarySchemaError",
     "JellyfinCapability",
     "JellyfinCapabilityError",
+    "JellyfinEncodingSchemaError",
     "JellyfinError",
     "JellyfinResult",
     "JellyfinSchemaError",

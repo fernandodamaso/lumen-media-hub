@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
-from .errors import ExitCode
+from .errors import ExitCode, InstallerError, InvalidInputError
 
 
 PathLike = str | os.PathLike[str]
@@ -23,6 +23,18 @@ Callback = Callable[..., object]
 
 _DIGEST_RE = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
 _SAFE_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+class RollbackValidationError(InvalidInputError, ValueError):
+    """A rollback record or state boundary cannot be trusted safely.
+
+    ``ValueError`` remains a compatibility base for the filesystem helper's
+    older callers, while the installer-domain base gives the CLI a stable
+    exit code and prevents parser/key errors from escaping as tracebacks.
+    """
+
+    def __init__(self, message: str = "rollback record is invalid") -> None:
+        InvalidInputError.__init__(self, message)
 
 
 def _absolute_path(value: PathLike, base: Path | None = None) -> Path:
@@ -729,6 +741,8 @@ def run_rollback(
     start_callback: Callback | None = None,
     *,
     dry_run: bool = False,
+    callback_factory: Callable[[UpdateManifest], tuple[Callback | None, Callback | None]]
+    | None = None,
 ) -> dict[str, object]:
     if dry_run:
         return {"action": "rollback", "dry_run": True, "run_id": _safe_run_id(run_id)}
@@ -737,32 +751,45 @@ def run_rollback(
 
     safe_run_id = _safe_run_id(run_id)
     root_path = _absolute_path(root)
-    _validate_root_path(root_path)
+    try:
+        _validate_root_path(root_path)
+    except (OSError, ValueError) as exc:
+        raise RollbackValidationError("rollback state boundary is invalid") from exc
     state = _state_dir(root_path)
     record_path = state / "updates" / f"{safe_run_id}.json"
 
     # Inspect the state boundary before reading a record.  A symlink here
     # could redirect a rollback read (and later writes) outside the checkout.
-    for directory in (
-        state.parent,
-        state,
-        state / "updates",
-        state / "backups",
-        state / "failed-runs",
-        state / "rollback",
-    ):
-        if directory.is_symlink():
-            raise ValueError(f"installer state directory may not be a symlink: {directory}")
-        if directory.exists() and not directory.is_dir():
-            raise ValueError(f"installer state path is not a directory: {directory}")
-    if record_path.is_symlink():
-        raise ValueError(f"installer update record may not be a symlink: {record_path}")
-    record = json.loads(record_path.read_text(encoding="utf-8"))
-    if record.get("run_id") != safe_run_id:
-        raise ValueError("installer update record does not match requested run")
-    manifest = UpdateManifest.from_dict(record["manifest"])
-    _validate_manifest_checkout_root(root_path, manifest)
-    manifest_paths = _manifest_paths(manifest)
+    try:
+        for directory in (
+            state.parent,
+            state,
+            state / "updates",
+            state / "backups",
+            state / "failed-runs",
+            state / "rollback",
+        ):
+            if directory.is_symlink() or (
+                directory.exists() and not directory.is_dir()
+            ):
+                raise RollbackValidationError("rollback state boundary is invalid")
+        if record_path.is_symlink() or not record_path.is_file():
+            raise RollbackValidationError("rollback record is invalid")
+        record_value = json.loads(record_path.read_text(encoding="utf-8"))
+        if not isinstance(record_value, Mapping):
+            raise RollbackValidationError("rollback record is invalid")
+        if record_value.get("run_id") != safe_run_id:
+            raise RollbackValidationError("rollback record is invalid")
+        raw_manifest = record_value.get("manifest")
+        if not isinstance(raw_manifest, Mapping):
+            raise RollbackValidationError("rollback record is invalid")
+        manifest = UpdateManifest.from_dict(raw_manifest)
+        _validate_manifest_checkout_root(root_path, manifest)
+        manifest_paths = _manifest_paths(manifest)
+    except RollbackValidationError:
+        raise
+    except (OSError, UnicodeError, TypeError, ValueError, KeyError, AttributeError) as exc:
+        raise RollbackValidationError("rollback record is invalid") from exc
 
     _ensure_private_dir(state.parent)
     _ensure_private_dir(state)
@@ -777,10 +804,23 @@ def run_rollback(
     if backup_dir.exists() or backup_dir.is_symlink():
         _ensure_private_dir(backup_dir)
 
-    for path in manifest_paths:
-        backup = backup_dir / _backup_name(root_path, path)
-        if backup.exists() or backup.is_symlink():
-            _reject_symlink_tree(backup)
+    try:
+        for path in manifest_paths:
+            backup = backup_dir / _backup_name(root_path, path)
+            if backup.exists() or backup.is_symlink():
+                _reject_symlink_tree(backup)
+    except (OSError, ValueError) as exc:
+        raise RollbackValidationError("rollback backup is invalid") from exc
+
+    if callback_factory is not None:
+        try:
+            generated_stop, generated_start = callback_factory(manifest)
+        except InstallerError:
+            raise
+        except Exception as exc:
+            raise RollbackValidationError("rollback lifecycle setup failed") from exc
+        stop_callback = generated_stop
+        start_callback = generated_start
 
     if stop_callback is not None:
         _invoke_callback(stop_callback, safe_run_id)

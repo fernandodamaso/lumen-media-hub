@@ -45,6 +45,7 @@ from .setup import (
 from .trakt import run_connect_trakt
 from .update import (
     UpdateManifest,
+    _digest_repository,
     _normalize_repo_digest,
     _safe_run_id,
     run_rollback,
@@ -452,6 +453,67 @@ def _compose_metadata(
     return image_refs, profiles
 
 
+def _compose_service_activity(
+    compose_files: Sequence[Path], active_profiles: Sequence[str]
+) -> tuple[set[str], set[str]]:
+    """Return declared and active service names from selected Compose files."""
+
+    active_profiles_set = set(active_profiles)
+    declared: set[str] = set()
+    active: set[str] = set()
+    for compose_file in compose_files:
+        try:
+            lines = compose_file.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        service: str | None = None
+        service_profiles: list[str] = []
+        in_profiles = False
+
+        def flush() -> None:
+            if service is None:
+                return
+            declared.add(service)
+            if not service_profiles or active_profiles_set.intersection(service_profiles):
+                active.add(service)
+
+        for line in lines:
+            service_match = _COMPOSE_SERVICE.match(line)
+            if service_match:
+                flush()
+                service = service_match.group(1)
+                service_profiles = []
+                in_profiles = False
+                continue
+            if _COMPOSE_KEY.match(line) and not line.startswith((" ", "\t")):
+                flush()
+                service = None
+                service_profiles = []
+                in_profiles = False
+                continue
+            if service is None:
+                continue
+            profile_match = _COMPOSE_PROFILES.match(line)
+            if profile_match:
+                in_profiles = True
+                inline = profile_match.group(1).strip()
+                if inline.startswith("[") and inline.endswith("]"):
+                    service_profiles.extend(
+                        item.strip().strip("'\"")
+                        for item in inline[1:-1].split(",")
+                        if item.strip()
+                    )
+                continue
+            if in_profiles:
+                profile_item = _COMPOSE_PROFILE_ITEM.match(line)
+                if profile_item:
+                    service_profiles.append(profile_item.group(1))
+                elif line.strip():
+                    in_profiles = False
+        flush()
+    return declared, active
+
+
 def _compose_build_services(compose_files: Sequence[Path]) -> set[str]:
     """Find services with a real Compose build block in the selected files."""
 
@@ -608,14 +670,32 @@ def _update_manifest(
     values["GPU_MODE"] = gpu_mode
     compose_files = _known_compose_files(root, values, args)
     image_refs, _declared_profiles = _compose_metadata(compose_files, values, profiles)
+    declared_services, active_services = _compose_service_activity(compose_files, profiles)
     build_services = _compose_build_services(compose_files)
-    image_refs.update(_env_json_map(values, ("LUMEN_IMAGE_REFS", "IMAGE_REFS")))
-    image_refs.update(_env_service_values(values, ("_IMAGE_REF", "_IMAGE")))
+    configured_image_refs = _env_json_map(values, ("LUMEN_IMAGE_REFS", "IMAGE_REFS"))
+    configured_image_refs.update(_env_service_values(values, ("_IMAGE_REF", "_IMAGE")))
+    image_refs.update(
+        {
+            service: reference
+            for service, reference in configured_image_refs.items()
+            if service not in declared_services or service in active_services
+        }
+    )
 
     repo_digests = _env_json_map(values, ("LUMEN_REPO_DIGESTS", "REPO_DIGESTS"))
     repo_digests.update(_env_service_values(values, ("_REPO_DIGEST", "_IMAGE_DIGEST")))
     local_image_ids = _env_json_map(values, ("LUMEN_LOCAL_IMAGE_IDS", "LOCAL_IMAGE_IDS"))
     local_image_ids.update(_env_service_values(values, ("_LOCAL_IMAGE_ID", "_IMAGE_ID")))
+    repo_digests = {
+        service: digest
+        for service, digest in repo_digests.items()
+        if service not in declared_services or service in active_services
+    }
+    local_image_ids = {
+        service: image_id
+        for service, image_id in local_image_ids.items()
+        if service not in declared_services or service in active_services
+    }
     for service, reference in image_refs.items():
         if "@" in reference and service not in repo_digests:
             repo_digests[service] = reference.rsplit("@", 1)[1]
@@ -634,6 +714,22 @@ def _update_manifest(
                 gpu_environment[key] = placeholder
 
     if not dry_run and image_refs:
+        for service, configured_digest in repo_digests.items():
+            if service not in image_refs:
+                continue
+            try:
+                configured_repository = _digest_repository(configured_digest)
+                if configured_repository is not None and configured_repository != _image_repository(
+                    image_refs[service]
+                ):
+                    raise InvalidInputError(
+                        "configured image digest repository does not match image reference"
+                    )
+                _normalize_repo_digest(configured_digest)
+            except InvalidInputError:
+                raise
+            except ValueError as exc:
+                raise InvalidInputError("configured image digest is invalid") from exc
         image_runner = runner if runner is not None else CommandRunner()
         redact = _secret_values(values)
         for service, reference in image_refs.items():
@@ -665,7 +761,7 @@ def _update_manifest(
                         "Docker image inspection returned an invalid repository digest"
                     ) from exc
                 repo_digests[service] = normalized_inspected
-            elif inspected_digests and service in repo_digests:
+            elif service in repo_digests:
                 raise InvalidInputError(
                     "Docker image inspection did not contain the configured repository digest"
                 )
@@ -685,20 +781,23 @@ def _update_manifest(
         if missing:
             raise InvalidInputError("Docker image metadata did not contain immutable digests")
 
-    return UpdateManifest.from_inputs(
-        env_path=root / ".env",
-        runtime_paths={
-            "config": root / "config",
-            "state": root / ".state" / "installer" / "state.json",
-        },
-        image_refs=image_refs,
-        repo_digests=repo_digests,
-        local_image_ids=local_image_ids,
-        profiles=profiles,
-        gpu_mode=gpu_mode,
-        compose_files=compose_files,
-        gpu_environment=gpu_environment,
-    )
+    try:
+        return UpdateManifest.from_inputs(
+            env_path=root / ".env",
+            runtime_paths={
+                "config": root / "config",
+                "state": root / ".state" / "installer" / "state.json",
+            },
+            image_refs=image_refs,
+            repo_digests=repo_digests,
+            local_image_ids=local_image_ids,
+            profiles=profiles,
+            gpu_mode=gpu_mode,
+            compose_files=compose_files,
+            gpu_environment=gpu_environment,
+        )
+    except ValueError as exc:
+        raise InvalidInputError("update manifest is invalid") from exc
 
 
 def _update_compose_options(manifest: UpdateManifest, args: argparse.Namespace) -> ComposeOptions:
@@ -854,29 +953,15 @@ def _update(args: argparse.Namespace) -> int:
         }
     elif rollback_id is not None:
         runner = CommandRunner()
-        # The record is validated and loaded by run_rollback before these
-        # callbacks can mutate containers.  Reuse its manifest for command
-        # construction without trusting any unvalidated path here.
-        record = root / ".state" / "installer" / "updates" / f"{safe_rollback_id}.json"
         try:
-            if record.is_file():
-                payload = json.loads(record.read_text(encoding="utf-8"))
-                rollback_manifest = UpdateManifest.from_dict(payload["manifest"])
-                stop_callback, start_callback = _rollback_callbacks(
+            result = run_rollback(
+                root,
+                safe_rollback_id,
+                confirm=confirm,
+                callback_factory=lambda rollback_manifest: _rollback_callbacks(
                     root, rollback_manifest, args, runner
-                )
-                result = run_rollback(
-                    root,
-                    safe_rollback_id,
-                    confirm=confirm,
-                    stop_callback=stop_callback,
-                    start_callback=start_callback,
-                )
-            else:
-                # Keep the helper seam usable for callers that provide their
-                # own rollback implementation; the real helper still rejects
-                # a missing record before any mutation.
-                result = run_rollback(root, safe_rollback_id, confirm=confirm)
+                ),
+            )
         except (CommandExecutionError, OSError) as error:
             raise PartialError("stack rollback lifecycle failed") from error
     else:

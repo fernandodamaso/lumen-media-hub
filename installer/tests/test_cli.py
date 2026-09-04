@@ -306,6 +306,106 @@ class CliContractTests(unittest.TestCase):
                     runner=cli.CommandRunner(executor=execute),
                 )
 
+    def test_update_manifest_rejects_configured_digest_when_docker_has_no_repo_digest(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            stale = "sha256:" + "a" * 64
+            (root / "docker-compose.yml").write_text(
+                "services:\n  api:\n    image: registry.example/api:stable\n",
+                encoding="utf-8",
+            )
+            (root / ".env").write_text(
+                f'LUMEN_REPO_DIGESTS={{"api":"{stale}"}}\n',
+                encoding="utf-8",
+            )
+
+            def execute(_argv, **_kwargs):
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps({"Id": "sha256:local-api", "RepoDigests": []}),
+                    stderr="",
+                )
+
+            with self.assertRaises(InvalidInputError):
+                cli._update_manifest(
+                    root,
+                    SimpleNamespace(profiles=None, gpu_mode="none", gpu=None, dev=False),
+                    dry_run=False,
+                    runner=cli.CommandRunner(executor=execute),
+                )
+
+    def test_update_manifest_rejects_repository_qualified_digest_for_wrong_repository(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            digest = "sha256:" + "a" * 64
+            (root / "docker-compose.yml").write_text(
+                "services:\n  api:\n    image: registry.example/api:stable\n",
+                encoding="utf-8",
+            )
+            (root / ".env").write_text(
+                f'LUMEN_REPO_DIGESTS={{"api":"other.example/api@{digest}"}}\n',
+                encoding="utf-8",
+            )
+
+            def execute(_argv, **_kwargs):
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps(
+                        {
+                            "Id": "sha256:local-api",
+                            "RepoDigests": [f"registry.example/api@{digest}"],
+                        }
+                    ),
+                    stderr="",
+                )
+
+            with self.assertRaises(InvalidInputError):
+                cli._update_manifest(
+                    root,
+                    SimpleNamespace(profiles=None, gpu_mode="none", gpu=None, dev=False),
+                    dry_run=False,
+                    runner=cli.CommandRunner(executor=execute),
+                )
+
+    def test_update_manifest_discards_local_ids_for_inactive_profile_services(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docker-compose.yml").write_text(
+                "services:\n"
+                "  core:\n"
+                "    image: registry.example/core:stable\n"
+                "  requests:\n"
+                "    image: registry.example/requests:stable\n"
+                "    profiles: [requests]\n",
+                encoding="utf-8",
+            )
+            (root / ".env").write_text(
+                'LUMEN_LOCAL_IMAGE_IDS={"core":"sha256:core","requests":"sha256:requests"}\n',
+                encoding="utf-8",
+            )
+            args = SimpleNamespace(profiles=None, gpu_mode="none", gpu=None, dev=False)
+            with mock.patch.dict(os.environ, {}, clear=False):
+                manifest = cli._update_manifest(root, args, dry_run=True)
+
+            self.assertEqual({"core"}, set(manifest.local_image_ids))
+
+    def test_update_rollback_does_not_pre_read_record_before_helper_validation(self):
+        output = io.StringIO()
+        fake_result = {"run_id": "run-7"}
+        with mock.patch.object(cli, "run_rollback", return_value=fake_result) as helper:
+            with mock.patch.object(
+                Path, "is_file", return_value=True
+            ), mock.patch.object(
+                Path,
+                "read_text",
+                side_effect=AssertionError("CLI read an unvalidated rollback record"),
+            ):
+                with contextlib.redirect_stdout(output):
+                    result = cli.main(["update", "--rollback", "run-7", "--confirm"])
+
+        self.assertEqual(result, int(ExitCode.OK))
+        helper.assert_called_once()
+
     def test_update_manifest_and_compose_options_resolve_auto_from_saved_gpu_mode(self):
         for mode in ("nvidia", "vaapi"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp_dir:

@@ -13,6 +13,7 @@ from lumen_installer.update import (
     run_rollback,
     run_update,
 )
+from lumen_installer.errors import InvalidInputError
 
 
 class UpdateManifestTests(unittest.TestCase):
@@ -451,6 +452,58 @@ class UpdateOperationTests(unittest.TestCase):
             self.assertEqual("post-update", config.read_text(encoding="utf-8"))
             self.assertEqual("media", media_file.read_text(encoding="utf-8"))
             self.assertEqual("download", download_file.read_text(encoding="utf-8"))
+
+    def test_rollback_rejects_missing_or_malformed_records_as_stable_installer_errors(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            updates = root / ".state" / "installer" / "updates"
+            updates.mkdir(parents=True)
+            for contents in (None, "{not-json", json.dumps({"run_id": "wrong"})):
+                with self.subTest(contents=contents):
+                    record = updates / "run-7.json"
+                    if contents is None:
+                        record.unlink(missing_ok=True)
+                    else:
+                        record.write_text(contents, encoding="utf-8")
+                    with self.assertRaises(InvalidInputError) as raised:
+                        run_rollback(root, "run-7", True)
+                    self.assertNotIn(str(root), str(raised.exception))
+                    self.assertNotIn("not-json", str(raised.exception))
+
+    def test_rollback_rejects_tampered_manifest_without_key_or_secret_leakage(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            updates = root / ".state" / "installer" / "updates"
+            updates.mkdir(parents=True)
+            secret = "super-secret-token"
+            (updates / "run-7.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "run-7",
+                        "manifest": {
+                            "env_path": str(root / ".env"),
+                            "secret": secret,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(InvalidInputError) as raised:
+                run_rollback(root, "run-7", True)
+            self.assertNotIn(secret, str(raised.exception))
+            self.assertNotIn("env_path", str(raised.exception))
+
+    def test_rollback_rejects_symlinked_record_without_reading_target(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            updates = root / ".state" / "installer" / "updates"
+            updates.mkdir(parents=True)
+            target = root / "outside-secret-record.json"
+            target.write_text('{"run_id":"run-7"}', encoding="utf-8")
+            (updates / "run-7.json").symlink_to(target)
+            with self.assertRaises(InvalidInputError) as raised:
+                run_rollback(root, "run-7", True)
+            self.assertNotIn(str(target), str(raised.exception))
 
     def test_env_restore_failure_keeps_post_update_env_and_recoverable_snapshot(self):
         with tempfile.TemporaryDirectory() as temp_dir:

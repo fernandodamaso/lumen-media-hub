@@ -23,7 +23,9 @@ jobs:
         with:
           python-version: "3.10"
       - name: Apply reviewed fixes
-        run: python .github/scripts/pr59_fix.py
+        run: |
+          python .github/scripts/pr59_fix.py
+          python .github/scripts/pr59_fix_followup.py
       - name: Compile installer
         run: python -m compileall -q installer/lumen_installer installer/tests
       - name: Run installer suite

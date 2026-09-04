@@ -19,7 +19,7 @@ from .errors import (
     NotAvailableError,
     PartialError,
 )
-from .commands import CommandExecutionError, CommandRunner
+from .commands import CommandExecutionError, CommandRunner, LONG_COMMAND_TIMEOUT
 from .compose import (
     ComposeOptions,
     build as compose_build,
@@ -33,6 +33,8 @@ from .compose import (
 from .docker import run_host_doctor
 from .configure import run_configure
 from .gpu import GPU_MODES
+from .health import wait_for_stack_health
+from .prompts import terminal_prompt
 from .setup import (
     doctor_diagnostics,
     run_down,
@@ -160,6 +162,10 @@ def _compose_options(args: argparse.Namespace) -> ComposeOptions:
 
 def _setup(args: argparse.Namespace) -> int:
     requested_options = _compose_options(args)
+    interactive = not bool(getattr(args, "noninteractive", False))
+    prompt = terminal_prompt if interactive else None
+    selected_network_mode = getattr(args, "network_mode", None)
+    selected_public_host = getattr(args, "public_host", None)
     foundation = run_foundation(
         options=requested_options,
         answers_path=getattr(args, "answers", None),
@@ -168,16 +174,18 @@ def _setup(args: argparse.Namespace) -> int:
         timezone=getattr(args, "timezone", None),
         root_path=getattr(args, "root_path", None),
         downloads_path=getattr(args, "downloads_path", None),
-        network_mode=getattr(args, "network_mode", None),
-        public_host=getattr(args, "public_host", None),
-        interactive=not bool(getattr(args, "noninteractive", False)),
+        network_mode=selected_network_mode,
+        public_host=selected_public_host,
+        interactive=interactive,
+        prompt=prompt,
         gpu_confirm=bool(getattr(args, "gpu_confirm", False)),
         confirm=bool(getattr(args, "confirm", False)),
         dry_run=bool(getattr(args, "dry_run", False)),
     )
     configured = run_configure(
         options=getattr(foundation, "options", requested_options),
-        interactive=not bool(getattr(args, "noninteractive", False)),
+        interactive=interactive,
+        prompt=prompt,
         dry_run=bool(getattr(args, "dry_run", False)),
     )
     print(
@@ -221,9 +229,11 @@ def _frontend_dev(args: argparse.Namespace) -> int:
 
 
 def _configure(args: argparse.Namespace) -> int:
+    interactive = not bool(getattr(args, "noninteractive", False))
     result = run_configure(
         options=_compose_options(args),
-        interactive=not bool(getattr(args, "noninteractive", False)),
+        interactive=interactive,
+        prompt=terminal_prompt if interactive else None,
         confirm=bool(getattr(args, "confirm", False)),
         dry_run=bool(getattr(args, "dry_run", False)),
     )
@@ -1002,7 +1012,14 @@ def _update_callbacks(
             force_recreate=True,
             redact=redact,
         )
-        wait_for_health()
+        wait_for_stack_health(
+            runner,
+            root,
+            env_path,
+            options,
+            services=tuple(payload.get("services", {})),
+            environment=values,
+        )
 
     return tag_local_images, pull_images, recreate_stack
 
@@ -1045,8 +1062,15 @@ def _rollback_callbacks(
             "--force-recreate",
             *services,
         )
-        runner.run(argv, redact=redact)
-        wait_for_health()
+        runner.run(argv, redact=redact, timeout=LONG_COMMAND_TIMEOUT)
+        wait_for_stack_health(
+            runner,
+            root,
+            env_path,
+            options,
+            services=services,
+            environment=values,
+        )
 
     return stop_affected, start_with_override
 
@@ -1067,21 +1091,20 @@ def _update(args: argparse.Namespace) -> int:
             safe_rollback_id = _safe_run_id(str(rollback_id))
         except (TypeError, ValueError) as exc:
             raise InvalidInputError("invalid rollback run id") from exc
-    if rollback_id is not None and dry_run:
-        result: dict[str, object] = {
-            "action": "rollback",
-            "dry_run": True,
-            "run_id": safe_rollback_id,
-        }
-    elif rollback_id is not None:
+    if rollback_id is not None:
         runner = CommandRunner()
         try:
             result = run_rollback(
                 root,
                 safe_rollback_id,
                 confirm=confirm,
-                callback_factory=lambda rollback_manifest: _rollback_callbacks(
-                    root, rollback_manifest, args, runner
+                dry_run=dry_run,
+                callback_factory=(
+                    None
+                    if dry_run
+                    else lambda rollback_manifest: _rollback_callbacks(
+                        root, rollback_manifest, args, runner
+                    )
                 ),
             )
         except (CommandExecutionError, OSError) as error:

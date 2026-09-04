@@ -17,9 +17,10 @@ supported when an already-working Docker Engine and Compose installation pass
 
 ## First run
 
-The interactive setup asks for the media and download locations, network
-exposure, optional profiles, and GPU mode. It shows a summary before changing
-the host.
+The interactive setup asks for the media and download locations, a secure
+qBittorrent password, Jellyfin administrator credentials, and any unresolved
+network exposure decision. Optional profiles and GPU mode remain explicit CLI
+choices. It shows a summary before changing the host.
 
 ```bash
 ./install.sh setup

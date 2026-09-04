@@ -152,6 +152,8 @@ class SonarrAdapter:
         *,
         api_key: str,
         qbit_password: str,
+        qbit_port: int = 8081,
+        verify_qbit_client: bool = False,
     ) -> None:
         if transport is None or not callable(getattr(transport, "request", None)):
             raise InvalidInputError("Servarr transport is required")
@@ -180,6 +182,10 @@ class SonarrAdapter:
         self._transport = transport
         self._api_key = api_key.strip()
         self._qbit_password = qbit_password
+        if isinstance(qbit_port, bool) or not isinstance(qbit_port, int) or not 1 <= qbit_port <= 65535:
+            raise InvalidInputError("qBittorrent port is invalid")
+        self._qbit_port = qbit_port
+        self._verify_qbit_client = bool(verify_qbit_client)
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(configured=True)"
@@ -357,7 +363,7 @@ class SonarrAdapter:
         fields = schema.get("fields")
         field_values = {
             "host": "qbittorrent",
-            "port": 8081,
+            "port": self._qbit_port,
             "username": "admin",
             "password": self._qbit_password,
             self.category_field: self.service,
@@ -387,7 +393,7 @@ class SonarrAdapter:
         existing_values.update(
             {
                 "host": "qbittorrent",
-                "port": 8081,
+                "port": self._qbit_port,
                 "username": "admin",
                 "password": self._qbit_password,
                 self.category_field: self.service,
@@ -408,19 +414,17 @@ class SonarrAdapter:
         actions: list[str] = ["reuse-root-folder" if root_exists else "create-root-folder"]
         existing = next((client for client in clients if self._is_qbit_client(client)), None)
         if existing is None:
-            client_action = "create-download-client"
             client_payload = self._client_payload(schema)
             drift: tuple[ServiceDrift, ...] = ()
         else:
-            client_action = "reuse-download-client"
             existing_values = self._field_values(existing.get("fields"))
             desired = {
                 "host": "qbittorrent",
-                "port": 8081,
+                "port": self._qbit_port,
                 "username": "admin",
                 self.category_field: self.service,
             }
-            drift_records = tuple(
+            drift = tuple(
                 ServiceDrift(
                     resource="download-client",
                     field=name,
@@ -429,29 +433,28 @@ class SonarrAdapter:
                 for name, value in desired.items()
                 if existing_values.get(name, object()) != value
             )
-            drift = drift_records
             client_payload = self._updated_client_payload(existing, schema)
-            if drift:
-                client_action = "update-download-client"
-                if not confirm:
-                    return ServarrResult(
-                        service=self.service,
-                        status="drift",
-                        actions=tuple(actions),
-                        drift=drift,
-                        error=ServarrConflictError(),
-                    )
+            if drift and not confirm:
+                return ServarrResult(
+                    service=self.service,
+                    status="drift",
+                    actions=tuple(actions),
+                    drift=drift,
+                    error=ServarrConflictError(),
+                )
 
-        if existing is not None and not drift:
-            if not root_exists:
-                self._request("POST", f"{self.api_prefix}/rootfolder", body={"path": self.root_path})
-                actions[0] = "create-root-folder"
-            actions.append("reuse-download-client")
-            return ServarrResult(service=self.service, status="ok", actions=tuple(actions))
+        def test_client(payload: Mapping[str, Any]) -> bool:
+            try:
+                self._request(
+                    "POST",
+                    f"{self.api_prefix}/downloadclient/test",
+                    body=payload,
+                )
+            except (HttpStatusError, HttpTransportError, ServarrError):
+                return False
+            return True
 
-        try:
-            self._request("POST", f"{self.api_prefix}/downloadclient/test", body=client_payload)
-        except (HttpStatusError, HttpTransportError, ServarrError):
+        def guided_test_failure() -> ServarrResult:
             checkpoint = ServiceCheckpoint(
                 code="servarr-download-client-test",
                 reason="The qBittorrent download client test failed; review the service and retry.",
@@ -466,19 +469,70 @@ class SonarrAdapter:
                 error=ServarrError(code="servarr-download-client-test"),
             )
 
+        if existing is not None and not drift:
+            if self._verify_qbit_client:
+                # Test the stored resource first. Servarr can keep secrets
+                # masked/omitted in GET responses while still resolving them
+                # by resource id during the test call.
+                if not test_client(dict(existing)):
+                    if not test_client(client_payload):
+                        return guided_test_failure()
+                    client_id = existing.get("id")
+                    if client_id is None:
+                        raise ServarrSchemaError() from None
+                    if not root_exists:
+                        self._request(
+                            "POST",
+                            f"{self.api_prefix}/rootfolder",
+                            body={"path": self.root_path},
+                        )
+                    self._request(
+                        "PUT",
+                        f"{self.api_prefix}/downloadclient/{client_id}",
+                        body=client_payload,
+                    )
+                    actions[0] = "reuse-root-folder" if root_exists else "create-root-folder"
+                    actions.append("update-download-client")
+                    return ServarrResult(
+                        service=self.service, status="ok", actions=tuple(actions)
+                    )
+            if not root_exists:
+                self._request(
+                    "POST",
+                    f"{self.api_prefix}/rootfolder",
+                    body={"path": self.root_path},
+                )
+                actions[0] = "create-root-folder"
+            actions.append("reuse-download-client")
+            return ServarrResult(service=self.service, status="ok", actions=tuple(actions))
+
+        if not test_client(client_payload):
+            return guided_test_failure()
+
         if not root_exists:
-            self._request("POST", f"{self.api_prefix}/rootfolder", body={"path": self.root_path})
+            self._request(
+                "POST",
+                f"{self.api_prefix}/rootfolder",
+                body={"path": self.root_path},
+            )
         actions[0] = "reuse-root-folder" if root_exists else "create-root-folder"
         if existing is None:
-            self._request("POST", f"{self.api_prefix}/downloadclient", body=client_payload)
+            self._request(
+                "POST", f"{self.api_prefix}/downloadclient", body=client_payload
+            )
             actions.append("create-download-client")
         else:
             client_id = existing.get("id")
             if client_id is None:
                 raise ServarrSchemaError() from None
-            self._request("PUT", f"{self.api_prefix}/downloadclient/{client_id}", body=client_payload)
+            self._request(
+                "PUT",
+                f"{self.api_prefix}/downloadclient/{client_id}",
+                body=client_payload,
+            )
             actions.append("update-download-client")
         return ServarrResult(service=self.service, status="ok", actions=tuple(actions))
+
 
     def configure(self, *, confirm: bool = False, dry_run: bool = False) -> ServarrResult:
         if dry_run:

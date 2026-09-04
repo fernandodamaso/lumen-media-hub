@@ -449,7 +449,7 @@ class ComposeNetworkBindingTests(unittest.TestCase):
 
         environment = services["homepage-actions"]["environment"]
         self.assertEqual(environment["JELLYFIN_EXTERNAL_URL"], "http://media.example.test:18096")
-        self.assertEqual(environment["QBITTORRENT_EXTERNAL_URL"], "http://media.example.test:18081")
+        self.assertEqual(environment["QBITTORRENT_EXTERNAL_URL"], "http://127.0.0.1:18081")
 
     def test_disjoint_download_path_is_shared_at_downloads_for_qbittorrent_and_arrs(self):
         services = self._compose_config()

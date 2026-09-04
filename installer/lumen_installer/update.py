@@ -1191,9 +1191,7 @@ def run_rollback(
     callback_factory: Callable[[UpdateManifest], tuple[Callback | None, Callback | None]]
     | None = None,
 ) -> dict[str, object]:
-    if dry_run:
-        return {"action": "rollback", "dry_run": True, "run_id": _safe_run_id(run_id)}
-    if not confirm:
+    if not dry_run and not confirm:
         raise InvalidInputError("rollback requires confirmation")
 
     safe_run_id = _safe_run_id(run_id)
@@ -1269,6 +1267,9 @@ def run_rollback(
         raise
     except (OSError, ValueError, TypeError) as exc:
         raise RollbackValidationError("rollback image metadata is invalid") from exc
+
+    if dry_run:
+        return {"action": "rollback", "dry_run": True, "run_id": safe_run_id}
 
     _ensure_private_dir(state.parent)
     _ensure_private_dir(state)

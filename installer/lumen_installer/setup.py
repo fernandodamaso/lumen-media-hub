@@ -27,7 +27,7 @@ from typing import Any
 
 import fcntl
 
-from .commands import CommandExecutionError, CommandResult, CommandRunner
+from .commands import CommandExecutionError, CommandResult, CommandRunner, LONG_COMMAND_TIMEOUT
 from .compose import (
     ComposeOptions,
     build as compose_build,
@@ -955,6 +955,16 @@ def _run_foundation_unlocked(
         interactive=interactive,
         prompt=prompt,
     )
+    fresh_setup = not bool(original_doc.values)
+    seeded_qbt = seeded_doc.get("QBT_PASSWORD")
+    qbt_placeholder = (
+        isinstance(seeded_qbt, str)
+        and seeded_qbt.strip().casefold() in {"changeme", "change-me", "password", "default"}
+    )
+    if fresh_setup and qbt_placeholder and not input_values.get("QBT_PASSWORD"):
+        input_values["QBT_PASSWORD"] = Resolver(noninteractive=not interactive).get(
+            "QBT_PASSWORD", {}, process_environment, answer_values, prompt
+        )
 
     env_plan: EnvironmentPlan = plan_environment(
         seeded_doc,
@@ -974,10 +984,30 @@ def _run_foundation_unlocked(
         if not dry_run:
             active_journal.complete("environment")
 
+    selected_network_mode = network_mode if network_mode is not None else input_values.get("NETWORK_MODE")
+    selected_public_host = public_host if public_host is not None else input_values.get("PUBLIC_HOST")
+    legacy_network = bool(original_doc.values) and not bool(original_doc.get("JELLYFIN_BIND_ADDRESS"))
+    if selected_network_mode is None and legacy_network and interactive and prompt is not None:
+        selected_network_mode = Resolver(
+            defaults={"NETWORK_MODE": "preserve-lan"}, noninteractive=False
+        ).get("NETWORK_MODE", {}, process_environment, answer_values, prompt)
+    if (
+        selected_network_mode in {"lan", "preserve-lan"}
+        and selected_public_host is None
+        and interactive
+        and prompt is not None
+    ):
+        defaults = {}
+        existing_public = original_doc.get("PUBLIC_HOST")
+        if isinstance(existing_public, str) and existing_public.strip():
+            defaults["PUBLIC_HOST"] = existing_public.strip()
+        selected_public_host = Resolver(defaults=defaults, noninteractive=False).get(
+            "PUBLIC_HOST", {}, process_environment, answer_values, prompt
+        )
     network_plan = plan_network(
         original_doc,
-        network_mode if network_mode is not None else input_values.get("NETWORK_MODE"),
-        public_host if public_host is not None else input_values.get("PUBLIC_HOST"),
+        selected_network_mode,
+        selected_public_host,
         interactive,
     )
     for key, value in network_plan.values.items():
@@ -1007,6 +1037,7 @@ def _run_foundation_unlocked(
             repo_root=root,
             uid=facts.uid,
             gid=facts.gid,
+            required_free_gib=env_plan.document.get("MIN_FREE_SPACE_GIB") or 0,
             dry_run=dry_run,
         )
     if not active_journal.is_complete("storage"):
@@ -1489,7 +1520,7 @@ def run_frontend_dev(
     command_runner = runner if runner is not None else CommandRunner()
     npm_argv = ("npm", "ci")
     if not dry_run:
-        command_runner.run(npm_argv, cwd=str(dashboard))
+        command_runner.run(npm_argv, cwd=str(dashboard), timeout=LONG_COMMAND_TIMEOUT)
         node_result = command_runner.run(("node", "--version"), cwd=str(dashboard))
         package_path = dashboard / "node_modules" / "@angular" / "cli" / "package.json"
         try:
@@ -1593,7 +1624,12 @@ def doctor_diagnostics(
         storage_values = (values.get("ROOT_PATH"), values.get("DOWNLOADS_PATH"))
         if all(storage_values):
             try:
-                checked = validate_storage(*storage_values, repo_root=root, dry_run=True)
+                checked = validate_storage(
+                    *storage_values,
+                    repo_root=root,
+                    required_free_gib=values.get("MIN_FREE_SPACE_GIB") or 0,
+                    dry_run=True,
+                )
                 storage_detail = checked.report
                 report["storage"] = storage_detail
                 storage_code = detail_code(storage_detail, default=2)

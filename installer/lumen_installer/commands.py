@@ -20,6 +20,7 @@ from .errors import InvalidInputError
 
 REDACTED = "<redacted>"
 DEFAULT_TIMEOUT = 30.0
+LONG_COMMAND_TIMEOUT = 1800.0
 
 
 class CommandExecutor(Protocol):
@@ -295,15 +296,24 @@ class CommandRunner:
         input_text: str | None = None,
         redact: Iterable[Any] | Any = (),
         cwd: str | None = None,
+        timeout: float | None = None,
     ) -> CommandResult:
         """Execute one vector without a shell and raise on nonzero status."""
 
         vector = _validate_argv(argv)
         secrets = _redaction_values(redact)
+        selected_timeout = self.timeout
+        if timeout is not None:
+            try:
+                selected_timeout = float(timeout)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("command timeout must be a positive finite number") from exc
+            if not math.isfinite(selected_timeout) or selected_timeout <= 0:
+                raise ValueError("command timeout must be a positive finite number")
         try:
             if self._executor is not None:
                 completed = self._invoke_executor(
-                    self._executor, vector, input_text, self.timeout, cwd
+                    self._executor, vector, input_text, selected_timeout, cwd
                 )
             else:
                 completed = subprocess.run(
@@ -313,7 +323,7 @@ class CommandRunner:
                     text=True,
                     check=False,
                     shell=False,
-                    timeout=self.timeout,
+                    timeout=selected_timeout,
                     cwd=cwd,
                 )
         except subprocess.TimeoutExpired as exc:
@@ -324,7 +334,7 @@ class CommandRunner:
                 stderr=exc.stderr,
                 redact=secrets,
                 timed_out=True,
-                timeout=self.timeout,
+                timeout=selected_timeout,
             ) from exc
         except CommandExecutionError as exc:
             if exc.timed_out:
@@ -336,7 +346,7 @@ class CommandRunner:
                     stderr=exc.stderr,
                     redact=secrets,
                     timed_out=True,
-                    timeout=self.timeout,
+                    timeout=selected_timeout,
                 ) from exc
             raise CommandExecutionError(
                 f"could not execute {vector[0]}: {exc}",
@@ -378,6 +388,7 @@ __all__ = [
     "CommandExecutor",
     "CommandExecutionError",
     "CommandResult",
+    "LONG_COMMAND_TIMEOUT",
     "CommandRunner",
     "DEFAULT_TIMEOUT",
     "REDACTED",

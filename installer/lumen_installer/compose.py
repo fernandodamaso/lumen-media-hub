@@ -8,13 +8,14 @@ options.
 
 from __future__ import annotations
 
+import inspect
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .commands import CommandResult, CommandRunner, normalize_stream
+from .commands import CommandResult, CommandRunner, LONG_COMMAND_TIMEOUT, normalize_stream
 from .errors import InvalidInputError
 from .state import KNOWN_GPU_MODES, KNOWN_PROFILES
 
@@ -245,13 +246,24 @@ def run_compose(
     options: ComposeOptions,
     *command: str,
     redact: Sequence[Any] = (),
+    timeout: float | None = None,
 ) -> CommandResult:
     """Execute one safe Compose command through the injected runner."""
 
     argv = options.argv(repo_root, env_file, *command)
+    kwargs: dict[str, Any] = {}
     if redact:
-        return runner.run(argv, redact=redact)
-    return runner.run(argv)
+        kwargs["redact"] = redact
+    if timeout is not None:
+        try:
+            parameters = tuple(inspect.signature(runner.run).parameters.values())
+        except (TypeError, ValueError):
+            parameters = ()
+        if "timeout" in {parameter.name for parameter in parameters} or any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters
+        ):
+            kwargs["timeout"] = timeout
+    return runner.run(argv, **kwargs)
 
 
 def config(
@@ -284,7 +296,7 @@ def pull(
     names = tuple(services)
     if not names or any(not isinstance(item, str) or not item for item in names):
         raise InvalidInputError("Compose pull requires service names")
-    return run_compose(runner, repo_root, env_file, options, "pull", *names, redact=redact)
+    return run_compose(runner, repo_root, env_file, options, "pull", *names, redact=redact, timeout=LONG_COMMAND_TIMEOUT)
 
 
 def build(
@@ -299,7 +311,7 @@ def build(
     names = tuple(services)
     if not names or any(not isinstance(item, str) or not item for item in names):
         raise InvalidInputError("Compose build requires service names")
-    return run_compose(runner, repo_root, env_file, options, "build", *names, redact=redact)
+    return run_compose(runner, repo_root, env_file, options, "build", *names, redact=redact, timeout=LONG_COMMAND_TIMEOUT)
 
 
 def up(
@@ -319,7 +331,7 @@ def up(
     if force_recreate:
         command.append("--force-recreate")
     command.extend(tuple(services))
-    return run_compose(runner, repo_root, env_file, options, *command, redact=redact)
+    return run_compose(runner, repo_root, env_file, options, *command, redact=redact, timeout=LONG_COMMAND_TIMEOUT)
 
 
 def down(

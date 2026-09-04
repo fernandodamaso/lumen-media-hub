@@ -289,12 +289,26 @@ class QbittorrentClientRegressionTests(unittest.TestCase):
         self.assertEqual(getattr(prowlarr.adapter, "_qbit_port", None), 18081)
 
     def test_servarr_updates_a_masked_existing_qbittorrent_credential(self):
-        transport = _Transport()
+        class CredentialTransport(_Transport):
+            def __init__(self):
+                super().__init__()
+                self.tests = 0
+
+            def request(self, method, url, **kwargs):
+                self.calls.append((method, url, kwargs))
+                if method == "POST" and url.endswith("/downloadclient/test"):
+                    self.tests += 1
+                    if self.tests == 1:
+                        return {"status": 400, "body": {}}
+                return {"status": 200, "body": {}}
+
+        transport = CredentialTransport()
         adapter = SonarrAdapter(
             "http://127.0.0.1:8989",
             transport,
             api_key="sonarr-key",
             qbit_password="new-password",
+            verify_qbit_client=True,
         )
         fields = [
             {"name": "host", "value": "qbittorrent"},
@@ -318,11 +332,26 @@ class QbittorrentClientRegressionTests(unittest.TestCase):
         self.assertTrue(any(method == "PUT" and url.endswith("/downloadclient/7") for method, url, _ in transport.calls))
 
     def test_prowlarr_updates_a_masked_existing_qbittorrent_credential(self):
+        class CredentialTransport(_Transport):
+            def __init__(self):
+                super().__init__()
+                self.tests = 0
+
+            def request(self, method, url, **kwargs):
+                self.calls.append((method, url, kwargs))
+                if method == "POST" and url.endswith("/downloadclient/test"):
+                    self.tests += 1
+                    if self.tests == 1:
+                        return {"status": 400, "body": {}}
+                return {"status": 200, "body": {}}
+
+        transport = CredentialTransport()
         adapter = ProwlarrAdapter(
             "http://127.0.0.1:9696",
-            _Transport(),
+            transport,
             api_key="prowlarr-key",
             qbit_password="new-password",
+            verify_qbit_client=True,
         )
         fields = [
             {"name": "host", "value": "qbittorrent"},
@@ -331,7 +360,11 @@ class QbittorrentClientRegressionTests(unittest.TestCase):
             {"name": "password", "value": "********"},
         ]
         plan = adapter._qbit_plan({"fields": fields}, {"id": 9, "fields": fields})
-        self.assertEqual(plan.action, "update-download-client")
+        result = adapter._apply_plans((plan,), confirm=False)
+        self.assertIn("update-download-client", result.actions)
+        self.assertEqual(
+            [call[0] for call in transport.calls], ["POST", "POST", "PUT"]
+        )
 
 
 class NetworkLinkRegressionTests(unittest.TestCase):

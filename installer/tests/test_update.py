@@ -746,20 +746,29 @@ class UpdateOperationTests(unittest.TestCase):
     def test_rollback_dry_run_is_read_only_even_without_confirmation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            manifest, _ = self._manifest(root)
+            updated = self._update(root, manifest)
             calls = []
             result = run_rollback(
                 root,
-                "run-7",
+                updated["run_id"],
                 False,
                 lambda: calls.append("stop"),
                 lambda: calls.append("start"),
                 dry_run=True,
             )
             self.assertEqual(
-                {"action": "rollback", "dry_run": True, "run_id": "run-7"}, result
+                {
+                    "action": "rollback",
+                    "dry_run": True,
+                    "run_id": updated["run_id"],
+                },
+                result,
             )
             self.assertEqual([], calls)
-            self.assertFalse((root / ".state").exists())
+            self.assertFalse(
+                (root / ".state" / "installer" / "failed-runs").exists()
+            )
 
     def test_rollback_rejects_every_symlinked_state_boundary_without_callbacks(self):
         boundaries = (

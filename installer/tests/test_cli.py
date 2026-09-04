@@ -147,12 +147,17 @@ class CliContractTests(unittest.TestCase):
 
     def test_update_rollback_dry_run_is_read_only(self):
         output = io.StringIO()
-        with mock.patch.object(cli, "run_rollback") as run_rollback:
+        with mock.patch.object(
+            cli,
+            "run_rollback",
+            return_value={"action": "rollback", "dry_run": True, "run_id": "run-7"},
+        ) as run_rollback:
             with contextlib.redirect_stdout(output):
                 result = cli.main(["update", "--rollback", "run-7", "--dry-run"])
 
         self.assertEqual(result, int(ExitCode.OK))
-        run_rollback.assert_not_called()
+        run_rollback.assert_called_once()
+        self.assertTrue(run_rollback.call_args.kwargs["dry_run"])
         report = json.loads(output.getvalue())
         self.assertEqual(report["action"], "rollback")
         self.assertEqual(report["run_id"], "run-7")
@@ -670,7 +675,7 @@ class CliContractTests(unittest.TestCase):
                 " ".join(calls[0]),
             )
             pull("run-1")
-            with mock.patch.object(cli, "wait_for_health"):
+            with mock.patch.object(cli, "wait_for_stack_health"):
                 recreate("run-1")
 
             # A build-only service has no pullable image but is still present
@@ -766,7 +771,7 @@ class CliContractTests(unittest.TestCase):
             tag, pull, recreate = cli._update_callbacks(root, manifest, args, runner)
             tags = tag("run-1")
             pull("run-1")
-            with mock.patch.object(cli, "wait_for_health") as health:
+            with mock.patch.object(cli, "wait_for_stack_health") as health:
                 recreate("run-1")
             self.assertEqual("lumen-rollback/dashboard:run-1", tags["dashboard"])
             commands = [" ".join(command) for command in calls]
@@ -775,7 +780,7 @@ class CliContractTests(unittest.TestCase):
             self.assertTrue(any("build dashboard" in command for command in commands))
             self.assertTrue(any("up -d --force-recreate" in command for command in commands))
             self.assertTrue(all("--remove-orphans" not in command for command in commands))
-            health.assert_called_once_with()
+            health.assert_called_once()
 
     def test_rollback_callbacks_stop_named_services_and_use_override_without_orphans(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -806,7 +811,7 @@ class CliContractTests(unittest.TestCase):
                 root, manifest, SimpleNamespace(dev=False), runner
             )
             stop("run-2")
-            with mock.patch.object(cli, "wait_for_health") as health:
+            with mock.patch.object(cli, "wait_for_stack_health") as health:
                 start("run-2")
             self.assertIn("stop", calls[0])
             self.assertIn("api", calls[0])
@@ -816,7 +821,7 @@ class CliContractTests(unittest.TestCase):
             self.assertIn("up", calls[1])
             self.assertIn("--force-recreate", calls[1])
             self.assertTrue(all("--remove-orphans" not in call for call in calls))
-            health.assert_called_once_with()
+            health.assert_called_once()
 
     def test_update_and_rollback_callbacks_honor_ordered_compose_file_selection(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -864,11 +869,11 @@ class CliContractTests(unittest.TestCase):
             runner = cli.CommandRunner(executor=execute)
             tag, pull, recreate = cli._update_callbacks(root, manifest, args, runner)
             pull("run-1")
-            with mock.patch.object(cli, "wait_for_health"):
+            with mock.patch.object(cli, "wait_for_stack_health"):
                 recreate("run-1")
             stop, start = cli._rollback_callbacks(root, manifest, args, runner)
             stop("run-1")
-            with mock.patch.object(cli, "wait_for_health"):
+            with mock.patch.object(cli, "wait_for_stack_health"):
                 start("run-1")
 
             expected_files = (str(base), str(override))
@@ -959,7 +964,7 @@ class CliContractTests(unittest.TestCase):
         )()
         configured_options = []
 
-        def configure_boundary(*, options, interactive, dry_run):
+        def configure_boundary(*, options, interactive, dry_run, prompt=None):
             configured_options.append(options)
             with tempfile.TemporaryDirectory() as temporary:
                 return configure_module.run_configure(
@@ -971,6 +976,7 @@ class CliContractTests(unittest.TestCase):
                     direct_health=lambda: True,
                     proxy_health=lambda: True,
                     interactive=interactive,
+                    prompt=prompt,
                     dry_run=dry_run,
                 )
 

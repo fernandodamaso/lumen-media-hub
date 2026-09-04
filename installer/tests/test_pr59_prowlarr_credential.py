@@ -10,17 +10,28 @@ from lumen_installer.services.prowlarr import ProwlarrAdapter
 
 
 class _Transport:
+    def __init__(self):
+        self.calls = []
+        self.tests = 0
+
     def request(self, method, url, **kwargs):
+        self.calls.append((method, url, kwargs))
+        if method == "POST" and url.endswith("/downloadclient/test"):
+            self.tests += 1
+            if self.tests == 1:
+                return {"status": 400, "body": {}}
         return {"status": 200, "body": {}}
 
 
 class ProwlarrCredentialRegressionTests(unittest.TestCase):
     def test_omitted_existing_password_is_retested_and_updated(self):
+        transport = _Transport()
         adapter = ProwlarrAdapter(
             "http://127.0.0.1:9696",
-            _Transport(),
+            transport,
             api_key="prowlarr-key",
             qbit_password="new-password",
+            verify_qbit_client=True,
         )
         fields = [
             {"name": "host", "value": "qbittorrent"},
@@ -30,8 +41,10 @@ class ProwlarrCredentialRegressionTests(unittest.TestCase):
         ]
 
         plan = adapter._qbit_plan({"fields": fields}, {"id": 9, "fields": fields})
+        result = adapter._apply_plans((plan,), confirm=False)
 
-        self.assertEqual(plan.action, "update-download-client")
+        self.assertIn("update-download-client", result.actions)
+        self.assertEqual([call[0] for call in transport.calls], ["POST", "POST", "PUT"])
 
 
 if __name__ == "__main__":

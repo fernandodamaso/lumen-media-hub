@@ -89,6 +89,7 @@ _TRANSIENT_ENV_KEYS = frozenset(
         "JELLYFIN_USERNAME",
         "JELLYFIN_PASSWORD",
         "QBT_CURRENT_PASSWORD",
+        "_LUMEN_QBT_CREDENTIAL_REFRESH",
     }
 )
 
@@ -757,6 +758,11 @@ def build_adapter_factory(
                 selected_transport,
                 api_key=api_key,
                 qbit_password=password,
+                qbit_port=_service_port(current_environment, "qbittorrent"),
+                verify_qbit_client=(
+                    _configured_value(current_environment, "_LUMEN_QBT_CREDENTIAL_REFRESH")
+                    == "true"
+                ),
                 sonarr_api_key=_configured_value(current_environment, "SONARR_API_KEY"),
                 radarr_api_key=_configured_value(current_environment, "RADARR_API_KEY"),
                 generic_torznab_url=torznab_url if torznab_configured else None,
@@ -777,6 +783,11 @@ def build_adapter_factory(
                 "JELLYFIN_ADMIN_PASSWORD",
                 "JELLYFIN_PASSWORD",
             )
+            if interactive and not dry_run and prompt is not None:
+                if name is None:
+                    name = _call_with_keywords(prompt, "JELLYFIN_ADMIN_NAME", default="admin")
+                if password is None:
+                    password = _call_with_keywords(prompt, "JELLYFIN_ADMIN_PASSWORD", default=None)
             bind = _configured_value(environment, "JELLYFIN_BIND_ADDRESS")
             remote = _configured_value(environment, "JELLYFIN_REMOTE_ACCESS")
             network_state = "lan" if remote and remote.casefold() in {"1", "true", "yes", "on"} else "local"
@@ -830,6 +841,11 @@ def build_adapter_factory(
                 selected_transport,
                 api_key=api_key,
                 qbit_password=password or "",
+                qbit_port=_service_port(environment, "qbittorrent"),
+                verify_qbit_client=(
+                    _configured_value(environment, "_LUMEN_QBT_CREDENTIAL_REFRESH")
+                    == "true"
+                ),
             )
         if service == "prowlarr":
             return prowlarr_reconciler(environment)
@@ -1136,6 +1152,14 @@ def _run_configure_unlocked(
             environment=working_environment,
             dry_run=dry_run,
         )
+        if service == "qbittorrent" and not dry_run:
+            result_actions = (
+                result.get("actions", ())
+                if isinstance(result, Mapping)
+                else getattr(result, "actions", ())
+            )
+            if "set-password" in result_actions and "verify-password" in result_actions:
+                working_environment["_LUMEN_QBT_CREDENTIAL_REFRESH"] = "true"
         update = _environment_update(result)
         if update:
             working_environment.update(update)

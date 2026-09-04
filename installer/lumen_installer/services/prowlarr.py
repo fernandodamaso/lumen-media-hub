@@ -478,6 +478,8 @@ class _ResourcePlan:
     action: str
     drift: tuple[ServiceDrift, ...] = ()
     existing_id: Any = None
+    verify_existing: bool = False
+    verification_payload: dict[str, Any] | None = None
 
     @property
     def mutating(self) -> bool:
@@ -499,6 +501,8 @@ class ProwlarrAdapter:
         root: os.PathLike[str] | str | None = None,
         qbit_password: str | None = None,
         password: str | None = None,
+        qbit_port: int = DEFAULT_QBIT_PORT,
+        verify_qbit_client: bool = False,
         sonarr_api_key: str | None = None,
         radarr_api_key: str | None = None,
         sonarr_key: str | None = None,
@@ -542,6 +546,10 @@ class ProwlarrAdapter:
         self._qbit_password = _secret(selected_qbit_password)
         if self._qbit_password is None:
             raise InvalidInputError("qBittorrent password is required")
+        if isinstance(qbit_port, bool) or not isinstance(qbit_port, int) or not 1 <= qbit_port <= 65535:
+            raise InvalidInputError("qBittorrent port is invalid")
+        self._qbit_port = qbit_port
+        self._verify_qbit_client = bool(verify_qbit_client)
 
         key_sources = [application_api_keys, app_api_keys]
         for source in key_sources:
@@ -813,10 +821,14 @@ class ProwlarrAdapter:
                 drift.append(ServiceDrift(resource=resource, field=actual, reason="managed field differs"))
         return tuple(drift)
 
-    def _qbit_plan(self, schema: Mapping[str, Any], existing: Mapping[str, Any] | None) -> _ResourcePlan:
+    def _qbit_plan(
+        self,
+        schema: Mapping[str, Any],
+        existing: Mapping[str, Any] | None,
+    ) -> _ResourcePlan:
         desired = {
             ("host", "hostname", "server"): DEFAULT_QBIT_HOST,
-            ("port",): DEFAULT_QBIT_PORT,
+            ("port",): self._qbit_port,
             ("username", "user"): DEFAULT_QBIT_USERNAME,
             ("password", "pass"): self._qbit_password,
         }
@@ -825,7 +837,11 @@ class ProwlarrAdapter:
                 schema,
                 desired,
                 default_name="qBittorrent",
-                defaults={"implementation": "QBittorrent", "configContract": "QBittorrentSettings", "enable": True},
+                defaults={
+                    "implementation": "QBittorrent",
+                    "configContract": "QBittorrentSettings",
+                    "enable": True,
+                },
             )
             return _ResourcePlan(
                 resource="download-client",
@@ -835,21 +851,31 @@ class ProwlarrAdapter:
                 payload=payload,
                 action="create-download-client",
             )
+
         fields = existing.get("fields")
-        # Prowlarr commonly masks or omits an existing password.  Do not turn
-        # that unknown value into a conflict; a known non-empty value is still
-        # protected by the normal managed-field confirmation gate.
-        drift = self._resource_drift(
-            "download-client",
-            fields,
-            desired,
-            ignore_unknown=("password", "pass"),
-        )
-        payload = self._payload_from_existing(existing, schema, desired)
-        if not drift:
-            action = "reuse-download-client"
+        if self._verify_qbit_client:
+            non_secret_desired = {
+                aliases: value
+                for aliases, value in desired.items()
+                if not {"password", "pass"}.intersection(
+                    {_normalized_name(alias) for alias in aliases}
+                )
+            }
+            drift = self._resource_drift(
+                "download-client", fields, non_secret_desired
+            )
         else:
-            action = "update-download-client"
+            # GET responses commonly mask or omit the stored password. Keep the
+            # established no-op behavior unless this configure transaction has
+            # actually reset qBittorrent and requested a live credential check.
+            drift = self._resource_drift(
+                "download-client",
+                fields,
+                desired,
+                ignore_unknown=("password", "pass"),
+            )
+        payload = self._payload_from_existing(existing, schema, desired)
+        action = "reuse-download-client" if not drift else "update-download-client"
         return _ResourcePlan(
             resource="download-client",
             create_path=f"{self.api_prefix}/downloadclient",
@@ -863,7 +889,10 @@ class ProwlarrAdapter:
             action=action,
             drift=drift,
             existing_id=existing.get("id"),
+            verify_existing=self._verify_qbit_client and not drift,
+            verification_payload=dict(existing) if self._verify_qbit_client and not drift else None,
         )
+
 
     def _application_plan(
         self,
@@ -1085,6 +1114,41 @@ class ProwlarrAdapter:
 
         completed: list[str] = []
         for resource_plan in plans:
+            if resource_plan.verify_existing:
+                try:
+                    self._request(
+                        "POST",
+                        resource_plan.test_path,
+                        body=resource_plan.verification_payload,
+                    )
+                except (HttpStatusError, HttpTransportError, ProwlarrError):
+                    try:
+                        self._request(
+                            "POST",
+                            resource_plan.test_path,
+                            body=resource_plan.payload,
+                        )
+                    except (HttpStatusError, HttpTransportError, ProwlarrError):
+                        return self._guided(
+                            code=f"prowlarr-{resource_plan.resource}-test",
+                            reason="The Prowlarr resource test failed; review the service and retry.",
+                            action="retry",
+                            error=ProwlarrTestError(
+                                code=f"prowlarr-{resource_plan.resource}-test"
+                            ),
+                            actions=tuple(completed),
+                        )
+                    if resource_plan.update_path is None:
+                        raise ProwlarrSchemaError() from None
+                    self._request(
+                        "PUT",
+                        resource_plan.update_path,
+                        body=resource_plan.payload,
+                    )
+                    completed.append("update-download-client")
+                else:
+                    completed.append("reuse-download-client")
+                continue
             if not resource_plan.mutating:
                 completed.append(resource_plan.action)
                 continue
@@ -1106,6 +1170,7 @@ class ProwlarrAdapter:
             actions=tuple(completed),
             api_key=self._api_key,
         )
+
 
     def configure(
         self,

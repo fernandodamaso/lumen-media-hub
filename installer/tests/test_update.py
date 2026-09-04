@@ -17,6 +17,12 @@ from lumen_installer.errors import InvalidInputError
 
 
 class UpdateManifestTests(unittest.TestCase):
+    @staticmethod
+    def _compose(root, contents="services:\n  api:\n    image: registry.example/api:stable\n"):
+        compose = root / "docker-compose.yml"
+        compose.write_text(contents, encoding="utf-8")
+        return compose
+
     def test_rejects_local_image_ids_for_registry_services(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -105,7 +111,15 @@ class UpdateManifestTests(unittest.TestCase):
                     {"dashboard": "local-id"},
                     ["requests"],
                     False,
-                    [root / "docker-compose.yml"],
+                    [
+                        self._compose(
+                            root,
+                            "services:\n"
+                            "  dashboard:\n"
+                            "    build: .\n"
+                            "    image: registry.example/dashboard:latest\n",
+                        )
+                    ],
                 )
                 serialized = manifest.to_dict()
                 serialized_paths = json.dumps(serialized)
@@ -181,6 +195,108 @@ class UpdateManifestTests(unittest.TestCase):
                         UpdateManifest.from_inputs(
                             runtime_paths={"runtime": candidate}, **common
                         )
+
+    def test_rejects_operational_installer_paths_as_runtime_inputs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            state = root / ".state" / "installer"
+            common = {
+                "env_path": root / ".env",
+                "image_refs": {"api": "registry.example/api:stable"},
+                "repo_digests": {"api": "sha256:" + "a" * 64},
+                "local_image_ids": {},
+                "profiles": [],
+                "gpu_mode": "none",
+                "compose_files": [self._compose(root)],
+            }
+            for candidate in (
+                state / "failed-runs",
+                state / "rollback",
+                state / "updates",
+                state / "backups",
+                state / "updates" / "run-1.json",
+                state / "backups" / "run-1" / "config",
+            ):
+                with self.subTest(candidate=candidate):
+                    with self.assertRaises(ValueError):
+                        UpdateManifest.from_inputs(
+                            runtime_paths={"runtime": candidate}, **common
+                        )
+
+    def test_rejects_unknown_profiles_in_inputs_and_persisted_manifests(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = self._compose(root)
+            common = {
+                "env_path": root / ".env",
+                "runtime_paths": {},
+                "image_refs": {"api": "registry.example/api:stable"},
+                "repo_digests": {"api": "sha256:" + "a" * 64},
+                "local_image_ids": {},
+                "gpu_mode": "none",
+                "compose_files": [compose],
+            }
+            with self.assertRaises(ValueError):
+                UpdateManifest.from_inputs(profiles=["evil"], **common)
+            manifest = UpdateManifest.from_inputs(profiles=[], **common)
+            tampered = manifest.to_dict()
+            tampered["profiles"] = ["evil"]
+            with self.assertRaises(ValueError):
+                UpdateManifest.from_dict(tampered)
+
+    def test_requires_existing_compose_and_valid_build_metadata_for_local_ids(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            common = {
+                "env_path": root / ".env",
+                "runtime_paths": {},
+                "image_refs": {"built": "local/built:local"},
+                "repo_digests": {},
+                "local_image_ids": {"built": "sha256:built"},
+                "profiles": [],
+                "gpu_mode": "none",
+            }
+            with self.assertRaises(ValueError):
+                UpdateManifest.from_inputs(
+                    compose_files=[root / "docker-compose.yml"], **common
+                )
+            malformed = root / "docker-compose.yml"
+            malformed.write_text(
+                "services:\n  built:\n    build:\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                UpdateManifest.from_inputs(compose_files=[malformed], **common)
+
+    def test_local_build_override_requires_verified_rollback_tag(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = self._compose(
+                root,
+                "services:\n"
+                "  built:\n"
+                "    build: .\n"
+                "    image: local/built:local\n",
+            )
+            manifest = UpdateManifest.from_inputs(
+                root / ".env",
+                {},
+                {"built": "local/built:local"},
+                {},
+                {"built": "sha256:built"},
+                [],
+                "none",
+                [compose],
+            )
+            with self.assertRaises(InvalidInputError):
+                render_rollback_override(manifest, "run-1", {"built"})
+            with self.assertRaises(InvalidInputError):
+                render_rollback_override(
+                    manifest,
+                    "run-1",
+                    {"built"},
+                    {"built": "lumen-rollback/built:wrong"},
+                )
 
     def test_validates_immutable_digest_forms_and_requires_registry_digests(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -272,6 +388,15 @@ class UpdateOperationTests(unittest.TestCase):
         config = root / "config" / "service.conf"
         config.parent.mkdir()
         config.write_text("before", encoding="utf-8")
+        (root / "docker-compose.yml").write_text(
+            "services:\n"
+            "  dashboard:\n"
+            "    build: .\n"
+            "    image: registry.example/dashboard:latest\n"
+            "  api:\n"
+            "    image: registry.example/api:stable\n",
+            encoding="utf-8",
+        )
         os.environ["ROOT_PATH"] = str(media)
         os.environ["DOWNLOADS_PATH"] = str(downloads)
         self.addCleanup(os.environ.pop, "ROOT_PATH", None)
@@ -287,11 +412,26 @@ class UpdateOperationTests(unittest.TestCase):
             [root / "docker-compose.yml"],
         ), config
 
+    @staticmethod
+    def _update(root, manifest, **kwargs):
+        kwargs.setdefault(
+            "tag_callback",
+            lambda run_id: {
+                "dashboard": f"lumen-rollback/dashboard:{run_id}"
+            },
+        )
+        return run_update(root, manifest, False, True, **kwargs)
+
     def test_render_rollback_override_uses_registry_and_local_refs_without_pull_or_build(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             manifest, _ = self._manifest(root)
-            rendered = render_rollback_override(manifest, "run-7", {"dashboard"})
+            rendered = render_rollback_override(
+                manifest,
+                "run-7",
+                {"dashboard"},
+                {"dashboard": "lumen-rollback/dashboard:run-7"},
+            )
             self.assertIn("image: registry.example/api@sha256:" + "2" * 64, rendered)
             self.assertIn("image: lumen-rollback/dashboard:run-7", rendered)
             self.assertIn("pull_policy: never", rendered)
@@ -353,6 +493,108 @@ class UpdateOperationTests(unittest.TestCase):
             self.assertTrue((root / ".state" / "installer" / "backups" / result["run_id"] / "config" / "service.conf").is_file())
             self.assertEqual("before", config.read_text(encoding="utf-8"))
 
+    def test_update_records_absent_manifest_paths_and_rolls_back_new_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, _ = self._manifest(root)
+            new_path = root / "config" / "created-after-update.json"
+            manifest = UpdateManifest.from_inputs(
+                manifest.env_path,
+                {"config": root / "config" / "service.conf", "new": new_path},
+                manifest.image_refs,
+                manifest.repo_digests,
+                manifest.local_image_ids,
+                manifest.profiles,
+                manifest.gpu_mode,
+                manifest.compose_files,
+            )
+            updated = self._update(root, manifest)
+            record_path = Path(updated["record"])
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            entries = {entry["path"]: entry for entry in record["backup_entries"]}
+            absent = entries["config/created-after-update.json"]
+            self.assertFalse(absent["present"])
+            self.assertEqual({"kind": "absent"}, absent["inventory"])
+            self.assertFalse(
+                (Path(updated["backup"]) / absent["backup"]).exists()
+            )
+
+            new_path.write_text("created by failed update", encoding="utf-8")
+            run_rollback(root, updated["run_id"], True)
+            self.assertFalse(new_path.exists())
+            failed_path = (
+                root
+                / ".state"
+                / "installer"
+                / "failed-runs"
+                / updated["run_id"]
+                / "config"
+                / "created-after-update.json"
+            )
+            self.assertEqual("created by failed update", failed_path.read_text(encoding="utf-8"))
+
+    def test_rollback_rejects_deleted_manifest_entry_before_stop_or_live_move(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, config = self._manifest(root)
+            updated = self._update(root, manifest)
+            record_path = Path(updated["record"])
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            record["backup_entries"].pop()
+            record_path.write_text(json.dumps(record), encoding="utf-8")
+            config.write_text("must remain live", encoding="utf-8")
+            calls = []
+            with self.assertRaises(InvalidInputError):
+                run_rollback(
+                    root,
+                    updated["run_id"],
+                    True,
+                    lambda: calls.append("stop"),
+                    lambda: calls.append("start"),
+                )
+            self.assertEqual([], calls)
+            self.assertEqual("must remain live", config.read_text(encoding="utf-8"))
+
+    def test_rollback_rejects_extra_backup_entry_before_stop_or_live_move(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, config = self._manifest(root)
+            updated = run_update(
+                root,
+                manifest,
+                False,
+                True,
+                tag_callback=lambda run_id: {
+                    "dashboard": f"lumen-rollback/dashboard:{run_id}"
+                },
+            )
+            record_path = Path(updated["record"])
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            backup_dir = Path(updated["backup"])
+            extra = backup_dir / "unexpected"
+            extra.write_text("must not be accepted", encoding="utf-8")
+            record["backup_entries"].append(
+                {
+                    "path": "unexpected",
+                    "backup": "unexpected",
+                    "present": True,
+                    "inventory": {"kind": "file", "file": {"sha256": "x", "size": 1}},
+                }
+            )
+            record_path.write_text(json.dumps(record), encoding="utf-8")
+            config.write_text("must remain live", encoding="utf-8")
+            calls = []
+            with self.assertRaises(InvalidInputError):
+                run_rollback(
+                    root,
+                    updated["run_id"],
+                    True,
+                    lambda: calls.append("stop"),
+                    lambda: calls.append("start"),
+                )
+            self.assertEqual([], calls)
+            self.assertEqual("must remain live", config.read_text(encoding="utf-8"))
+
     def test_update_tags_before_pull_and_records_rollback_tags(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -363,7 +605,8 @@ class UpdateOperationTests(unittest.TestCase):
                 manifest,
                 dry_run=False,
                 confirm=True,
-                tag_callback=lambda run_id: calls.append(("tag", run_id)) or {"dashboard": "rollback"},
+                tag_callback=lambda run_id: calls.append(("tag", run_id))
+                or {"dashboard": f"lumen-rollback/dashboard:{run_id}"},
                 pull_callback=lambda run_id: calls.append(("pull", run_id)),
                 recreate_callback=lambda run_id: calls.append(("recreate", run_id)),
             )
@@ -372,7 +615,10 @@ class UpdateOperationTests(unittest.TestCase):
                 [("tag", run_id), ("pull", run_id), ("recreate", run_id)], calls
             )
             record = json.loads(Path(result["record"]).read_text(encoding="utf-8"))
-            self.assertEqual({"dashboard": "rollback"}, record["local_rollback_tags"])
+            self.assertEqual(
+                {"dashboard": f"lumen-rollback/dashboard:{run_id}"},
+                record["local_rollback_tags"],
+            )
 
     def test_update_lifecycle_failure_returns_partial_and_keeps_rollback_record(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -411,7 +657,7 @@ class UpdateOperationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             manifest, _ = self._manifest(root)
-            updated = run_update(root, manifest, False, True)
+            updated = self._update(root, manifest)
             calls = []
             with self.assertRaises(PermissionError):
                 run_rollback(root, updated["run_id"], False, lambda: calls.append("stop"), lambda: calls.append("start"))
@@ -443,7 +689,7 @@ class UpdateOperationTests(unittest.TestCase):
             media_file = root / "media" / "do-not-touch.mkv"
             media_file.parent.mkdir()
             media_file.write_text("media", encoding="utf-8")
-            updated = run_update(root, manifest, False, True)
+            updated = self._update(root, manifest)
             config.write_text("failed update", encoding="utf-8")
             calls = []
             result = run_rollback(
@@ -468,7 +714,7 @@ class UpdateOperationTests(unittest.TestCase):
             first_root.mkdir()
             second_root.mkdir()
             manifest, _ = self._manifest(first_root)
-            updated = run_update(first_root, manifest, False, True)
+            updated = self._update(first_root, manifest)
             source_record = Path(updated["record"])
             target_record = second_root / ".state" / "installer" / "updates" / source_record.name
             target_record.parent.mkdir(parents=True)
@@ -494,7 +740,7 @@ class UpdateOperationTests(unittest.TestCase):
             download_file.parent.mkdir()
             media_file.write_text("media", encoding="utf-8")
             download_file.write_text("download", encoding="utf-8")
-            updated = run_update(root, manifest, False, True)
+            updated = self._update(root, manifest)
             config.write_text("post-update", encoding="utf-8")
             backup_file = (
                 root
@@ -527,7 +773,7 @@ class UpdateOperationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             manifest, config = self._manifest(root)
-            updated = run_update(root, manifest, False, True)
+            updated = self._update(root, manifest)
             backup_file = (
                 root
                 / ".state"
@@ -555,7 +801,7 @@ class UpdateOperationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             manifest, _ = self._manifest(root)
-            updated = run_update(root, manifest, False, True)
+            updated = self._update(root, manifest)
             record_path = Path(updated["record"])
             record = json.loads(record_path.read_text(encoding="utf-8"))
             record["local_rollback_tags"] = {
@@ -638,7 +884,7 @@ class UpdateOperationTests(unittest.TestCase):
             download_file.parent.mkdir()
             media_file.write_text("media", encoding="utf-8")
             download_file.write_text("download", encoding="utf-8")
-            updated = run_update(root, manifest, False, True)
+            updated = self._update(root, manifest)
             env_path.write_text("post-update", encoding="utf-8")
             env_path.chmod(0o600)
             with mock.patch(

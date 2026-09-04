@@ -186,6 +186,12 @@ class CliContractTests(unittest.TestCase):
                 "    image: local/built:local\n",
                 encoding="utf-8",
             )
+            (root / "docker-compose.vaapi.yml").write_text(
+                "services:\n"
+                "  built:\n"
+                "    build: !reset null\n",
+                encoding="utf-8",
+            )
             (root / ".env").write_text("COMPOSE_PROFILES=requests\n", encoding="utf-8")
             inspected = {
                 "registry.example/core:latest": {

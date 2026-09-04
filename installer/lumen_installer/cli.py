@@ -145,6 +145,7 @@ def _setup(args: argparse.Namespace) -> int:
         public_host=getattr(args, "public_host", None),
         interactive=not bool(getattr(args, "noninteractive", False)),
         gpu_confirm=bool(getattr(args, "gpu_confirm", False)),
+        confirm=bool(getattr(args, "confirm", False)),
         dry_run=bool(getattr(args, "dry_run", False)),
     )
     configured = run_configure(
@@ -359,6 +360,14 @@ def build_parser() -> InstallerArgumentParser:
                 "--image",
                 metavar="IMAGE",
                 help="inspect a registry manifest without pulling the image",
+            )
+        if command == "setup":
+            subparser.add_argument(
+                "--confirm",
+                dest="confirm",
+                action="store_true",
+                default=argparse.SUPPRESS,
+                help="approve adopted Seerr configuration ownership changes",
             )
         if command == "update":
             subparser.add_argument(

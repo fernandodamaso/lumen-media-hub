@@ -99,6 +99,22 @@ class CliContractTests(unittest.TestCase):
         args = parser.parse_args(["configure", "--confirm"])
         self.assertTrue(args.confirm)
 
+    def test_setup_confirmation_is_explicit_and_not_a_gpu_confirmation_abbreviation(self):
+        parser = cli.build_parser()
+        args = parser.parse_args(["setup", "--confirm"])
+
+        self.assertTrue(getattr(args, "confirm", False))
+        self.assertFalse(getattr(args, "gpu_confirm", False))
+
+    def test_configure_gpu_confirmation_remains_distinct_with_legacy_alias(self):
+        parser = cli.build_parser()
+
+        for flag in ("--confirm-gpu", "--gpu-confirm"):
+            with self.subTest(flag=flag):
+                args = parser.parse_args(["configure", flag])
+                self.assertTrue(args.gpu_confirm)
+                self.assertFalse(getattr(args, "confirm", False))
+
     def test_configure_dispatch_prints_redacted_report_and_returns_result_code(self):
         fake_result = type(
             "ConfigureResult",
@@ -132,6 +148,21 @@ class CliContractTests(unittest.TestCase):
         run_configure.assert_called_once()
         self.assertIn("foundation", output.getvalue())
         self.assertIn("configure", output.getvalue())
+
+    def test_setup_forwards_public_confirmation_to_foundation(self):
+        foundation = type("FoundationResult", (), {"report": {"status": "ok"}})()
+        configured = type(
+            "ConfigureResult",
+            (),
+            {"report": {"status": "ok"}, "exit_code": 0},
+        )()
+        with mock.patch.object(cli, "run_foundation", return_value=foundation) as run_foundation, \
+             mock.patch.object(cli, "run_configure", return_value=configured):
+            result = cli.main(["setup", "--confirm"])
+
+        self.assertEqual(result, 0)
+        self.assertTrue(run_foundation.call_args.kwargs.get("confirm", False))
+        self.assertFalse(run_foundation.call_args.kwargs["gpu_confirm"])
 
     def test_setup_passes_foundation_effective_options_to_real_configure_boundary(self):
         import lumen_installer.configure as configure_module

@@ -7,6 +7,7 @@ import json
 import re
 import sys
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any, Callable
 
 from .errors import (
@@ -28,6 +29,7 @@ from .setup import (
     run_redeploy_dashboard,
     run_up,
 )
+from .trakt import run_connect_trakt
 
 
 PUBLIC_COMMANDS = (
@@ -198,6 +200,15 @@ def _configure(args: argparse.Namespace) -> int:
         options=_compose_options(args),
         interactive=not bool(getattr(args, "noninteractive", False)),
         confirm=bool(getattr(args, "confirm", False)),
+        dry_run=bool(getattr(args, "dry_run", False)),
+    )
+    print(json.dumps(_redact_report(result.report), sort_keys=True))
+    return int(result.exit_code)
+
+
+def _connect_trakt(args: argparse.Namespace) -> int:
+    result = run_connect_trakt(
+        Path.cwd(),
         dry_run=bool(getattr(args, "dry_run", False)),
     )
     print(json.dumps(_redact_report(result.report), sort_keys=True))
@@ -398,6 +409,7 @@ COMMAND_HANDLERS["down"] = _down
 COMMAND_HANDLERS["frontend-dev"] = _frontend_dev
 COMMAND_HANDLERS["redeploy-dashboard"] = _redeploy_dashboard
 COMMAND_HANDLERS["configure"] = _configure
+COMMAND_HANDLERS["connect-trakt"] = _connect_trakt
 
 
 def dispatch(args: argparse.Namespace) -> int | ExitCode | None:

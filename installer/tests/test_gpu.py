@@ -1,3 +1,4 @@
+import importlib
 import json
 import os
 import stat
@@ -26,6 +27,9 @@ from lumen_installer.gpu import (
     resolve_gpu,
 )
 from lumen_installer.platform import HostFacts
+
+
+SETUP_MODULE = importlib.import_module("lumen_installer.setup")
 
 
 class Runner:
@@ -221,8 +225,9 @@ class GpuProbeTests(unittest.TestCase):
                 gpu_mode="nvidia",
                 completed_stages=("host", "environment", "network", "storage", "preflight", "compose"),
             ).save()
-            with mock.patch(
-                "lumen_installer.setup.validate_storage",
+            with mock.patch.object(
+                SETUP_MODULE,
+                "validate_storage",
                 return_value=SimpleNamespace(report={"status": "ok"}),
             ):
                 report = doctor_diagnostics(

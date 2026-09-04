@@ -1,5 +1,6 @@
-import os
+import importlib
 import json
+import os
 import subprocess
 import stat
 import sys
@@ -31,6 +32,9 @@ from lumen_installer.setup import _compose_project_name, _lifecycle_lock
 from lumen_installer.state import InstallerState, StageJournal
 
 
+SETUP_MODULE = importlib.import_module("lumen_installer.setup")
+
+
 HOST = HostFacts(
     uid=os.getuid(), gid=os.getgid(), timezone="UTC", distro_id="ubuntu", distro_like=("debian",),
     arch="x86_64", euid=os.geteuid(), sudo_uid=None, sudo_gid=None, codename="jammy",
@@ -38,6 +42,11 @@ HOST = HostFacts(
 
 
 class SetupFoundationTests(unittest.TestCase):
+    def test_public_setup_alias_remains_callable(self):
+        import lumen_installer
+
+        self.assertIs(lumen_installer.setup, SETUP_MODULE.run_foundation)
+
     def test_requests_config_is_prepared_before_any_compose_start_mutation(self):
         events: list[str] = []
 
@@ -57,7 +66,7 @@ class SetupFoundationTests(unittest.TestCase):
             events.append("seerr-prepare")
             return SimpleNamespace(status="ok", report={"status": "ok"})
 
-        with mock.patch("lumen_installer.setup.prepare_seerr_config", create=True, side_effect=prepare):
+        with mock.patch.object(SETUP_MODULE, "prepare_seerr_config", side_effect=prepare):
             with tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 repo = root / "repo"
@@ -204,10 +213,15 @@ class SetupFoundationTests(unittest.TestCase):
                     if tuple(argv[-3:]) == ("config", "--format", "json"):
                         return CommandResult(tuple(argv), 0, '{"services":{"jellyfin":{"image":"x"}}}')
                     return CommandResult(tuple(argv), 0, "")
-            run_foundation(repo, runner=Runner(), host=HOST,
-                           options=ComposeOptions(profiles=("requests",), gpu=False),
-                           answers={"ROOT_PATH": str(media), "DOWNLOADS_PATH": str(downloads)},
-                           preflight_checker=lambda runner: DockerPreflight(status="ok"), stale_finder=lambda: (), health_probe=lambda: True)
+            with mock.patch.object(
+                SETUP_MODULE,
+                "prepare_seerr_config",
+                return_value=SimpleNamespace(status="ok", report={"status": "ok"}),
+            ):
+                run_foundation(repo, runner=Runner(), host=HOST,
+                               options=ComposeOptions(profiles=("requests",), gpu=False),
+                               answers={"ROOT_PATH": str(media), "DOWNLOADS_PATH": str(downloads)},
+                               preflight_checker=lambda runner: DockerPreflight(status="ok"), stale_finder=lambda: (), health_probe=lambda: True)
             saved = InstallerState.load(repo)
             self.assertEqual(saved.profiles, ("requests",))
             self.assertEqual(saved.gpu_mode, "none")
@@ -462,13 +476,18 @@ class SetupFoundationTests(unittest.TestCase):
                         return CommandResult(tuple(argv), 0, '{"services":{"jellyfin":{"image":"x"}}}')
                     return CommandResult(tuple(argv), 0, "")
 
-            run_foundation(
-                repo, runner=Runner(), host=HOST, stage_journal=journal,
-                options=ComposeOptions(profiles=("requests",)),
-                storage_validator=lambda *args, **kwargs: {},
-                preflight_checker=lambda runner: DockerPreflight(status="ok"),
-                stale_finder=lambda: (), health_probe=lambda: True,
-            )
+            with mock.patch.object(
+                SETUP_MODULE,
+                "prepare_seerr_config",
+                return_value=SimpleNamespace(status="ok", report={"status": "ok"}),
+            ):
+                run_foundation(
+                    repo, runner=Runner(), host=HOST, stage_journal=journal,
+                    options=ComposeOptions(profiles=("requests",)),
+                    storage_validator=lambda *args, **kwargs: {},
+                    preflight_checker=lambda runner: DockerPreflight(status="ok"),
+                    stale_finder=lambda: (), health_probe=lambda: True,
+                )
             self.assertEqual(InstallerState.load(repo).profiles, ("requests",))
 
     def test_supplied_journal_unchanged_completed_state_is_a_noop(self):
@@ -537,7 +556,7 @@ class SetupFoundationTests(unittest.TestCase):
     def test_doctor_status_maps_drift(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary) / "repo"; repo.mkdir(); (repo / ".git").mkdir()
-            with mock.patch("lumen_installer.setup.plan_network", side_effect=DriftError("choose exposure")):
+            with mock.patch.object(SETUP_MODULE, "plan_network", side_effect=DriftError("choose exposure")):
                 report = doctor_diagnostics(repo)
             self.assertEqual(report["status"], "needs-attention")
             self.assertEqual(report["exit_code"], 3)
@@ -552,11 +571,13 @@ class SetupFoundationTests(unittest.TestCase):
             )
             os.chmod(repo / ".env", 0o600)
             InstallerState.new(repo, completed_stages=("host",)).save()
-            with mock.patch(
-                "lumen_installer.setup.plan_network",
+            with mock.patch.object(
+                SETUP_MODULE,
+                "plan_network",
                 return_value=SimpleNamespace(report={"status": "ok", "drift": [{"key": "PUBLIC_HOST"}]}),
-            ), mock.patch(
-                "lumen_installer.setup.validate_storage",
+            ), mock.patch.object(
+                SETUP_MODULE,
+                "validate_storage",
                 return_value=SimpleNamespace(report={"status": "ok", "exit_code": 4}),
             ):
                 report = doctor_diagnostics(repo, host_report={"status": "ok", "exit_code": 3})

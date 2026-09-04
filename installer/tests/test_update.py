@@ -282,6 +282,60 @@ class UpdateOperationTests(unittest.TestCase):
             self.assertTrue((root / ".state" / "installer" / "backups" / result["run_id"] / "config" / "service.conf").is_file())
             self.assertEqual("before", config.read_text(encoding="utf-8"))
 
+    def test_update_tags_before_pull_and_records_rollback_tags(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, _ = self._manifest(root)
+            calls = []
+            result = run_update(
+                root,
+                manifest,
+                dry_run=False,
+                confirm=True,
+                tag_callback=lambda run_id: calls.append(("tag", run_id)) or {"dashboard": "rollback"},
+                pull_callback=lambda run_id: calls.append(("pull", run_id)),
+                recreate_callback=lambda run_id: calls.append(("recreate", run_id)),
+            )
+            run_id = result["run_id"]
+            self.assertEqual(
+                [("tag", run_id), ("pull", run_id), ("recreate", run_id)], calls
+            )
+            record = json.loads(Path(result["record"]).read_text(encoding="utf-8"))
+            self.assertEqual({"dashboard": "rollback"}, record["local_rollback_tags"])
+
+    def test_update_lifecycle_failure_returns_partial_and_keeps_rollback_record(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, _ = self._manifest(root)
+            result = run_update(
+                root,
+                manifest,
+                dry_run=False,
+                confirm=True,
+                pull_callback=lambda: (_ for _ in ()).throw(RuntimeError("secret detail")),
+            )
+            self.assertEqual(4, result["exit_code"])
+            self.assertEqual("failed", result["status"])
+            self.assertTrue(Path(result["record"]).is_file())
+            self.assertNotIn("secret detail", json.dumps(result))
+
+    def test_update_recreate_or_health_failure_is_partial_after_backup(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, _ = self._manifest(root)
+            for failure in ("recreate", "health"):
+                with self.subTest(failure=failure):
+                    callback = lambda: (_ for _ in ()).throw(RuntimeError(failure))
+                    result = run_update(
+                        root,
+                        manifest,
+                        dry_run=False,
+                        confirm=True,
+                        recreate_callback=callback,
+                    )
+                    self.assertEqual(4, result["exit_code"])
+                    self.assertTrue(Path(result["record"]).is_file())
+
     def test_rollback_requires_confirmation_and_does_not_write_or_callback(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -292,6 +346,24 @@ class UpdateOperationTests(unittest.TestCase):
                 run_rollback(root, updated["run_id"], False, lambda: calls.append("stop"), lambda: calls.append("start"))
             self.assertEqual([], calls)
             self.assertFalse((root / ".state" / "installer" / "failed-runs").exists())
+
+    def test_rollback_dry_run_is_read_only_even_without_confirmation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            calls = []
+            result = run_rollback(
+                root,
+                "run-7",
+                False,
+                lambda: calls.append("stop"),
+                lambda: calls.append("start"),
+                dry_run=True,
+            )
+            self.assertEqual(
+                {"action": "rollback", "dry_run": True, "run_id": "run-7"}, result
+            )
+            self.assertEqual([], calls)
+            self.assertFalse((root / ".state").exists())
 
     def test_rollback_moves_only_manifest_paths_restores_backup_and_starts_override(self):
         with tempfile.TemporaryDirectory() as temp_dir:

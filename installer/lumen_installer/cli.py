@@ -17,9 +17,20 @@ from .errors import (
     InstallerError,
     InvalidInputError,
     NotAvailableError,
+    PartialError,
+)
+from .commands import CommandExecutionError, CommandRunner
+from .compose import (
+    ComposeOptions,
+    build as compose_build,
+    config as compose_config,
+    derive_build_services,
+    derive_pull_services,
+    pull as compose_pull,
+    run_compose,
+    up as compose_up,
 )
 from .docker import run_host_doctor
-from .compose import ComposeOptions
 from .configure import run_configure
 from .gpu import GPU_MODES
 from .setup import (
@@ -29,6 +40,7 @@ from .setup import (
     run_frontend_dev,
     run_redeploy_dashboard,
     run_up,
+    wait_for_health,
 )
 from .trakt import run_connect_trakt
 from .update import UpdateManifest, run_rollback, run_update
@@ -226,6 +238,52 @@ _COMPOSE_PROFILE_ITEM = re.compile(r"^\s+-\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*$")
 _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
 
+_KNOWN_UPDATE_GPU_MODES = frozenset({"none", "auto", "nvidia", "vaapi"})
+
+
+def _update_gpu_mode(values: Mapping[str, str], args: argparse.Namespace | None) -> str:
+    """Return the concrete saved/requested GPU mode without probing Docker."""
+
+    requested = getattr(args, "gpu_mode", None) if args is not None else None
+    if requested is None and args is not None:
+        requested = getattr(args, "gpu", None)
+    if requested is None:
+        requested = values.get("GPU_MODE")
+    if requested is None:
+        requested = values.get("GPU_ENABLED", values.get("GPU", "none"))
+    if isinstance(requested, bool):
+        return "nvidia" if requested else "none"
+    normalized = str(requested).strip().lower()
+    if normalized in _KNOWN_UPDATE_GPU_MODES:
+        return normalized
+    if normalized in {"", "false", "0", "off", "no", "disabled"}:
+        return "none"
+    raise InvalidInputError("GPU mode must be none, auto, nvidia, or vaapi")
+
+
+def _active_update_profiles(values: Mapping[str, str], args: argparse.Namespace | None) -> list[str]:
+    requested = getattr(args, "profiles", None) if args is not None else None
+    if requested is None:
+        requested = values.get("COMPOSE_PROFILES", "").split(",")
+    if isinstance(requested, str):
+        requested = requested.split(",")
+    result: list[str] = []
+    for profile in requested or ():
+        value = str(profile).strip()
+        if value and value not in result:
+            result.append(value)
+    return result
+
+
+def _gpu_overlay_mode(mode: str, values: Mapping[str, str]) -> str:
+    """Resolve an ``auto`` selection from saved metadata when available."""
+
+    if mode != "auto":
+        return mode
+    resolved = str(values.get("GPU_RESOLVED_MODE", "")).strip().lower()
+    return resolved if resolved in {"none", "nvidia", "vaapi"} else mode
+
+
 def _read_update_env(path: Path) -> dict[str, str]:
     """Read simple key/value entries without ever printing their values."""
 
@@ -286,14 +344,11 @@ def _known_compose_files(root: Path, values: Mapping[str, str], args: argparse.N
             candidates.append(candidate)
     else:
         candidates.append(root / "docker-compose.yml")
-        requested_gpu = getattr(args, "gpu_mode", None) if args is not None else None
-        if requested_gpu is None and args is not None:
-            requested_gpu = getattr(args, "gpu", None)
-        if requested_gpu is None:
-            requested_gpu = values.get("GPU_MODE", values.get("GPU", ""))
-        gpu_enabled = str(requested_gpu).strip().lower() not in {"", "none", "false", "0", "off", "no"}
-        if gpu_enabled:
+        requested_gpu = _gpu_overlay_mode(_update_gpu_mode(values, args), values)
+        if requested_gpu == "nvidia":
             candidates.append(root / "docker-compose.gpu.yml")
+        elif requested_gpu == "vaapi":
+            candidates.append(root / "docker-compose.vaapi.yml")
         if args is not None and bool(getattr(args, "dev", False)):
             candidates.append(root / "docker-compose.dev.yml")
 
@@ -305,35 +360,60 @@ def _known_compose_files(root: Path, values: Mapping[str, str], args: argparse.N
     return unique
 
 
-def _compose_metadata(compose_files: Sequence[Path], values: Mapping[str, str]) -> tuple[dict[str, str], list[str]]:
-    """Extract service image references and declared profile names safely."""
+def _compose_metadata(
+    compose_files: Sequence[Path],
+    values: Mapping[str, str],
+    active_profiles: Sequence[str] = (),
+) -> tuple[dict[str, str], list[str]]:
+    """Extract image refs for active services and all declared profile names."""
 
     image_refs: dict[str, str] = {}
     profiles: list[str] = []
+    active = set(active_profiles)
     for compose_file in compose_files:
         try:
             lines = compose_file.read_text(encoding="utf-8").splitlines()
         except OSError:
             continue
         service: str | None = None
+        image: str | None = None
+        service_profiles: list[str] = []
         in_profiles = False
+
+        def flush() -> None:
+            if service is None:
+                return
+            for profile in service_profiles:
+                if profile not in profiles:
+                    profiles.append(profile)
+            if image and (not service_profiles or active.intersection(service_profiles)):
+                image_refs[service] = image
+
         for line in lines:
             service_match = _COMPOSE_SERVICE.match(line)
             if service_match:
+                flush()
                 service = service_match.group(1)
+                image = None
+                service_profiles = []
                 in_profiles = False
                 continue
             if _COMPOSE_KEY.match(line) and not line.startswith((" ", "\t")):
+                flush()
                 service = None
+                image = None
+                service_profiles = []
                 in_profiles = False
                 continue
             if service is None:
                 continue
             image_match = _COMPOSE_IMAGE.match(line)
             if image_match:
-                image = _expand_update_env(image_match.group(1).split(" #", 1)[0], values)
-                if image:
-                    image_refs[service] = image
+                candidate = _expand_update_env(
+                    image_match.group(1).split(" #", 1)[0], values
+                )
+                if candidate:
+                    image = candidate
                 in_profiles = False
                 continue
             profile_match = _COMPOSE_PROFILES.match(line)
@@ -341,7 +421,7 @@ def _compose_metadata(compose_files: Sequence[Path], values: Mapping[str, str]) 
                 in_profiles = True
                 inline = profile_match.group(1).strip()
                 if inline.startswith("[") and inline.endswith("]"):
-                    profiles.extend(
+                    service_profiles.extend(
                         item.strip().strip("'\"")
                         for item in inline[1:-1].split(",")
                         if item.strip()
@@ -350,11 +430,37 @@ def _compose_metadata(compose_files: Sequence[Path], values: Mapping[str, str]) 
             if in_profiles:
                 profile_item = _COMPOSE_PROFILE_ITEM.match(line)
                 if profile_item:
-                    profiles.append(profile_item.group(1))
+                    service_profiles.append(profile_item.group(1))
                 elif line.strip():
                     in_profiles = False
+        flush()
 
     return image_refs, profiles
+
+
+def _compose_build_services(compose_files: Sequence[Path]) -> set[str]:
+    """Find services with a real Compose build block in the selected files."""
+
+    result: set[str] = set()
+    for compose_file in compose_files:
+        try:
+            lines = compose_file.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        service: str | None = None
+        for line in lines:
+            service_match = _COMPOSE_SERVICE.match(line)
+            if service_match:
+                service = service_match.group(1)
+                continue
+            if _COMPOSE_KEY.match(line) and not line.startswith((" ", "\t")):
+                service = None
+                continue
+            if service is not None and re.match(r"^\s{4}build:\s*(.*?)\s*$", line):
+                build_value = line.split(":", 1)[1].strip()
+                if build_value not in {"null", "!reset null"}:
+                    result.add(service)
+    return result
 
 
 def _env_service_values(values: Mapping[str, str], suffixes: Sequence[str]) -> dict[str, str]:
@@ -388,10 +494,77 @@ def _env_json_map(values: Mapping[str, str], names: Sequence[str]) -> dict[str, 
     return result
 
 
-def _update_manifest(root: Path, args: argparse.Namespace | None = None) -> UpdateManifest:
+def _secret_values(values: Mapping[str, str]) -> tuple[str, ...]:
+    return tuple(
+        value
+        for key, value in values.items()
+        if _SECRET_FIELD.search(str(key)) and str(value)
+    )
+
+
+def _image_repository(reference: str) -> str:
+    value = str(reference).strip().split("@", 1)[0]
+    slash = value.rfind("/")
+    colon = value.rfind(":")
+    return value[:colon] if colon > slash else value
+
+
+def _inspect_update_image(
+    runner: CommandRunner,
+    reference: str,
+    *,
+    redact: Sequence[str] = (),
+) -> tuple[str, list[str]]:
+    """Return Docker's local image ID and RepoDigests for one image."""
+
+    result = runner.run(
+        ["docker", "image", "inspect", "--format", "{{json .}}", reference],
+        redact=redact,
+    )
+    try:
+        payload = json.loads(result.stdout)
+        if isinstance(payload, list):
+            payload = payload[0] if payload else {}
+        if not isinstance(payload, Mapping):
+            raise ValueError
+        image_id = str(payload.get("Id", payload.get("ID", ""))).strip()
+        repo_digests = payload.get("RepoDigests", ())
+        if isinstance(repo_digests, str):
+            repo_digests = [repo_digests]
+        if not image_id or not isinstance(repo_digests, Sequence):
+            raise ValueError
+        digests = [str(item).strip() for item in repo_digests if str(item).strip()]
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise InvalidInputError("Docker image inspection returned invalid metadata") from exc
+    return image_id, digests
+
+
+def _saved_update_gpu_mode(root: Path, values: dict[str, str]) -> dict[str, str]:
+    if values.get("GPU_MODE"):
+        return values
+    state_path = root / ".state" / "installer" / "state.json"
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return values
+    if isinstance(payload, Mapping) and str(payload.get("gpu_mode", "")) in _KNOWN_UPDATE_GPU_MODES:
+        values["GPU_MODE"] = str(payload["gpu_mode"])
+    return values
+
+
+def _update_manifest(
+    root: Path,
+    args: argparse.Namespace | None = None,
+    *,
+    dry_run: bool = False,
+    runner: CommandRunner | None = None,
+) -> UpdateManifest:
     values = _read_update_env(root / ".env")
+    values = _saved_update_gpu_mode(root, values)
+    profiles = _active_update_profiles(values, args)
     compose_files = _known_compose_files(root, values, args)
-    image_refs, declared_profiles = _compose_metadata(compose_files, values)
+    image_refs, _declared_profiles = _compose_metadata(compose_files, values, profiles)
+    build_services = _compose_build_services(compose_files)
     image_refs.update(_env_json_map(values, ("LUMEN_IMAGE_REFS", "IMAGE_REFS")))
     image_refs.update(_env_service_values(values, ("_IMAGE_REF", "_IMAGE")))
 
@@ -403,24 +576,53 @@ def _update_manifest(root: Path, args: argparse.Namespace | None = None) -> Upda
         if "@" in reference and service not in repo_digests:
             repo_digests[service] = reference.rsplit("@", 1)[1]
 
-    requested_profiles = getattr(args, "profiles", None) if args is not None else None
-    if requested_profiles is None:
-        requested_profiles = [item for item in values.get("COMPOSE_PROFILES", "").split(",") if item.strip()]
-    if isinstance(requested_profiles, str):
-        requested_profiles = requested_profiles.split(",")
-    profiles = list(dict.fromkeys(str(item).strip() for item in requested_profiles if str(item).strip()))
-    if not profiles:
-        profiles = list(dict.fromkeys(profile for profile in declared_profiles if profile))
+    gpu_mode = _update_gpu_mode(values, args)
+    overlay_mode = _gpu_overlay_mode(gpu_mode, values)
+    gpu_environment: dict[str, str] = {}
+    if overlay_mode == "vaapi":
+        for key, placeholder in (("RENDER_GID", "65534"), ("VIDEO_GID", "65533")):
+            value = str(values.get(key, "")).strip()
+            if value.isdigit():
+                gpu_environment[key] = value
+            elif dry_run:
+                # Planning metadata must render without touching the host or
+                # probing /dev/dri.  These values are disposable and never
+                # become activation state.
+                gpu_environment[key] = placeholder
 
-    requested_gpu = getattr(args, "gpu_mode", None) if args is not None else None
-    if requested_gpu is None and args is not None:
-        requested_gpu = getattr(args, "gpu", None)
-    if requested_gpu is None:
-        requested_gpu = values.get("GPU_MODE", values.get("GPU_ENABLED", values.get("GPU", "")))
-    if isinstance(requested_gpu, bool):
-        gpu_mode = requested_gpu
-    else:
-        gpu_mode = str(requested_gpu).strip().lower() not in {"", "none", "false", "0", "off", "no", "disabled"}
+    if not dry_run and image_refs:
+        image_runner = runner if runner is not None else CommandRunner()
+        redact = _secret_values(values)
+        for service, reference in image_refs.items():
+            image_id, inspected_digests = _inspect_update_image(
+                image_runner, reference, redact=redact
+            )
+            repository = _image_repository(reference)
+            matching = next(
+                (
+                    digest
+                    for digest in inspected_digests
+                    if "@" in digest and _image_repository(digest) == repository
+                ),
+                None,
+            )
+            if matching is not None:
+                repo_digests.setdefault(service, matching.rsplit("@", 1)[1])
+            if service in build_services:
+                local_image_ids.setdefault(service, image_id)
+
+    # A normal update must have an immutable source for every service.  A
+    # local image ID is sufficient for a build service; registry-backed
+    # services require a matching RepoDigest, even when their configured tag
+    # happens to be ``latest``.
+    if not dry_run:
+        missing = [
+            service
+            for service in image_refs
+            if service not in local_image_ids and service not in repo_digests
+        ]
+        if missing:
+            raise InvalidInputError("Docker image metadata did not contain immutable digests")
 
     return UpdateManifest.from_inputs(
         env_path=root / ".env",
@@ -434,7 +636,128 @@ def _update_manifest(root: Path, args: argparse.Namespace | None = None) -> Upda
         profiles=profiles,
         gpu_mode=gpu_mode,
         compose_files=compose_files,
+        gpu_environment=gpu_environment,
     )
+
+
+def _update_compose_options(manifest: UpdateManifest, args: argparse.Namespace) -> ComposeOptions:
+    gpu = manifest.gpu_mode
+    if type(gpu) is bool:
+        gpu = "nvidia" if gpu else "none"
+    dev = bool(getattr(args, "dev", False)) or any(
+        Path(path).name == "docker-compose.dev.yml" for path in manifest.compose_files
+    )
+    return ComposeOptions(profiles=tuple(manifest.profiles), gpu=gpu, dev=dev)
+
+
+def _update_callbacks(
+    root: Path,
+    manifest: UpdateManifest,
+    args: argparse.Namespace,
+    runner: CommandRunner,
+) -> tuple[Callable[..., object], Callable[..., object], Callable[..., object]]:
+    """Build the update's injectable tag, pull, and recreate callbacks."""
+
+    env_path = Path(manifest.env_path)
+    options = _update_compose_options(manifest, args)
+    values = _read_update_env(env_path)
+    redact = _secret_values(values)
+    config_payload: dict[str, Any] | None = None
+
+    def config_payload_once() -> dict[str, Any]:
+        nonlocal config_payload
+        if config_payload is None:
+            config_payload = compose_config(
+                runner, root, env_path, options, redact=redact
+            )
+        return config_payload
+
+    def tag_local_images(run_id: str) -> dict[str, str]:
+        build_services = _compose_build_services(
+            [Path(path) for path in manifest.compose_files]
+        )
+        # A persisted local ID is authoritative for built services discovered
+        # during manifest creation.  Keep service ordering deterministic.
+        services = set(manifest.local_image_ids)
+        services.update(build_services.intersection(manifest.image_refs))
+        tags: dict[str, str] = {}
+        for service in sorted(services):
+            source = manifest.image_refs.get(service) or manifest.local_image_ids.get(service)
+            if not source:
+                raise PartialError("a built service has no local image to preserve")
+            tag = f"lumen-rollback/{service}:{run_id}"
+            runner.run(["docker", "image", "tag", source, tag], redact=redact)
+            tags[service] = tag
+        return tags
+
+    def pull_images(_run_id: str) -> None:
+        payload = config_payload_once()
+        services = derive_pull_services(payload)
+        if services:
+            compose_pull(runner, root, env_path, options, services, redact=redact)
+
+    def recreate_stack(_run_id: str) -> None:
+        payload = config_payload_once()
+        build_services = derive_build_services(payload)
+        if build_services:
+            compose_build(
+                runner, root, env_path, options, build_services, redact=redact
+            )
+        compose_up(
+            runner,
+            root,
+            env_path,
+            options,
+            force_recreate=True,
+            redact=redact,
+        )
+        wait_for_health()
+
+    return tag_local_images, pull_images, recreate_stack
+
+
+def _rollback_callbacks(
+    root: Path,
+    manifest: UpdateManifest,
+    args: argparse.Namespace,
+    runner: CommandRunner,
+) -> tuple[Callable[..., object], Callable[..., object]]:
+    """Build stop/start seams for a recorded rollback run."""
+
+    env_path = Path(manifest.env_path)
+    options = _update_compose_options(manifest, args)
+    values = _read_update_env(env_path)
+    redact = _secret_values(values)
+    services = tuple(
+        dict.fromkeys((*manifest.image_refs, *manifest.local_image_ids))
+    )
+
+    def stop_affected(_run_id: str) -> None:
+        if services:
+            run_compose(
+                runner,
+                root,
+                env_path,
+                options,
+                "stop",
+                *services,
+                redact=redact,
+            )
+
+    def start_with_override(run_id: str) -> None:
+        override = root / ".state" / "installer" / "rollback" / f"{run_id}.yml"
+        argv = options.global_argv(root, env_path) + (
+            "-f",
+            str(override),
+            "up",
+            "-d",
+            "--force-recreate",
+            *services,
+        )
+        runner.run(argv, redact=redact)
+        wait_for_health()
+
+    return stop_affected, start_with_override
 
 
 def _update(args: argparse.Namespace) -> int:
@@ -449,13 +772,48 @@ def _update(args: argparse.Namespace) -> int:
             "run_id": rollback_id,
         }
     elif rollback_id is not None:
-        result = run_rollback(root, rollback_id, confirm=confirm)
+        runner = CommandRunner()
+        # The record is validated and loaded by run_rollback before these
+        # callbacks can mutate containers.  Reuse its manifest for command
+        # construction without trusting any unvalidated path here.
+        record = root / ".state" / "installer" / "updates" / f"{rollback_id}.json"
+        try:
+            if record.is_file():
+                payload = json.loads(record.read_text(encoding="utf-8"))
+                rollback_manifest = UpdateManifest.from_dict(payload["manifest"])
+                stop_callback, start_callback = _rollback_callbacks(
+                    root, rollback_manifest, args, runner
+                )
+                result = run_rollback(
+                    root,
+                    rollback_id,
+                    confirm=confirm,
+                    stop_callback=stop_callback,
+                    start_callback=start_callback,
+                )
+            else:
+                # Keep the helper seam usable for callers that provide their
+                # own rollback implementation; the real helper still rejects
+                # a missing record before any mutation.
+                result = run_rollback(root, rollback_id, confirm=confirm)
+        except (CommandExecutionError, OSError) as error:
+            raise PartialError("stack rollback lifecycle failed") from error
     else:
+        runner = CommandRunner()
+        manifest = _update_manifest(root, args, dry_run=dry_run, runner=runner)
+        tag_callback = pull_callback = recreate_callback = None
+        if not dry_run:
+            tag_callback, pull_callback, recreate_callback = _update_callbacks(
+                root, manifest, args, runner
+            )
         result = run_update(
             root,
-            _update_manifest(root, args),
+            manifest,
             dry_run=dry_run,
             confirm=confirm,
+            tag_callback=tag_callback,
+            pull_callback=pull_callback,
+            recreate_callback=recreate_callback,
         )
     print(json.dumps(_redact_report(result), sort_keys=True))
     return _normalize_handler_result(result.get("exit_code", ExitCode.OK))

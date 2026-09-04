@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 import re
@@ -13,9 +14,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
+from .errors import ExitCode
+
 
 PathLike = str | os.PathLike[str]
-Callback = Callable[[], object]
+Callback = Callable[..., object]
 
 
 _DIGEST_RE = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
@@ -247,7 +250,8 @@ class UpdateManifest:
     repo_digests: dict[str, str]
     local_image_ids: dict[str, str]
     profiles: list[str]
-    gpu_mode: bool
+    gpu_mode: bool | str
+    gpu_environment: dict[str, str]
     compose_files: list[str]
 
     @classmethod
@@ -259,8 +263,9 @@ class UpdateManifest:
         repo_digests: Mapping[str, str],
         local_image_ids: Mapping[str, str],
         profiles: Sequence[str],
-        gpu_mode: bool,
+        gpu_mode: bool | str,
         compose_files: Iterable[PathLike],
+        gpu_environment: Mapping[str, str] | None = None,
     ) -> "UpdateManifest":
         normalized_env = _absolute_path(env_path)
         normalized_runtime = {
@@ -277,6 +282,24 @@ class UpdateManifest:
             str(name): str(image_id) for name, image_id in local_image_ids.items()
         }
 
+        normalized_gpu: bool | str
+        if type(gpu_mode) is bool:
+            normalized_gpu = gpu_mode
+        elif isinstance(gpu_mode, str) and gpu_mode.strip().lower() in {
+            "none",
+            "auto",
+            "nvidia",
+            "vaapi",
+        }:
+            normalized_gpu = gpu_mode.strip().lower()
+        else:
+            raise ValueError("gpu mode must be none, auto, nvidia, or vaapi")
+        normalized_gpu_environment = {
+            str(name): str(value).strip()
+            for name, value in (gpu_environment or {}).items()
+            if str(value).strip()
+        }
+
         return cls(
             env_path=str(normalized_env),
             runtime_paths=normalized_runtime,
@@ -289,7 +312,8 @@ class UpdateManifest:
             ),
             local_image_ids=normalized_local_ids,
             profiles=[str(profile) for profile in profiles],
-            gpu_mode=bool(gpu_mode),
+            gpu_mode=normalized_gpu,
+            gpu_environment=normalized_gpu_environment,
             compose_files=normalized_compose,
         )
 
@@ -327,7 +351,11 @@ class UpdateManifest:
             ),
             local_image_ids=local_image_ids,
             profiles=[str(profile) for profile in list(value["profiles"])],
-            gpu_mode=bool(value["gpu_mode"]),
+            gpu_mode=value["gpu_mode"],
+            gpu_environment={
+                str(k): str(v)
+                for k, v in dict(value.get("gpu_environment", {})).items()
+            },
             compose_files=compose_files,
         )
 
@@ -340,6 +368,7 @@ class UpdateManifest:
             "local_image_ids": dict(self.local_image_ids),
             "profiles": list(self.profiles),
             "gpu_mode": self.gpu_mode,
+            "gpu_environment": dict(self.gpu_environment),
             "compose_files": list(self.compose_files),
         }
 
@@ -414,6 +443,33 @@ def _safe_run_id(run_id: str) -> str:
 
 def _run_id() -> str:
     return uuid.uuid4().hex
+
+
+def _invoke_callback(callback: Callback, run_id: str) -> object:
+    """Invoke an update lifecycle seam with either its legacy or rich shape.
+
+    Earlier callers supplied zero-argument callbacks.  New lifecycle callers
+    receive the generated run id so they can name immutable rollback tags.
+    Signature inspection avoids catching a ``TypeError`` raised *inside* a
+    callback and accidentally invoking a mutating operation twice.
+    """
+
+    try:
+        parameters = tuple(inspect.signature(callback).parameters.values())
+    except (TypeError, ValueError):
+        return callback()
+    positional = tuple(
+        parameter
+        for parameter in parameters
+        if parameter.kind
+        in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    )
+    accepts_varargs = any(
+        parameter.kind is inspect.Parameter.VAR_POSITIONAL for parameter in parameters
+    )
+    if accepts_varargs or positional:
+        return callback(run_id)
+    return callback()
 
 
 def _backup_name(root: Path, path: Path) -> Path:
@@ -596,6 +652,7 @@ def run_update(
     confirm: bool,
     pull_callback: Callback | None = None,
     recreate_callback: Callback | None = None,
+    tag_callback: Callback | None = None,
 ) -> dict[str, object]:
     run_id = _run_id()
     result: dict[str, object] = {
@@ -637,10 +694,30 @@ def run_update(
     result["record"] = str(update_record)
     result["backup"] = str(backup_dir)
 
-    if pull_callback is not None:
-        pull_callback()
-    if recreate_callback is not None:
-        recreate_callback()
+    try:
+        if tag_callback is not None:
+            tagged = _invoke_callback(tag_callback, run_id)
+            if tagged is not None:
+                record = json.loads(update_record.read_text(encoding="utf-8"))
+                record["local_rollback_tags"] = tagged
+                _write_json(update_record, record)
+                result["local_rollback_tags"] = tagged
+        if pull_callback is not None:
+            _invoke_callback(pull_callback, run_id)
+        if recreate_callback is not None:
+            _invoke_callback(recreate_callback, run_id)
+    except Exception:
+        # The backup and manifest record are deliberately durable before any
+        # Docker mutation.  Return a stable partial result while retaining
+        # the run id so the user can invoke rollback after a failed pull,
+        # rebuild, recreate, or health check.
+        result.update(
+            {
+                "status": "failed",
+                "exit_code": int(ExitCode.PARTIAL),
+                "error": "stack update lifecycle failed; rollback remains available",
+            }
+        )
     return result
 
 
@@ -650,7 +727,11 @@ def run_rollback(
     confirm: bool,
     stop_callback: Callback | None = None,
     start_callback: Callback | None = None,
+    *,
+    dry_run: bool = False,
 ) -> dict[str, object]:
+    if dry_run:
+        return {"action": "rollback", "dry_run": True, "run_id": _safe_run_id(run_id)}
     if not confirm:
         raise PermissionError("rollback requires confirmation")
 
@@ -702,7 +783,7 @@ def run_rollback(
             _reject_symlink_tree(backup)
 
     if stop_callback is not None:
-        stop_callback()
+        _invoke_callback(stop_callback, safe_run_id)
 
     env_path = _absolute_path(manifest.env_path)
     for path in manifest_paths:
@@ -736,7 +817,7 @@ def run_rollback(
     )
 
     if start_callback is not None:
-        start_callback()
+        _invoke_callback(start_callback, safe_run_id)
     return {
         "run_id": safe_run_id,
         "override": str(override_path),

@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -167,6 +168,219 @@ class CliContractTests(unittest.TestCase):
                 result = cli.main(["update", "--dry-run"])
 
         self.assertEqual(result, int(ExitCode.PARTIAL))
+
+    def test_update_manifest_inspects_images_and_keeps_only_active_profiles(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "config").mkdir()
+            (root / "docker-compose.yml").write_text(
+                "services:\n"
+                "  core:\n"
+                "    image: registry.example/core:latest\n"
+                "  optional:\n"
+                "    image: registry.example/optional:latest\n"
+                "    profiles: [requests]\n"
+                "  built:\n"
+                "    build:\n"
+                "      context: .\n"
+                "    image: local/built:local\n",
+                encoding="utf-8",
+            )
+            (root / ".env").write_text("COMPOSE_PROFILES=requests\n", encoding="utf-8")
+            inspected = {
+                "registry.example/core:latest": {
+                    "Id": "sha256:core",
+                    "RepoDigests": ["registry.example/core@sha256:" + "1" * 64],
+                },
+                "registry.example/optional:latest": {
+                    "Id": "sha256:optional",
+                    "RepoDigests": ["registry.example/optional@sha256:" + "2" * 64],
+                },
+                "local/built:local": {"Id": "sha256:built", "RepoDigests": []},
+            }
+            calls = []
+
+            def execute(argv, **_kwargs):
+                calls.append(tuple(argv))
+                reference = argv[-1]
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps(inspected[reference]),
+                    stderr="",
+                )
+
+            args = SimpleNamespace(
+                profiles=None,
+                gpu_mode="vaapi",
+                gpu=None,
+                dev=False,
+            )
+            manifest = cli._update_manifest(
+                root,
+                args,
+                dry_run=False,
+                runner=cli.CommandRunner(executor=execute),
+            )
+            self.assertEqual(["requests"], manifest.profiles)
+            self.assertEqual("vaapi", manifest.gpu_mode)
+            self.assertEqual(
+                [str(root / "docker-compose.yml"), str(root / "docker-compose.vaapi.yml")],
+                manifest.compose_files,
+            )
+            self.assertEqual(
+                {"core", "optional", "built"}, set(manifest.image_refs)
+            )
+            self.assertEqual("sha256:built", manifest.local_image_ids["built"])
+            self.assertEqual(3, len(calls))
+
+    def test_update_manifest_dry_run_never_inspects_images(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docker-compose.yml").write_text(
+                "services:\n  api:\n    image: registry.example/api:latest\n",
+                encoding="utf-8",
+            )
+            runner = mock.Mock()
+            manifest = cli._update_manifest(
+                root,
+                SimpleNamespace(profiles=None, gpu_mode="none", gpu=None, dev=False),
+                dry_run=True,
+                runner=runner,
+            )
+            self.assertEqual("none", manifest.gpu_mode)
+            runner.run.assert_not_called()
+
+    def test_update_manifest_selects_gpu_overlays_and_disposable_vaapi_plan(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docker-compose.yml").write_text(
+                "services:\n  api:\n    image: registry.example/api:stable\n",
+                encoding="utf-8",
+            )
+            for mode, overlay in (
+                ("none", "docker-compose.yml"),
+                ("nvidia", "docker-compose.gpu.yml"),
+                ("vaapi", "docker-compose.vaapi.yml"),
+            ):
+                with self.subTest(mode=mode):
+                    manifest = cli._update_manifest(
+                        root,
+                        SimpleNamespace(profiles=None, gpu_mode=mode, gpu=None, dev=False),
+                        dry_run=True,
+                    )
+                    self.assertEqual(mode, manifest.gpu_mode)
+                    self.assertIn(str(root / overlay), manifest.compose_files)
+                    if mode == "vaapi":
+                        self.assertEqual(
+                            {"RENDER_GID": "65534", "VIDEO_GID": "65533"},
+                            manifest.gpu_environment,
+                        )
+                    else:
+                        self.assertEqual({}, manifest.gpu_environment)
+
+    def test_update_callbacks_order_and_rollback_commands_are_safe(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "config").mkdir()
+            compose_file = root / "docker-compose.yml"
+            compose_file.write_text(
+                "services:\n"
+                "  api:\n"
+                "    image: registry.example/api:stable\n"
+                "  dashboard:\n"
+                "    build:\n"
+                "      context: .\n"
+                "    image: local/dashboard:local\n",
+                encoding="utf-8",
+            )
+            env_path = root / ".env"
+            env_path.write_text("ACTIONS_TOKEN=not-for-output\n", encoding="utf-8")
+            manifest = cli.UpdateManifest.from_inputs(
+                env_path,
+                {},
+                {"api": "registry.example/api:stable", "dashboard": "local/dashboard:local"},
+                {"api": "sha256:" + "a" * 64},
+                {"dashboard": "sha256:dashboard"},
+                [],
+                "none",
+                [compose_file],
+            )
+            calls = []
+
+            def execute(argv, **_kwargs):
+                calls.append(tuple(argv))
+                if tuple(argv[-3:]) == ("config", "--format", "json"):
+                    stdout = json.dumps(
+                        {
+                            "services": {
+                                "api": {"image": "registry.example/api:stable"},
+                                "dashboard": {
+                                    "image": "local/dashboard:local",
+                                    "build": {"context": "."},
+                                },
+                            }
+                        }
+                    )
+                else:
+                    stdout = ""
+                return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+            runner = cli.CommandRunner(executor=execute)
+            args = SimpleNamespace(dev=False)
+            tag, pull, recreate = cli._update_callbacks(root, manifest, args, runner)
+            tags = tag("run-1")
+            pull("run-1")
+            with mock.patch.object(cli, "wait_for_health") as health:
+                recreate("run-1")
+            self.assertEqual("lumen-rollback/dashboard:run-1", tags["dashboard"])
+            commands = [" ".join(command) for command in calls]
+            self.assertIn("docker image tag local/dashboard:local lumen-rollback/dashboard:run-1", commands)
+            self.assertTrue(any("pull api" in command for command in commands))
+            self.assertTrue(any("build dashboard" in command for command in commands))
+            self.assertTrue(any("up -d --force-recreate" in command for command in commands))
+            self.assertTrue(all("--remove-orphans" not in command for command in commands))
+            health.assert_called_once_with()
+
+    def test_rollback_callbacks_stop_named_services_and_use_override_without_orphans(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            env_path = root / ".env"
+            env_path.write_text("ACTIONS_TOKEN=private\n", encoding="utf-8")
+            compose_file = root / "docker-compose.yml"
+            compose_file.write_text("services:\n  api:\n    image: example/api:stable\n", encoding="utf-8")
+            manifest = cli.UpdateManifest.from_inputs(
+                env_path,
+                {},
+                {"api": "example/api:stable"},
+                {"api": "sha256:" + "a" * 64},
+                {},
+                ["requests"],
+                "vaapi",
+                [compose_file, root / "docker-compose.vaapi.yml"],
+                {"RENDER_GID": "100", "VIDEO_GID": "101"},
+            )
+            calls = []
+
+            def execute(argv, **_kwargs):
+                calls.append(tuple(argv))
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            runner = cli.CommandRunner(executor=execute)
+            stop, start = cli._rollback_callbacks(
+                root, manifest, SimpleNamespace(dev=False), runner
+            )
+            stop("run-2")
+            with mock.patch.object(cli, "wait_for_health") as health:
+                start("run-2")
+            self.assertIn("stop", calls[0])
+            self.assertIn("api", calls[0])
+            self.assertTrue(any("docker-compose.vaapi.yml" in item for item in calls[0]))
+            self.assertTrue(any("docker-compose.vaapi.yml" in item for item in calls[1]))
+            self.assertTrue(any("rollback/run-2.yml" in item for item in calls[1]))
+            self.assertIn("up", calls[1])
+            self.assertIn("--force-recreate", calls[1])
+            self.assertTrue(all("--remove-orphans" not in call for call in calls))
+            health.assert_called_once_with()
 
     def test_setup_confirmation_is_explicit_and_not_a_gpu_confirmation_abbreviation(self):
         parser = cli.build_parser()

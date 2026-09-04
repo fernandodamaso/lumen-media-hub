@@ -160,8 +160,9 @@ services:
         max-file: "3"
 
   jellyseerr:
-    image: fallenbagel/jellyseerr:latest
+    image: ghcr.io/seerr-team/seerr:latest
     container_name: jellyseerr
+    init: true
     profiles:
       - requests
     restart: unless-stopped

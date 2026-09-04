@@ -420,6 +420,13 @@ class ComposeNetworkBindingTests(unittest.TestCase):
             "subtitles", "requests", "maintenance", "indexer-tools", "ai"
         )
 
+        seerr = services["jellyseerr"]
+        self.assertEqual(seerr["image"], "ghcr.io/seerr-team/seerr:latest")
+        self.assertEqual(seerr["container_name"], "jellyseerr")
+        self.assertTrue(seerr["init"])
+        self.assertNotIn("user", seerr)
+        self.assertTrue(any(volume["target"] == "/app/config" for volume in seerr["volumes"]))
+
         self.assertEqual(services["jellyfin"]["ports"][0]["host_ip"], "0.0.0.0")
         management_services = {
             "qbittorrent",

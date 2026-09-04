@@ -966,6 +966,11 @@ def _update(args: argparse.Namespace) -> int:
     confirm = bool(getattr(args, "confirm", False))
     dry_run = bool(getattr(args, "dry_run", False))
     rollback_id = getattr(args, "rollback", None)
+    if rollback_id is None and not dry_run and not confirm:
+        # Refuse before manifest discovery or Docker inspection.  Besides
+        # avoiding work for an unapproved mutation, this keeps the public
+        # command on the typed installer error boundary.
+        raise InvalidInputError("update requires confirmation")
     safe_rollback_id: str | None = None
     if rollback_id is not None:
         try:
@@ -993,7 +998,14 @@ def _update(args: argparse.Namespace) -> int:
             raise PartialError("stack rollback lifecycle failed") from error
     else:
         runner = CommandRunner()
-        manifest = _update_manifest(root, args, dry_run=dry_run, runner=runner)
+        try:
+            manifest = _update_manifest(root, args, dry_run=dry_run, runner=runner)
+        except InstallerError:
+            raise
+        except OSError as error:
+            raise PartialError(
+                "update manifest preparation failed; no stack changes were made"
+            ) from error
         tag_callback = pull_callback = recreate_callback = None
         if not dry_run:
             tag_callback, pull_callback, recreate_callback = _update_callbacks(

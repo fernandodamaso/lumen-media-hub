@@ -13,7 +13,7 @@ from lumen_installer.update import (
     run_rollback,
     run_update,
 )
-from lumen_installer.errors import InvalidInputError
+from lumen_installer.errors import ExitCode, InvalidInputError, PartialError
 
 
 class UpdateManifestTests(unittest.TestCase):
@@ -458,9 +458,33 @@ class UpdateOperationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             manifest, _ = self._manifest(root)
-            with self.assertRaises(PermissionError):
+            with self.assertRaises(InvalidInputError):
                 run_update(root, manifest, dry_run=False, confirm=False)
             self.assertFalse((root / ".state").exists())
+
+    def test_backup_filesystem_failure_is_stable_and_keeps_live_files_untouched(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, config = self._manifest(root)
+            calls = []
+            with mock.patch(
+                "lumen_installer.update._copy_path",
+                side_effect=OSError("backup contains a secret detail"),
+            ):
+                with self.assertRaises(PartialError) as raised:
+                    run_update(
+                        root,
+                        manifest,
+                        dry_run=False,
+                        confirm=True,
+                        pull_callback=lambda: calls.append("pull"),
+                        recreate_callback=lambda: calls.append("recreate"),
+                    )
+
+            self.assertEqual(ExitCode.PARTIAL, raised.exception.exit_code)
+            self.assertNotIn("secret detail", str(raised.exception))
+            self.assertEqual("before", config.read_text(encoding="utf-8"))
+            self.assertEqual([], calls)
 
     def test_update_rejects_manifest_from_a_different_checkout(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -659,7 +683,7 @@ class UpdateOperationTests(unittest.TestCase):
             manifest, _ = self._manifest(root)
             updated = self._update(root, manifest)
             calls = []
-            with self.assertRaises(PermissionError):
+            with self.assertRaises(InvalidInputError):
                 run_rollback(root, updated["run_id"], False, lambda: calls.append("stop"), lambda: calls.append("start"))
             self.assertEqual([], calls)
             self.assertFalse((root / ".state" / "installer" / "failed-runs").exists())

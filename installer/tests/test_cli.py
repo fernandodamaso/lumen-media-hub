@@ -169,6 +169,48 @@ class CliContractTests(unittest.TestCase):
 
         self.assertEqual(result, int(ExitCode.PARTIAL))
 
+    def test_update_without_confirmation_returns_stable_error_without_manifest_work(self):
+        output = io.StringIO()
+        error = io.StringIO()
+        with mock.patch.object(cli, "_update_manifest") as build_manifest:
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+                result = cli.main(["update"])
+
+        self.assertEqual(result, int(ExitCode.INVALID))
+        build_manifest.assert_not_called()
+        self.assertEqual("", output.getvalue())
+        self.assertIn("update requires confirmation", error.getvalue())
+        self.assertNotIn("PermissionError", error.getvalue())
+        self.assertNotIn("Traceback", error.getvalue())
+
+    def test_update_backup_filesystem_failure_returns_stable_cli_error(self):
+        manifest = cli.UpdateManifest.from_inputs(
+            WORKTREE_ROOT / ".env",
+            {"config": WORKTREE_ROOT / "config"},
+            {},
+            {},
+            {},
+            [],
+            "none",
+            [WORKTREE_ROOT / "docker-compose.yml"],
+        )
+        output = io.StringIO()
+        error = io.StringIO()
+        with mock.patch.object(cli, "_update_manifest", return_value=manifest):
+            with mock.patch.object(cli, "_update_callbacks", return_value=(None, None, None)):
+                with mock.patch(
+                    "lumen_installer.update._copy_path",
+                    side_effect=OSError("private backup secret"),
+                ):
+                    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+                        result = cli.main(["update", "--confirm"])
+
+        self.assertEqual(result, int(ExitCode.PARTIAL))
+        self.assertEqual("", output.getvalue())
+        self.assertIn("update backup preparation failed", error.getvalue())
+        self.assertNotIn("private backup secret", error.getvalue())
+        self.assertNotIn("Traceback", error.getvalue())
+
     def test_update_manifest_inspects_images_and_keeps_only_active_profiles(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

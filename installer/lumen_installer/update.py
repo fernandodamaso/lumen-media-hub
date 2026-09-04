@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
-from .errors import ExitCode, InstallerError, InvalidInputError
+from .errors import ExitCode, InstallerError, InvalidInputError, PartialError
 
 
 PathLike = str | os.PathLike[str]
@@ -1051,62 +1051,74 @@ def run_update(
         "dry_run": bool(dry_run),
         "manifest": manifest.to_dict(),
     }
-    root_path = _absolute_path(root)
-    _validate_root_path(root_path)
-    _validate_manifest_checkout_root(root_path, manifest)
-    _manifest_paths(manifest)
-    if dry_run:
-        return result
-    if not confirm:
-        raise PermissionError("update requires confirmation")
-    _require_immutable_digests(manifest)
+    if not dry_run and not confirm:
+        raise InvalidInputError("update requires confirmation")
+    try:
+        root_path = _absolute_path(root)
+        _validate_root_path(root_path)
+        _validate_manifest_checkout_root(root_path, manifest)
+        manifest_paths = _manifest_paths(manifest)
+        if dry_run:
+            return result
+        _require_immutable_digests(manifest)
+    except OSError as exc:
+        raise PartialError(
+            "update backup preparation failed; no stack changes were made"
+        ) from exc
 
-    manifest_paths = _manifest_paths(manifest)
-    state = _state_dir(root_path)
-    _ensure_private_dir(state.parent)
-    _ensure_private_dir(state)
-    _ensure_private_dir(state / "backups")
-    _ensure_private_dir(state / "updates")
-    backup_dir = state / "backups" / run_id
-    update_record = state / "updates" / f"{run_id}.json"
-    _ensure_private_dir(backup_dir)
+    try:
+        state = _state_dir(root_path)
+        _ensure_private_dir(state.parent)
+        _ensure_private_dir(state)
+        _ensure_private_dir(state / "backups")
+        _ensure_private_dir(state / "updates")
+        backup_dir = state / "backups" / run_id
+        update_record = state / "updates" / f"{run_id}.json"
+        _ensure_private_dir(backup_dir)
 
-    backup_entries: list[dict[str, object]] = []
-    for path in manifest_paths:
-        backup_name = _backup_name(root_path, path)
-        if path.exists() or path.is_symlink():
-            _reject_unsafe_source_tree(path)
-            backup_path = backup_dir / backup_name
-            _copy_path(path, backup_path)
-            backup_entries.append(
-                {
-                    "path": backup_name.as_posix(),
-                    "backup": backup_name.as_posix(),
-                    "present": True,
-                    "inventory": _backup_inventory(backup_path),
-                }
-            )
-        else:
-            # Persist an explicit absence marker.  A complete manifest is
-            # required for rollback to know which post-update files must be
-            # moved out of the live checkout instead of being left behind.
-            backup_entries.append(
-                {
-                    "path": backup_name.as_posix(),
-                    "backup": backup_name.as_posix(),
-                    "present": False,
-                    "inventory": {"kind": "absent"},
-                }
-            )
+        backup_entries: list[dict[str, object]] = []
+        for path in manifest_paths:
+            backup_name = _backup_name(root_path, path)
+            if path.exists() or path.is_symlink():
+                _reject_unsafe_source_tree(path)
+                backup_path = backup_dir / backup_name
+                _copy_path(path, backup_path)
+                backup_entries.append(
+                    {
+                        "path": backup_name.as_posix(),
+                        "backup": backup_name.as_posix(),
+                        "present": True,
+                        "inventory": _backup_inventory(backup_path),
+                    }
+                )
+            else:
+                # Persist an explicit absence marker.  A complete manifest is
+                # required for rollback to know which post-update files must
+                # be moved out of the live checkout instead of being left behind.
+                backup_entries.append(
+                    {
+                        "path": backup_name.as_posix(),
+                        "backup": backup_name.as_posix(),
+                        "present": False,
+                        "inventory": {"kind": "absent"},
+                    }
+                )
 
-    _write_json(
-        update_record,
-        {
-            "run_id": run_id,
-            "manifest": manifest.to_dict(),
-            "backup_entries": backup_entries,
-        },
-    )
+        _write_json(
+            update_record,
+            {
+                "run_id": run_id,
+                "manifest": manifest.to_dict(),
+                "backup_entries": backup_entries,
+            },
+        )
+    except OSError as exc:
+        # Backups and the record are prepared before any lifecycle callback.
+        # Keep any partial private artifacts for recovery, but never expose a
+        # filesystem detail (which may contain a secret path) to the caller.
+        raise PartialError(
+            "update backup preparation failed; no stack changes were made"
+        ) from exc
     result["record"] = str(update_record)
     result["backup"] = str(backup_dir)
 
@@ -1157,7 +1169,7 @@ def run_rollback(
     if dry_run:
         return {"action": "rollback", "dry_run": True, "run_id": _safe_run_id(run_id)}
     if not confirm:
-        raise PermissionError("rollback requires confirmation")
+        raise InvalidInputError("rollback requires confirmation")
 
     safe_run_id = _safe_run_id(run_id)
     root_path = _absolute_path(root)

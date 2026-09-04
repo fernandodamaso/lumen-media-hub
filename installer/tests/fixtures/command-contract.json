@@ -1,0 +1,39 @@
+{
+  "linux_commands": [
+    "setup",
+    "doctor",
+    "up",
+    "down",
+    "frontend-dev",
+    "redeploy-dashboard",
+    "configure",
+    "connect-trakt",
+    "update"
+  ],
+  "windows_commands": [
+    "stack",
+    "frontend-dev",
+    "both",
+    "redeploy-dashboard",
+    "up",
+    "connect-trakt"
+  ],
+  "parity": {
+    "frontend-dev": {
+      "linux": "frontend-dev",
+      "windows_mode": "frontend-dev"
+    },
+    "up": {
+      "linux": "up",
+      "windows_mode": "up"
+    },
+    "redeploy-dashboard": {
+      "linux": "redeploy-dashboard",
+      "windows_mode": "redeploy-dashboard"
+    },
+    "connect-trakt": {
+      "linux": "connect-trakt",
+      "windows_mode": "connect-trakt"
+    }
+  }
+}

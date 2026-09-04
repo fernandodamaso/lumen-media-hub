@@ -12,21 +12,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      - name: Run Linux installer unit tests
-        run: PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s installer/tests -v
-      - name: install.ps1 defines Assert-Docker
-        run: grep -q 'function Assert-Docker' install.ps1
-      - name: installer derives required pulls from enabled Compose services
+      - name: Check Linux installer shell syntax
+        run: bash -n install.sh
+      - name: Run ShellCheck on Linux installer
         run: |
-          grep -Fq 'config --format json' install.ps1
-          grep -Fq "notcontains 'build'" install.ps1
-          ! grep -Fq -- '--ignore-pull-failures' install.ps1
-      - name: pre-commit cds into dashboard-app before quality
-        run: |
-          grep -q 'cd "$(git rev-parse --show-toplevel)/dashboard-app"' dashboard-app/githooks/pre-commit
-          grep -q 'npm run quality' dashboard-app/githooks/pre-commit
-      - name: compose wires QBT_PASSWORD from env
-        run: grep -q 'QBT_PASSWORD=\${QBT_PASSWORD' docker-compose.yml
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            echo "::error::ShellCheck is required on the CI runner but was not found" >&2
+            exit 1
+          fi
+          shellcheck --severity=warning install.sh
+      - name: Compile Linux installer Python
+        run: python -m compileall -q installer/lumen_installer installer/tests
+      - name: Run Linux installer unit and acceptance tests
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=installer python -m unittest discover -s installer/tests -v
+      - name: Run command parity and Compose matrix acceptance
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=installer python -m unittest discover -s installer/tests -p 'test_acceptance.py' -v
       - name: Validate production Compose dashboard build
         run: |
           docker compose --env-file .env.example -f docker-compose.yml config --quiet

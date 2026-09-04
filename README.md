@@ -294,6 +294,42 @@ filtering with a warning, while an unavailable cache fails open with a warning.
 
 The installer intentionally does **not** configure indexers, libraries or third-party API keys inside the individual media applications. Those remain explicit first-run service setup steps.
 
+### Linux installer
+
+Linux setup is provided by `install.sh` and a Python 3.10+ standard-library
+installer. Docker Engine and Compose v2.24.4+ are required; host Node.js is
+not required for stack setup. Arch/Omarchy, Ubuntu/Debian, and Fedora are
+supported.
+
+```bash
+./install.sh setup
+./install.sh doctor --dry-run
+```
+
+The installer defaults to loopback-only Jellyfin and management UIs, keeps
+`homepage-actions:8085` loopback-only, and leaves qBittorrent peer TCP/UDP
+ports externally reachable. It detects `PUID`, `PGID`, and `TZ`, writes `.env`
+atomically with mode `0600`, and keeps installer state/backups under the
+ignored `.state/installer/` directory. Dry-runs are read-only and redact
+secrets.
+
+For headless setup, provide absolute storage paths and secrets from a protected
+environment/secret store:
+
+```bash
+LUMEN_ROOT_PATH=/srv/lumen-media \
+LUMEN_DOWNLOADS_PATH=/srv/lumen-downloads \
+LUMEN_QBT_PASSWORD="$QBT_PASSWORD_FROM_SECRET_STORE" \
+./install.sh setup --non-interactive --network-mode local --gpu-mode none
+```
+
+Use `--network-mode lan --public-host HOST` only after reviewing firewall and
+reverse-proxy policy. Existing environments missing
+`JELLYFIN_BIND_ADDRESS` stop for an explicit legacy-LAN migration decision.
+See the complete [Linux installation guide](dashboard-app/docs/linux-installation.md)
+for qBittorrent adoption, Seerr ownership, optional profile checkpoints, GPU
+modes, update/rollback recovery, and Arch/Omarchy/Ubuntu/Fedora acceptance.
+
 ---
 
 ## Development workflows

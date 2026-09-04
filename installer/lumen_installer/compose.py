@@ -60,6 +60,18 @@ def _gpu(value: Any) -> bool | None:
     raise InvalidInputError("gpu must be a boolean or a known GPU mode")
 
 
+def _compose_files(value: Any) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    if isinstance(value, (str, bytes, bytearray)):
+        raise InvalidInputError("compose files must be a sequence of paths")
+    try:
+        values = tuple(value)
+    except TypeError as exc:
+        raise InvalidInputError("compose files must be a sequence of paths") from exc
+    return tuple(_path(item, name="Compose file") for item in values)
+
+
 @dataclass(frozen=True)
 class ComposeOptions:
     """Compose overlays and profiles selected for one lifecycle operation.
@@ -72,10 +84,12 @@ class ComposeOptions:
     profiles: tuple[str, ...] | Sequence[str] | None = None
     gpu: bool | str | None = None
     dev: bool = False
+    compose_files: tuple[str | Path, ...] | Sequence[str | Path] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "profiles", _profiles(self.profiles))
         object.__setattr__(self, "gpu", _gpu(self.gpu))
+        object.__setattr__(self, "compose_files", _compose_files(self.compose_files))
         if type(self.dev) is not bool:
             raise InvalidInputError("dev must be a boolean")
 
@@ -105,7 +119,12 @@ class ComposeOptions:
         dev = self.dev if self.dev is not False else bool(saved_dev)
         # ``dev`` is not currently persisted, so callers normally leave the
         # saved value false.  This method still supports a future state field.
-        return ComposeOptions(profiles=profiles, gpu=gpu, dev=dev)
+        return ComposeOptions(
+            profiles=profiles,
+            gpu=gpu,
+            dev=dev,
+            compose_files=self.compose_files,
+        )
 
     @classmethod
     def from_state(
@@ -127,15 +146,23 @@ class ComposeOptions:
     def global_argv(self, repo_root: str | Path, env_file: str | Path) -> tuple[str, ...]:
         root = _path(repo_root, name="repository root")
         env = _path(env_file, name="environment file")
-        argv: list[str] = ["docker", "compose", "--env-file", env, "-f", str(Path(root) / "docker-compose.yml")]
-        overlay = {
-            "nvidia": "docker-compose.gpu.yml",
-            "vaapi": "docker-compose.vaapi.yml",
-        }.get(self.gpu_mode)
-        if overlay is not None:
-            argv.extend(("-f", str(Path(root) / overlay)))
-        if self.dev:
-            argv.extend(("-f", str(Path(root) / "docker-compose.dev.yml")))
+        argv: list[str] = ["docker", "compose", "--env-file", env]
+        if self.compose_files is not None:
+            for compose_file in self.compose_files:
+                candidate = Path(compose_file)
+                if not candidate.is_absolute():
+                    candidate = Path(root) / candidate
+                argv.extend(("-f", str(candidate)))
+        else:
+            argv.extend(("-f", str(Path(root) / "docker-compose.yml")))
+            overlay = {
+                "nvidia": "docker-compose.gpu.yml",
+                "vaapi": "docker-compose.vaapi.yml",
+            }.get(self.gpu_mode)
+            if overlay is not None:
+                argv.extend(("-f", str(Path(root) / overlay)))
+            if self.dev:
+                argv.extend(("-f", str(Path(root) / "docker-compose.dev.yml")))
         for profile in self.selected_profiles:
             argv.extend(("--profile", profile))
         return tuple(argv)

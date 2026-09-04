@@ -26,6 +26,7 @@ from lumen_installer.errors import (
     PartialError,
 )
 from lumen_installer.compose import ComposeOptions
+from lumen_installer.update import render_rollback_override
 
 
 class CliContractTests(unittest.TestCase):
@@ -582,6 +583,107 @@ class CliContractTests(unittest.TestCase):
             self.assertEqual("none", manifest.gpu_mode)
             runner.run.assert_not_called()
 
+    def test_update_manifest_discovers_active_build_only_service_image_id(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            compose.write_text(
+                "services:\n"
+                "  dashboard:\n"
+                "    build: .\n",
+                encoding="utf-8",
+            )
+            calls = []
+
+            def execute(argv, **_kwargs):
+                calls.append(tuple(argv))
+                self.assertEqual(("images", "--format", "json", "dashboard"), tuple(argv[-4:]))
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps([{"ID": "sha256:built-dashboard"}]),
+                    stderr="",
+                )
+
+            manifest = cli._update_manifest(
+                root,
+                SimpleNamespace(profiles=None, gpu_mode="none", gpu=None, dev=False),
+                dry_run=False,
+                runner=cli.CommandRunner(executor=execute),
+            )
+
+            self.assertEqual({"dashboard": "sha256:built-dashboard"}, manifest.local_image_ids)
+            self.assertEqual({}, manifest.image_refs)
+            self.assertEqual(1, len(calls))
+
+    def test_build_only_service_is_tagged_before_lifecycle_and_rendered_for_rollback(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            compose.write_text(
+                "services:\n"
+                "  dashboard:\n"
+                "    build: .\n",
+                encoding="utf-8",
+            )
+            env_path = root / ".env"
+            env_path.write_text("", encoding="utf-8")
+            manifest = cli.UpdateManifest.from_inputs(
+                env_path,
+                {},
+                {},
+                {},
+                {"dashboard": "sha256:built-dashboard"},
+                [],
+                "none",
+                [compose],
+            )
+            calls = []
+
+            def execute(argv, **_kwargs):
+                calls.append(tuple(argv))
+                if tuple(argv[-3:]) == ("config", "--format", "json"):
+                    stdout = json.dumps({
+                        "services": {
+                            "dashboard": {"build": {"context": "."}},
+                        }
+                    })
+                elif tuple(argv[:4]) == ("docker", "image", "inspect", "--format"):
+                    stdout = json.dumps({"Id": "sha256:built-dashboard", "RepoDigests": []})
+                else:
+                    stdout = ""
+                return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+            tag, pull, recreate = cli._update_callbacks(
+                root,
+                manifest,
+                SimpleNamespace(dev=False),
+                cli.CommandRunner(executor=execute),
+            )
+            tags = tag("run-1")
+
+            self.assertEqual(
+                {"dashboard": "lumen-rollback/dashboard:run-1"},
+                tags,
+            )
+            self.assertEqual(
+                "docker image tag sha256:built-dashboard lumen-rollback/dashboard:run-1",
+                " ".join(calls[0]),
+            )
+            pull("run-1")
+            with mock.patch.object(cli, "wait_for_health"):
+                recreate("run-1")
+
+            # A build-only service has no pullable image but is still present
+            # in the generated immutable rollback override through its tag.
+            rendered = render_rollback_override(
+                manifest,
+                "run-1",
+                {"dashboard"},
+                tags,
+            )
+            self.assertIn("image: lumen-rollback/dashboard:run-1", rendered)
+            self.assertTrue(any("build dashboard" in " ".join(call) for call in calls))
+
     def test_update_manifest_selects_gpu_overlays_and_disposable_vaapi_plan(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -653,6 +755,8 @@ class CliContractTests(unittest.TestCase):
                             }
                         }
                     )
+                elif tuple(argv[:4]) == ("docker", "image", "inspect", "--format"):
+                    stdout = json.dumps({"Id": "sha256:dashboard", "RepoDigests": []})
                 else:
                     stdout = ""
                 return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
@@ -713,6 +817,67 @@ class CliContractTests(unittest.TestCase):
             self.assertIn("--force-recreate", calls[1])
             self.assertTrue(all("--remove-orphans" not in call for call in calls))
             health.assert_called_once_with()
+
+    def test_update_and_rollback_callbacks_honor_ordered_compose_file_selection(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            base = root / "docker-compose.custom-base.yml"
+            override = root / "docker-compose.custom-override.yml"
+            for compose in (base, override):
+                compose.write_text(
+                    "services:\n  api:\n    image: example/api:stable\n",
+                    encoding="utf-8",
+                )
+            env_path = root / ".env"
+            env_path.write_text(
+                f"COMPOSE_FILE={base.name}:{override.name}\n",
+                encoding="utf-8",
+            )
+            args = SimpleNamespace(profiles=None, gpu_mode="none", gpu=None, dev=False)
+            manifest = cli._update_manifest(root, args, dry_run=True)
+            self.assertEqual(
+                [str(base), str(override)],
+                manifest.compose_files,
+            )
+            manifest = cli.UpdateManifest.from_inputs(
+                env_path,
+                {},
+                {"api": "example/api:stable"},
+                {"api": "sha256:" + "a" * 64},
+                {},
+                [],
+                "none",
+                [base, override],
+            )
+            calls = []
+
+            def execute(argv, **_kwargs):
+                calls.append(tuple(argv))
+                if tuple(argv[-3:]) == ("config", "--format", "json"):
+                    stdout = json.dumps({
+                        "services": {"api": {"image": "example/api:stable"}}
+                    })
+                else:
+                    stdout = ""
+                return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+            runner = cli.CommandRunner(executor=execute)
+            tag, pull, recreate = cli._update_callbacks(root, manifest, args, runner)
+            pull("run-1")
+            with mock.patch.object(cli, "wait_for_health"):
+                recreate("run-1")
+            stop, start = cli._rollback_callbacks(root, manifest, args, runner)
+            stop("run-1")
+            with mock.patch.object(cli, "wait_for_health"):
+                start("run-1")
+
+            expected_files = (str(base), str(override))
+            for argv in calls:
+                positions = [index for index, value in enumerate(argv) if value == "-f"]
+                selected = tuple(argv[index + 1] for index in positions)
+                self.assertEqual(expected_files, selected[:2])
+                self.assertNotIn(str(root / "docker-compose.yml"), argv)
+                self.assertNotIn("--remove-orphans", argv)
 
     def test_setup_confirmation_is_explicit_and_not_a_gpu_confirmation_abbreviation(self):
         parser = cli.build_parser()

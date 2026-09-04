@@ -51,6 +51,7 @@ from .update import (
     _validate_compose_name,
     _validate_image_id,
     _validate_image_reference,
+    _validate_state_boundary,
     run_rollback,
     run_update,
 )
@@ -356,9 +357,12 @@ def _known_compose_files(root: Path, values: Mapping[str, str], args: argparse.N
             try:
                 candidate.relative_to(root)
             except ValueError:
-                # Compose may accept arbitrary host paths, but update backups
-                # must remain scoped to this checkout.
-                continue
+                # Compose may accept arbitrary host paths, but update records
+                # and rollback lifecycle commands must remain scoped to this
+                # checkout.  Do not silently drop a selected base or overlay.
+                raise InvalidInputError(
+                    "configured Compose files must be inside the checkout"
+                )
             candidates.append(candidate)
     else:
         candidates.append(root / "docker-compose.yml")
@@ -618,6 +622,45 @@ def _inspect_update_image(
     return image_id, digests
 
 
+def _inspect_build_service_image(
+    runner: CommandRunner,
+    root: Path,
+    env_path: Path,
+    options: ComposeOptions,
+    service: str,
+    *,
+    redact: Sequence[str] = (),
+) -> str:
+    """Resolve the immutable local image ID Compose built for one service."""
+
+    result = runner.run(
+        options.argv(root, env_path, "images", "--format", "json", service),
+        redact=redact,
+    )
+    try:
+        payload = json.loads(result.stdout)
+        if isinstance(payload, Mapping):
+            entries = [payload]
+        elif isinstance(payload, list):
+            entries = payload
+        else:
+            raise ValueError
+        if len(entries) != 1 or not isinstance(entries[0], Mapping):
+            raise ValueError
+        image_id = str(
+            entries[0].get(
+                "ID",
+                entries[0].get("Id", entries[0].get("ImageID", "")),
+            )
+        ).strip()
+        _validate_image_id(image_id)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise InvalidInputError(
+            "Docker Compose returned invalid build image metadata"
+        ) from exc
+    return image_id
+
+
 def _saved_update_state(root: Path) -> Mapping[str, object]:
     state_path = root / ".state" / "installer" / "state.json"
     try:
@@ -675,6 +718,7 @@ def _update_manifest(
     image_refs, _declared_profiles = _compose_metadata(compose_files, values, profiles)
     declared_services, active_services = _compose_service_activity(compose_files, profiles)
     build_services = _compose_build_services(compose_files)
+    active_build_services = build_services.intersection(active_services)
     configured_image_refs = _env_json_map(values, ("LUMEN_IMAGE_REFS", "IMAGE_REFS"))
     configured_image_refs.update(_env_service_values(values, ("_IMAGE_REF", "_IMAGE")))
     image_refs.update(
@@ -794,6 +838,33 @@ def _update_manifest(
                     )
                 local_image_ids[service] = image_id
 
+    if not dry_run and active_build_services - set(image_refs):
+        # Compose assigns a generated local image name when a build-only
+        # service omits ``image``.  ``compose images`` is the authoritative
+        # way to resolve that name without guessing the project prefix.
+        build_options = ComposeOptions(
+            profiles=tuple(profiles),
+            gpu=gpu_mode,
+            dev=bool(getattr(args, "dev", False)),
+            compose_files=tuple(str(path) for path in compose_files),
+        )
+        redact = _secret_values(values)
+        for service in sorted(active_build_services - set(image_refs)):
+            image_id = _inspect_build_service_image(
+                runner if runner is not None else CommandRunner(),
+                root,
+                root / ".env",
+                build_options,
+                service,
+                redact=redact,
+            )
+            configured_local_id = local_image_ids.get(service)
+            if configured_local_id is not None and configured_local_id != image_id:
+                raise InvalidInputError(
+                    "configured local image id does not match Docker Compose inspection"
+                )
+            local_image_ids[service] = image_id
+
     # A normal update must have an immutable source for every service.  A
     # local image ID is sufficient for a build service; registry-backed
     # services require a matching RepoDigest, even when their configured tag
@@ -848,7 +919,12 @@ def _update_compose_options(manifest: UpdateManifest, args: argparse.Namespace) 
     dev = bool(getattr(args, "dev", False)) or any(
         Path(path).name == "docker-compose.dev.yml" for path in manifest.compose_files
     )
-    return ComposeOptions(profiles=tuple(manifest.profiles), gpu=gpu, dev=dev)
+    return ComposeOptions(
+        profiles=tuple(manifest.profiles),
+        gpu=gpu,
+        dev=dev,
+        compose_files=tuple(manifest.compose_files),
+    )
 
 
 def _update_callbacks(
@@ -888,12 +964,26 @@ def _update_callbacks(
                 raise PartialError("a built service has no local image to preserve")
             tag = f"lumen-rollback/{service}:{run_id}"
             runner.run(["docker", "image", "tag", source, tag], redact=redact)
+            expected_id = manifest.local_image_ids.get(service)
+            if expected_id is not None:
+                actual_id, _ = _inspect_update_image(
+                    runner, tag, redact=redact
+                )
+                if actual_id != expected_id:
+                    raise PartialError(
+                        "Docker rollback tag did not preserve the recorded image"
+                    )
             tags[service] = tag
         return tags
 
     def pull_images(_run_id: str) -> None:
         payload = config_payload_once()
-        services = derive_pull_services(payload)
+        try:
+            services = derive_pull_services(payload)
+        except InvalidInputError:
+            if derive_build_services(payload):
+                return
+            raise
         if services:
             compose_pull(runner, root, env_path, options, services, redact=redact)
 
@@ -998,6 +1088,7 @@ def _update(args: argparse.Namespace) -> int:
             raise PartialError("stack rollback lifecycle failed") from error
     else:
         runner = CommandRunner()
+        _validate_state_boundary(root)
         try:
             manifest = _update_manifest(root, args, dry_run=dry_run, runner=runner)
         except InstallerError:

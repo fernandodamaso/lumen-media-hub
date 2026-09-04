@@ -167,7 +167,6 @@ def _validate_manifest_path(
     elif kind == "compose":
         approved = (
             len(relative.parts) == 1
-            and relative.name.startswith("docker-compose")
             and relative.suffix in {".yml", ".yaml"}
         )
     else:
@@ -467,8 +466,6 @@ class UpdateManifest:
             normalized_local_ids[normalized_name] = _validate_image_id(image_id)
         if not set(normalized_repo_digests).issubset(normalized_refs):
             raise ValueError("digest metadata references an unknown service")
-        if not set(normalized_local_ids).issubset(normalized_refs):
-            raise ValueError("local image metadata references an unknown service")
         existing_compose = [
             Path(path)
             for path in normalized_compose
@@ -483,6 +480,12 @@ class UpdateManifest:
             build_services = _compose_build_services(existing_compose)
             if not allow_unverified_local_ids and set(normalized_local_ids) - build_services:
                 raise ValueError("local image ids are only valid for Compose build services")
+        unknown_local_services = set(normalized_local_ids) - set(normalized_refs)
+        if unknown_local_services and (
+            not existing_compose
+            or unknown_local_services - _compose_build_services(existing_compose)
+        ):
+            raise ValueError("local image metadata references an unknown service")
 
         if isinstance(profiles, (str, bytes, bytearray)):
             raise ValueError("manifest profiles must be a sequence")
@@ -654,6 +657,25 @@ def _harden_tree(path: Path) -> None:
         return
     if path.exists():
         path.chmod(0o600)
+
+
+def _validate_state_boundary(root: Path) -> None:
+    """Reject all installer state boundaries before any state mutation."""
+
+    state = _state_dir(root)
+    boundaries = (
+        state.parent,
+        state,
+        state / "updates",
+        state / "backups",
+        state / "failed-runs",
+        state / "rollback",
+    )
+    for boundary in boundaries:
+        if boundary.is_symlink() or (
+            boundary.exists() and not boundary.is_dir()
+        ):
+            raise InvalidInputError("installer state boundary is invalid")
 
 
 def _safe_run_id(run_id: str) -> str:
@@ -1056,6 +1078,7 @@ def run_update(
     try:
         root_path = _absolute_path(root)
         _validate_root_path(root_path)
+        _validate_state_boundary(root_path)
         _validate_manifest_checkout_root(root_path, manifest)
         manifest_paths = _manifest_paths(manifest)
         if dry_run:
@@ -1112,7 +1135,9 @@ def run_update(
                 "backup_entries": backup_entries,
             },
         )
-    except OSError as exc:
+    except InvalidInputError:
+        raise
+    except (OSError, ValueError) as exc:
         # Backups and the record are prepared before any lifecycle callback.
         # Keep any partial private artifacts for recovery, but never expose a
         # filesystem detail (which may contain a secret path) to the caller.

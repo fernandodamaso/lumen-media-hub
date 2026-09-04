@@ -31,6 +31,27 @@ class ComposeOptionsTests(unittest.TestCase):
             ),
         )
 
+    def test_uses_recorded_compose_files_instead_of_reconstructing_overlays(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = root / "docker-compose.custom-base.yml"
+            override = root / "docker-compose.custom-override.yml"
+            options = ComposeOptions(
+                compose_files=(base, override),
+                profiles=("requests",),
+                gpu="vaapi",
+                dev=True,
+            )
+
+        self.assertEqual(
+            options.argv(root, root / ".env", "up", "-d"),
+            (
+                "docker", "compose", "--env-file", str(root / ".env"),
+                "-f", str(base), "-f", str(override),
+                "--profile", "requests", "up", "-d",
+            ),
+        )
+
     def test_rejects_malformed_profiles_and_accepts_gpu_modes(self):
         with self.assertRaises(InvalidInputError):
             ComposeOptions(profiles=("requests; echo bad",))

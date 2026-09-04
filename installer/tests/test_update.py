@@ -268,6 +268,36 @@ class UpdateManifestTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 UpdateManifest.from_inputs(compose_files=[malformed], **common)
 
+    def test_accepts_build_only_service_local_id_without_an_image_reference(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = self._compose(
+                root,
+                "services:\n"
+                "  dashboard:\n"
+                "    build: .\n",
+            )
+            manifest = UpdateManifest.from_inputs(
+                root / ".env",
+                {},
+                {},
+                {},
+                {"dashboard": "sha256:built"},
+                [],
+                "none",
+                [compose],
+            )
+
+            self.assertEqual({}, manifest.image_refs)
+            self.assertEqual({"dashboard": "sha256:built"}, manifest.local_image_ids)
+            rendered = render_rollback_override(
+                manifest,
+                "run-1",
+                {"dashboard"},
+                {"dashboard": "lumen-rollback/dashboard:run-1"},
+            )
+            self.assertIn("image: lumen-rollback/dashboard:run-1", rendered)
+
     def test_local_build_override_requires_verified_rollback_tag(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -461,6 +491,31 @@ class UpdateOperationTests(unittest.TestCase):
             with self.assertRaises(InvalidInputError):
                 run_update(root, manifest, dry_run=False, confirm=False)
             self.assertFalse((root / ".state").exists())
+
+    def test_update_rejects_every_symlinked_state_boundary_without_mutation(self):
+        boundaries = (
+            ".state",
+            ".state/installer",
+            ".state/installer/updates",
+            ".state/installer/rollback",
+            ".state/installer/failed-runs",
+        )
+        for boundary in boundaries:
+            with self.subTest(boundary=boundary), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                manifest, _ = self._manifest(root)
+                link = root / boundary
+                link.parent.mkdir(parents=True, exist_ok=True)
+                target = root.parent / f"{root.name}-outside-{boundary.replace('/', '-')}"
+                target.mkdir()
+                link.symlink_to(target, target_is_directory=True)
+
+                with self.assertRaises(InvalidInputError) as raised:
+                    run_update(root, manifest, dry_run=False, confirm=True)
+
+                self.assertEqual(ExitCode.INVALID, raised.exception.exit_code)
+                self.assertFalse((target / "installer").exists())
+                self.assertTrue(link.is_symlink())
 
     def test_backup_filesystem_failure_is_stable_and_keeps_live_files_untouched(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -705,6 +760,42 @@ class UpdateOperationTests(unittest.TestCase):
             )
             self.assertEqual([], calls)
             self.assertFalse((root / ".state").exists())
+
+    def test_rollback_rejects_every_symlinked_state_boundary_without_callbacks(self):
+        boundaries = (
+            ".state",
+            ".state/installer",
+            ".state/installer/updates",
+            ".state/installer/rollback",
+            ".state/installer/failed-runs",
+        )
+        for boundary in boundaries:
+            with self.subTest(boundary=boundary), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                link = root / boundary
+                if link.exists() or link.is_symlink():
+                    if link.is_dir() and not link.is_symlink():
+                        shutil.rmtree(link)
+                    else:
+                        link.unlink()
+                target = root.parent / f"{root.name}-rollback-outside-{boundary.replace('/', '-')}"
+                target.mkdir()
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(target, target_is_directory=True)
+                calls = []
+
+                with self.assertRaises(InvalidInputError) as raised:
+                    run_rollback(
+                        root,
+                        "run-7",
+                        True,
+                        lambda: calls.append("stop"),
+                        lambda: calls.append("start"),
+                    )
+
+                self.assertEqual(ExitCode.INVALID, raised.exception.exit_code)
+                self.assertEqual([], calls)
+                self.assertFalse((target / "failed-runs").exists())
 
     def test_rollback_moves_only_manifest_paths_restores_backup_and_starts_override(self):
         with tempfile.TemporaryDirectory() as temp_dir:

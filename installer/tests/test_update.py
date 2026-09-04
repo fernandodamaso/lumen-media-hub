@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from lumen_installer.update import (
@@ -89,6 +90,26 @@ class UpdateManifestTests(unittest.TestCase):
                     candidate["runtime_paths"] = {"runtime": path}
                     with self.assertRaises(ValueError):
                         UpdateManifest.from_inputs(**candidate)
+
+    def test_rejects_recursive_installer_state_backup_destinations(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            state = root / ".state" / "installer"
+            common = {
+                "env_path": root / ".env",
+                "image_refs": {"api": "registry.example/api:stable"},
+                "repo_digests": {"api": "sha256:" + "a" * 64},
+                "local_image_ids": {},
+                "profiles": [],
+                "gpu_mode": False,
+                "compose_files": [root / "docker-compose.yml"],
+            }
+            for candidate in (state, state / "backups", state / "backups" / "old-run"):
+                with self.subTest(candidate=candidate):
+                    with self.assertRaises(ValueError):
+                        UpdateManifest.from_inputs(
+                            runtime_paths={"runtime": candidate}, **common
+                        )
 
     def test_validates_immutable_digest_forms_and_requires_registry_digests(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -230,6 +251,17 @@ class UpdateOperationTests(unittest.TestCase):
                 run_update(root, manifest, dry_run=False, confirm=False)
             self.assertFalse((root / ".state").exists())
 
+    def test_update_rejects_manifest_from_a_different_checkout(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "requested"
+            manifest_root = Path(temp_dir) / "manifest"
+            root.mkdir()
+            manifest_root.mkdir()
+            manifest, _ = self._manifest(manifest_root)
+            with self.assertRaises(ValueError):
+                run_update(root, manifest, dry_run=False, confirm=True)
+            self.assertFalse((root / ".state").exists())
+
     def test_update_records_manifest_and_runs_pull_before_recreate(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -285,6 +317,104 @@ class UpdateOperationTests(unittest.TestCase):
             self.assertEqual("failed update", failed.read_text(encoding="utf-8"))
             self.assertEqual(updated["run_id"], result["run_id"])
             self.assertTrue(Path(result["override"]).is_file())
+
+    def test_rollback_rejects_record_for_a_different_checkout_before_callbacks(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first_root = Path(temp_dir) / "first"
+            second_root = Path(temp_dir) / "second"
+            first_root.mkdir()
+            second_root.mkdir()
+            manifest, _ = self._manifest(first_root)
+            updated = run_update(first_root, manifest, False, True)
+            source_record = Path(updated["record"])
+            target_record = second_root / ".state" / "installer" / "updates" / source_record.name
+            target_record.parent.mkdir(parents=True)
+            shutil.copy2(source_record, target_record)
+            calls = []
+            with self.assertRaises(ValueError):
+                run_rollback(
+                    second_root,
+                    updated["run_id"],
+                    True,
+                    lambda: calls.append("stop"),
+                    lambda: calls.append("start"),
+                )
+            self.assertEqual([], calls)
+
+    def test_rollback_rejects_symlink_in_backup_before_touching_live_or_media_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, config = self._manifest(root)
+            media_file = root / "media" / "do-not-touch.mkv"
+            download_file = root / "downloads" / "do-not-touch.part"
+            media_file.parent.mkdir()
+            download_file.parent.mkdir()
+            media_file.write_text("media", encoding="utf-8")
+            download_file.write_text("download", encoding="utf-8")
+            updated = run_update(root, manifest, False, True)
+            config.write_text("post-update", encoding="utf-8")
+            backup_file = (
+                root
+                / ".state"
+                / "installer"
+                / "backups"
+                / updated["run_id"]
+                / "config"
+                / "service.conf"
+            )
+            external = root / "outside-secret"
+            external.write_text("must-not-restore", encoding="utf-8")
+            backup_file.unlink()
+            backup_file.symlink_to(external)
+            calls = []
+            with self.assertRaises(ValueError):
+                run_rollback(
+                    root,
+                    updated["run_id"],
+                    True,
+                    lambda: calls.append("stop"),
+                    lambda: calls.append("start"),
+                )
+            self.assertEqual([], calls)
+            self.assertEqual("post-update", config.read_text(encoding="utf-8"))
+            self.assertEqual("media", media_file.read_text(encoding="utf-8"))
+            self.assertEqual("download", download_file.read_text(encoding="utf-8"))
+
+    def test_env_restore_failure_keeps_post_update_env_and_recoverable_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, config = self._manifest(root)
+            env_path = Path(manifest.env_path)
+            env_path.write_text("before", encoding="utf-8")
+            env_path.chmod(0o600)
+            media_file = root / "media" / "do-not-touch.mkv"
+            download_file = root / "downloads" / "do-not-touch.part"
+            media_file.parent.mkdir()
+            download_file.parent.mkdir()
+            media_file.write_text("media", encoding="utf-8")
+            download_file.write_text("download", encoding="utf-8")
+            updated = run_update(root, manifest, False, True)
+            env_path.write_text("post-update", encoding="utf-8")
+            env_path.chmod(0o600)
+            with mock.patch(
+                "lumen_installer.update.os.replace",
+                side_effect=OSError("simulated atomic restore failure"),
+            ):
+                with self.assertRaises(OSError):
+                    run_rollback(root, updated["run_id"], True)
+            self.assertEqual("post-update", env_path.read_text(encoding="utf-8"))
+            self.assertEqual(0o600, env_path.stat().st_mode & 0o777)
+            failed_env = (
+                root
+                / ".state"
+                / "installer"
+                / "failed-runs"
+                / updated["run_id"]
+                / ".env"
+            )
+            self.assertEqual("post-update", failed_env.read_text(encoding="utf-8"))
+            self.assertEqual("media", media_file.read_text(encoding="utf-8"))
+            self.assertEqual("download", download_file.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

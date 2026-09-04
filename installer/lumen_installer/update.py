@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -148,9 +149,32 @@ def _validate_manifest_inputs(
     _validate_manifest_path(env_path, checkout_root, kind="env", protected=protected)
     for path in runtime_paths.values():
         _validate_manifest_path(path, checkout_root, kind="runtime", protected=protected)
+        _reject_recursive_backup_destination(path, checkout_root)
     for path in compose_files:
         _validate_manifest_path(path, checkout_root, kind="compose", protected=protected)
     return checkout_root
+
+
+def _reject_recursive_backup_destination(path: Path, checkout_root: Path) -> None:
+    """Keep a manifest source from containing its own update backup target."""
+
+    installer_state = checkout_root / ".state" / "installer"
+    backup_root = installer_state / "backups"
+    if _is_within(path, backup_root) or _is_within(backup_root, path):
+        raise ValueError(
+            "manifest path would recursively contain the installer backup destination: "
+            f"{path}"
+        )
+
+
+def _validate_manifest_checkout_root(root: Path, manifest: "UpdateManifest") -> None:
+    manifest_root = _absolute_path(manifest.env_path).parent
+    requested_root = _absolute_path(root)
+    if requested_root != manifest_root:
+        raise ValueError(
+            "manifest checkout does not match the requested checkout: "
+            f"{manifest_root} != {requested_root}"
+        )
 
 
 def _normalize_repo_digest(value: str) -> str:
@@ -414,6 +438,47 @@ def _copy_path(source: Path, destination: Path, *, private_destination: bool = T
         _harden_tree(destination)
 
 
+def _reject_symlink_tree(path: Path) -> None:
+    """Reject a backup path if any root or descendant is a symlink."""
+
+    if _has_symlink_component(path) or path.is_symlink():
+        raise ValueError(f"rollback backup may not contain symlinks: {path}")
+    if not path.is_dir():
+        return
+    for child in path.iterdir():
+        _reject_symlink_tree(child)
+
+
+def _atomic_copy_env(source: Path, destination: Path) -> None:
+    """Replace ``.env`` atomically while enforcing its private mode."""
+
+    if source.is_symlink() or _has_symlink_component(source) or not source.is_file():
+        raise ValueError(f"rollback .env source is not a regular file: {source}")
+    if _has_symlink_component(destination.parent):
+        raise ValueError(
+            f"rollback .env parent may not contain symlinks: {destination.parent}"
+        )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent)
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as output, source.open("rb") as input_file:
+            shutil.copyfileobj(input_file, output)
+            output.flush()
+            os.fsync(output.fileno())
+            os.fchmod(output.fileno(), 0o600)
+        os.replace(temporary, destination)
+        destination.chmod(0o600)
+    except BaseException:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def _move_path(source: Path, destination: Path) -> None:
     _ensure_private_dir(destination.parent)
     if destination.exists() or destination.is_symlink():
@@ -538,14 +603,16 @@ def run_update(
         "dry_run": bool(dry_run),
         "manifest": manifest.to_dict(),
     }
+    root_path = _absolute_path(root)
+    _validate_root_path(root_path)
+    _validate_manifest_checkout_root(root_path, manifest)
+    _manifest_paths(manifest)
     if dry_run:
         return result
     if not confirm:
         raise PermissionError("update requires confirmation")
     _require_immutable_digests(manifest)
 
-    root_path = _absolute_path(root)
-    _validate_root_path(root_path)
     manifest_paths = _manifest_paths(manifest)
     state = _state_dir(root_path)
     _ensure_private_dir(state.parent)
@@ -595,7 +662,14 @@ def run_rollback(
 
     # Inspect the state boundary before reading a record.  A symlink here
     # could redirect a rollback read (and later writes) outside the checkout.
-    for directory in (state.parent, state, state / "updates"):
+    for directory in (
+        state.parent,
+        state,
+        state / "updates",
+        state / "backups",
+        state / "failed-runs",
+        state / "rollback",
+    ):
         if directory.is_symlink():
             raise ValueError(f"installer state directory may not be a symlink: {directory}")
         if directory.exists() and not directory.is_dir():
@@ -603,7 +677,10 @@ def run_rollback(
     if record_path.is_symlink():
         raise ValueError(f"installer update record may not be a symlink: {record_path}")
     record = json.loads(record_path.read_text(encoding="utf-8"))
+    if record.get("run_id") != safe_run_id:
+        raise ValueError("installer update record does not match requested run")
     manifest = UpdateManifest.from_dict(record["manifest"])
+    _validate_manifest_checkout_root(root_path, manifest)
     manifest_paths = _manifest_paths(manifest)
 
     _ensure_private_dir(state.parent)
@@ -619,24 +696,37 @@ def run_rollback(
     if backup_dir.exists() or backup_dir.is_symlink():
         _ensure_private_dir(backup_dir)
 
+    for path in manifest_paths:
+        backup = backup_dir / _backup_name(root_path, path)
+        if backup.exists() or backup.is_symlink():
+            _reject_symlink_tree(backup)
+
     if stop_callback is not None:
         stop_callback()
 
+    env_path = _absolute_path(manifest.env_path)
     for path in manifest_paths:
         if path.exists() or path.is_symlink():
             failed_path = failed_dir / _backup_name(root_path, path)
             # A previous rollback may have moved this path successfully but
             # failed later (for example in a start callback).  Keep that
             # first post-update snapshot and make retry idempotent.
-            if not failed_path.exists() and not failed_path.is_symlink():
+            backup = backup_dir / _backup_name(root_path, path)
+            if path == env_path and (backup.exists() or backup.is_symlink()):
+                if not failed_path.exists() and not failed_path.is_symlink():
+                    _copy_path(path, failed_path)
+            elif not failed_path.exists() and not failed_path.is_symlink():
                 _move_path(path, failed_path)
 
     for path in manifest_paths:
         backup = backup_dir / _backup_name(root_path, path)
         if backup.exists() or backup.is_symlink():
-            if path.exists() or path.is_symlink():
-                _remove_path(path)
-            _copy_path(backup, path, private_destination=False)
+            if path == env_path:
+                _atomic_copy_env(backup, path)
+            else:
+                if path.exists() or path.is_symlink():
+                    _remove_path(path)
+                _copy_path(backup, path, private_destination=False)
 
     override_path = state / "rollback" / f"{safe_run_id}.yml"
     local_services = set(manifest.local_image_ids)

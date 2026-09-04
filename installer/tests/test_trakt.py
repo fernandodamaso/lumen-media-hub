@@ -174,6 +174,24 @@ class TraktAuthorizationTests(unittest.TestCase):
         )
         self.assertEqual(stat.S_IMODE(new_path.stat().st_mode), 0o600)
 
+    def test_new_state_directories_are_mode_0700_under_permissive_umask(self):
+        existing_parent = self.root / "existing"
+        existing_parent.mkdir(mode=0o755)
+        existing_parent.chmod(0o755)
+        token_path = existing_parent / ".state" / "trakt" / "token.json"
+
+        original_umask = os.umask(0)
+        try:
+            TraktTokenStore(token_path).replace(
+                TraktTokenState("access", "refresh", 2_000, 1_000)
+            )
+        finally:
+            os.umask(original_umask)
+
+        self.assertEqual(stat.S_IMODE(existing_parent.stat().st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE(token_path.parent.parent.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(token_path.parent.stat().st_mode), 0o700)
+
     def test_configured_container_path_resolves_under_configured_host_state_root(self):
         expected = self.root / "custom-state" / "nested" / "token.json"
         actual = resolve_token_path(

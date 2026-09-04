@@ -98,7 +98,14 @@ class TraktTokenStore:
             state = TraktTokenState.from_dict(state)
 
         parent = self.path.parent
+        missing_parents: list[Path] = []
+        current = parent
+        while not current.exists():
+            missing_parents.append(current)
+            current = current.parent
         parent.mkdir(parents=True, exist_ok=True)
+        for directory in missing_parents:
+            os.chmod(directory, 0o700)
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{self.path.name}.",
             suffix=".tmp",

@@ -29,6 +29,7 @@ from .errors import ExitCode, InvalidInputError, PartialError
 from .http import HttpTransport
 from .services.base import ServiceCheckpoint, ServiceResult
 from .services.jellyfin import JellyfinAdapter
+from .services.optional import OptionalProfileResult, configure_optional_profiles
 from .services.prowlarr import ProwlarrAdapter, read_prowlarr_api_key
 from .services.qbittorrent import (
     DEFAULT_LOG_MAX_BYTES,
@@ -36,6 +37,8 @@ from .services.qbittorrent import (
     QbittorrentAdapter,
 )
 from .services.servarr import RadarrAdapter, SonarrAdapter, read_servarr_api_key
+from .services.seerr import SEERR_INTERNAL_URL, SEERR_PORT, SeerrAdapter
+from .state import DEFAULT_STAGES, InstallerState
 
 
 CORE_ORDER = (
@@ -540,6 +543,23 @@ def _guided(service: str, code: str, reason: str) -> ServiceResult:
     )
 
 
+def _resolve_configure_options(
+    root: Path,
+    options: ComposeOptions | None,
+    *,
+    dry_run: bool,
+) -> ComposeOptions:
+    requested = options if options is not None else ComposeOptions()
+    if requested.profiles is not None and requested.gpu is not None:
+        return requested
+    state = InstallerState.load(
+        root,
+        allowed_stages=DEFAULT_STAGES,
+        correct_modes=not dry_run,
+    )
+    return requested.resolved(saved_profiles=state.profiles, saved_gpu=state.gpu_mode)
+
+
 class _JellyfinReconciler:
     def __init__(self, adapter: JellyfinAdapter, *, network_state: str, confirm: bool) -> None:
         self.adapter = adapter
@@ -645,6 +665,48 @@ class _TorznabReconciler:
             dry_run=dry_run,
             confirm=confirm,
         )
+
+
+class _SeerrReconciler:
+    """Expose the request adapter as the optional profile's test/apply seam."""
+
+    def __init__(self, adapter: SeerrAdapter) -> None:
+        self.adapter = adapter
+
+    def test(self) -> bool:
+        return bool(self.adapter.probe_capability().supported)
+
+    def health(self) -> bool:
+        return bool(self.adapter.probe_capability().supported)
+
+    def configure(self, *, dry_run: bool = False, confirm: bool = False) -> Any:
+        return _call_with_keywords(
+            self.adapter.configure_integrations,
+            dry_run=dry_run,
+            confirm=confirm,
+        )
+
+
+def _seerr_port(environment: Mapping[str, Any]) -> int:
+    raw = environment.get("JELLYSEERR_PORT")
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return SEERR_PORT
+    if not isinstance(raw, str) or re.fullmatch(r"[0-9]+", raw.strip()) is None:
+        raise InvalidInputError("JELLYSEERR_PORT is invalid")
+    value = int(raw.strip())
+    if not 1 <= value <= 65535:
+        raise InvalidInputError("JELLYSEERR_PORT is invalid")
+    return value
+
+
+def _seerr_host_url(environment: Mapping[str, Any]) -> str:
+    external = _configured_value(environment, "JELLYSEERR_EXTERNAL_URL")
+    if external is not None:
+        return external
+    # JELLYSEERR_URL is intentionally the Compose-DNS backend contract.  The
+    # installer runs on the host, so the request adapter uses the published
+    # loopback port unless an explicit host URL was supplied.
+    return f"http://127.0.0.1:{_seerr_port(environment)}"
 
 
 def build_adapter_factory(
@@ -776,9 +838,81 @@ def build_adapter_factory(
                 prowlarr_reconciler(environment),
                 configured=torznab_configured,
             )
+        if service == "requests":
+            return _SeerrReconciler(
+                SeerrAdapter(
+                    _seerr_host_url(environment),
+                    selected_transport,
+                    api_key=_configured_value(environment, "JELLYSEERR_API_KEY"),
+                    jellyfin_api_key=_configured_value(environment, "JELLYFIN_API_KEY"),
+                    sonarr_api_key=_configured_value(environment, "SONARR_API_KEY"),
+                    radarr_api_key=_configured_value(environment, "RADARR_API_KEY"),
+                )
+            )
         raise InvalidInputError("unknown configure service")
 
     return factory
+
+
+def _default_optional_reconcile(
+    root: Path,
+    compose_options: ComposeOptions,
+    *,
+    adapter_factory: Callable[..., Any],
+    environment: MutableMapping[str, Any],
+    dry_run: bool,
+    confirm: bool,
+    tests: Mapping[str, Callable[..., Any]] | None = None,
+    health: Mapping[str, Callable[..., Any]] | None = None,
+    configure: Mapping[str, Callable[..., Any]] | None = None,
+    bazarr_language: str | None = None,
+) -> OptionalProfileResult:
+    profiles = compose_options.selected_profiles
+    if not profiles:
+        return OptionalProfileResult(status="ok", dry_run=dry_run)
+    if dry_run:
+        return configure_optional_profiles(
+            environment,
+            requested_profiles=profiles,
+            bazarr_language=bazarr_language,
+            dry_run=True,
+        )
+
+    selected_tests = dict(tests or {})
+    selected_health = dict(health or {})
+    selected_configure = dict(configure or {})
+    if "requests" in profiles and (
+        "requests" not in selected_tests
+        or "requests" not in selected_health
+        or "requests" not in selected_configure
+    ):
+        request_adapter = _call_with_keywords(
+            adapter_factory,
+            "requests",
+            environment=environment,
+            dry_run=False,
+            confirm=confirm,
+        )
+        if "requests" not in selected_tests:
+            selected_tests["requests"] = getattr(request_adapter, "test", lambda: False)
+        if "requests" not in selected_health:
+            selected_health["requests"] = getattr(request_adapter, "health", lambda: False)
+        if "requests" not in selected_configure:
+            selected_configure["requests"] = lambda: _call_with_keywords(
+                getattr(request_adapter, "configure", request_adapter),
+                dry_run=False,
+                confirm=confirm,
+            )
+
+    return configure_optional_profiles(
+        environment,
+        requested_profiles=profiles,
+        tests=selected_tests,
+        health=selected_health,
+        configure=selected_configure,
+        bazarr_language=bazarr_language,
+        dry_run=False,
+    )
 
 
 def _load_environment_document(path: Path) -> DotEnvDocument:
@@ -857,6 +991,11 @@ def _run_configure_unlocked(
     prompt: Callable[..., Any] | None = None,
     dry_run: bool = False,
     reconcile: Callable[..., Any] | None = None,
+    optional_reconcile: Callable[..., Any] | None = None,
+    optional_tests: Mapping[str, Callable[..., Any]] | None = None,
+    optional_health: Mapping[str, Callable[..., Any]] | None = None,
+    optional_configure: Mapping[str, Callable[..., Any]] | None = None,
+    bazarr_language: str | None = None,
     adapter_factory: Callable[..., Any] | None = None,
     environment: Mapping[str, Any] | None = None,
     confirm: bool = False,
@@ -880,8 +1019,9 @@ def _run_configure_unlocked(
     root = Path(repo_root) if repo_root is not None else Path(__file__).resolve().parents[2]
     if not root.is_absolute():
         raise InvalidInputError("repository root must be an absolute path")
+    compose_options = _resolve_configure_options(root, options, dry_run=dry_run)
     active_journal = journal if journal is not None else ConfigureJournal(root)
-    if all(active_journal.is_complete(stage) for stage in CONFIGURE_ORDER):
+    if all(active_journal.is_complete(stage) for stage in CONFIGURE_ORDER) and not compose_options.selected_profiles:
         return ConfigureResult(
             status="dry-run" if dry_run else "ok",
             dry_run=dry_run,
@@ -911,7 +1051,6 @@ def _run_configure_unlocked(
     if not isinstance(interactive, bool):
         raise InvalidInputError("interactive must be a boolean")
     command_runner = runner if runner is not None else CommandRunner()
-    compose_options = options if options is not None else ComposeOptions()
     for key in (
         "QBT_PASSWORD",
         "STACK_PASSWORD",
@@ -1042,7 +1181,61 @@ def _run_configure_unlocked(
             if not service_complete:
                 completed.append(service)
 
-    if active_journal.is_complete("env-commit"):
+    if optional_reconcile is None and compose_options.selected_profiles and adapter_factory is not None:
+        def optional_reconcile(*, environment, dry_run, confirm=confirm):
+            return _default_optional_reconcile(
+                root,
+                compose_options,
+                adapter_factory=adapter_factory,
+                environment=environment,
+                dry_run=dry_run,
+                confirm=confirm,
+                tests=optional_tests,
+                health=optional_health,
+                configure=optional_configure,
+                bazarr_language=bazarr_language,
+            )
+
+    optional_environment_changed = False
+    if optional_reconcile is not None:
+        environment_before = dict(working_environment)
+        document_before = document.render()
+        optional_result = _call_with_keywords(
+            optional_reconcile,
+            environment=working_environment,
+            dry_run=dry_run,
+            confirm=confirm,
+        )
+        update = _environment_update(optional_result)
+        if update:
+            working_environment.update(update)
+            for key, value in update.items():
+                if isinstance(value, str):
+                    document.set(key, value)
+        optional_environment_changed = (
+            bool(update)
+            or dict(working_environment) != environment_before
+            or document.render() != document_before
+        )
+        services["optional"] = _result_report(optional_result)
+        status = _result_status(optional_result)
+        code = _status_code(
+            status,
+            has_drift=not interactive and _result_has_drift(optional_result),
+        )
+        if code is not ExitCode.OK:
+            result_status = {
+                ExitCode.DRIFT: "drift",
+                ExitCode.PARTIAL: "guided",
+                ExitCode.INVALID: "invalid",
+            }[code]
+            return ConfigureResult(
+                status=result_status,
+                dry_run=dry_run,
+                stages_completed=tuple(completed),
+                services=services,
+            )
+    if active_journal.is_complete("env-commit") and not optional_environment_changed:
         environment_committed = False
     elif not dry_run:
         if env_commit is not None:
@@ -1060,7 +1253,7 @@ def _run_configure_unlocked(
         environment_committed = False
 
     restarted = False
-    if active_journal.is_complete("restart"):
+    if active_journal.is_complete("restart") and not optional_environment_changed:
         restarted = False
     elif not dry_run:
         if restart is not None:

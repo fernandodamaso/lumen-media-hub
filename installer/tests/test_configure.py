@@ -75,6 +75,53 @@ class ConfigureFlowTests(unittest.TestCase):
         )
         self.assertEqual(result.status, "ok")
 
+    def test_optional_request_stage_runs_after_core_and_before_environment_commit(self):
+        configure = importlib.import_module("lumen_installer.configure")
+        events: list[str] = []
+
+        def reconcile(service: str):
+            events.append(service)
+            return {"service": service, "status": "ok"}
+
+        def optional_reconcile(*, environment, dry_run, confirm):
+            events.append("optional")
+            self.assertFalse(dry_run)
+            self.assertFalse(confirm)
+            return SimpleNamespace(
+                status="ok",
+                environment_update={"JELLYSEERR_ENABLED": "true"},
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            result = configure.run_configure(
+                Path(temporary),
+                options=ComposeOptions(profiles=("requests",)),
+                reconcile=reconcile,
+                optional_reconcile=optional_reconcile,
+                env_commit=lambda: events.append("env-commit"),
+                restart=lambda: events.append("restart"),
+                direct_health=lambda: events.append("direct-health") or True,
+                proxy_health=lambda: events.append("proxy-health") or True,
+            )
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(
+            events,
+            [
+                "jellyfin",
+                "qbittorrent",
+                "sonarr",
+                "radarr",
+                "prowlarr",
+                "torznab",
+                "optional",
+                "env-commit",
+                "restart",
+                "direct-health",
+                "proxy-health",
+            ],
+        )
+
     def test_dry_run_is_read_only_and_does_not_mutate_caller_environment(self):
         configure = importlib.import_module("lumen_installer.configure")
         environment = {"QBT_PASSWORD": "original-secret"}
@@ -301,6 +348,35 @@ class ConfigureFlowTests(unittest.TestCase):
             callable(getattr(configure, "build_adapter_factory", None)),
             "configure must wire the Task 9-12 adapters",
         )
+
+    def test_real_factory_constructs_the_request_adapter_with_host_and_compose_urls(self):
+        configure = importlib.import_module("lumen_installer.configure")
+        captured = {}
+
+        class Adapter:
+            def __init__(self, *args, **kwargs):
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+
+        with mock.patch.object(configure, "SeerrAdapter", Adapter):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                environment = {
+                    "JELLYSEERR_ENABLED": "false",
+                    "JELLYSEERR_URL": "http://jellyseerr:5055",
+                    "JELLYSEERR_API_KEY": "seerr-key",
+                    "JELLYFIN_API_KEY": "jellyfin-key",
+                    "SONARR_API_KEY": "sonarr-key",
+                    "RADARR_API_KEY": "radarr-key",
+                }
+                factory = configure.build_adapter_factory(root, environment=environment)
+                factory("requests", environment=environment)
+
+        self.assertEqual(captured["args"][0], "http://127.0.0.1:5055")
+        self.assertEqual(captured["kwargs"]["api_key"], "seerr-key")
+        self.assertEqual(captured["kwargs"]["jellyfin_api_key"], "jellyfin-key")
+        self.assertEqual(captured["kwargs"]["sonarr_api_key"], "sonarr-key")
+        self.assertEqual(captured["kwargs"]["radarr_api_key"], "radarr-key")
 
     def test_factory_level_confirmation_is_preserved_for_jellyfin_reconciliation(self):
         configure = importlib.import_module("lumen_installer.configure")

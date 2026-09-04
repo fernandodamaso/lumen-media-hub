@@ -16,6 +16,7 @@ import re
 import stat
 import tempfile
 import time
+import uuid
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
@@ -48,6 +49,12 @@ from .state import DEFAULT_STAGES, InstallerState, StageJournal
 from .storage import KNOWN_STACK_CONTAINER_NAMES, StaleContainer, find_stale_containers, validate_storage
 from .network import plan_network
 from .answers import Answers, Resolver
+from .services.seerr import (
+    SEERR_CONFIG_PATH,
+    SeerrConfigResult,
+    SeerrConflictError,
+    prepare_seerr_config,
+)
 
 
 FOUNDATION_STAGES = tuple(DEFAULT_STAGES)
@@ -525,6 +532,12 @@ def _guard_storage_targets(root_path: Any, downloads_path: Any, repo: Path) -> N
                 raise InvalidInputError(f"{label} must not contain symlink components")
 
 
+def _seerr_backup_path(root: Path) -> Path:
+    """Choose a private, non-overwriting backup destination for one adoption."""
+
+    return root / ".state" / "installer" / "backups" / f"jellyseerr-{uuid.uuid4().hex}"
+
+
 def _host(
     supplied: HostFacts | None,
     *,
@@ -731,6 +744,7 @@ class FoundationResult:
     network: Mapping[str, Any] | None = None
     preflight: Mapping[str, Any] | None = None
     gpu: Mapping[str, Any] | None = None
+    seerr: Mapping[str, Any] | None = None
 
     @property
     def stages(self) -> tuple[str, ...]:
@@ -765,6 +779,7 @@ class FoundationResult:
             "network": _safe_projection(self.network or {}),
             "preflight": _safe_projection(self.preflight or {}),
             "gpu_details": _safe_projection(self.gpu or {}),
+            "seerr": _safe_projection(self.seerr or {}),
         }
 
     @property
@@ -805,6 +820,7 @@ def _run_foundation_unlocked(
     sleep: Callable[[float], Any] = time.sleep,
     gpu_detector: Callable[..., Any] | None = None,
     gpu_confirm: bool | Callable[..., Any] = False,
+    confirm: bool = False,
     state: InstallerState | None = None,
     stage_journal: StageJournal | None = None,
     journal: StageJournal | None = None,
@@ -812,6 +828,8 @@ def _run_foundation_unlocked(
     """Run the ordered Phase 1 foundation, with every mutation injectable."""
 
     root = _repo(repo_root)
+    if type(confirm) is not bool:
+        raise InvalidInputError("confirm must be a boolean")
     env_path = Path(env_file) if env_file is not None else root / ".env"
     if not env_path.is_absolute():
         env_path = root / env_path
@@ -846,6 +864,7 @@ def _run_foundation_unlocked(
             qbt_password,
             network_mode,
             public_host,
+            confirm if confirm else None,
         )
     ) or requested.dev or environment_override or direct_answers_changed
     if stage_journal is not None and journal is not None:
@@ -1082,6 +1101,19 @@ def _run_foundation_unlocked(
         project = original_doc.get("COMPOSE_PROJECT_NAME")
     if isinstance(project, str):
         project = project.strip() or None
+    seerr_detail: Mapping[str, Any] = {}
+    if "requests" in effective.selected_profiles:
+        seerr_result: SeerrConfigResult = prepare_seerr_config(
+            root / SEERR_CONFIG_PATH,
+            repo_root=root,
+            backup_path=_seerr_backup_path(root),
+            confirm=confirm,
+            dry_run=dry_run,
+        )
+        seerr_detail = seerr_result.report
+        if seerr_result.status not in {"ok", "dry-run"}:
+            raise seerr_result.error or SeerrConflictError()
+
     stale = _stale(command_runner, root, stale_finder, project)
     stale_removed = _remove_stale(stale, command_runner, dry_run=dry_run)
 
@@ -1162,6 +1194,7 @@ def _run_foundation_unlocked(
             "distro_id": facts.distro_id,
             "arch": facts.arch,
         },
+        seerr=seerr_detail,
         network=network_plan.report,
         preflight=preflight.report,
         gpu=gpu_detail,

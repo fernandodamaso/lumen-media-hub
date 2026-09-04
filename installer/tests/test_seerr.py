@@ -16,6 +16,8 @@ from lumen_installer.services.seerr import (  # noqa: E402
     SeerrAdapter,
     SeerrCapabilityError,
     SeerrConfigError,
+    _seerr_config_path,
+    _validate_safe_config_root,
     backup_config,
     inspect_config_ownership,
     prepare_seerr_config,
@@ -50,6 +52,58 @@ class DeterministicTransport:
 
 
 class SeerrConfigMigrationTests(unittest.TestCase):
+    def test_repo_root_under_home_is_safe_but_broad_roots_are_rejected(self):
+        repo_root = Path("/home/example/lumen-media-hub")
+        _validate_safe_config_root(repo_root)
+        self.assertEqual(
+            _seerr_config_path(
+                repo_root / "config" / "jellyseerr",
+                repo_root=repo_root,
+            ),
+            repo_root / "config" / "jellyseerr",
+        )
+
+        for broad_root in (Path("/"), Path("/home"), Path("/etc"), Path("/var")):
+            with self.subTest(broad_root=broad_root), self.assertRaises(SeerrConfigError):
+                _validate_safe_config_root(broad_root)
+
+    def test_config_migration_accepts_only_the_exact_repository_config_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = root / "config" / "jellyseerr"
+            backup = root / "backup" / "jellyseerr"
+
+            for invalid in (
+                root / "media",
+                root / "downloads",
+                root / "config",
+                root / "config" / "other",
+            ):
+                with self.subTest(invalid=invalid), self.assertRaises(SeerrConfigError):
+                    prepare_seerr_config(invalid, backup_path=backup)
+
+            with mock.patch(
+                "lumen_installer.services.seerr.inspect_config_ownership",
+                return_value=OwnershipInspection(path=Path("/"), exists=True, mismatched_entries=1),
+            ), mock.patch("lumen_installer.services.seerr.backup_config"):
+                with self.assertRaises(SeerrConfigError):
+                    prepare_seerr_config(Path("/"), backup_path=backup)
+
+            with mock.patch("lumen_installer.services.seerr.os.chown") as chown:
+                result = prepare_seerr_config(valid)
+
+            self.assertEqual(result.status, "ok")
+            chown.assert_called_once_with(valid, 1000, 1000, follow_symlinks=False)
+
+    def test_fresh_config_ownership_cannot_be_changed_by_runtime_id_arguments(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = Path(temporary) / "config" / "jellyseerr"
+            with mock.patch("lumen_installer.services.seerr.os.chown") as chown:
+                with self.assertRaises(SeerrConfigError):
+                    prepare_seerr_config(config, runtime_uid=4242, runtime_gid=4343)
+
+            chown.assert_not_called()
+
     def test_fresh_config_is_created_with_numeric_seerr_owner(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -138,6 +192,47 @@ class SeerrConfigMigrationTests(unittest.TestCase):
             chown.assert_not_called()
             self.assertNotIn("user-config", repr(result))
 
+    def test_adopted_recursive_chown_rejects_directory_to_symlink_swap(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "config" / "jellyseerr"
+            nested = config / "nested"
+            nested.mkdir(parents=True)
+            (nested / "settings.json").write_text("private", encoding="utf-8")
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "sentinel").write_text("must-stay-outside", encoding="utf-8")
+            backup = root / "backup" / "jellyseerr"
+            mismatched = OwnershipInspection(
+                path=config,
+                exists=True,
+                uid=1234,
+                gid=1234,
+                entries=3,
+                mismatched_entries=3,
+            )
+            calls = []
+
+            def swap_nested(path, uid, gid, *, follow_symlinks=False, dir_fd=None):
+                calls.append((Path(path).name, dir_fd))
+                if Path(path) == config:
+                    moved = config / "nested-original"
+                    nested.rename(moved)
+                    (config / "nested").symlink_to(outside, target_is_directory=True)
+
+            with mock.patch(
+                "lumen_installer.services.seerr.inspect_config_ownership",
+                return_value=mismatched,
+            ), mock.patch(
+                "lumen_installer.services.seerr.os.chown",
+                side_effect=swap_nested,
+            ):
+                with self.assertRaises(SeerrConfigError):
+                    prepare_seerr_config(config, backup_path=backup, confirm=True)
+
+            self.assertTrue((outside / "sentinel").exists())
+            self.assertEqual(calls[0][0], "jellyseerr")
+
 
 class SeerrAdapterTests(unittest.TestCase):
     def test_supported_integrations_use_compose_dns_names_and_ports(self):
@@ -185,6 +280,27 @@ class SeerrAdapterTests(unittest.TestCase):
         self.assertEqual(result.status, "unsupported")
         self.assertIsInstance(result.error, SeerrCapabilityError)
         self.assertEqual(len(transport.requests), 1)
+
+    def test_incomplete_capability_maps_fail_closed_before_any_integration_write(self):
+        for capability_map in (
+            {"jellyfin": True, "sonarr": True},
+            ["jellyfin", "sonarr"],
+            {"jellyfin": True, "sonarr": True, "radarr": False},
+        ):
+            with self.subTest(capability_map=capability_map):
+                adapter, transport = self.adapter(
+                    [response({"version": "3.0.0", "capabilities": capability_map})]
+                )
+
+                result = adapter.configure_integrations(
+                    jellyfin_api_key="jellyfin-key",
+                    sonarr_api_key=SONARR_KEY,
+                    radarr_api_key=RADARR_KEY,
+                )
+
+                self.assertIn(result.status, {"unsupported", "partial"})
+                self.assertEqual(len(transport.requests), 1)
+                self.assertFalse(any(request[0] == "PUT" for request in transport.requests))
 
     def test_supported_runtime_preserves_unmanaged_settings_for_all_integrations(self):
         adapter, transport = self.adapter(

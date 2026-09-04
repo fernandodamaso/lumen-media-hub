@@ -38,6 +38,50 @@ HOST = HostFacts(
 
 
 class SetupFoundationTests(unittest.TestCase):
+    def test_requests_config_is_prepared_before_any_compose_start_mutation(self):
+        events: list[str] = []
+
+        class Runner:
+            def run(self, argv, **kwargs):
+                command = tuple(argv)
+                if command[-3:] == ("config", "--format", "json"):
+                    events.append("compose-config")
+                    return CommandResult(command, 0, '{"services":{"jellyfin":{"image":"x"}}}')
+                if "pull" in command:
+                    events.append("compose-pull")
+                if "up" in command:
+                    events.append("compose-up")
+                return CommandResult(command, 0, "")
+
+        def prepare(*args, **kwargs):
+            events.append("seerr-prepare")
+            return SimpleNamespace(status="ok", report={"status": "ok"})
+
+        with mock.patch("lumen_installer.setup.prepare_seerr_config", create=True, side_effect=prepare):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                repo = root / "repo"
+                repo.mkdir()
+                (repo / ".git").mkdir()
+                result = run_foundation(
+                    repo,
+                    runner=Runner(),
+                    host=HOST,
+                    options=ComposeOptions(profiles=("requests",)),
+                    answers={
+                        "ROOT_PATH": str(root / "media"),
+                        "DOWNLOADS_PATH": str(root / "downloads"),
+                    },
+                    storage_validator=lambda *args, **kwargs: {},
+                    preflight_checker=lambda runner: DockerPreflight(status="ok"),
+                    stale_finder=lambda: (),
+                    health_probe=lambda: True,
+                )
+
+        self.assertEqual(result.status, "ok")
+        self.assertLess(events.index("seerr-prepare"), events.index("compose-config"))
+        self.assertLess(events.index("seerr-prepare"), events.index("compose-up"))
+
     def test_foundation_orders_stages_and_uses_pull_build_up_health(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -269,6 +269,7 @@ def configure_optional_profiles(
     requested_profiles: Sequence[str] = (),
     tests: Mapping[str, Callable[..., Any]] | None = None,
     health: Mapping[str, Callable[..., Any]] | None = None,
+    configure: Mapping[str, Callable[..., Any]] | None = None,
     bazarr_language: str | None = None,
     dry_run: bool = False,
 ) -> OptionalProfileResult:
@@ -292,7 +293,8 @@ def configure_optional_profiles(
         raise InvalidInputError("duplicate optional profile")
     tests = tests or {}
     health = health or {}
-    if not isinstance(tests, Mapping) or not isinstance(health, Mapping):
+    configure = configure or {}
+    if not isinstance(tests, Mapping) or not isinstance(health, Mapping) or not isinstance(configure, Mapping):
         raise InvalidInputError("optional checks must be mappings")
 
     if dry_run:
@@ -369,6 +371,24 @@ def configure_optional_profiles(
             )
             services[profile] = {"status": "guided", "actions": ["test", "health"]}
             continue
+
+        apply = configure.get(profile)
+        if apply is not None:
+            try:
+                applied = apply()
+            except Exception:
+                applied = None
+            applied_status = _check(lambda: applied)
+            if not applied_status:
+                checkpoints.append(
+                    _failure(
+                        profile,
+                        f"{profile}-configure-failed",
+                        "The optional service configuration did not complete; the profile remains disabled.",
+                    )
+                )
+                services[profile] = {"status": "guided", "actions": ["test", "health", "configure"]}
+                continue
 
         enabled.append(profile)
         service_update: dict[str, str] = {}

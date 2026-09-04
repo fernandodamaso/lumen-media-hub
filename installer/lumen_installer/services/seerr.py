@@ -10,6 +10,7 @@ decision.
 from __future__ import annotations
 
 import json
+import inspect
 import os
 import re
 import shutil
@@ -49,6 +50,47 @@ _DEFAULT_INTEGRATION_URLS = {
 }
 _DEFAULT_PORTS = {"jellyfin": 8096, "sonarr": 8989, "radarr": 7878}
 _VERSION_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$")
+_SAFE_CONFIG_DIRECTORY = "config"
+_SAFE_CONFIG_NAME = "jellyseerr"
+_DISALLOWED_CONFIG_COMPONENTS = frozenset({"media", "downloads"})
+_DISALLOWED_CONFIG_ROOTS = tuple(
+    Path(value)
+    for value in (
+        "/",
+        "/bin",
+        "/boot",
+        "/dev",
+        "/etc",
+        "/lib",
+        "/mnt",
+        "/opt",
+        "/proc",
+        "/root",
+        "/run",
+        "/sbin",
+        "/srv",
+        "/sys",
+        "/usr",
+        "/var",
+    )
+)
+_DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+_SAFE_CHOWN = os.chown
+
+
+@dataclass(frozen=True)
+class _DirectoryChainEntry:
+    parent_fd: int
+    name: str
+    device: int
+    inode: int
+
+
+@dataclass
+class _DirectoryChain:
+    fd: int
+    entries: tuple[_DirectoryChainEntry, ...]
+    retained_fds: list[int]
 
 
 class SeerrError(InstallerError):
@@ -254,10 +296,246 @@ def _absolute_directory_path(value: str | os.PathLike[str], *, name: str) -> Pat
     return Path(os.path.abspath(str(path)))
 
 
+def _under(path: Path, parent: Path) -> bool:
+    return path == parent or parent in path.parents
+
+
+def _validate_safe_config_root(path: Path) -> None:
+    if path in (Path("/"), Path("/home")) or any(
+        _under(path, root) for root in _DISALLOWED_CONFIG_ROOTS if root != Path("/")
+    ):
+        raise SeerrConfigError()
+    if any(component.casefold() in _DISALLOWED_CONFIG_COMPONENTS for component in path.parts):
+        raise SeerrConfigError()
+
+
+def _seerr_config_path(
+    value: str | os.PathLike[str],
+    *,
+    repo_root: str | os.PathLike[str] | None = None,
+    config_root: str | os.PathLike[str] | None = None,
+) -> Path:
+    """Require the one repository-owned path mounted into the Seerr image."""
+
+    path = _absolute_directory_path(value, name="Seerr config")
+    if path.name != _SAFE_CONFIG_NAME or path.parent.name != _SAFE_CONFIG_DIRECTORY:
+        raise SeerrConfigError()
+    derived_root = path.parent.parent
+    _validate_safe_config_root(derived_root)
+    if repo_root is not None:
+        expected_root = _absolute_directory_path(repo_root, name="repository root")
+        _validate_safe_config_root(expected_root)
+        if derived_root != expected_root:
+            raise SeerrConfigError()
+    if config_root is not None:
+        expected_config = _absolute_directory_path(config_root, name="Seerr config root")
+        if expected_config.name != _SAFE_CONFIG_DIRECTORY or path != expected_config / _SAFE_CONFIG_NAME:
+            raise SeerrConfigError()
+    return path
+
+
+def _safe_backup_path(value: str | os.PathLike[str]) -> Path:
+    path = _absolute_directory_path(value, name="Seerr config backup")
+    if path in (Path("/"), Path("/home")) or any(
+        _under(path, root) for root in _DISALLOWED_CONFIG_ROOTS if root != Path("/")
+    ):
+        raise SeerrConfigError()
+    if any(component.casefold() in _DISALLOWED_CONFIG_COMPONENTS for component in path.parts):
+        raise SeerrConfigError()
+    return path
+
+
 def _validate_backup_location(source: Path, destination: Path) -> None:
     if destination == source or source in destination.parents:
         raise SeerrConfigError()
     if destination.exists():
+        raise SeerrConfigError()
+
+
+def _close_fd(fd: int | None) -> None:
+    if fd is None:
+        return
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+
+
+def _open_directory_chain(path: Path, *, create: bool) -> _DirectoryChain:
+    """Open every path component with no-follow descriptors held throughout."""
+
+    retained: list[int] = []
+    entries: list[_DirectoryChainEntry] = []
+    try:
+        fd = os.open(os.path.sep, _DIRECTORY_FLAGS)
+        retained.append(fd)
+        for component in path.parts[1:]:
+            parent_metadata = os.fstat(fd)
+            try:
+                next_fd = os.open(component, _DIRECTORY_FLAGS, dir_fd=fd)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                os.mkdir(component, mode=0o700, dir_fd=fd)
+                next_fd = os.open(component, _DIRECTORY_FLAGS, dir_fd=fd)
+            metadata = os.fstat(next_fd)
+            if not stat.S_ISDIR(metadata.st_mode):
+                _close_fd(next_fd)
+                raise SeerrConfigError()
+            entries.append(
+                _DirectoryChainEntry(
+                    parent_fd=fd,
+                    name=component,
+                    device=metadata.st_dev,
+                    inode=metadata.st_ino,
+                )
+            )
+            fd = next_fd
+            retained.append(fd)
+        return _DirectoryChain(fd=fd, entries=tuple(entries), retained_fds=retained)
+    except SeerrConfigError:
+        for item in reversed(retained):
+            _close_fd(item)
+        raise
+    except OSError:
+        for item in reversed(retained):
+            _close_fd(item)
+        raise SeerrConfigError() from None
+
+
+def _assert_directory_chain(chain: _DirectoryChain) -> None:
+    try:
+        for entry in chain.entries:
+            parent = os.fstat(entry.parent_fd)
+            current = os.stat(entry.name, dir_fd=entry.parent_fd, follow_symlinks=False)
+            if (
+                not stat.S_ISDIR(parent.st_mode)
+                or stat.S_ISLNK(current.st_mode)
+                or not stat.S_ISDIR(current.st_mode)
+                or current.st_dev != entry.device
+                or current.st_ino != entry.inode
+            ):
+                raise SeerrConfigError()
+    except SeerrConfigError:
+        raise
+    except OSError:
+        raise SeerrConfigError() from None
+
+
+def _open_config_directory(path: Path, *, create: bool) -> tuple[_DirectoryChain, int, tuple[int, int]]:
+    chain = _open_directory_chain(path.parent, create=create)
+    try:
+        try:
+            fd = os.open(path.name, _DIRECTORY_FLAGS, dir_fd=chain.fd)
+        except FileNotFoundError:
+            if not create:
+                raise
+            os.mkdir(path.name, mode=0o700, dir_fd=chain.fd)
+            fd = os.open(path.name, _DIRECTORY_FLAGS, dir_fd=chain.fd)
+        metadata = os.fstat(fd)
+        lexical = os.stat(path.name, dir_fd=chain.fd, follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or stat.S_ISLNK(lexical.st_mode)
+            or not stat.S_ISDIR(lexical.st_mode)
+            or metadata.st_dev != lexical.st_dev
+            or metadata.st_ino != lexical.st_ino
+        ):
+            _close_fd(fd)
+            raise SeerrConfigError()
+        return chain, fd, (metadata.st_dev, metadata.st_ino)
+    except SeerrConfigError:
+        for item in reversed(chain.retained_fds):
+            _close_fd(item)
+        raise
+    except FileNotFoundError:
+        for item in reversed(chain.retained_fds):
+            _close_fd(item)
+        raise SeerrConfigError() from None
+    except OSError:
+        for item in reversed(chain.retained_fds):
+            _close_fd(item)
+        raise SeerrConfigError() from None
+
+
+def _assert_config_directory_identity(
+    chain: _DirectoryChain,
+    config_fd: int,
+    config_path: Path,
+    expected: tuple[int, int],
+) -> None:
+    _assert_directory_chain(chain)
+    try:
+        current = os.stat(config_path.name, dir_fd=chain.fd, follow_symlinks=False)
+        descriptor = os.fstat(config_fd)
+        if (
+            stat.S_ISLNK(current.st_mode)
+            or not stat.S_ISDIR(current.st_mode)
+            or (current.st_dev, current.st_ino) != expected
+            or (descriptor.st_dev, descriptor.st_ino) != expected
+        ):
+            raise SeerrConfigError()
+    except SeerrConfigError:
+        raise
+    except OSError:
+        raise SeerrConfigError() from None
+
+
+def _chown_with_callback(
+    callback: Callable[..., Any],
+    path: Path,
+    uid: int,
+    gid: int,
+    *,
+    dir_fd: int | None = None,
+    fd: int | None = None,
+) -> None:
+    """Use descriptor-relative ownership in production while retaining test seams."""
+
+    if callback is _SAFE_CHOWN:
+        try:
+            if fd is not None:
+                os.fchown(fd, uid, gid)
+            else:
+                os.chown(path.name, uid, gid, dir_fd=dir_fd, follow_symlinks=False)
+        except OSError:
+            raise SeerrConfigError() from None
+        return
+    try:
+        parameters = tuple(inspect.signature(callback).parameters.values())
+    except (TypeError, ValueError):
+        parameters = ()
+    accepts_dir_fd = any(item.kind is inspect.Parameter.VAR_KEYWORD for item in parameters) or "dir_fd" in {
+        item.name for item in parameters
+    }
+    kwargs: dict[str, Any] = {"follow_symlinks": False}
+    if accepts_dir_fd and dir_fd is not None:
+        kwargs["dir_fd"] = dir_fd
+    try:
+        callback(path, uid, gid, **kwargs)
+    except OSError:
+        raise SeerrConfigError() from None
+
+
+def _directory_snapshot(fd: int) -> dict[str, tuple[int, int, int]]:
+    try:
+        names = tuple(os.listdir(fd))
+        return {
+            name: (
+                stat.S_IFMT(metadata.st_mode),
+                metadata.st_dev,
+                metadata.st_ino,
+            )
+            for name in names
+            for metadata in (os.stat(name, dir_fd=fd, follow_symlinks=False),)
+        }
+    except OSError:
+        raise SeerrConfigError() from None
+
+
+def _assert_directory_snapshot(fd: int, expected: Mapping[str, tuple[int, int, int]]) -> None:
+    current = _directory_snapshot(fd)
+    if current != dict(expected):
         raise SeerrConfigError()
 
 
@@ -266,10 +544,12 @@ def inspect_config_ownership(
     *,
     runtime_uid: int = SEERR_UID,
     runtime_gid: int = SEERR_GID,
+    repo_root: str | os.PathLike[str] | None = None,
+    config_root: str | os.PathLike[str] | None = None,
 ) -> OwnershipInspection:
     """Inspect an exact config directory without following symlinks."""
 
-    path = _absolute_directory_path(config_path, name="Seerr config")
+    path = _seerr_config_path(config_path, repo_root=repo_root, config_root=config_root)
     try:
         metadata = os.lstat(path)
     except FileNotFoundError:
@@ -314,11 +594,14 @@ def inspect_config_ownership(
 def backup_config(
     config_path: str | os.PathLike[str],
     backup_path: str | os.PathLike[str],
+    *,
+    repo_root: str | os.PathLike[str] | None = None,
+    config_root: str | os.PathLike[str] | None = None,
 ) -> Path:
     """Copy one exact config tree without overwriting an existing backup."""
 
-    source = _absolute_directory_path(config_path, name="Seerr config")
-    destination = _absolute_directory_path(backup_path, name="Seerr config backup")
+    source = _seerr_config_path(config_path, repo_root=repo_root, config_root=config_root)
+    destination = _safe_backup_path(backup_path)
     _validate_backup_location(source, destination)
     try:
         metadata = os.lstat(source)
@@ -340,36 +623,87 @@ def _recursive_chown(
     uid: int,
     gid: int,
     *,
-    chown: Callable[..., Any] = os.chown,
+    chown: Callable[..., Any] = _SAFE_CHOWN,
 ) -> None:
-    stack = [config_path]
-    while stack:
-        current = stack.pop()
-        try:
-            metadata = os.lstat(current)
-        except OSError:
-            raise SeerrConfigError() from None
-        if stat.S_ISLNK(metadata.st_mode):
+    chain, root_fd, root_identity = _open_config_directory(config_path, create=False)
+    retained_fds = [*chain.retained_fds, root_fd]
+    stack: list[tuple[Path, int, dict[str, tuple[int, int, int]]]] = [
+        (config_path, root_fd, _directory_snapshot(root_fd))
+    ]
+    try:
+        _chown_with_callback(chown, config_path, uid, gid, fd=root_fd)
+        _assert_config_directory_identity(chain, root_fd, config_path, root_identity)
+        while stack:
+            current_path, current_fd, expected_entries = stack.pop()
+            _assert_directory_snapshot(current_fd, expected_entries)
             try:
-                chown(current, uid, gid, follow_symlinks=False)
+                names = tuple(os.listdir(current_fd))
             except OSError:
                 raise SeerrConfigError() from None
-            continue
-        try:
-            chown(current, uid, gid, follow_symlinks=False)
-        except OSError:
-            raise SeerrConfigError() from None
-        if stat.S_ISDIR(metadata.st_mode):
-            try:
-                stack.extend(current.iterdir())
-            except OSError:
-                raise SeerrConfigError() from None
-
-
-def _owner_id(value: Any, name: str) -> int:
-    if type(value) is not int or value <= 0:
-        raise InvalidInputError(f"{name} must be a positive integer")
-    return value
+            for name in names:
+                child_path = current_path / name
+                try:
+                    lexical = os.stat(name, dir_fd=current_fd, follow_symlinks=False)
+                except OSError:
+                    raise SeerrConfigError() from None
+                if stat.S_ISLNK(lexical.st_mode):
+                    _chown_with_callback(
+                        chown,
+                        child_path,
+                        uid,
+                        gid,
+                        dir_fd=current_fd,
+                    )
+                    continue
+                if stat.S_ISDIR(lexical.st_mode):
+                    try:
+                        child_fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=current_fd)
+                        opened = os.fstat(child_fd)
+                    except OSError:
+                        raise SeerrConfigError() from None
+                    if (
+                        not stat.S_ISDIR(opened.st_mode)
+                        or (opened.st_dev, opened.st_ino) != (lexical.st_dev, lexical.st_ino)
+                    ):
+                        _close_fd(child_fd)
+                        raise SeerrConfigError()
+                    retained_fds.append(child_fd)
+                    child_entries = _directory_snapshot(child_fd)
+                    _chown_with_callback(
+                        chown,
+                        child_path,
+                        uid,
+                        gid,
+                        fd=child_fd,
+                    )
+                    _assert_directory_snapshot(child_fd, child_entries)
+                    stack.append((child_path, child_fd, child_entries))
+                    continue
+                try:
+                    child_fd = os.open(
+                        name,
+                        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                        dir_fd=current_fd,
+                    )
+                    opened = os.fstat(child_fd)
+                except OSError:
+                    raise SeerrConfigError() from None
+                try:
+                    if (opened.st_dev, opened.st_ino) != (lexical.st_dev, lexical.st_ino):
+                        raise SeerrConfigError()
+                    _chown_with_callback(
+                        chown,
+                        child_path,
+                        uid,
+                        gid,
+                        fd=child_fd,
+                    )
+                finally:
+                    _close_fd(child_fd)
+            _assert_config_directory_identity(chain, root_fd, config_path, root_identity)
+    finally:
+        for fd in reversed(retained_fds):
+            _close_fd(fd)
 
 
 def prepare_seerr_config(
@@ -380,6 +714,8 @@ def prepare_seerr_config(
     dry_run: bool = False,
     runtime_uid: int = SEERR_UID,
     runtime_gid: int = SEERR_GID,
+    repo_root: str | os.PathLike[str] | None = None,
+    config_root: str | os.PathLike[str] | None = None,
     backup: Callable[[str | os.PathLike[str], str | os.PathLike[str]], Path] | None = None,
     chown: Callable[..., Any] | None = None,
 ) -> SeerrConfigResult:
@@ -387,17 +723,25 @@ def prepare_seerr_config(
 
     if type(confirm) is not bool or type(dry_run) is not bool:
         raise InvalidInputError("Seerr confirmation and dry-run values must be booleans")
-    uid = _owner_id(runtime_uid, "Seerr UID")
-    gid = _owner_id(runtime_gid, "Seerr GID")
+    if runtime_uid != SEERR_UID or runtime_gid != SEERR_GID:
+        raise SeerrConfigError()
+    uid = SEERR_UID
+    gid = SEERR_GID
     selected_backup_fn = backup or backup_config
     selected_chown = chown or os.chown
-    path = _absolute_directory_path(config_path, name="Seerr config")
+    path = _seerr_config_path(config_path, repo_root=repo_root, config_root=config_root)
     selected_backup = (
-        _absolute_directory_path(backup_path, name="Seerr config backup")
+        _safe_backup_path(backup_path)
         if backup_path is not None
         else None
     )
-    ownership = inspect_config_ownership(path, runtime_uid=uid, runtime_gid=gid)
+    ownership = inspect_config_ownership(
+        path,
+        runtime_uid=SEERR_UID,
+        runtime_gid=SEERR_GID,
+        repo_root=repo_root,
+        config_root=config_root,
+    )
 
     if not ownership.exists:
         actions = ["inspect-ownership", "create-config-directory", "set-runtime-owner"]
@@ -410,9 +754,18 @@ def prepare_seerr_config(
                 dry_run=True,
             )
         try:
-            path.mkdir(mode=0o700, parents=True, exist_ok=False)
-            os.chmod(path, 0o700)
-            selected_chown(path, uid, gid, follow_symlinks=False)
+            chain, config_fd, _identity = _open_config_directory(path, create=True)
+            try:
+                os.fchmod(config_fd, 0o700)
+                if selected_chown is _SAFE_CHOWN:
+                    os.fchown(config_fd, SEERR_UID, SEERR_GID)
+                else:
+                    _chown_with_callback(selected_chown, path, SEERR_UID, SEERR_GID)
+                _assert_config_directory_identity(chain, config_fd, path, _identity)
+            finally:
+                _close_fd(config_fd)
+                for fd in reversed(chain.retained_fds):
+                    _close_fd(fd)
         except FileExistsError:
             raise SeerrConfigError() from None
         except OSError:
@@ -420,7 +773,7 @@ def prepare_seerr_config(
         return SeerrConfigResult(
             status="ok",
             path=path,
-            ownership=inspect_config_ownership(path, runtime_uid=uid, runtime_gid=gid),
+            ownership=inspect_config_ownership(path, runtime_uid=SEERR_UID, runtime_gid=SEERR_GID),
             actions=tuple(actions),
         )
 
@@ -615,11 +968,20 @@ class SeerrAdapter:
         if raw is None:
             return _INTEGRATIONS
         if isinstance(raw, Mapping):
-            values = tuple(name for name in _INTEGRATIONS if raw.get(name, True) is True)
-            return values
+            if set(raw) != set(_INTEGRATIONS) or any(type(raw[name]) is not bool for name in _INTEGRATIONS):
+                raise SeerrCapabilityError() from None
+            if not all(raw[name] for name in _INTEGRATIONS):
+                raise SeerrCapabilityError() from None
+            return _INTEGRATIONS
         if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
-            values = tuple(name for name in _INTEGRATIONS if name in raw)
-            return values
+            values = tuple(raw)
+            if (
+                len(values) != len(_INTEGRATIONS)
+                or any(not isinstance(value, str) for value in values)
+                or set(values) != set(_INTEGRATIONS)
+            ):
+                raise SeerrCapabilityError() from None
+            return _INTEGRATIONS
         raise SeerrSchemaError() from None
 
     def probe_capability(self) -> SeerrCapability:

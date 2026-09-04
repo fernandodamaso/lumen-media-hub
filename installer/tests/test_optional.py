@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 INSTALLER_ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +15,19 @@ from lumen_installer.services.optional import (  # noqa: E402
 
 
 class OptionalProfileTests(unittest.TestCase):
+    def test_request_profile_does_not_enable_when_integration_apply_is_partial(self):
+        result = configure_optional_profiles(
+            {"JELLYSEERR_ENABLED": "false"},
+            requested_profiles=("requests",),
+            tests={"requests": lambda: True},
+            health={"requests": lambda: True},
+            configure={"requests": lambda: SimpleNamespace(status="partial")},
+        )
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.environment_update, {})
+        self.assertEqual(result.enabled_profiles, ())
+
     def test_request_flag_is_enabled_only_after_service_test_and_health(self):
         environment = {
             "JELLYSEERR_ENABLED": "false",

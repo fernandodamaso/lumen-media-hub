@@ -26,6 +26,7 @@ jobs:
         run: |
           python .github/scripts/pr59_fix.py
           python .github/scripts/pr59_fix_followup.py
+          python .github/scripts/pr59_fix_compat.py
       - name: Compile installer
         run: python -m compileall -q installer/lumen_installer installer/tests
       - name: Run installer suite

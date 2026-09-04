@@ -43,7 +43,13 @@ from .setup import (
     wait_for_health,
 )
 from .trakt import run_connect_trakt
-from .update import UpdateManifest, run_rollback, run_update
+from .update import (
+    UpdateManifest,
+    _normalize_repo_digest,
+    _safe_run_id,
+    run_rollback,
+    run_update,
+)
 
 
 PUBLIC_COMMANDS = (
@@ -261,10 +267,16 @@ def _update_gpu_mode(values: Mapping[str, str], args: argparse.Namespace | None)
     raise InvalidInputError("GPU mode must be none, auto, nvidia, or vaapi")
 
 
-def _active_update_profiles(values: Mapping[str, str], args: argparse.Namespace | None) -> list[str]:
+def _active_update_profiles(
+    values: Mapping[str, str],
+    args: argparse.Namespace | None,
+    *,
+    saved_profiles: Sequence[str] = (),
+) -> list[str]:
     requested = getattr(args, "profiles", None) if args is not None else None
     if requested is None:
-        requested = values.get("COMPOSE_PROFILES", "").split(",")
+        configured = values.get("COMPOSE_PROFILES", "")
+        requested = configured.split(",") if configured.strip() else saved_profiles
     if isinstance(requested, str):
         requested = requested.split(",")
     result: list[str] = []
@@ -281,7 +293,9 @@ def _gpu_overlay_mode(mode: str, values: Mapping[str, str]) -> str:
     if mode != "auto":
         return mode
     resolved = str(values.get("GPU_RESOLVED_MODE", "")).strip().lower()
-    return resolved if resolved in {"none", "nvidia", "vaapi"} else mode
+    if resolved in {"none", "nvidia", "vaapi"}:
+        return resolved
+    raise InvalidInputError("GPU_MODE=auto requires a persisted concrete GPU mode")
 
 
 def _read_update_env(path: Path) -> dict[str, str]:
@@ -539,16 +553,29 @@ def _inspect_update_image(
     return image_id, digests
 
 
-def _saved_update_gpu_mode(root: Path, values: dict[str, str]) -> dict[str, str]:
-    if values.get("GPU_MODE"):
-        return values
+def _saved_update_state(root: Path) -> Mapping[str, object]:
     state_path = root / ".state" / "installer" / "state.json"
     try:
         payload = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
-        return values
-    if isinstance(payload, Mapping) and str(payload.get("gpu_mode", "")) in _KNOWN_UPDATE_GPU_MODES:
-        values["GPU_MODE"] = str(payload["gpu_mode"])
+        return {}
+    return payload if isinstance(payload, Mapping) else {}
+
+
+def _saved_update_gpu_mode(
+    root: Path,
+    values: dict[str, str],
+    saved_state: Mapping[str, object] | None = None,
+) -> dict[str, str]:
+    state = saved_state if saved_state is not None else _saved_update_state(root)
+    saved_mode = str(state.get("gpu_mode", "")).strip().lower()
+    if saved_mode not in {"none", "nvidia", "vaapi"}:
+        saved_mode = str(state.get("resolved_gpu_mode", "")).strip().lower()
+    requested = str(values.get("GPU_MODE", "")).strip().lower()
+    if requested in {"", "auto"} and saved_mode in {"none", "nvidia", "vaapi"}:
+        values["GPU_RESOLVED_MODE"] = saved_mode
+        if not requested:
+            values["GPU_MODE"] = saved_mode
     return values
 
 
@@ -560,8 +587,25 @@ def _update_manifest(
     runner: CommandRunner | None = None,
 ) -> UpdateManifest:
     values = _read_update_env(root / ".env")
-    values = _saved_update_gpu_mode(root, values)
-    profiles = _active_update_profiles(values, args)
+    saved_state = _saved_update_state(root)
+    values = _saved_update_gpu_mode(root, values, saved_state)
+    profiles = _active_update_profiles(
+        values,
+        args,
+        saved_profiles=(
+            tuple(str(profile).strip() for profile in saved_state.get("profiles", ()))
+            if isinstance(saved_state.get("profiles", ()), Sequence)
+            and not isinstance(saved_state.get("profiles", ()), (str, bytes, bytearray))
+            else ()
+        ),
+    )
+    gpu_mode = _update_gpu_mode(values, args)
+    if gpu_mode == "auto":
+        gpu_mode = _gpu_overlay_mode(gpu_mode, values)
+    # The manifest is the source of truth for every later update/rollback
+    # command.  Store the concrete mode so a lifecycle callback cannot fall
+    # back to Compose's no-overlay interpretation of ``auto``.
+    values["GPU_MODE"] = gpu_mode
     compose_files = _known_compose_files(root, values, args)
     image_refs, _declared_profiles = _compose_metadata(compose_files, values, profiles)
     build_services = _compose_build_services(compose_files)
@@ -576,8 +620,7 @@ def _update_manifest(
         if "@" in reference and service not in repo_digests:
             repo_digests[service] = reference.rsplit("@", 1)[1]
 
-    gpu_mode = _update_gpu_mode(values, args)
-    overlay_mode = _gpu_overlay_mode(gpu_mode, values)
+    overlay_mode = gpu_mode
     gpu_environment: dict[str, str] = {}
     if overlay_mode == "vaapi":
         for key, placeholder in (("RENDER_GID", "65534"), ("VIDEO_GID", "65533")):
@@ -607,7 +650,25 @@ def _update_manifest(
                 None,
             )
             if matching is not None:
-                repo_digests.setdefault(service, matching.rsplit("@", 1)[1])
+                inspected_digest = matching.rsplit("@", 1)[1]
+                try:
+                    normalized_inspected = _normalize_repo_digest(inspected_digest)
+                    configured_digest = repo_digests.get(service)
+                    if configured_digest is not None:
+                        normalized_configured = _normalize_repo_digest(configured_digest)
+                        if normalized_configured != normalized_inspected:
+                            raise InvalidInputError(
+                                "configured image digest does not match Docker inspection"
+                            )
+                except ValueError as exc:
+                    raise InvalidInputError(
+                        "Docker image inspection returned an invalid repository digest"
+                    ) from exc
+                repo_digests[service] = normalized_inspected
+            elif inspected_digests and service in repo_digests:
+                raise InvalidInputError(
+                    "Docker image inspection did not contain the configured repository digest"
+                )
             if service in build_services:
                 local_image_ids.setdefault(service, image_id)
 
@@ -644,6 +705,20 @@ def _update_compose_options(manifest: UpdateManifest, args: argparse.Namespace) 
     gpu = manifest.gpu_mode
     if type(gpu) is bool:
         gpu = "nvidia" if gpu else "none"
+    if gpu == "auto":
+        env_path = Path(manifest.env_path)
+        values = _read_update_env(env_path)
+        values = _saved_update_gpu_mode(env_path.parent, values)
+        try:
+            gpu = _gpu_overlay_mode(gpu, values)
+        except InvalidInputError:
+            compose_names = {Path(path).name for path in manifest.compose_files}
+            if "docker-compose.vaapi.yml" in compose_names:
+                gpu = "vaapi"
+            elif "docker-compose.gpu.yml" in compose_names:
+                gpu = "nvidia"
+            else:
+                raise
     dev = bool(getattr(args, "dev", False)) or any(
         Path(path).name == "docker-compose.dev.yml" for path in manifest.compose_files
     )
@@ -765,18 +840,24 @@ def _update(args: argparse.Namespace) -> int:
     confirm = bool(getattr(args, "confirm", False))
     dry_run = bool(getattr(args, "dry_run", False))
     rollback_id = getattr(args, "rollback", None)
+    safe_rollback_id: str | None = None
+    if rollback_id is not None:
+        try:
+            safe_rollback_id = _safe_run_id(str(rollback_id))
+        except (TypeError, ValueError) as exc:
+            raise InvalidInputError("invalid rollback run id") from exc
     if rollback_id is not None and dry_run:
         result: dict[str, object] = {
             "action": "rollback",
             "dry_run": True,
-            "run_id": rollback_id,
+            "run_id": safe_rollback_id,
         }
     elif rollback_id is not None:
         runner = CommandRunner()
         # The record is validated and loaded by run_rollback before these
         # callbacks can mutate containers.  Reuse its manifest for command
         # construction without trusting any unvalidated path here.
-        record = root / ".state" / "installer" / "updates" / f"{rollback_id}.json"
+        record = root / ".state" / "installer" / "updates" / f"{safe_rollback_id}.json"
         try:
             if record.is_file():
                 payload = json.loads(record.read_text(encoding="utf-8"))
@@ -786,7 +867,7 @@ def _update(args: argparse.Namespace) -> int:
                 )
                 result = run_rollback(
                     root,
-                    rollback_id,
+                    safe_rollback_id,
                     confirm=confirm,
                     stop_callback=stop_callback,
                     start_callback=start_callback,
@@ -795,7 +876,7 @@ def _update(args: argparse.Namespace) -> int:
                 # Keep the helper seam usable for callers that provide their
                 # own rollback implementation; the real helper still rejects
                 # a missing record before any mutation.
-                result = run_rollback(root, rollback_id, confirm=confirm)
+                result = run_rollback(root, safe_rollback_id, confirm=confirm)
         except (CommandExecutionError, OSError) as error:
             raise PartialError("stack rollback lifecycle failed") from error
     else:

@@ -233,6 +233,120 @@ class CliContractTests(unittest.TestCase):
             self.assertEqual("sha256:built", manifest.local_image_ids["built"])
             self.assertEqual(3, len(calls))
 
+    def test_update_manifest_uses_saved_profiles_when_env_profiles_are_absent(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "config").mkdir()
+            (root / "docker-compose.yml").write_text(
+                "services:\n"
+                "  core:\n"
+                "    image: registry.example/core:stable\n"
+                "  requests:\n"
+                "    image: registry.example/requests:stable\n"
+                "    profiles: [requests]\n"
+                "  subtitles:\n"
+                "    image: registry.example/subtitles:stable\n"
+                "    profiles: [subtitles]\n",
+                encoding="utf-8",
+            )
+            (root / ".env").write_text("GPU_MODE=none\n", encoding="utf-8")
+            state_path = root / ".state" / "installer" / "state.json"
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps({"profiles": ["requests"], "gpu_mode": "none"}),
+                encoding="utf-8",
+            )
+            args = SimpleNamespace(
+                profiles=None,
+                gpu_mode="none",
+                gpu=None,
+                dev=False,
+            )
+            with mock.patch.dict(os.environ, {"COMPOSE_PROFILES": ""}, clear=False):
+                manifest = cli._update_manifest(root, args, dry_run=True)
+
+            self.assertEqual(["requests"], manifest.profiles)
+            self.assertEqual(
+                {"core": "registry.example/core:stable", "requests": "registry.example/requests:stable"},
+                manifest.image_refs,
+            )
+
+    def test_update_manifest_rejects_env_digest_that_disagrees_with_docker(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docker-compose.yml").write_text(
+                "services:\n  api:\n    image: registry.example/api:stable\n",
+                encoding="utf-8",
+            )
+            stale = "sha256:" + "a" * 64
+            current = "sha256:" + "b" * 64
+            (root / ".env").write_text(
+                f'LUMEN_REPO_DIGESTS={{"api":"{stale}"}}\n',
+                encoding="utf-8",
+            )
+
+            def execute(argv, **_kwargs):
+                self.assertEqual(argv[-1], "registry.example/api:stable")
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps(
+                        {
+                            "Id": "sha256:local-api",
+                            "RepoDigests": [f"registry.example/api@{current}"],
+                        }
+                    ),
+                    stderr="",
+                )
+
+            with self.assertRaises(InvalidInputError):
+                cli._update_manifest(
+                    root,
+                    SimpleNamespace(profiles=None, gpu_mode="none", gpu=None, dev=False),
+                    dry_run=False,
+                    runner=cli.CommandRunner(executor=execute),
+                )
+
+    def test_update_manifest_and_compose_options_resolve_auto_from_saved_gpu_mode(self):
+        for mode in ("nvidia", "vaapi"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                (root / "docker-compose.yml").write_text(
+                    "services:\n  api:\n    image: registry.example/api:stable\n",
+                    encoding="utf-8",
+                )
+                overlay = root / f"docker-compose.{ 'gpu' if mode == 'nvidia' else 'vaapi' }.yml"
+                overlay.write_text("services: {}\n", encoding="utf-8")
+                (root / ".env").write_text("GPU_MODE=auto\n", encoding="utf-8")
+                state_path = root / ".state" / "installer" / "state.json"
+                state_path.parent.mkdir(parents=True)
+                state_path.write_text(
+                    json.dumps({"profiles": [], "gpu_mode": mode}),
+                    encoding="utf-8",
+                )
+                args = SimpleNamespace(
+                    profiles=None,
+                    gpu_mode=None,
+                    gpu=None,
+                    dev=False,
+                )
+                manifest = cli._update_manifest(root, args, dry_run=True)
+                options = cli._update_compose_options(manifest, args)
+
+                self.assertEqual(mode, manifest.gpu_mode)
+                self.assertEqual(mode, options.gpu_mode)
+                self.assertIn(str(overlay), manifest.compose_files)
+                self.assertIn(str(overlay), options.global_argv(root, root / ".env"))
+
+    def test_update_rejects_unsafe_rollback_id_before_dry_run_reads_or_writes(self):
+        stderr = io.StringIO()
+        with mock.patch.object(cli, "run_rollback") as run_rollback:
+            with contextlib.redirect_stderr(stderr):
+                result = cli.main(["update", "--rollback", "../escape", "--dry-run"])
+
+        self.assertEqual(result, int(ExitCode.INVALID))
+        run_rollback.assert_not_called()
+        self.assertNotIn("../escape", stderr.getvalue())
+
     def test_update_manifest_dry_run_never_inspects_images(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

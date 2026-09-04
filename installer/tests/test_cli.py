@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -98,6 +99,74 @@ class CliContractTests(unittest.TestCase):
         parser = cli.build_parser()
         args = parser.parse_args(["configure", "--confirm"])
         self.assertTrue(args.confirm)
+
+    def test_update_wires_checkout_manifest_and_flags_to_update_helper(self):
+        fake_result = {"run_id": "run-7", "api_token": "must-not-escape"}
+        output = io.StringIO()
+        with mock.patch.object(cli, "run_update", return_value=fake_result) as run_update:
+            with contextlib.redirect_stdout(output):
+                result = cli.main(["update", "--confirm", "--dry-run"])
+
+        self.assertEqual(result, int(ExitCode.OK))
+        run_update.assert_called_once()
+        root, manifest = run_update.call_args.args[:2]
+        self.assertEqual(root, WORKTREE_ROOT)
+        self.assertIsInstance(manifest, cli.UpdateManifest)
+        self.assertEqual(manifest.env_path, str((WORKTREE_ROOT / ".env").resolve()))
+        self.assertEqual(
+            manifest.runtime_paths,
+            {
+                "config": str((WORKTREE_ROOT / "config").resolve()),
+                "state": str(
+                    (WORKTREE_ROOT / ".state" / "installer" / "state.json").resolve()
+                ),
+            },
+        )
+        self.assertTrue(run_update.call_args.kwargs["confirm"])
+        self.assertTrue(run_update.call_args.kwargs["dry_run"])
+        self.assertIn("redacted", output.getvalue())
+        self.assertNotIn("must-not-escape", output.getvalue())
+
+    def test_update_rollback_wires_run_id_and_confirmation_to_rollback_helper(self):
+        fake_result = {"run_id": "run-7", "secret": "must-not-escape"}
+        output = io.StringIO()
+        with mock.patch.object(cli, "run_rollback", return_value=fake_result) as run_rollback:
+            with contextlib.redirect_stdout(output):
+                result = cli.main(["update", "--rollback", "run-7", "--confirm"])
+
+        self.assertEqual(result, int(ExitCode.OK))
+        run_rollback.assert_called_once()
+        root, run_id = run_rollback.call_args.args[:2]
+        self.assertEqual(root, WORKTREE_ROOT)
+        self.assertEqual(run_id, "run-7")
+        self.assertTrue(run_rollback.call_args.kwargs["confirm"])
+        self.assertIn("redacted", output.getvalue())
+        self.assertNotIn("must-not-escape", output.getvalue())
+
+    def test_update_rollback_dry_run_is_read_only(self):
+        output = io.StringIO()
+        with mock.patch.object(cli, "run_rollback") as run_rollback:
+            with contextlib.redirect_stdout(output):
+                result = cli.main(["update", "--rollback", "run-7", "--dry-run"])
+
+        self.assertEqual(result, int(ExitCode.OK))
+        run_rollback.assert_not_called()
+        report = json.loads(output.getvalue())
+        self.assertEqual(report["action"], "rollback")
+        self.assertEqual(report["run_id"], "run-7")
+        self.assertTrue(report["dry_run"])
+
+    def test_update_propagates_helper_exit_code(self):
+        output = io.StringIO()
+        with mock.patch.object(
+            cli,
+            "run_update",
+            return_value={"exit_code": int(ExitCode.PARTIAL)},
+        ):
+            with contextlib.redirect_stdout(output):
+                result = cli.main(["update", "--dry-run"])
+
+        self.assertEqual(result, int(ExitCode.PARTIAL))
 
     def test_setup_confirmation_is_explicit_and_not_a_gpu_confirmation_abbreviation(self):
         parser = cli.build_parser()

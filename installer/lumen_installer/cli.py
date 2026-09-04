@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections.abc import Mapping, Sequence
@@ -30,6 +31,7 @@ from .setup import (
     run_up,
 )
 from .trakt import run_connect_trakt
+from .update import UpdateManifest, run_rollback, run_update
 
 
 PUBLIC_COMMANDS = (
@@ -215,6 +217,250 @@ def _connect_trakt(args: argparse.Namespace) -> int:
     return int(result.exit_code)
 
 
+_ENV_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
+_COMPOSE_KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_.-]*):(?:\s|$)")
+_COMPOSE_SERVICE = re.compile(r"^  ([A-Za-z_][A-Za-z0-9_.-]*):(?:\s|$)")
+_COMPOSE_IMAGE = re.compile(r"^\s{4}image:\s*(.*?)\s*$")
+_COMPOSE_PROFILES = re.compile(r"^\s{4}profiles:\s*(.*?)\s*$")
+_COMPOSE_PROFILE_ITEM = re.compile(r"^\s+-\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*$")
+_ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _read_update_env(path: Path) -> dict[str, str]:
+    """Read simple key/value entries without ever printing their values."""
+
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+
+    values: dict[str, str] = {}
+    for line in lines:
+        candidate = line.strip()
+        if not candidate or candidate.startswith("#"):
+            continue
+        if candidate.startswith("export "):
+            candidate = candidate[7:].lstrip()
+        match = _ENV_LINE.match(candidate)
+        if match is None:
+            continue
+        value = match.group(2).strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        values[match.group(1)] = value
+
+    # The process environment is the effective Compose environment and takes
+    # precedence over values in the checkout's .env file.
+    values.update({key: value for key, value in os.environ.items()})
+    return values
+
+
+def _expand_update_env(value: str, values: Mapping[str, str]) -> str:
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1) or match.group(3)
+        fallback = match.group(2)
+        return values.get(name, fallback or "")
+
+    return _ENV_REFERENCE.sub(replace, value).strip().strip("'\"")
+
+
+def _known_compose_files(root: Path, values: Mapping[str, str], args: argparse.Namespace | None) -> list[Path]:
+    """Resolve only Compose files within the checkout and known overlays."""
+
+    configured = values.get("COMPOSE_FILE", "").strip()
+    candidates: list[Path] = []
+    if configured:
+        for raw_path in configured.split(os.pathsep):
+            if not raw_path.strip():
+                continue
+            candidate = Path(_expand_update_env(raw_path, values)).expanduser()
+            if not candidate.is_absolute():
+                candidate = root / candidate
+            candidate = candidate.resolve(strict=False)
+            try:
+                candidate.relative_to(root)
+            except ValueError:
+                # Compose may accept arbitrary host paths, but update backups
+                # must remain scoped to this checkout.
+                continue
+            candidates.append(candidate)
+    else:
+        candidates.append(root / "docker-compose.yml")
+        requested_gpu = getattr(args, "gpu_mode", None) if args is not None else None
+        if requested_gpu is None and args is not None:
+            requested_gpu = getattr(args, "gpu", None)
+        if requested_gpu is None:
+            requested_gpu = values.get("GPU_MODE", values.get("GPU", ""))
+        gpu_enabled = str(requested_gpu).strip().lower() not in {"", "none", "false", "0", "off", "no"}
+        if gpu_enabled:
+            candidates.append(root / "docker-compose.gpu.yml")
+        if args is not None and bool(getattr(args, "dev", False)):
+            candidates.append(root / "docker-compose.dev.yml")
+
+    unique: list[Path] = []
+    for candidate in candidates:
+        candidate = candidate.resolve(strict=False)
+        if candidate not in unique:
+            unique.append(candidate)
+    return unique
+
+
+def _compose_metadata(compose_files: Sequence[Path], values: Mapping[str, str]) -> tuple[dict[str, str], list[str]]:
+    """Extract service image references and declared profile names safely."""
+
+    image_refs: dict[str, str] = {}
+    profiles: list[str] = []
+    for compose_file in compose_files:
+        try:
+            lines = compose_file.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        service: str | None = None
+        in_profiles = False
+        for line in lines:
+            service_match = _COMPOSE_SERVICE.match(line)
+            if service_match:
+                service = service_match.group(1)
+                in_profiles = False
+                continue
+            if _COMPOSE_KEY.match(line) and not line.startswith((" ", "\t")):
+                service = None
+                in_profiles = False
+                continue
+            if service is None:
+                continue
+            image_match = _COMPOSE_IMAGE.match(line)
+            if image_match:
+                image = _expand_update_env(image_match.group(1).split(" #", 1)[0], values)
+                if image:
+                    image_refs[service] = image
+                in_profiles = False
+                continue
+            profile_match = _COMPOSE_PROFILES.match(line)
+            if profile_match:
+                in_profiles = True
+                inline = profile_match.group(1).strip()
+                if inline.startswith("[") and inline.endswith("]"):
+                    profiles.extend(
+                        item.strip().strip("'\"")
+                        for item in inline[1:-1].split(",")
+                        if item.strip()
+                    )
+                continue
+            if in_profiles:
+                profile_item = _COMPOSE_PROFILE_ITEM.match(line)
+                if profile_item:
+                    profiles.append(profile_item.group(1))
+                elif line.strip():
+                    in_profiles = False
+
+    return image_refs, profiles
+
+
+def _env_service_values(values: Mapping[str, str], suffixes: Sequence[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for key, value in values.items():
+        upper_key = key.upper()
+        for suffix in suffixes:
+            if not upper_key.endswith(suffix):
+                continue
+            service = upper_key[: -len(suffix)].removeprefix("LUMEN_").lower()
+            if service and value.strip():
+                result[service] = value.strip()
+            break
+    return result
+
+
+def _env_json_map(values: Mapping[str, str], names: Sequence[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for name in names:
+        raw = values.get(name, "").strip()
+        if not raw:
+            continue
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(parsed, Mapping):
+            result.update(
+                {str(key): str(item) for key, item in parsed.items() if str(item).strip()}
+            )
+    return result
+
+
+def _update_manifest(root: Path, args: argparse.Namespace | None = None) -> UpdateManifest:
+    values = _read_update_env(root / ".env")
+    compose_files = _known_compose_files(root, values, args)
+    image_refs, declared_profiles = _compose_metadata(compose_files, values)
+    image_refs.update(_env_json_map(values, ("LUMEN_IMAGE_REFS", "IMAGE_REFS")))
+    image_refs.update(_env_service_values(values, ("_IMAGE_REF", "_IMAGE")))
+
+    repo_digests = _env_json_map(values, ("LUMEN_REPO_DIGESTS", "REPO_DIGESTS"))
+    repo_digests.update(_env_service_values(values, ("_REPO_DIGEST", "_IMAGE_DIGEST")))
+    local_image_ids = _env_json_map(values, ("LUMEN_LOCAL_IMAGE_IDS", "LOCAL_IMAGE_IDS"))
+    local_image_ids.update(_env_service_values(values, ("_LOCAL_IMAGE_ID", "_IMAGE_ID")))
+    for service, reference in image_refs.items():
+        if "@" in reference and service not in repo_digests:
+            repo_digests[service] = reference.rsplit("@", 1)[1]
+
+    requested_profiles = getattr(args, "profiles", None) if args is not None else None
+    if requested_profiles is None:
+        requested_profiles = [item for item in values.get("COMPOSE_PROFILES", "").split(",") if item.strip()]
+    if isinstance(requested_profiles, str):
+        requested_profiles = requested_profiles.split(",")
+    profiles = list(dict.fromkeys(str(item).strip() for item in requested_profiles if str(item).strip()))
+    if not profiles:
+        profiles = list(dict.fromkeys(profile for profile in declared_profiles if profile))
+
+    requested_gpu = getattr(args, "gpu_mode", None) if args is not None else None
+    if requested_gpu is None and args is not None:
+        requested_gpu = getattr(args, "gpu", None)
+    if requested_gpu is None:
+        requested_gpu = values.get("GPU_MODE", values.get("GPU_ENABLED", values.get("GPU", "")))
+    if isinstance(requested_gpu, bool):
+        gpu_mode = requested_gpu
+    else:
+        gpu_mode = str(requested_gpu).strip().lower() not in {"", "none", "false", "0", "off", "no", "disabled"}
+
+    return UpdateManifest.from_inputs(
+        env_path=root / ".env",
+        runtime_paths={
+            "config": root / "config",
+            "state": root / ".state" / "installer" / "state.json",
+        },
+        image_refs=image_refs,
+        repo_digests=repo_digests,
+        local_image_ids=local_image_ids,
+        profiles=profiles,
+        gpu_mode=gpu_mode,
+        compose_files=compose_files,
+    )
+
+
+def _update(args: argparse.Namespace) -> int:
+    root = Path(__file__).resolve().parents[2]
+    confirm = bool(getattr(args, "confirm", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    rollback_id = getattr(args, "rollback", None)
+    if rollback_id is not None and dry_run:
+        result: dict[str, object] = {
+            "action": "rollback",
+            "dry_run": True,
+            "run_id": rollback_id,
+        }
+    elif rollback_id is not None:
+        result = run_rollback(root, rollback_id, confirm=confirm)
+    else:
+        result = run_update(
+            root,
+            _update_manifest(root, args),
+            dry_run=dry_run,
+            confirm=confirm,
+        )
+    print(json.dumps(_redact_report(result), sort_keys=True))
+    return _normalize_handler_result(result.get("exit_code", ExitCode.OK))
+
+
 def _owner_id(value: str) -> int:
     candidate = value.strip()
     try:
@@ -386,6 +632,12 @@ def build_parser() -> InstallerArgumentParser:
                 metavar="RUN_ID",
                 help="Roll back a recorded update run.",
             )
+            subparser.add_argument(
+                "--confirm",
+                action="store_true",
+                default=argparse.SUPPRESS,
+                help="approve the update or rollback operation",
+            )
         if command == "configure":
             subparser.add_argument(
                 "--confirm",
@@ -410,6 +662,7 @@ COMMAND_HANDLERS["frontend-dev"] = _frontend_dev
 COMMAND_HANDLERS["redeploy-dashboard"] = _redeploy_dashboard
 COMMAND_HANDLERS["configure"] = _configure
 COMMAND_HANDLERS["connect-trakt"] = _connect_trakt
+COMMAND_HANDLERS["update"] = _update
 
 
 def dispatch(args: argparse.Namespace) -> int | ExitCode | None:

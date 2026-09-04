@@ -23,6 +23,21 @@ Callback = Callable[..., object]
 
 _DIGEST_RE = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
 _SAFE_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_SAFE_COMPOSE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
+_SAFE_ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_REQUIRED_MANIFEST_FIELDS = frozenset(
+    {
+        "env_path",
+        "runtime_paths",
+        "image_refs",
+        "repo_digests",
+        "local_image_ids",
+        "profiles",
+        "gpu_mode",
+        "gpu_environment",
+        "compose_files",
+    }
+)
 
 
 class RollbackValidationError(InvalidInputError, ValueError):
@@ -165,6 +180,7 @@ def _validate_manifest_inputs(
     for path in runtime_paths.values():
         _validate_manifest_path(path, checkout_root, kind="runtime", protected=protected)
         _reject_recursive_backup_destination(path, checkout_root)
+        _reject_unsafe_source_tree(path)
     for path in compose_files:
         _validate_manifest_path(path, checkout_root, kind="compose", protected=protected)
     return checkout_root
@@ -182,6 +198,54 @@ def _reject_recursive_backup_destination(path: Path, checkout_root: Path) -> Non
         )
 
 
+def _reject_unsafe_source_tree(path: Path) -> None:
+    """Reject symlinks anywhere in a source tree before it is backed up."""
+
+    if path.exists() or path.is_symlink():
+        _reject_symlink_tree(path)
+
+
+def _validate_compose_name(value: object, *, kind: str) -> str:
+    if not isinstance(value, str) or not value or not _SAFE_COMPOSE_NAME_RE.fullmatch(value):
+        raise ValueError(f"{kind} name is invalid")
+    return value
+
+
+def _validate_image_reference(value: object) -> str:
+    if not isinstance(value, str) or not value or value.startswith("-"):
+        raise ValueError("image reference is invalid")
+    if any(character.isspace() or ord(character) < 32 for character in value):
+        raise ValueError("image reference is invalid")
+    return value.strip()
+
+
+def _validate_image_id(value: object) -> str:
+    if not isinstance(value, str) or not value or value.startswith("-"):
+        raise ValueError("local image id is invalid")
+    if any(character.isspace() or ord(character) < 32 for character in value):
+        raise ValueError("local image id is invalid")
+    return value
+
+
+def _strict_string_map(value: object, *, field: str) -> dict[str, str]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"manifest {field} must be an object")
+    result: dict[str, str] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not isinstance(item, str):
+            raise ValueError(f"manifest {field} must contain strings")
+        result[key] = item
+    return result
+
+
+def _strict_string_list(value: object, *, field: str) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError(f"manifest {field} must be an array")
+    if any(not isinstance(item, str) for item in value):
+        raise ValueError(f"manifest {field} must contain strings")
+    return list(value)
+
+
 def _validate_manifest_checkout_root(root: Path, manifest: "UpdateManifest") -> None:
     manifest_root = _absolute_path(manifest.env_path).parent
     requested_root = _absolute_path(root)
@@ -190,6 +254,56 @@ def _validate_manifest_checkout_root(root: Path, manifest: "UpdateManifest") -> 
             "manifest checkout does not match the requested checkout: "
             f"{manifest_root} != {requested_root}"
         )
+
+
+def _compose_build_services(compose_files: Sequence[Path]) -> set[str]:
+    """Find services with a non-null Compose ``build`` entry.
+
+    This deliberately parses only the small service/build shape needed by the
+    manifest boundary.  A service is considered buildable only when the
+    Compose source exists and contains a real build value; this prevents a
+    persisted local image id from silently turning a registry service into a
+    local rollback tag.
+    """
+
+    build_services: set[str] = set()
+    service: str | None = None
+    for compose_file in compose_files:
+        if not compose_file.is_file() or compose_file.is_symlink():
+            continue
+        try:
+            lines = compose_file.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            continue
+        service = None
+        for line in lines:
+            if line.startswith("  ") and not line.startswith("    "):
+                candidate = line[2:].split(":", 1)[0].strip()
+                if candidate and _SAFE_COMPOSE_NAME_RE.fullmatch(candidate):
+                    service = candidate
+                else:
+                    service = None
+                continue
+            if not line.startswith((" ", "\t")):
+                service = None
+                continue
+            if service is None:
+                continue
+            if re.fullmatch(r"\s{4}build:\s*(.*?)\s*", line):
+                value = line.split(":", 1)[1].strip()
+                if value not in {"null", "~", "!reset null"}:
+                    build_services.add(service)
+    return build_services
+
+
+def _manifest_build_services(manifest: "UpdateManifest") -> set[str]:
+    files = [Path(path) for path in manifest.compose_files]
+    existing = [path for path in files if path.is_file() and not path.is_symlink()]
+    # Older direct API callers may construct a manifest with fixture paths that
+    # do not exist.  In that case no Compose evidence is available, so retain
+    # compatibility for their local-service seam; CLI-created manifests always
+    # carry the real Compose files and are strictly checked.
+    return _compose_build_services(files) if existing else set(manifest.local_image_ids)
 
 
 def _normalize_repo_digest(value: str) -> str:
@@ -220,12 +334,17 @@ def _validate_digest_entries(
     local_image_ids: Mapping[str, str],
     *,
     require_registry: bool = True,
+    build_services: set[str] | None = None,
 ) -> dict[str, str]:
     raw_digests = {str(name): str(digest) for name, digest in repo_digests.items()}
     normalized = {
         name: _normalize_repo_digest(digest) for name, digest in raw_digests.items()
     }
     local_services = {str(name) for name in local_image_ids}
+    if build_services is not None:
+        invalid_local = local_services - build_services
+        if invalid_local:
+            raise ValueError("local image ids are only valid for Compose build services")
     if require_registry:
         for service in image_refs:
             service_name = str(service)
@@ -251,6 +370,7 @@ def _require_immutable_digests(manifest: "UpdateManifest") -> None:
         manifest.repo_digests,
         manifest.local_image_ids,
         require_registry=True,
+        build_services=_manifest_build_services(manifest),
     )
 
 
@@ -278,8 +398,11 @@ class UpdateManifest:
         gpu_mode: bool | str,
         compose_files: Iterable[PathLike],
         gpu_environment: Mapping[str, str] | None = None,
+        allow_unverified_local_ids: bool = False,
     ) -> "UpdateManifest":
         normalized_env = _absolute_path(env_path)
+        if not isinstance(env_path, (str, os.PathLike)):
+            raise ValueError("manifest env path is invalid")
         normalized_runtime = {
             str(name): str(_absolute_path(path)) for name, path in runtime_paths.items()
         }
@@ -289,14 +412,46 @@ class UpdateManifest:
             {name: Path(path) for name, path in normalized_runtime.items()},
             [Path(path) for path in normalized_compose],
         )
-        normalized_refs = {str(name): str(ref).strip() for name, ref in image_refs.items()}
-        normalized_local_ids = {
-            str(name): str(image_id) for name, image_id in local_image_ids.items()
-        }
+        normalized_refs: dict[str, str] = {}
+        for name, ref in image_refs.items():
+            normalized_name = _validate_compose_name(name, kind="service")
+            normalized_refs[normalized_name] = _validate_image_reference(ref).strip()
+        normalized_repo_digests: dict[str, str] = {}
+        for name, digest in repo_digests.items():
+            normalized_name = _validate_compose_name(name, kind="digest service")
+            normalized_repo_digests[normalized_name] = str(digest)
+        normalized_local_ids: dict[str, str] = {}
+        for name, image_id in local_image_ids.items():
+            normalized_name = _validate_compose_name(name, kind="local image service")
+            normalized_local_ids[normalized_name] = _validate_image_id(image_id)
+        if not set(normalized_repo_digests).issubset(normalized_refs):
+            raise ValueError("digest metadata references an unknown service")
+        if not set(normalized_local_ids).issubset(normalized_refs):
+            raise ValueError("local image metadata references an unknown service")
+        existing_compose = [
+            Path(path)
+            for path in normalized_compose
+            if Path(path).is_file() and not Path(path).is_symlink()
+        ]
+        if existing_compose and not allow_unverified_local_ids:
+            build_services = _compose_build_services(existing_compose)
+            if set(normalized_local_ids) - build_services:
+                raise ValueError("local image ids are only valid for Compose build services")
+
+        if isinstance(profiles, (str, bytes, bytearray)):
+            raise ValueError("manifest profiles must be a sequence")
+        normalized_profiles: list[str] = []
+        for profile in profiles:
+            normalized_profile = _validate_compose_name(profile, kind="profile")
+            if normalized_profile not in normalized_profiles:
+                normalized_profiles.append(normalized_profile)
 
         normalized_gpu: bool | str
         if type(gpu_mode) is bool:
-            normalized_gpu = gpu_mode
+            # Boolean GPU input is a legacy API shape; persisted manifests use
+            # the concrete string contract so rollback never trusts a JSON
+            # boolean as a mode.
+            normalized_gpu = "nvidia" if gpu_mode else "none"
         elif isinstance(gpu_mode, str) and gpu_mode.strip().lower() in {
             "none",
             "auto",
@@ -306,11 +461,14 @@ class UpdateManifest:
             normalized_gpu = gpu_mode.strip().lower()
         else:
             raise ValueError("gpu mode must be none, auto, nvidia, or vaapi")
-        normalized_gpu_environment = {
-            str(name): str(value).strip()
-            for name, value in (gpu_environment or {}).items()
-            if str(value).strip()
-        }
+        normalized_gpu_environment: dict[str, str] = {}
+        for name, value in (gpu_environment or {}).items():
+            if not isinstance(name, str) or not _SAFE_ENV_NAME_RE.fullmatch(name):
+                raise ValueError("GPU environment key is invalid")
+            if not isinstance(value, str):
+                raise ValueError("GPU environment values must be strings")
+            if value.strip():
+                normalized_gpu_environment[name] = value.strip()
 
         return cls(
             env_path=str(normalized_env),
@@ -318,12 +476,12 @@ class UpdateManifest:
             image_refs=normalized_refs,
             repo_digests=_validate_digest_entries(
                 normalized_refs,
-                repo_digests,
+                normalized_repo_digests,
                 normalized_local_ids,
                 require_registry=False,
             ),
             local_image_ids=normalized_local_ids,
-            profiles=[str(profile) for profile in profiles],
+            profiles=normalized_profiles,
             gpu_mode=normalized_gpu,
             gpu_environment=normalized_gpu_environment,
             compose_files=normalized_compose,
@@ -334,41 +492,44 @@ class UpdateManifest:
         # Update records are persisted locally and must not be trusted
         # blindly during rollback.  Re-normalize paths and apply the same
         # media/download protection as fresh input.
-        env_path = _absolute_path(str(value["env_path"]))
-        runtime_paths = {
-            str(k): str(_absolute_path(str(v)))
-            for k, v in dict(value["runtime_paths"]).items()
-        }
-        compose_files = [
-            str(_absolute_path(str(path))) for path in list(value["compose_files"])
-        ]
-        _validate_manifest_inputs(
-            env_path,
-            {name: Path(path) for name, path in runtime_paths.items()},
-            [Path(path) for path in compose_files],
+        if not isinstance(value, Mapping) or not _REQUIRED_MANIFEST_FIELDS.issubset(value):
+            raise ValueError("manifest schema is incomplete")
+        if not isinstance(value["env_path"], str):
+            raise ValueError("manifest env path must be a string")
+        runtime_raw = _strict_string_map(value["runtime_paths"], field="runtime_paths")
+        image_refs = _strict_string_map(value["image_refs"], field="image_refs")
+        repo_digests = _strict_string_map(value["repo_digests"], field="repo_digests")
+        local_image_ids = _strict_string_map(value["local_image_ids"], field="local_image_ids")
+        profiles = _strict_string_list(value["profiles"], field="profiles")
+        compose_raw = _strict_string_list(value["compose_files"], field="compose_files")
+        gpu_environment = _strict_string_map(
+            value["gpu_environment"], field="gpu_environment"
         )
-        image_refs = {str(k): str(v).strip() for k, v in dict(value["image_refs"]).items()}
-        local_image_ids = {
-            str(k): str(v) for k, v in dict(value["local_image_ids"]).items()
-        }
-        return cls(
-            env_path=str(env_path),
-            runtime_paths=runtime_paths,
+        gpu_mode = value["gpu_mode"]
+        if not isinstance(gpu_mode, str) or gpu_mode.strip().lower() not in {
+            "none",
+            "auto",
+            "nvidia",
+            "vaapi",
+        }:
+            raise ValueError("manifest gpu mode is invalid")
+        gpu_mode = gpu_mode.strip().lower()
+        if gpu_mode == "auto" and gpu_environment.get("GPU_RESOLVED_MODE", "").lower() not in {
+            "none",
+            "nvidia",
+            "vaapi",
+        }:
+            raise ValueError("persisted auto GPU mode is not resolved")
+        return cls.from_inputs(
+            env_path=value["env_path"],
+            runtime_paths=runtime_raw,
             image_refs=image_refs,
-            repo_digests=_validate_digest_entries(
-                image_refs,
-                dict(value["repo_digests"]),
-                local_image_ids,
-                require_registry=False,
-            ),
+            repo_digests=repo_digests,
             local_image_ids=local_image_ids,
-            profiles=[str(profile) for profile in list(value["profiles"])],
-            gpu_mode=value["gpu_mode"],
-            gpu_environment={
-                str(k): str(v)
-                for k, v in dict(value.get("gpu_environment", {})).items()
-            },
-            compose_files=compose_files,
+            profiles=profiles,
+            gpu_mode=gpu_mode,
+            compose_files=compose_raw,
+            gpu_environment=gpu_environment,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -517,6 +678,104 @@ def _reject_symlink_tree(path: Path) -> None:
         _reject_symlink_tree(child)
 
 
+def _file_fingerprint(path: Path) -> dict[str, object]:
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as stream:
+        while True:
+            chunk = stream.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+            size += len(chunk)
+    return {"sha256": digest.hexdigest(), "size": size}
+
+
+def _backup_inventory(path: Path) -> dict[str, object]:
+    """Return a tamper-evident inventory for one backup root."""
+
+    _reject_symlink_tree(path)
+    if path.is_file():
+        return {"kind": "file", "file": _file_fingerprint(path)}
+    if not path.is_dir():
+        raise ValueError("backup is not a regular file or directory")
+    directories: list[str] = []
+    files: dict[str, dict[str, object]] = {}
+    for candidate in sorted(path.rglob("*")):
+        relative = candidate.relative_to(path).as_posix()
+        if candidate.is_symlink():
+            raise ValueError("backup may not contain symlinks")
+        if candidate.is_dir():
+            directories.append(relative)
+        elif candidate.is_file():
+            files[relative] = _file_fingerprint(candidate)
+        else:
+            raise ValueError("backup contains a non-regular entry")
+    return {"kind": "directory", "directories": directories, "files": files}
+
+
+def _validate_backup_inventory(path: Path, expected: object) -> None:
+    if not isinstance(expected, Mapping):
+        raise RollbackValidationError("rollback backup is incomplete")
+    actual = _backup_inventory(path)
+    if actual != dict(expected):
+        raise RollbackValidationError("rollback backup is incomplete")
+
+
+def _validate_backup_entries(
+    root: Path,
+    manifest: "UpdateManifest",
+    record: Mapping[str, object],
+    backup_dir: Path,
+) -> dict[str, Path]:
+    """Validate all recorded backups before any lifecycle or live-file action."""
+
+    raw_entries = record.get("backup_entries")
+    if not isinstance(raw_entries, list):
+        raise RollbackValidationError("rollback backup record is incomplete")
+    expected_names = {
+        _backup_name(root, path).as_posix() for path in _manifest_paths(manifest)
+    }
+    seen: set[str] = set()
+    validated: dict[str, Path] = {}
+    if backup_dir.is_symlink() or not backup_dir.is_dir():
+        raise RollbackValidationError("rollback backup is missing")
+    for raw_entry in raw_entries:
+        if not isinstance(raw_entry, Mapping):
+            raise RollbackValidationError("rollback backup record is invalid")
+        relative = raw_entry.get("path")
+        backup_relative = raw_entry.get("backup")
+        if not isinstance(relative, str) or not isinstance(backup_relative, str):
+            raise RollbackValidationError("rollback backup record is invalid")
+        if relative in seen or relative not in expected_names or relative != backup_relative:
+            raise RollbackValidationError("rollback backup record is invalid")
+        candidate_relative = Path(backup_relative)
+        if (
+            candidate_relative.is_absolute()
+            or not candidate_relative.parts
+            or ".." in candidate_relative.parts
+            or "." in candidate_relative.parts
+        ):
+            raise RollbackValidationError("rollback backup path is invalid")
+        backup = backup_dir / candidate_relative
+        if not _is_within(backup, backup_dir) or _has_symlink_component(backup):
+            raise RollbackValidationError("rollback backup path is invalid")
+        if not backup.exists() or backup.is_symlink():
+            raise RollbackValidationError("rollback backup is missing")
+        try:
+            _validate_backup_inventory(backup, raw_entry.get("inventory"))
+        except (OSError, ValueError) as exc:
+            raise RollbackValidationError("rollback backup is incomplete") from exc
+        seen.add(relative)
+        validated[relative] = backup
+
+    top_level = {child.name for child in backup_dir.iterdir()}
+    expected_top_level = {Path(name).parts[0] for name in seen}
+    if top_level != expected_top_level:
+        raise RollbackValidationError("rollback backup record is incomplete")
+    return validated
+
+
 def _atomic_copy_env(source: Path, destination: Path) -> None:
     """Replace ``.env`` atomically while enforcing its private mode."""
 
@@ -619,16 +878,59 @@ def _registry_image(service: str, manifest: UpdateManifest) -> str:
     return f"{_repository_name(reference)}@{_normalize_repo_digest(digest)}"
 
 
+def _validate_local_rollback_tags(
+    manifest: UpdateManifest,
+    run_id: str,
+    value: object,
+) -> dict[str, str]:
+    if not isinstance(value, Mapping):
+        raise RollbackValidationError("rollback local image tags are invalid")
+    build_services = _manifest_build_services(manifest)
+    expected_services = set(manifest.local_image_ids)
+    if expected_services - build_services:
+        raise RollbackValidationError("rollback local image service is invalid")
+    tags: dict[str, str] = {}
+    for service, tag in value.items():
+        if not isinstance(service, str) or not isinstance(tag, str):
+            raise RollbackValidationError("rollback local image tags are invalid")
+        _validate_compose_name(service, kind="local image service")
+        expected = f"lumen-rollback/{service}:{run_id}"
+        if service not in expected_services or tag != expected:
+            raise RollbackValidationError("rollback local image tag is invalid")
+        tags[service] = tag
+    if set(tags) != expected_services:
+        raise RollbackValidationError("rollback local image tags are incomplete")
+    return tags
+
+
 def render_rollback_override(
     manifest: UpdateManifest,
     run_id: str,
     local_services: Iterable[str],
+    local_rollback_tags: Mapping[str, str] | None = None,
 ) -> str:
     _safe_run_id(run_id)
-    local = {str(service) for service in local_services}
+    local = {
+        _validate_compose_name(service, kind="service") for service in local_services
+    }
+    if local - set(manifest.local_image_ids):
+        raise RollbackValidationError("rollback local image service is invalid")
+    if local_rollback_tags is not None:
+        validated_tags = _validate_local_rollback_tags(
+            manifest, run_id, local_rollback_tags
+        )
+        if local != set(validated_tags):
+            raise RollbackValidationError("rollback local image tags are incomplete")
+    else:
+        validated_tags = {}
     local_ids = dict(manifest.local_image_ids)
     local_ids.update({service: "rollback-local" for service in local})
-    _validate_digest_entries(manifest.image_refs, manifest.repo_digests, local_ids)
+    _validate_digest_entries(
+        manifest.image_refs,
+        manifest.repo_digests,
+        local_ids,
+        build_services=_manifest_build_services(manifest),
+    )
     services = list(
         dict.fromkeys(
             (
@@ -642,7 +944,9 @@ def render_rollback_override(
     lines = ["services:"]
     for service in services:
         image = (
-            f"lumen-rollback/{service}:{run_id}"
+            validated_tags[service]
+            if service in local and local_rollback_tags is not None
+            else f"lumen-rollback/{service}:{run_id}"
             if service in local
             else _registry_image(service, manifest)
         )
@@ -692,15 +996,27 @@ def run_update(
     update_record = state / "updates" / f"{run_id}.json"
     _ensure_private_dir(backup_dir)
 
+    backup_entries: list[dict[str, object]] = []
     for path in manifest_paths:
         if path.exists() or path.is_symlink():
-            _copy_path(path, backup_dir / _backup_name(root_path, path))
+            _reject_unsafe_source_tree(path)
+            backup_name = _backup_name(root_path, path)
+            backup_path = backup_dir / backup_name
+            _copy_path(path, backup_path)
+            backup_entries.append(
+                {
+                    "path": backup_name.as_posix(),
+                    "backup": backup_name.as_posix(),
+                    "inventory": _backup_inventory(backup_path),
+                }
+            )
 
     _write_json(
         update_record,
         {
             "run_id": run_id,
             "manifest": manifest.to_dict(),
+            "backup_entries": backup_entries,
         },
     )
     result["record"] = str(update_record)
@@ -710,6 +1026,12 @@ def run_update(
         if tag_callback is not None:
             tagged = _invoke_callback(tag_callback, run_id)
             if tagged is not None:
+                # A real Compose manifest must report the exact tags created
+                # for its verified build-service IDs.  Keep the legacy
+                # zero-file fixture seam permissive, since it has no Compose
+                # evidence against which to validate service ownership.
+                if any(Path(path).is_file() for path in manifest.compose_files):
+                    tagged = _validate_local_rollback_tags(manifest, run_id, tagged)
                 record = json.loads(update_record.read_text(encoding="utf-8"))
                 record["local_rollback_tags"] = tagged
                 _write_json(update_record, record)
@@ -791,6 +1113,38 @@ def run_rollback(
     except (OSError, UnicodeError, TypeError, ValueError, KeyError, AttributeError) as exc:
         raise RollbackValidationError("rollback record is invalid") from exc
 
+    backup_dir = state / "backups" / safe_run_id
+    try:
+        backup_paths = _validate_backup_entries(
+            root_path, manifest, record_value, backup_dir
+        )
+    except RollbackValidationError:
+        raise
+    except (OSError, ValueError) as exc:
+        raise RollbackValidationError("rollback backup is invalid") from exc
+
+    raw_tags = record_value.get("local_rollback_tags")
+    try:
+        verified_tags = (
+            _validate_local_rollback_tags(manifest, safe_run_id, raw_tags)
+            if raw_tags is not None
+            else {}
+        )
+        local_services = set(verified_tags)
+        # Without a durable tag result, a local image id is not evidence that
+        # the immutable rollback tag exists.  Registry digests remain usable;
+        # a build-only service fails closed before containers are stopped.
+        override_text = render_rollback_override(
+            manifest,
+            safe_run_id,
+            local_services,
+            local_rollback_tags=verified_tags if raw_tags is not None else None,
+        )
+    except RollbackValidationError:
+        raise
+    except (OSError, ValueError, TypeError) as exc:
+        raise RollbackValidationError("rollback image metadata is invalid") from exc
+
     _ensure_private_dir(state.parent)
     _ensure_private_dir(state)
     _ensure_private_dir(state / "updates")
@@ -800,17 +1154,6 @@ def run_rollback(
     _ensure_private_dir(state / "failed-runs")
     failed_dir = state / "failed-runs" / safe_run_id
     _ensure_private_dir(failed_dir)
-    backup_dir = state / "backups" / safe_run_id
-    if backup_dir.exists() or backup_dir.is_symlink():
-        _ensure_private_dir(backup_dir)
-
-    try:
-        for path in manifest_paths:
-            backup = backup_dir / _backup_name(root_path, path)
-            if backup.exists() or backup.is_symlink():
-                _reject_symlink_tree(backup)
-    except (OSError, ValueError) as exc:
-        raise RollbackValidationError("rollback backup is invalid") from exc
 
     if callback_factory is not None:
         try:
@@ -832,7 +1175,9 @@ def run_rollback(
             # A previous rollback may have moved this path successfully but
             # failed later (for example in a start callback).  Keep that
             # first post-update snapshot and make retry idempotent.
-            backup = backup_dir / _backup_name(root_path, path)
+            backup = backup_paths.get(_backup_name(root_path, path).as_posix())
+            if backup is None:
+                continue
             if path == env_path and (backup.exists() or backup.is_symlink()):
                 if not failed_path.exists() and not failed_path.is_symlink():
                     _copy_path(path, failed_path)
@@ -840,8 +1185,8 @@ def run_rollback(
                 _move_path(path, failed_path)
 
     for path in manifest_paths:
-        backup = backup_dir / _backup_name(root_path, path)
-        if backup.exists() or backup.is_symlink():
+        backup = backup_paths.get(_backup_name(root_path, path).as_posix())
+        if backup is not None and (backup.exists() or backup.is_symlink()):
             if path == env_path:
                 _atomic_copy_env(backup, path)
             else:
@@ -850,10 +1195,9 @@ def run_rollback(
                 _copy_path(backup, path, private_destination=False)
 
     override_path = state / "rollback" / f"{safe_run_id}.yml"
-    local_services = set(manifest.local_image_ids)
     _write_private_text(
         override_path,
-        render_rollback_override(manifest, safe_run_id, local_services),
+        override_text,
     )
 
     if start_callback is not None:

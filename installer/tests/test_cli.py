@@ -389,6 +389,76 @@ class CliContractTests(unittest.TestCase):
 
             self.assertEqual({"core"}, set(manifest.local_image_ids))
 
+    def test_update_manifest_rejects_local_id_for_registry_service_before_inspect(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docker-compose.yml").write_text(
+                "services:\n  api:\n    image: registry.example/api:stable\n",
+                encoding="utf-8",
+            )
+            (root / ".env").write_text(
+                'LUMEN_LOCAL_IMAGE_IDS={"api":"fabricated"}\n', encoding="utf-8"
+            )
+            runner = mock.Mock()
+            with self.assertRaises(InvalidInputError):
+                cli._update_manifest(
+                    root,
+                    SimpleNamespace(profiles=None, gpu_mode="none", gpu=None, dev=False),
+                    dry_run=False,
+                    runner=runner,
+                )
+            runner.run.assert_not_called()
+
+    def test_update_manifest_rejects_unsafe_service_name_before_inspect(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docker-compose.yml").write_text(
+                "services:\n  api:\n    image: registry.example/api:stable\n",
+                encoding="utf-8",
+            )
+            (root / ".env").write_text(
+                'LUMEN_IMAGE_REFS={"--remove-orphans":"registry.example/api:stable"}\n',
+                encoding="utf-8",
+            )
+            runner = mock.Mock()
+            with self.assertRaises(InvalidInputError):
+                cli._update_manifest(
+                    root,
+                    SimpleNamespace(profiles=None, gpu_mode="none", gpu=None, dev=False),
+                    dry_run=False,
+                    runner=runner,
+                )
+            runner.run.assert_not_called()
+
+    def test_update_manifest_rejects_configured_build_id_that_disagrees_with_inspect(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docker-compose.yml").write_text(
+                "services:\n"
+                "  dashboard:\n"
+                "    build: .\n"
+                "    image: local/dashboard:local\n",
+                encoding="utf-8",
+            )
+            (root / ".env").write_text(
+                'LUMEN_LOCAL_IMAGE_IDS={"dashboard":"fabricated"}\n', encoding="utf-8"
+            )
+
+            def execute(_argv, **_kwargs):
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps({"Id": "sha256:actual", "RepoDigests": []}),
+                    stderr="",
+                )
+
+            with self.assertRaises(InvalidInputError):
+                cli._update_manifest(
+                    root,
+                    SimpleNamespace(profiles=None, gpu_mode="none", gpu=None, dev=False),
+                    dry_run=False,
+                    runner=cli.CommandRunner(executor=execute),
+                )
+
     def test_update_rollback_does_not_pre_read_record_before_helper_validation(self):
         output = io.StringIO()
         fake_result = {"run_id": "run-7"}

@@ -17,6 +17,76 @@ from lumen_installer.errors import InvalidInputError
 
 
 class UpdateManifestTests(unittest.TestCase):
+    def test_rejects_local_image_ids_for_registry_services(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            compose.write_text(
+                "services:\n  api:\n    image: registry.example/api:stable\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                UpdateManifest.from_inputs(
+                    root / ".env",
+                    {},
+                    {"api": "registry.example/api:stable"},
+                    {},
+                    {"api": "fabricated-local-id"},
+                    [],
+                    "none",
+                    [compose],
+                )
+
+    def test_rejects_unsafe_nested_symlink_in_approved_config_tree(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = root / "config"
+            config.mkdir()
+            outside = root / "outside-secret"
+            outside.write_text("private", encoding="utf-8")
+            (config / "nested-link").symlink_to(outside)
+            with self.assertRaises(ValueError):
+                UpdateManifest.from_inputs(
+                    root / ".env",
+                    {"config": config},
+                    {"api": "registry.example/api:stable"},
+                    {"api": "sha256:" + "a" * 64},
+                    {},
+                    [],
+                    "none",
+                    [root / "docker-compose.yml"],
+                )
+
+    def test_from_dict_rejects_tampered_schema_fields(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            compose.write_text(
+                "services:\n  api:\n    image: registry.example/api:stable\n",
+                encoding="utf-8",
+            )
+            manifest = UpdateManifest.from_inputs(
+                root / ".env",
+                {},
+                {"api": "registry.example/api:stable"},
+                {"api": "sha256:" + "a" * 64},
+                {},
+                ["requests"],
+                "none",
+                [compose],
+            )
+            for field, value in (
+                ("gpu_mode", "evil"),
+                ("profiles", ["--remove-orphans"]),
+                ("image_refs", {"--remove-orphans": "registry.example/api:stable"}),
+                ("repo_digests", {"--remove-orphans": "sha256:" + "a" * 64}),
+                ("compose_files", str(compose)),
+            ):
+                with self.subTest(field=field):
+                    tampered = manifest.to_dict()
+                    tampered[field] = value
+                    with self.assertRaises(ValueError):
+                        UpdateManifest.from_dict(tampered)
     def test_rejects_paths_under_media_or_downloads_and_serializes_only_approved_paths(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -452,6 +522,56 @@ class UpdateOperationTests(unittest.TestCase):
             self.assertEqual("post-update", config.read_text(encoding="utf-8"))
             self.assertEqual("media", media_file.read_text(encoding="utf-8"))
             self.assertEqual("download", download_file.read_text(encoding="utf-8"))
+
+    def test_rollback_rejects_missing_recorded_backup_before_stop_or_live_move(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, config = self._manifest(root)
+            updated = run_update(root, manifest, False, True)
+            backup_file = (
+                root
+                / ".state"
+                / "installer"
+                / "backups"
+                / updated["run_id"]
+                / "config"
+                / "service.conf"
+            )
+            backup_file.unlink()
+            config.write_text("post-update", encoding="utf-8")
+            calls = []
+            with self.assertRaises(InvalidInputError):
+                run_rollback(
+                    root,
+                    updated["run_id"],
+                    True,
+                    lambda: calls.append("stop"),
+                    lambda: calls.append("start"),
+                )
+            self.assertEqual([], calls)
+            self.assertEqual("post-update", config.read_text(encoding="utf-8"))
+
+    def test_rollback_rejects_tampered_unverified_local_tag_before_stop(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, _ = self._manifest(root)
+            updated = run_update(root, manifest, False, True)
+            record_path = Path(updated["record"])
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            record["local_rollback_tags"] = {
+                "dashboard": "lumen-rollback/dashboard:fake"
+            }
+            record_path.write_text(json.dumps(record), encoding="utf-8")
+            calls = []
+            with self.assertRaises(InvalidInputError):
+                run_rollback(
+                    root,
+                    updated["run_id"],
+                    True,
+                    lambda: calls.append("stop"),
+                    lambda: calls.append("start"),
+                )
+            self.assertEqual([], calls)
 
     def test_rollback_rejects_missing_or_malformed_records_as_stable_installer_errors(self):
         with tempfile.TemporaryDirectory() as temp_dir:

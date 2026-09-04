@@ -48,6 +48,9 @@ from .update import (
     _digest_repository,
     _normalize_repo_digest,
     _safe_run_id,
+    _validate_compose_name,
+    _validate_image_id,
+    _validate_image_reference,
     run_rollback,
     run_update,
 )
@@ -696,6 +699,24 @@ def _update_manifest(
         for service, image_id in local_image_ids.items()
         if service not in declared_services or service in active_services
     }
+    if not dry_run:
+        invalid_local_services = set(local_image_ids) - build_services
+        if invalid_local_services:
+            raise InvalidInputError(
+                "local image metadata is only valid for Compose build services"
+            )
+        try:
+            for service, reference in image_refs.items():
+                _validate_compose_name(service, kind="service")
+                _validate_image_reference(reference)
+            for service, digest in repo_digests.items():
+                _validate_compose_name(service, kind="digest service")
+                str(digest)
+            for service, image_id in local_image_ids.items():
+                _validate_compose_name(service, kind="local image service")
+                _validate_image_id(image_id)
+        except ValueError as exc:
+            raise InvalidInputError("update manifest metadata is invalid") from exc
     for service, reference in image_refs.items():
         if "@" in reference and service not in repo_digests:
             repo_digests[service] = reference.rsplit("@", 1)[1]
@@ -766,7 +787,12 @@ def _update_manifest(
                     "Docker image inspection did not contain the configured repository digest"
                 )
             if service in build_services:
-                local_image_ids.setdefault(service, image_id)
+                configured_local_id = local_image_ids.get(service)
+                if configured_local_id is not None and configured_local_id != image_id:
+                    raise InvalidInputError(
+                        "configured local image id does not match Docker inspection"
+                    )
+                local_image_ids[service] = image_id
 
     # A normal update must have an immutable source for every service.  A
     # local image ID is sufficient for a build service; registry-backed
@@ -795,6 +821,7 @@ def _update_manifest(
             gpu_mode=gpu_mode,
             compose_files=compose_files,
             gpu_environment=gpu_environment,
+            allow_unverified_local_ids=dry_run,
         )
     except ValueError as exc:
         raise InvalidInputError("update manifest is invalid") from exc

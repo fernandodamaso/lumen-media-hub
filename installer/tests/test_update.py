@@ -1,5 +1,7 @@
 import json
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,7 +29,7 @@ class UpdateManifestTests(unittest.TestCase):
                     root / ".env",
                     {"runtime": approved},
                     {"dashboard": "registry.example/dashboard:latest"},
-                    {"dashboard": "abc123"},
+                    {"dashboard": "sha256:" + "0" * 64},
                     {"dashboard": "local-id"},
                     ["requests"],
                     False,
@@ -62,6 +64,114 @@ class UpdateManifestTests(unittest.TestCase):
                 os.environ.pop("ROOT_PATH", None)
                 os.environ.pop("DOWNLOADS_PATH", None)
 
+    def test_rejects_outside_traversal_and_symlinked_approved_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "checkout"
+            root.mkdir()
+            (root / "config").mkdir()
+            outside = Path(temp_dir) / "outside.json"
+            outside.write_text("private", encoding="utf-8")
+            linked = root / "config" / "linked.json"
+            linked.symlink_to(outside)
+            common = {
+                "env_path": root / ".env",
+                "runtime_paths": {"runtime": root / "config" / "runtime.json"},
+                "image_refs": {"api": "registry.example/api:stable"},
+                "repo_digests": {"api": "sha256:" + "a" * 64},
+                "local_image_ids": {},
+                "profiles": [],
+                "gpu_mode": False,
+                "compose_files": [root / "docker-compose.yml"],
+            }
+            for path in (outside, root / "config" / ".." / "outside.json", linked):
+                with self.subTest(path=path):
+                    candidate = dict(common)
+                    candidate["runtime_paths"] = {"runtime": path}
+                    with self.assertRaises(ValueError):
+                        UpdateManifest.from_inputs(**candidate)
+
+    def test_validates_immutable_digest_forms_and_requires_registry_digests(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            base = {
+                "env_path": root / ".env",
+                "runtime_paths": {},
+                "image_refs": {"api": "registry.example/api:stable"},
+                "repo_digests": {"api": "registry.example/api@sha256:" + "b" * 64},
+                "local_image_ids": {},
+                "profiles": [],
+                "gpu_mode": False,
+                "compose_files": [root / "docker-compose.yml"],
+            }
+            manifest = UpdateManifest.from_inputs(**base)
+            self.assertEqual("sha256:" + "b" * 64, manifest.repo_digests["api"])
+
+            for invalid in (
+                "registry.example/api:latest",
+                "md5:" + "c" * 64,
+                "sha256:" + "d" * 63,
+                "registry.example/api@sha256:" + "e" * 64 + "extra",
+            ):
+                with self.subTest(invalid=invalid):
+                    candidate = dict(base)
+                    candidate["repo_digests"] = {"api": invalid}
+                    with self.assertRaises(ValueError):
+                        UpdateManifest.from_inputs(**candidate)
+
+            missing = dict(base)
+            missing["repo_digests"] = {}
+            missing_manifest = UpdateManifest.from_inputs(**missing)
+            with self.assertRaises(ValueError):
+                render_rollback_override(missing_manifest, "run-7", set())
+
+    def test_compose_accepts_rollback_override_and_removes_build(self):
+        if shutil.which("docker") is None:
+            self.skipTest("Docker is not installed")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            base = root / "docker-compose.yml"
+            base.write_text(
+                "services:\n"
+                "  api:\n"
+                "    build:\n"
+                "      context: .\n"
+                "    image: registry.example/api:stable\n",
+                encoding="utf-8",
+            )
+            manifest = UpdateManifest.from_inputs(
+                root / ".env",
+                {},
+                {"api": "registry.example/api:stable"},
+                {"api": "registry.example/api@sha256:" + "f" * 64},
+                {},
+                [],
+                False,
+                [base],
+            )
+            override = root / "rollback.yml"
+            override.write_text(
+                render_rollback_override(manifest, "run-7", set()), encoding="utf-8"
+            )
+            completed = subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(base),
+                    "-f",
+                    str(override),
+                    "config",
+                    "--no-interpolate",
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertIn("image: registry.example/api@sha256:" + "f" * 64, completed.stdout)
+            self.assertNotIn("build:", completed.stdout)
+
 
 class UpdateOperationTests(unittest.TestCase):
     def _manifest(self, root):
@@ -78,7 +188,7 @@ class UpdateOperationTests(unittest.TestCase):
             root / ".env",
             {"config": config},
             {"dashboard": "registry.example/dashboard:latest", "api": "registry.example/api:stable"},
-            {"dashboard": "digest-dashboard", "api": "sha256:digest-api"},
+            {"dashboard": "sha256:" + "1" * 64, "api": "sha256:" + "2" * 64},
             {"dashboard": "local-dashboard"},
             ["requests"],
             True,
@@ -90,10 +200,10 @@ class UpdateOperationTests(unittest.TestCase):
             root = Path(temp_dir)
             manifest, _ = self._manifest(root)
             rendered = render_rollback_override(manifest, "run-7", {"dashboard"})
-            self.assertIn("image: registry.example/api@sha256:digest-api", rendered)
+            self.assertIn("image: registry.example/api@sha256:" + "2" * 64, rendered)
             self.assertIn("image: lumen-rollback/dashboard:run-7", rendered)
             self.assertIn("pull_policy: never", rendered)
-            self.assertIn("build: null", rendered)
+            self.assertIn("build: !reset null", rendered)
 
     def test_dry_run_does_not_write_or_invoke_callbacks(self):
         with tempfile.TemporaryDirectory() as temp_dir:

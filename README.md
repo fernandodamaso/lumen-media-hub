@@ -292,7 +292,12 @@ tokens atomically. Its private watched cache keeps only typed movie/show
 identities for 15 minutes; raw history is never persisted. A stale cache keeps
 filtering with a warning, while an unavailable cache fails open with a warning.
 
-The installer intentionally does **not** configure indexers, libraries or third-party API keys inside the individual media applications. Those remain explicit first-run service setup steps.
+The Windows installer intentionally does **not** configure indexers, libraries,
+or third-party API keys inside the individual media applications. Those remain
+explicit first-run service setup steps for the Windows bootstrap. The Linux
+installer has a separate, confirmation-gated `configure` phase that reconciles
+the supported qBittorrent, *arr, Prowlarr/Torznab, Jellyfin-library, and Seerr
+settings; unsupported or conflicting user-owned settings remain guided/manual.
 
 ### Linux installer
 

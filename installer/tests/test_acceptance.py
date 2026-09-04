@@ -154,7 +154,8 @@ class ComposeAcceptanceTests(unittest.TestCase):
             env_file = Path(temporary) / ".env"
             env_file.write_text(
                 (REPOSITORY_ROOT / ".env.example").read_text(encoding="utf-8")
-                + "\nRENDER_GID=65534\nVIDEO_GID=65533\n",
+                + "\nRENDER_GID=65534\nVIDEO_GID=65533\n"
+                + "QBT_PASSWORD=acceptance-qbt-value\n",
                 encoding="utf-8",
             )
             variants = {
@@ -183,6 +184,8 @@ class ComposeAcceptanceTests(unittest.TestCase):
 
         self.assertEqual(set(variants["core"]["services"]), self.expected_core)
         self.assertEqual(set(variants["all"]["services"]), self.expected_all)
+        homepage_environment = variants["core"]["services"]["homepage-actions"]["environment"]
+        self.assertEqual(homepage_environment["QBT_PASSWORD"], "acceptance-qbt-value")
 
         dev_dashboard = variants["dev"]["services"]["dashboard"]
         self.assertEqual(dev_dashboard["image"], "node:22-alpine")

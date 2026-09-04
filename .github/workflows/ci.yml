@@ -153,6 +153,14 @@ jobs:
           docker compose --env-file .env.example -f docker-compose.yml config --quiet
           docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml config --quiet
 
+  windows-installer-contract:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Windows installer contracts
+        shell: pwsh
+        run: ./installer/tests/windows-installer-contract.ps1
+
   verify:
     runs-on: ubuntu-latest
     defaults:

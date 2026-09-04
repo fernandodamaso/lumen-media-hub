@@ -1,0 +1,49 @@
+name: PR 59 remediation
+
+on:
+  push:
+    branches:
+      - feat/linux-installer
+    paths:
+      - .github/workflows/pr59-fix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/linux-installer
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Apply reviewed fixes
+        run: python .github/scripts/pr59_fix.py
+      - name: Compile installer
+        run: python -m compileall -q installer/lumen_installer installer/tests
+      - name: Run installer suite
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=installer python -m unittest discover -s installer/tests -v
+      - name: Run installer acceptance
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=installer python -m unittest discover -s installer/tests -p 'test_acceptance.py' -v
+      - name: Validate shell and diff
+        run: |
+          bash -n install.sh
+          git diff --check
+      - name: Validate Compose matrices
+        run: |
+          docker compose --env-file .env.example -f docker-compose.yml config --quiet
+          docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+          docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.gpu.yml config --quiet
+          RENDER_GID=100 VIDEO_GID=101 docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.vaapi.yml config --quiet
+      - name: Commit and push remediation
+        run: |
+          git config user.name "chatgpt-pr59-remediation"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(installer): resolve PR 59 review findings"
+          git push origin HEAD:feat/linux-installer

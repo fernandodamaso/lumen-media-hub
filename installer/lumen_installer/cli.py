@@ -208,7 +208,7 @@ def _configure(args: argparse.Namespace) -> int:
 
 def _connect_trakt(args: argparse.Namespace) -> int:
     result = run_connect_trakt(
-        Path.cwd(),
+        Path(__file__).resolve().parents[2],
         dry_run=bool(getattr(args, "dry_run", False)),
     )
     print(json.dumps(_redact_report(result.report), sort_keys=True))

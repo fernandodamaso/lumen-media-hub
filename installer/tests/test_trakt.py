@@ -338,6 +338,26 @@ class TraktCliWiringTests(unittest.TestCase):
         connect.assert_called_once()
         self.assertIn('"status": "dry-run"', output.getvalue())
 
+    def test_connect_trakt_dry_run_from_unrelated_cwd_uses_checkout_root_without_secrets_or_network(self):
+        fake_result = type(
+            "TraktResult",
+            (),
+            {"report": {"status": "dry-run"}, "exit_code": int(ExitCode.OK)},
+        )()
+        original_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as other_cwd:
+            try:
+                os.chdir(other_cwd)
+                with mock.patch.object(cli, "run_connect_trakt", return_value=fake_result) as connect:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        result = cli.main(["connect-trakt", "--dry-run"])
+            finally:
+                os.chdir(original_cwd)
+
+        self.assertEqual(result, int(ExitCode.OK))
+        self.assertEqual(connect.call_args.args[0], WORKTREE_ROOT)
+        self.assertTrue(connect.call_args.kwargs["dry_run"])
+
 
 if __name__ == "__main__":
     unittest.main()

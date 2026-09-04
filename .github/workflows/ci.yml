@@ -9,19 +9,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: install.ps1 defines Assert-Docker
-        run: grep -q 'function Assert-Docker' install.ps1
-      - name: installer derives required pulls from enabled Compose services
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Check Linux installer shell syntax
+        run: bash -n install.sh
+      - name: Run ShellCheck on Linux installer
         run: |
-          grep -Fq 'config --format json' install.ps1
-          grep -Fq "notcontains 'build'" install.ps1
-          ! grep -Fq -- '--ignore-pull-failures' install.ps1
-      - name: pre-commit cds into dashboard-app before quality
-        run: |
-          grep -q 'cd "$(git rev-parse --show-toplevel)/dashboard-app"' dashboard-app/githooks/pre-commit
-          grep -q 'npm run quality' dashboard-app/githooks/pre-commit
-      - name: compose wires QBT_PASSWORD from env
-        run: grep -q 'QBT_PASSWORD=\${QBT_PASSWORD' docker-compose.yml
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            echo "::error::ShellCheck is required on the CI runner but was not found" >&2
+            exit 1
+          fi
+          shellcheck --severity=warning install.sh
+      - name: Compile Linux installer Python
+        run: python -m compileall -q installer/lumen_installer installer/tests
+      - name: Run Linux installer unit and acceptance tests
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=installer python -m unittest discover -s installer/tests -v
+      - name: Run command parity and Compose matrix acceptance
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=installer python -m unittest discover -s installer/tests -p 'test_acceptance.py' -v
       - name: Validate production Compose dashboard build
         run: |
           docker compose --env-file .env.example -f docker-compose.yml config --quiet
@@ -82,10 +87,79 @@ jobs:
           print("development dashboard ok:", dashboard["image"], ports, mounts)
           '
 
+      - name: Assert explicit network exposure contract
+        run: |
+          python3 - <<'PY'
+          import json
+          import subprocess
+
+          base = ["docker", "compose", "--env-file", ".env.example"]
+          all_profiles = [
+              "--profile", "subtitles", "--profile", "requests",
+              "--profile", "maintenance", "--profile", "indexer-tools",
+              "--profile", "ai",
+          ]
+          variants = {
+              "core": ["-f", "docker-compose.yml"],
+              "all": all_profiles + ["-f", "docker-compose.yml"],
+              "dev": ["-f", "docker-compose.yml", "-f", "docker-compose.dev.yml"],
+              "gpu": ["-f", "docker-compose.yml", "-f", "docker-compose.gpu.yml"],
+              "dev-gpu": all_profiles + [
+                  "-f", "docker-compose.yml", "-f", "docker-compose.dev.yml",
+                  "-f", "docker-compose.gpu.yml",
+              ],
+          }
+          management = {
+              "qbittorrent", "radarr", "sonarr", "prowlarr", "flaresolverr",
+              "bazarr", "jellyseerr", "maintainerr", "dashboard",
+          }
+          deep_link_keys = (
+              "JELLYFIN_EXTERNAL_URL", "SONARR_EXTERNAL_URL", "RADARR_EXTERNAL_URL",
+              "PROWLARR_EXTERNAL_URL", "BAZARR_EXTERNAL_URL", "QBITTORRENT_EXTERNAL_URL",
+          )
+
+          for name, compose_args in variants.items():
+              command = base + compose_args + ["config", "--quiet"]
+              quiet = subprocess.run(command, capture_output=True, text=True)
+              assert quiet.returncode == 0, (name, quiet.stdout, quiet.stderr)
+              rendered = subprocess.run(
+                  base + compose_args + ["config", "--format", "json"],
+                  capture_output=True,
+                  text=True,
+              )
+              assert rendered.returncode == 0, (name, rendered.stdout, rendered.stderr)
+              services = json.loads(rendered.stdout)["services"]
+              assert services["jellyfin"]["ports"][0]["host_ip"] == "127.0.0.1"
+              assert services["homepage-actions"]["ports"][0]["host_ip"] == "127.0.0.1"
+              assert all("host_ip" not in port for port in services["qbittorrent"]["ports"][1:])
+              for service_name in management:
+                  if service_name in services:
+                      assert services[service_name]["ports"][0]["host_ip"] == "127.0.0.1", (name, service_name)
+              environment = services["homepage-actions"]["environment"]
+              assert all(environment[key].startswith("http://127.0.0.1:") for key in deep_link_keys)
+              if name in {"dev", "dev-gpu"}:
+                  dashboard_port = services["dashboard"]["ports"][0]
+                  assert str(dashboard_port["target"]) == "4200", (name, dashboard_port)
+              else:
+                  assert str(services["dashboard"]["ports"][0]["target"]) == "80", name
+              if name in {"gpu", "dev-gpu"}:
+                  device = services["jellyfin"]["deploy"]["resources"]["reservations"]["devices"][0]
+                  assert device["driver"] == "nvidia", (name, device)
+              print(name, "network exposure ok")
+          PY
+
       - name: Compose configurations parse
         run: |
           docker compose --env-file .env.example -f docker-compose.yml config --quiet
           docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+
+  windows-installer-contract:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Windows installer contracts
+        shell: pwsh
+        run: ./installer/tests/windows-installer-contract.ps1
 
   verify:
     runs-on: ubuntu-latest

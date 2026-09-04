@@ -1,7 +1,12 @@
-# Optional GPU transcoding for Jellyfin (requires NVIDIA + nvidia-container-toolkit).
+# Optional NVIDIA GPU passthrough for Jellyfin (requires NVIDIA +
+# nvidia-container-toolkit).  This overlay only exposes the device; Jellyfin
+# encoding preferences are reconciled by the service configuration phase.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
 services:
   jellyfin:
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
     deploy:
       resources:
         reservations:

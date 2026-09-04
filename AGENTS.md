@@ -25,6 +25,36 @@ Non-interactive: set `ROOT_PATH`, `DOWNLOADS_PATH`, and `STACK_PASSWORD` in the 
 
 After `stack`, copy each service API key into `.env` (installer prints URLs), then rerun Compose with the same optional profile flags you selected. The installer does not configure indexers, libraries, or *arr first-run wizards.
 
+## Linux installer
+
+From the repository root, Linux setup uses the tracked Bash launcher and does
+not require host Node.js for stack setup:
+
+```bash
+./install.sh setup
+./install.sh doctor --dry-run
+./install.sh up --profile requests --gpu-mode none
+./install.sh update --dry-run
+```
+
+The Linux command surface is `setup`, `doctor`, `up`, `down`, `frontend-dev`,
+`redeploy-dashboard`, `configure`, `connect-trakt`, and `update` (including
+`update --rollback RUN_ID`). Docker Engine and Compose 2.24.4+ must already
+work, or the host-specific dependency plan must be reviewed before any
+administrator action. When sudo is genuinely required, use graphical
+authorization; the installer never silently changes Docker groups, installs
+rootless Docker, edits firewall rules, or replaces conflicting packages.
+
+Fresh Linux setup is loopback-only for Jellyfin and management UIs, with
+`homepage-actions:8085` fixed to loopback and qBittorrent peer TCP/UDP ports
+left externally reachable. Existing `.env` files without
+`JELLYFIN_BIND_ADDRESS` are legacy LAN exposure and require an explicit
+interactive preserve/migrate decision; noninteractive setup stops before
+Compose mutation. See [`dashboard-app/docs/linux-installation.md`](dashboard-app/docs/linux-installation.md)
+for headless variables, PUID/PGID/TZ, storage safety, qBittorrent credential
+adoption, Seerr backups/ownership, optional profiles, GPU checks, and update
+rollback recovery.
+
 ## Compose profiles
 
 Plain `docker compose up -d` starts core services only. Optional services are explicitly grouped:

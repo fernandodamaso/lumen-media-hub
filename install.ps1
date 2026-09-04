@@ -121,7 +121,14 @@ function Get-EnvMap([string[]]$Lines) {
 
 function Unquote-DotEnvValue([string]$Value) {
   if ($Value -match '^"(.*)"$') { return $Matches[1].Replace('\"', '"').Replace('\\', '\') }
+  if ($Value -match "^'(.*)'$") { return $Matches[1].Replace("''", "'") }
   return $Value
+}
+
+function Test-NonEmptyEnvValue([hashtable]$Map, [string]$Name) {
+  if (-not $Map.ContainsKey($Name)) { return $false }
+  $value = Unquote-DotEnvValue ([string]$Map[$Name])
+  return -not [string]::IsNullOrWhiteSpace($value)
 }
 
 function Merge-MissingEnvKeys {
@@ -140,9 +147,60 @@ function Merge-MissingEnvKeys {
     $changed = $true
   }
 
+  # Older .env files predate the explicit Jellyfin binding.  Jellyfin was
+  # published on all interfaces, while management UIs were already
+  # loopback-only.  Preserve each prior exposure while making the variables
+  # explicit before any Compose operation consumes the environment.
+  $networkMigrationKeys = [System.Collections.Generic.List[string]]::new()
+  $legacyJellyfinBind = $false
+  $jellyfinBindConfigured = Test-NonEmptyEnvValue $map 'JELLYFIN_BIND_ADDRESS'
+  $effectiveJellyfinBind = '0.0.0.0'
+  if ($jellyfinBindConfigured) {
+    $effectiveJellyfinBind = (Unquote-DotEnvValue ([string]$map['JELLYFIN_BIND_ADDRESS'])).Trim()
+  } else {
+    $lines.Add('JELLYFIN_BIND_ADDRESS=0.0.0.0')
+    [void]$networkMigrationKeys.Add('JELLYFIN_BIND_ADDRESS')
+    $legacyJellyfinBind = $true
+    $changed = $true
+  }
+  $managementBindConfigured = Test-NonEmptyEnvValue $map 'MANAGEMENT_BIND_ADDRESS'
+  $effectiveManagementBind = '127.0.0.1'
+  if ($managementBindConfigured) {
+    $effectiveManagementBind = (Unquote-DotEnvValue ([string]$map['MANAGEMENT_BIND_ADDRESS'])).Trim()
+  } else {
+    $lines.Add('MANAGEMENT_BIND_ADDRESS=127.0.0.1')
+    [void]$networkMigrationKeys.Add('MANAGEMENT_BIND_ADDRESS')
+    $changed = $true
+  }
+  if (-not (Test-NonEmptyEnvValue $map 'PUBLIC_HOST')) {
+    # Do not guess a LAN address for deep links; the explicit public host can
+    # be set later after adoption.  This value is non-secret and keeps the
+    # legacy localhost links deterministic until then.
+    $lines.Add('PUBLIC_HOST=127.0.0.1')
+    [void]$networkMigrationKeys.Add('PUBLIC_HOST')
+    $changed = $true
+  }
+  if (-not (Test-NonEmptyEnvValue $map 'JELLYFIN_REMOTE_ACCESS')) {
+    $remoteAccess = if ($effectiveJellyfinBind -match '^(127\.|::1$)') { 'false' } else { 'true' }
+    $lines.Add("JELLYFIN_REMOTE_ACCESS=$remoteAccess")
+    [void]$networkMigrationKeys.Add('JELLYFIN_REMOTE_ACCESS')
+    $changed = $true
+  }
+
+  if ($networkMigrationKeys.Count -gt 0) {
+    $migratedKeys = $networkMigrationKeys -join ', '
+    if ($legacyJellyfinBind) {
+      Write-Warning "Adopted .env has missing or blank network settings ($migratedKeys). Preserving legacy Jellyfin LAN exposure; management UIs retain their existing bind $effectiveManagementBind. Review these values before sharing services."
+      Write-Host 'Network migration decision: legacy Jellyfin all-interface exposure was preserved; existing management exposure was retained. Edit .env and choose local-only Jellyfin access if desired.' -ForegroundColor Yellow
+    } else {
+      Write-Warning "Adopted .env has missing or blank network settings ($migratedKeys). Management UIs retain their existing bind $effectiveManagementBind. Review these values before sharing services."
+      Write-Host 'Network migration decision: missing network settings were made explicit without overwriting nonempty values.' -ForegroundColor Yellow
+    }
+  }
+
   if ($changed) {
     Set-Content -Path $EnvFile -Value $lines -Encoding utf8
-    Write-Host 'Added missing keys to .env (DOWNLOADS_PATH and/or QBT_PASSWORD).'
+    Write-Host 'Added missing compatibility/network keys to .env.'
   }
 }
 
@@ -201,6 +259,7 @@ function Invoke-RedeployDashboard {
 function Invoke-Stack {
   Assert-Docker
   Initialize-EnvFile
+  Clear-StaleComposeContainers
 
   $envContent = Get-Content $EnvFile -Raw
   if ($envContent -match '(?m)^DOWNLOADS_PATH=(?:"([^"]*)"|([^\r\n]+))') {
@@ -215,9 +274,9 @@ function Invoke-Stack {
 
   Write-Step 'Building the dashboard and starting the stack'
   if ($Gpu) {
-    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d --build --remove-orphans
+    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d --build
   } else {
-    docker compose --env-file $EnvFile -f $ComposeFile up -d --build --remove-orphans
+    docker compose --env-file $EnvFile -f $ComposeFile up -d --build
   }
   Assert-ExitCode 'docker compose up --build'
 
@@ -274,6 +333,8 @@ function Clear-StaleComposeContainers {
   if (-not $raw) { return }
   $ids = $raw -split "`n" | Where-Object { $_.Trim() }
   foreach ($id in $ids) {
+    $id = $id.Trim()
+    if ($id -notmatch '^[0-9a-fA-F]{12,64}$') { continue }
     $name = (docker inspect $id --format '{{.Name}}').TrimStart('/')
     if ($knownNames -notcontains $name) { continue }
     $wd = docker inspect $id --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'
@@ -296,7 +357,7 @@ function Invoke-StackUp {
   if ($Gpu) { $composeArgs += '-f', $ComposeGpuFile }
   if ($Dev) { $composeArgs += '-f', (Join-Path $RepoRoot 'docker-compose.dev.yml') }
   foreach ($p in $Profile) { $composeArgs += '--profile', $p }
-  $composeArgs += 'up', '-d', '--remove-orphans'
+  $composeArgs += 'up', '-d'
   docker compose @composeArgs
   Assert-ExitCode 'docker compose up'
 }

@@ -6,7 +6,7 @@ services:
     networks:
       - media-net
     ports:
-      - "${JELLYFIN_PORT}:8096"
+      - "${JELLYFIN_BIND_ADDRESS:?JELLYFIN_BIND_ADDRESS must be set}:${JELLYFIN_PORT}:8096"
     environment:
       - TZ=${TZ}
       - PUID=${PUID}
@@ -28,7 +28,7 @@ services:
     networks:
       - media-net
     ports:
-      - "127.0.0.1:${QBITTORRENT_WEBUI_PORT}:${QBITTORRENT_WEBUI_PORT}"
+      - "${MANAGEMENT_BIND_ADDRESS:-127.0.0.1}:${QBITTORRENT_WEBUI_PORT}:${QBITTORRENT_WEBUI_PORT}"
       - "${QBITTORRENT_PEER_PORT}:${QBITTORRENT_PEER_PORT}/tcp"
       - "${QBITTORRENT_PEER_PORT}:${QBITTORRENT_PEER_PORT}/udp"
     environment:
@@ -40,6 +40,7 @@ services:
       - TORRENTING_PORT=${QBITTORRENT_PEER_PORT}
     volumes:
       - ${ROOT_PATH}:/data
+      - ${DOWNLOADS_PATH}:/downloads
       - ./config/qbittorrent:/config
     logging:
       driver: json-file
@@ -54,7 +55,7 @@ services:
     networks:
       - media-net
     ports:
-      - "127.0.0.1:${RADARR_PORT}:7878"
+      - "${MANAGEMENT_BIND_ADDRESS:-127.0.0.1}:${RADARR_PORT}:7878"
     environment:
       - TZ=${TZ}
       - PUID=${PUID}
@@ -77,7 +78,7 @@ services:
     networks:
       - media-net
     ports:
-      - "127.0.0.1:${SONARR_PORT}:8989"
+      - "${MANAGEMENT_BIND_ADDRESS:-127.0.0.1}:${SONARR_PORT}:8989"
     environment:
       - TZ=${TZ}
       - PUID=${PUID}
@@ -100,7 +101,7 @@ services:
     networks:
       - media-net
     ports:
-      - "127.0.0.1:${PROWLARR_PORT}:9696"
+      - "${MANAGEMENT_BIND_ADDRESS:-127.0.0.1}:${PROWLARR_PORT}:9696"
     environment:
       - TZ=${TZ}
       - PUID=${PUID}
@@ -123,7 +124,7 @@ services:
     networks:
       - media-net
     ports:
-      - "127.0.0.1:${FLARESOLVERR_PORT}:8191"
+      - "${MANAGEMENT_BIND_ADDRESS:-127.0.0.1}:${FLARESOLVERR_PORT}:8191"
     environment:
       - TZ=${TZ}
       - LOG_LEVEL=${FLARESOLVERR_LOG_LEVEL:-info}
@@ -143,7 +144,7 @@ services:
     networks:
       - media-net
     ports:
-      - "127.0.0.1:${BAZARR_PORT}:6767"
+      - "${MANAGEMENT_BIND_ADDRESS:-127.0.0.1}:${BAZARR_PORT}:6767"
     environment:
       - TZ=${TZ}
       - PUID=${PUID}
@@ -159,15 +160,16 @@ services:
         max-file: "3"
 
   jellyseerr:
-    image: fallenbagel/jellyseerr:latest
+    image: ghcr.io/seerr-team/seerr:latest
     container_name: jellyseerr
+    init: true
     profiles:
       - requests
     restart: unless-stopped
     networks:
       - media-net
     ports:
-      - "127.0.0.1:${JELLYSEERR_PORT:-5055}:5055"
+      - "${MANAGEMENT_BIND_ADDRESS:-127.0.0.1}:${JELLYSEERR_PORT:-5055}:5055"
     environment:
       - TZ=${TZ}
       - LOG_LEVEL=info
@@ -223,7 +225,7 @@ services:
     networks:
       - media-net
     ports:
-      - "127.0.0.1:${MAINTAINERR_PORT:-6246}:6246"
+      - "${MANAGEMENT_BIND_ADDRESS:-127.0.0.1}:${MAINTAINERR_PORT:-6246}:6246"
     environment:
       - TZ=${TZ}
     volumes:
@@ -248,19 +250,19 @@ services:
       - QBT_USERNAME=admin
       - QBT_PASSWORD=${QBT_PASSWORD:?QBT_PASSWORD must be set}
       - JELLYFIN_URL=http://jellyfin:8096
-      - JELLYFIN_EXTERNAL_URL=http://localhost:${JELLYFIN_PORT}
+      - JELLYFIN_EXTERNAL_URL=http://${PUBLIC_HOST:-127.0.0.1}:${JELLYFIN_PORT}
       - JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
       - SONARR_URL=http://sonarr:8989
-      - SONARR_EXTERNAL_URL=http://localhost:${SONARR_PORT}
+      - SONARR_EXTERNAL_URL=http://127.0.0.1:${SONARR_PORT}
       - SONARR_API_KEY=${SONARR_API_KEY}
       - RADARR_URL=http://radarr:7878
-      - RADARR_EXTERNAL_URL=http://localhost:${RADARR_PORT}
+      - RADARR_EXTERNAL_URL=http://127.0.0.1:${RADARR_PORT}
       - RADARR_API_KEY=${RADARR_API_KEY}
       - PROWLARR_URL=http://prowlarr:9696
-      - PROWLARR_EXTERNAL_URL=http://localhost:${PROWLARR_PORT}
+      - PROWLARR_EXTERNAL_URL=http://127.0.0.1:${PROWLARR_PORT}
       - PROWLARR_API_KEY=${PROWLARR_API_KEY}
       - BAZARR_URL=http://bazarr:6767
-      - BAZARR_EXTERNAL_URL=http://localhost:${BAZARR_PORT}
+      - BAZARR_EXTERNAL_URL=http://127.0.0.1:${BAZARR_PORT}
       - BAZARR_ENABLED=${BAZARR_ENABLED:-false}
       - BAZARR_API_KEY=${BAZARR_API_KEY}
       - QBITTORRENT_EXTERNAL_URL=http://127.0.0.1:${QBITTORRENT_WEBUI_PORT}
@@ -278,7 +280,7 @@ services:
       - AI_PICKS_LEASE_SECONDS=${AI_PICKS_LEASE_SECONDS:-300}
       - AI_PICKS_SCHEDULE_HOUR=${AI_PICKS_SCHEDULE_HOUR:-10}
       - AI_PICKS_COLLECTION_NAME=${AI_PICKS_COLLECTION_NAME:-AI Picks}
-      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:4200,http://127.0.0.1:4200
+      - CORS_ORIGINS=http://${PUBLIC_HOST:-127.0.0.1}:${DASHBOARD_PORT:-3000},http://localhost:3000,http://127.0.0.1:3000,http://localhost:4200,http://127.0.0.1:4200
       - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
       - PORT=8085
       - DATA_PATH=/data
@@ -347,7 +349,7 @@ services:
     networks:
       - media-net
     ports:
-      - "127.0.0.1:${DASHBOARD_PORT:-3000}:80"
+      - "${MANAGEMENT_BIND_ADDRESS:-127.0.0.1}:${DASHBOARD_PORT:-3000}:80"
     environment:
       - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
     depends_on:

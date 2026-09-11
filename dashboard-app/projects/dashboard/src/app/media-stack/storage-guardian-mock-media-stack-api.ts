@@ -19,7 +19,7 @@ export class StorageGuardianMockMediaStackApi extends MockMediaStackApi {
     this.storageGuardianScenario = scenario;
   }
 
-  override async previewStorageCleanup(
+  async previewStorageCleanup(
     policy: CleanupPreviewRequest,
     signal?: AbortSignal,
   ): Promise<CleanupPreview> {

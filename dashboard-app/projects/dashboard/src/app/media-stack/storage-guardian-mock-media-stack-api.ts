@@ -43,7 +43,7 @@ function buildDemoPreview(policy: CleanupPreviewRequest, scenario: Exclude<Stora
     return policy.rules.largeWatchedFiles.enabled;
   });
   const candidates = scenario === 'insufficient' ? source.slice(0, 3) : source;
-  const freeBytes = scenario === 'target-met' ? 260 * GIB : scenario === 'insufficient' ? 100 * GIB : 118 * GIB;
+  const freeBytes = scenarioFreeBytes(scenario);
   const totalBytes = 4_000 * GIB;
   const requiredReclaimBytes = Math.max(0, policy.targetFreeBytes - freeBytes);
   let recommendedBytes = 0;
@@ -97,6 +97,12 @@ function buildDemoPreview(policy: CleanupPreviewRequest, scenario: Exclude<Stora
     unresolved,
     warnings,
   };
+}
+
+function scenarioFreeBytes(scenario: Exclude<StorageGuardianScenario, 'error'>): number {
+  if (scenario === 'target-met') return 260 * GIB;
+  if (scenario === 'insufficient') return 100 * GIB;
+  return 118 * GIB;
 }
 
 function demoCandidates(generatedAt: string): CleanupCandidate[] {
@@ -155,7 +161,11 @@ async function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<
   if (signal.aborted) throw abortError();
   return Promise.race([
     promise,
-    new Promise<T>((_, reject) => signal.addEventListener('abort', () => reject(abortError()), { once: true })),
+    new Promise<T>((_, reject) => {
+      signal.addEventListener('abort', () => {
+        reject(abortError());
+      }, { once: true });
+    }),
   ]);
 }
 

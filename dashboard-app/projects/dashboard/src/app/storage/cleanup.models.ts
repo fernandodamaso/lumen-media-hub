@@ -1,10 +1,10 @@
-export const CLEANUP_SCHEMA_VERSION = 1 as const;
+const CLEANUP_SCHEMA_VERSION = 1 as const;
 export const CLEANUP_POLICY_STORAGE_KEY = 'lumen.storageGuardian.policy.v1';
 export const CLEANUP_PINS_STORAGE_KEY = 'lumen.storageGuardian.pins.v1';
 export const GIB = 1024 ** 3;
 
-export type CleanupMediaKind = 'movie' | 'episode';
-export type CleanupPreviewStatus = 'complete' | 'degraded';
+type CleanupMediaKind = 'movie' | 'episode';
+type CleanupPreviewStatus = 'complete' | 'degraded';
 export type CleanupRuleCode =
   | 'watched_movie_expired'
   | 'watched_episode_expired'
@@ -53,7 +53,7 @@ export interface CleanupCandidate {
   reasons: CleanupReason[];
 }
 
-export interface CleanupBlockSummary {
+interface CleanupBlockSummary {
   code: CleanupBlockCode;
   count: number;
   bytes: number;

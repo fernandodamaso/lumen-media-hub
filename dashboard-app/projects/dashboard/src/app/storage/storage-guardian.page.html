@@ -46,7 +46,7 @@
       <h2>Cleanup rules</h2>
       <p>Configure which watched media appears in the cleanup simulation.</p>
       <h3>Rules</h3>
-      <mm-switch [checked]="facade.policy().rules.watchedMovies.enabled" (checkedChange)="facade.setMoviesEnabled($event)">Movies watched 30+ days ago</mm-switch>
+      <mm-switch [checked]="facade.policy().rules.watchedMovies.enabled" (checkedChange)="facade.setMoviesEnabled($event)">Movies watched {{ facade.policy().rules.watchedMovies.retentionDays }}+ days ago</mm-switch>
       <mm-switch [checked]="facade.policy().rules.watchedEpisodes.enabled" (checkedChange)="facade.setEpisodesEnabled($event)">Keep recent episodes</mm-switch>
       <mm-switch [checked]="facade.policy().rules.largeWatchedFiles.enabled" (checkedChange)="facade.setLargeFilesEnabled($event)">Review large watched files</mm-switch>
       <h3>Retention</h3>
@@ -60,13 +60,15 @@
       <h3>Always kept</h3>
       <mm-status tone="success">In-progress titles</mm-status>
       <p>Favorites, never-watched items, recent additions, manually kept titles, season-zero specials, and uncertain metadata stay outside the suggested plan.</p>
+      <p>Keep choices are stored in this browser only. Run the preview again after keeping an item to exclude it from the next recommendation.</p>
     </aside>
 
     <aside class="policy-card policy-card--mobile" aria-label="Rules summary">
       <h2>Rules summary</h2>
       <p>{{ rulesSummary() }}</p>
-      <mm-switch [checked]="facade.policy().rules.watchedMovies.enabled" (checkedChange)="facade.setMoviesEnabled($event)">Movies watched 30+ days ago</mm-switch>
+      <mm-switch [checked]="facade.policy().rules.watchedMovies.enabled" (checkedChange)="facade.setMoviesEnabled($event)">Movies watched {{ facade.policy().rules.watchedMovies.retentionDays }}+ days ago</mm-switch>
       <mm-switch [checked]="facade.policy().rules.watchedEpisodes.enabled" (checkedChange)="facade.setEpisodesEnabled($event)">Keep recent episodes</mm-switch>
+      <p>Keep choices are browser-local; rerun to apply them to the simulation.</p>
     </aside>
 
     <section class="preview-card" aria-labelledby="preview-results-title">

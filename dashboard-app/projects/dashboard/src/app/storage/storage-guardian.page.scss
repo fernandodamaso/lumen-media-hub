@@ -20,7 +20,7 @@ p { color: var(--mm-semantic-text-secondary); font: 400 var(--mm-text-md)/21px v
 .storage-stat--premiere { --stat-color: var(--mm-component-premiere); --stat-bg: color-mix(in srgb, var(--mm-component-premiere) 12%, transparent); --stat-border: color-mix(in srgb, var(--mm-component-premiere) 30%, transparent); }
 .storage-stat--success { --stat-color: var(--mm-component-success); --stat-bg: color-mix(in srgb, var(--mm-component-success) 10%, transparent); --stat-border: color-mix(in srgb, var(--mm-component-success) 28%, transparent); }
 .storage-workspace { display: grid; grid-template-columns: minmax(300px, 403px) minmax(0, 1fr); gap: 20px; align-items: start; }
-.policy-card, .preview-card { display: flex; flex-direction: column; gap: var(--mm-space-md, 16px); padding: var(--mm-space-lg, 24px); border: 1px solid var(--mm-semantic-border-default); border-radius: var(--mm-radius-lg); background: var(--mm-semantic-surface-card); box-shadow: 0 10px 34px rgba(0,0,0,.5); }
+.policy-card, .preview-card { display: flex; flex-direction: column; gap: var(--mm-space-md, 16px); padding: var(--mm-space-lg, 24px); border: 1px solid var(--mm-semantic-border-default); border-radius: var(--mm-radius-lg); background: var(--mm-semantic-surface-card); box-shadow: 0 10px 34px rgb(0 0 0 / 50%); }
 .policy-card > p { max-width: 320px; }
 .policy-card h3 { margin-top: 4px; }
 .policy-card mm-input { width: 100%; }

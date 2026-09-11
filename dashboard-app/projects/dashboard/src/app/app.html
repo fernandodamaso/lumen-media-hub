@@ -31,7 +31,7 @@
 
     <div class="sidebar__footer">
       @if (libraryVolume(); as volume) {
-        <div class="mini-card" data-testid="storage-mini-card">
+        <a class="mini-card" routerLink="/storage" aria-label="Open Storage Guardian" data-testid="storage-mini-card">
           <div class="mini-card__label"><span>Storage</span><b>{{ storagePercent() }}% used</b></div>
           <div class="mini-card__big">
             {{ storageUsedLabel() }} <span>of {{ storageTotalLabel() }}</span>
@@ -42,7 +42,7 @@
             [showLabel]="false"
             [label]="'Storage ' + storagePercent() + '% used'"
           />
-        </div>
+        </a>
       }
     </div>
   </nav>

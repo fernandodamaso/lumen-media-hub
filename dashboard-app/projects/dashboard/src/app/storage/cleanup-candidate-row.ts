@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 
 import { MmButton } from '../ui/button';
@@ -7,7 +8,7 @@ import { formatCandidateMeta, formatCandidateReason, formatCleanupBytes, formatC
 
 @Component({
   selector: 'app-cleanup-candidate-row',
-  imports: [MmButton, MmStatus],
+  imports: [DatePipe, MmButton, MmStatus],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './cleanup-candidate-row.html',
   styleUrl: './cleanup-candidate-row.scss',

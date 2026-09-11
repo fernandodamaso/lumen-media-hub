@@ -78,7 +78,7 @@
         <mm-status [tone]="stateTone()" [dot]="facade.preview() === null" [announce]="true">{{ stateLabel() }}</mm-status>
       </div>
 
-      @if (facade.preview()) {
+      @if (facade.preview(); as preview) {
         <div class="preview-card__desktop-filter">
           <mm-segmented-control
             [options]="desktopFilters"
@@ -93,9 +93,9 @@
         </div>
 
         @if (filter() === 'review') {
-          @if (facade.preview()!.unresolved.length) {
+          @if (preview.unresolved.length) {
             <div class="unresolved-list" data-testid="cleanup-unresolved-list">
-              @for (item of facade.preview()!.unresolved; track item.id) {
+              @for (item of preview.unresolved; track item.id) {
                 <article class="unresolved-item">
                   <strong>{{ item.title }}</strong>
                   <span>{{ item.mediaKind }} · {{ item.reason }}</span>
@@ -109,15 +109,15 @@
         } @else if (candidates().length) {
           <div class="candidate-list" data-testid="cleanup-candidate-list">
             @for (candidate of candidates(); track candidate.id) {
-              <app-cleanup-candidate-row
+              <mm-cleanup-candidate-row
                 [candidate]="candidate"
-                [generatedAt]="facade.preview()!.generatedAt"
+                [generatedAt]="preview.generatedAt"
                 [pinned]="facade.isPinned(candidate.id)"
                 (keep)="facade.keepCandidate($event)"
               />
             }
           </div>
-        } @else if (filter() === 'suggested' && facade.preview()!.storage.requiredReclaimBytes === 0) {
+        } @else if (filter() === 'suggested' && preview.storage.requiredReclaimBytes === 0) {
           <p class="preview-empty">The free-space target is already met. No files are recommended; All matches remains available for inspection.</p>
         } @else {
           <p class="preview-empty">No files match this view. The simulation has not changed any media.</p>

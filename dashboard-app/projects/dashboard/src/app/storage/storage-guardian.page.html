@@ -1,0 +1,132 @@
+<section class="storage-guardian" aria-labelledby="storage-guardian-title">
+  <header class="storage-guardian__header">
+    <div class="storage-guardian__intro">
+      <mm-status tone="gold" [dot]="true">Simulation only</mm-status>
+      <h1 id="storage-guardian-title">Storage Guardian</h1>
+      <p>Review exactly what Lumen would remove, why each file qualifies, and how much storage the simulated plan would recover.</p>
+    </div>
+    <mm-button
+      data-testid="run-cleanup-preview"
+      label="Run preview"
+      variant="gold"
+      [busy]="facade.isLoading()"
+      [disabled]="facade.isLoading()"
+      (click)="facade.runPreview()"
+    />
+  </header>
+
+  @if (facade.error()) {
+    <div class="storage-guardian__notice storage-guardian__notice--error" role="alert">{{ facade.error() }}</div>
+  }
+  @if (facade.warning()) {
+    <div class="storage-guardian__notice" role="status">{{ facade.warning() }}</div>
+  }
+
+  <div class="storage-summary" aria-label="Cleanup preview storage summary">
+    <article class="storage-stat storage-stat--accent">
+      <span class="storage-stat__icon"><svg lucideHardDrive [size]="16" aria-hidden="true"></svg></span>
+      <div><span>Free now</span><strong>{{ metricValue('free') }}</strong><small>{{ metricSupport('free') }}</small></div>
+    </article>
+    <article class="storage-stat storage-stat--premiere">
+      <span class="storage-stat__icon"><svg lucideBookmark [size]="16" aria-hidden="true"></svg></span>
+      <div><span>Target free</span><strong>{{ metricValue('target') }}</strong><small>{{ metricSupport('target') }}</small></div>
+    </article>
+    <article class="storage-stat storage-stat--success">
+      <span class="storage-stat__icon"><svg lucideDownload [size]="16" aria-hidden="true"></svg></span>
+      <div><span>Recommended</span><strong>{{ metricValue('recommended') }}</strong><small>{{ metricSupport('recommended') }}</small></div>
+    </article>
+    <article class="storage-stat storage-stat--success">
+      <span class="storage-stat__icon"><svg lucideActivity [size]="16" aria-hidden="true"></svg></span>
+      <div><span>Projected</span><strong>{{ metricValue('projected') }}</strong><small>{{ metricSupport('projected') }}</small></div>
+    </article>
+  </div>
+
+  <div class="storage-workspace">
+    <aside class="policy-card policy-card--desktop" aria-label="Cleanup rules">
+      <h2>Cleanup rules</h2>
+      <p>Configure which watched media appears in the cleanup simulation.</p>
+      <h3>Rules</h3>
+      <mm-switch [checked]="facade.policy().rules.watchedMovies.enabled" (checkedChange)="facade.setMoviesEnabled($event)">Movies watched 30+ days ago</mm-switch>
+      <mm-switch [checked]="facade.policy().rules.watchedEpisodes.enabled" (checkedChange)="facade.setEpisodesEnabled($event)">Keep recent episodes</mm-switch>
+      <mm-switch [checked]="facade.policy().rules.largeWatchedFiles.enabled" (checkedChange)="facade.setLargeFilesEnabled($event)">Review large watched files</mm-switch>
+      <h3>Retention</h3>
+      <mm-input label="Movie window" [value]="facade.policy().rules.watchedMovies.retentionDays + ' days'" (valueChange)="facade.setMovieRetention($event)" />
+      <mm-input label="Episode window" [value]="facade.policy().rules.watchedEpisodes.retentionDays + ' days'" (valueChange)="facade.setEpisodeRetention($event)" />
+      <mm-input label="Keep newest" [value]="facade.policy().rules.watchedEpisodes.keepLatestPerSeries + ' episodes'" (valueChange)="facade.setKeepLatest($event)" />
+      <mm-input label="Storage target" [value]="targetGib() + ' GB'" (valueChange)="facade.setTargetFreeGib($event)" />
+      <mm-input label="Large-file threshold" [value]="minimumGib() + ' GB'" (valueChange)="facade.setLargeMinimumGib($event)" />
+      <mm-input label="Large-file idle" [value]="facade.policy().rules.largeWatchedFiles.idleDays + ' days'" (valueChange)="facade.setLargeIdleDays($event)" />
+      <mm-input label="Recent-addition grace" [value]="facade.policy().protections.recentAdditionGraceDays + ' days'" (valueChange)="facade.setRecentGraceDays($event)" />
+      <h3>Always kept</h3>
+      <mm-status tone="success">In-progress titles</mm-status>
+      <p>Favorites, never-watched items, recent additions, manually kept titles, season-zero specials, and uncertain metadata stay outside the suggested plan.</p>
+    </aside>
+
+    <aside class="policy-card policy-card--mobile" aria-label="Rules summary">
+      <h2>Rules summary</h2>
+      <p>{{ rulesSummary() }}</p>
+      <mm-switch [checked]="facade.policy().rules.watchedMovies.enabled" (checkedChange)="facade.setMoviesEnabled($event)">Movies watched 30+ days ago</mm-switch>
+      <mm-switch [checked]="facade.policy().rules.watchedEpisodes.enabled" (checkedChange)="facade.setEpisodesEnabled($event)">Keep recent episodes</mm-switch>
+    </aside>
+
+    <section class="preview-card" aria-labelledby="preview-results-title">
+      <div class="preview-card__header">
+        <div>
+          <h2 id="preview-results-title">Preview results</h2>
+          <p>{{ resultsSummary() }}</p>
+        </div>
+        <mm-status [tone]="stateTone()" [dot]="facade.preview() === null" [announce]="true">{{ stateLabel() }}</mm-status>
+      </div>
+
+      @if (facade.preview()) {
+        <div class="preview-card__desktop-filter">
+          <mm-segmented-control
+            [options]="desktopFilters"
+            [value]="filter()"
+            (valueChange)="setFilter($event)"
+            label="Cleanup preview result filter"
+            size="sm"
+          />
+        </div>
+        <div class="preview-card__mobile-filter">
+          <mm-tabs [tabs]="mobileTabs" [active]="filter() === 'all' ? 'all' : 'suggested'" (activeChange)="setFilter($event)"></mm-tabs>
+        </div>
+
+        @if (filter() === 'review') {
+          @if (facade.preview()!.unresolved.length) {
+            <div class="unresolved-list" data-testid="cleanup-unresolved-list">
+              @for (item of facade.preview()!.unresolved; track item.id) {
+                <article class="unresolved-item">
+                  <strong>{{ item.title }}</strong>
+                  <span>{{ item.mediaKind }} · {{ item.reason }}</span>
+                  <small>Excluded from every recommendation because its inventory evidence is uncertain.</small>
+                </article>
+              }
+            </div>
+          } @else {
+            <p class="preview-empty">No uncertain files were reported.</p>
+          }
+        } @else if (candidates().length) {
+          <div class="candidate-list" data-testid="cleanup-candidate-list">
+            @for (candidate of candidates(); track candidate.id) {
+              <app-cleanup-candidate-row
+                [candidate]="candidate"
+                [generatedAt]="facade.preview()!.generatedAt"
+                [pinned]="facade.isPinned(candidate.id)"
+                (keep)="facade.keepCandidate($event)"
+              />
+            }
+          </div>
+        } @else if (filter() === 'suggested' && facade.preview()!.storage.requiredReclaimBytes === 0) {
+          <p class="preview-empty">The free-space target is already met. No files are recommended; All matches remains available for inspection.</p>
+        } @else {
+          <p class="preview-empty">No files match this view. The simulation has not changed any media.</p>
+        }
+      } @else if (facade.isLoading()) {
+        <p class="preview-empty" role="status">Scanning the read-only Jellyfin inventory and evaluating the policy…</p>
+      } @else {
+        <p class="preview-empty">Run the preview when you want Lumen to evaluate the current inventory. Nothing runs automatically.</p>
+      }
+    </section>
+  </div>
+</section>

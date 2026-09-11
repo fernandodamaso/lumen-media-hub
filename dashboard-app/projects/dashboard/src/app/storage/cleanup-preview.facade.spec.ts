@@ -11,7 +11,7 @@ describe('CleanupPreviewFacade', () => {
   beforeEach(() => {
     localStorage.clear();
     calls = [];
-    responder = async (request) => demoPreview(request);
+    responder = (request) => Promise.resolve(demoPreview(request));
     TestBed.configureTestingModule({
       providers: [
         CleanupPreviewFacade,
@@ -31,11 +31,11 @@ describe('CleanupPreviewFacade', () => {
   it('stays idle until Run preview is explicit', async () => {
     const facade = TestBed.inject(CleanupPreviewFacade);
     expect(facade.phase()).toBe('idle');
-    expect(calls).toHaveSize(0);
+    expect(calls.length).toBe(0);
 
     await facade.runPreview();
 
-    expect(calls).toHaveSize(1);
+    expect(calls.length).toBe(1);
     expect(facade.phase()).toBe('ready');
     expect(facade.preview()?.summary.eligibleFiles).toBe(1);
   });
@@ -45,12 +45,12 @@ describe('CleanupPreviewFacade', () => {
     await facade.runPreview();
     facade.setMovieRetention('45 days');
     expect(facade.phase()).toBe('stale');
-    expect(calls).toHaveSize(1);
+    expect(calls.length).toBe(1);
 
     facade.keepCandidate('sg_111111111111111111111111');
     expect(facade.phase()).toBe('stale');
-    expect(calls).toHaveSize(1);
-    expect(JSON.parse(localStorage.getItem('lumen.storageGuardian.pins.v1') ?? '{}').ids).toContain('sg_111111111111111111111111');
+    expect(calls.length).toBe(1);
+    expect(localStorage.getItem('lumen.storageGuardian.pins.v1')).toContain('sg_111111111111111111111111');
   });
 
   it('preserves the last successful preview when refresh fails', async () => {
@@ -58,7 +58,7 @@ describe('CleanupPreviewFacade', () => {
     await facade.runPreview();
     const first = facade.preview();
     facade.setMovieRetention('60');
-    responder = async () => { throw new Error('temporary fixture error'); };
+    responder = () => Promise.reject(new Error('temporary fixture error'));
 
     await facade.runPreview();
 

@@ -13,7 +13,7 @@ export class StorageGuardianHttpMediaStackApi extends LiveCalendarHttpMediaStack
   private readonly cleanupHttp = inject(HttpClient);
   private readonly cleanupBase = environment.apiBaseUrl.replace(/\/$/, '');
 
-  override async previewStorageCleanup(
+  async previewStorageCleanup(
     policy: CleanupPreviewRequest,
     signal?: AbortSignal,
   ): Promise<CleanupPreview> {

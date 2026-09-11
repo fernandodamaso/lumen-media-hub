@@ -7,7 +7,7 @@ import { CleanupCandidate } from './cleanup.models';
 import { formatCandidateMeta, formatCandidateReason, formatCleanupBytes, formatCleanupReason } from './cleanup-format';
 
 @Component({
-  selector: 'app-cleanup-candidate-row',
+  selector: 'mm-cleanup-candidate-row',
   imports: [DatePipe, MmButton, MmStatus],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './cleanup-candidate-row.html',

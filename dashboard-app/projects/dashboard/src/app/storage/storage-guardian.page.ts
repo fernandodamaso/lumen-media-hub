@@ -15,7 +15,7 @@ import { CleanupPreviewFacade } from './cleanup-preview.facade';
 export type CleanupFilter = 'suggested' | 'all' | 'kept' | 'review';
 
 @Component({
-  selector: 'app-storage-guardian-page',
+  selector: 'mm-storage-guardian-page',
   imports: [
     CleanupCandidateRow,
     LucideActivity,

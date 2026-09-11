@@ -31,11 +31,11 @@ describe('CleanupPreviewFacade', () => {
   it('stays idle until Run preview is explicit', async () => {
     const facade = TestBed.inject(CleanupPreviewFacade);
     expect(facade.phase()).toBe('idle');
-    expect(calls.length).toBe(0);
+    expect(calls).toHaveLength(0);
 
     await facade.runPreview();
 
-    expect(calls.length).toBe(1);
+    expect(calls).toHaveLength(1);
     expect(facade.phase()).toBe('ready');
     expect(facade.preview()?.summary.eligibleFiles).toBe(1);
   });
@@ -60,7 +60,7 @@ describe('CleanupPreviewFacade', () => {
     const second = facade.runPreview();
     await Promise.all([first, second]);
 
-    expect(calls.length).toBe(2);
+    expect(calls).toHaveLength(2);
     expect(signals[0]?.aborted).toBe(true);
     expect(facade.phase()).toBe('ready');
     expect(facade.preview()?.summary.eligibleFiles).toBe(1);
@@ -71,11 +71,11 @@ describe('CleanupPreviewFacade', () => {
     await facade.runPreview();
     facade.setMovieRetention('45 days');
     expect(facade.phase()).toBe('stale');
-    expect(calls.length).toBe(1);
+    expect(calls).toHaveLength(1);
 
     facade.keepCandidate('sg_111111111111111111111111');
     expect(facade.phase()).toBe('stale');
-    expect(calls.length).toBe(1);
+    expect(calls).toHaveLength(1);
     expect(localStorage.getItem('lumen.storageGuardian.pins.v1')).toContain('sg_111111111111111111111111');
   });
 

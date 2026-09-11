@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config
 from http_support import _reject_mutating, _reject_post, _valid_library_item_id, send_json, send_options
-from routes import activity, arr, automation, discover, jellyfin, library, qbittorrent, queue_hygiene, reports, resources, service_links
+from routes import activity, arr, automation, discover, jellyfin, library, qbittorrent, queue_hygiene, reports, resources, service_links, storage
 
 
 class ActionsHandler(BaseHTTPRequestHandler):
@@ -149,6 +149,8 @@ class ActionsHandler(BaseHTTPRequestHandler):
             queue_hygiene.handle_queue_hygiene_run(self)
         elif path == "/automation/queue-hygiene/reset":
             queue_hygiene.handle_queue_hygiene_reset(self)
+        elif path == "/storage/cleanup-preview":
+            storage.handle_cleanup_preview(self)
         else:
             send_json(self, 404, {"ok": False, "error": "Unknown endpoint"})
 

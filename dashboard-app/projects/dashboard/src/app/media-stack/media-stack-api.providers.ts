@@ -12,22 +12,25 @@ import { environment } from '../../environments/environment';
 import { CALENDAR_LINK_BASES, CalendarLinkBases } from '../calendar/calendar.models';
 import { JELLYFIN_LINK_BASES, JellyfinLinkBases } from '../library/library.models';
 import { MEDIA_STACK_API } from './media-stack-api';
-import { LiveCalendarHttpMediaStackApi } from './live-calendar-http-media-stack-api';
-import { MockMediaStackApi, DownloadsScenario } from './mock-media-stack-api';
-
+import { DownloadsScenario } from './mock-media-stack-api';
+import {
+  StorageGuardianMockMediaStackApi,
+  StorageGuardianScenario,
+} from './storage-guardian-mock-media-stack-api';
+import { StorageGuardianHttpMediaStackApi } from './storage-guardian-http-media-stack-api';
 
 /** Bind MediaStackApi to mock (default) or HTTP adapter when live env is selected. */
 export function provideMediaStackApi(): Provider[] {
   if (environment.useLiveApi) {
     return [
-      { provide: MEDIA_STACK_API, useClass: LiveCalendarHttpMediaStackApi },
+      { provide: MEDIA_STACK_API, useClass: StorageGuardianHttpMediaStackApi },
     ];
   }
   return [
     {
       provide: MEDIA_STACK_API,
       useFactory: () => {
-        const mock = new MockMediaStackApi();
+        const mock = new StorageGuardianMockMediaStackApi();
         const params = new URLSearchParams(globalThis.location.search);
         const scenario = params.get('scenario');
         if (scenario?.startsWith('downloads-')) {
@@ -35,6 +38,13 @@ export function provideMediaStackApi(): Provider[] {
           switch (name) {
             case 'default': case 'empty': case 'error': case 'paused': case 'mixed':
               mock.setDownloadsScenario(name);
+          }
+        }
+        if (scenario?.startsWith('storage-')) {
+          const name = scenario.slice('storage-'.length) as StorageGuardianScenario;
+          switch (name) {
+            case 'ready': case 'target-met': case 'insufficient': case 'degraded': case 'error':
+              mock.setStorageGuardianScenario(name);
           }
         }
         const latency = params.get('latency');

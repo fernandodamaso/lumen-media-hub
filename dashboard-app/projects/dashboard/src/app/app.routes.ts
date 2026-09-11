@@ -21,5 +21,11 @@ export const routes: Routes = [
       import('./discover/discover-page').then((m) => m.DiscoverPage),
     title: 'Discover | Media Manager',
   },
+  {
+    path: 'storage',
+    loadComponent: () =>
+      import('./storage/storage-guardian.page').then((m) => m.StorageGuardianPage),
+    title: 'Storage Guardian | Media Manager',
+  },
   { path: '**', redirectTo: '' },
 ];

@@ -17,7 +17,14 @@ Open [http://localhost:4200/](http://localhost:4200/). Default startup uses in-p
 | `/library` | Library poster grid with movie/series filtering |
 | `/reports` | Status-weighted automation / cron triage |
 | `/discover` | AI Picks, Jellyseerr, and Trakt recommendations |
+| `/storage` | Storage Guardian read-only cleanup simulator; reached from the existing storage mini-card |
 | Storybook | Design-system showcase - `npm run storybook` -> [http://localhost:6006/](http://localhost:6006/) |
+
+### Storage Guardian
+
+Storage Guardian v1 is simulation-only. It scans a normalized Jellyfin-first physical-file inventory only after **Run preview**, applies hard protections before deterministic cleanup rules, and reports eligible/recommended bytes without exposing filesystem paths or any destructive action. Policy settings and browser-local candidate pins use versioned local storage; changing either marks the current preview stale rather than running automatically.
+
+Demo scenarios are available with `?scenario=storage-ready`, `storage-target-met`, `storage-insufficient`, `storage-degraded`, and `storage-error`. See [docs/storage-guardian.md](docs/storage-guardian.md) for the contract, safety boundary, persistence model, and verification coverage.
 
 ## Stack and Live development
 

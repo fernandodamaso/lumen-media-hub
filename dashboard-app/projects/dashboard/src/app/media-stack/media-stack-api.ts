@@ -25,6 +25,7 @@ import { RecentlyAvailableResult } from '../library/recently-available.models';
 import { ActivityFeed } from '../activity/activity.models';
 import { AutomationSummary, QueueHygieneRunResult } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
+import { CleanupPreview, CleanupPreviewRequest } from '../storage/cleanup.models';
 import { StorageOverview } from '../storage/storage.models';
 
 export interface MediaStackApi {
@@ -45,6 +46,8 @@ export interface MediaStackApi {
   getActivity(limit?: number, signal?: AbortSignal): Promise<ActivityFeed>;
   getLibraryStats(signal?: AbortSignal): Promise<LibraryStats>;
   getStorageOverview(signal?: AbortSignal): Promise<StorageOverview>;
+  /** App providers implement this; optional keeps narrow legacy test doubles source-compatible. */
+  previewStorageCleanup?(policy: CleanupPreviewRequest, signal?: AbortSignal): Promise<CleanupPreview>;
   getAutomationSummary(signal?: AbortSignal): Promise<AutomationSummary>;
   runQueueHygiene(mode: 'observe' | 'auto'): Promise<QueueHygieneRunResult>;
   listCronLogs(signal?: AbortSignal): Promise<CronLogs>;

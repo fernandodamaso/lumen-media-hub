@@ -40,6 +40,32 @@ describe('CleanupPreviewFacade', () => {
     expect(facade.preview()?.summary.eligibleFiles).toBe(1);
   });
 
+  it('aborts an older preview when a newer run starts', async () => {
+    const facade = TestBed.inject(CleanupPreviewFacade);
+    const signals: AbortSignal[] = [];
+    responder = (request, signal) => {
+      if (signal) signals.push(signal);
+      if (signals.length === 1) {
+        return new Promise<CleanupPreview>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => {
+            reject(new DOMException('aborted', 'AbortError'));
+          }, { once: true });
+        });
+      }
+      return Promise.resolve(demoPreview(request));
+    };
+
+    const first = facade.runPreview();
+    await Promise.resolve();
+    const second = facade.runPreview();
+    await Promise.all([first, second]);
+
+    expect(calls.length).toBe(2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(facade.phase()).toBe('ready');
+    expect(facade.preview()?.summary.eligibleFiles).toBe(1);
+  });
+
   it('marks the last result stale after policy or pin changes without auto-running', async () => {
     const facade = TestBed.inject(CleanupPreviewFacade);
     await facade.runPreview();

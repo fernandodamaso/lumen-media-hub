@@ -9,7 +9,7 @@ Single Angular app (`dashboard`) owning the shell, feature boards, design system
 | `app/` shell | Bootstrap, routes, layout, navigation, shell-owned polling, environment providers |
 | `app/ui` | Design tokens (single Lumen palette), primitives, Storybook stories |
 | `app/media-stack` | `MediaStackApi` port, mock/HTTP adapters, providers, wire DTOs + mappers |
-| Feature folders | Domain/display models, facades, and pages for `dashboard`, `library`, `downloads`, `reports`, `discover`, `calendar`, `automation`, and `activity` |
+| Feature folders | Domain/display models, facades, and pages for `dashboard`, `library`, `downloads`, `reports`, `discover`, `calendar`, `automation`, `activity`, and `storage` |
 | Shell presentation | `topbar` and `right-rail` own the persistent presentation outside routed page content |
 
 ## Frontend organization
@@ -34,6 +34,7 @@ projects/dashboard/src/app/
   calendar/       flat feature folder
   automation/     flat feature folder
   discover/       flat feature folder
+  storage/        capacity state + page-scoped Storage Guardian preview
   ui/             shared design-system boundary
   media-stack/    transport/API boundary
 ```
@@ -111,6 +112,40 @@ private card selectors.
 Demo and Live share one `MediaStackApi.listRecentlyAvailable` contract; Demo fixtures
 use relative ages (30m, 4h, 30h, 3d, 8d) at call time.
 
+## Storage Guardian
+
+Storage Guardian is a lazy `/storage` feature reached from the existing sidebar
+storage mini-card. It is deliberately separate from the app-scoped `StorageFacade`:
+capacity polling remains lightweight and unchanged, while `CleanupPreviewFacade`
+is page-scoped, starts idle, never polls, and calls the cleanup API only after an
+explicit **Run preview** action.
+
+```text
+Jellyfin physical-file inventory + /system/resources capacity
+  → homepage-actions POST /storage/cleanup-preview
+  → MediaStackApi.previewStorageCleanup
+  → strict Live/Demo adapter
+  → CleanupPreviewFacade
+  → /storage → app/ui primitives
+```
+
+The backend groups local Jellyfin records into physical files before policy
+evaluation, keeps raw paths internal, and fails closed for ambiguous or malformed
+inventory. Remote/virtual/placeholder/`.strm` media is excluded. Hard protections
+(always including never-watched, in-progress, favorites, browser-pinned candidates,
+recent additions, season-zero rolling-episode exclusions, and uncertain metadata)
+override every enabled rule. Recommendation ordering is deterministic: oldest
+last-played time, largest size, then stable candidate ID, stopping once the target
+free space is restored.
+
+Only browser-safe policy settings and stable candidate IDs are persisted under
+`lumen.storageGuardian.policy.v1` and `lumen.storageGuardian.pins.v1`. Changes mark
+the current simulation stale instead of triggering a request. An overlapping run
+aborts the older request; a failed refresh preserves the last successful preview
+with an announced warning. There is no Storage Guardian deletion/removal endpoint,
+scheduler, automatic execution path, or destructive control in v1. Full contract
+and verification notes live in [storage-guardian.md](storage-guardian.md).
+
 ## Data flow
 
 ### Production (Docker)
@@ -155,6 +190,7 @@ Library, automation, and service-health facades stay as separate stores. Do not 
 | `LibraryStatsFacade` | `app.config` singleton | Stat strip and dashboard refresh | Facade ctor initial `refresh` | None | Request-id bump |
 | `DownloadsFacade` | `app.config` singleton | Downloads section, stat strip, dashboard refresh, command palette actions | `DashboardPage` `startPolling` | DashboardPage (10s) | `DashboardPage` destroy → `stopPolling` |
 | `StorageFacade` | `app.config` singleton | App shell storage card, stat strip, dashboard refresh | `App` `startPolling` | App (60s) | Runs for app lifetime |
+| `CleanupPreviewFacade` | `/storage` page `providers` | Storage Guardian | Explicit Run preview | None | Page destroy / newer run → abort in-flight request |
 | `CalendarFacade` | `app.config` singleton | Right-rail upcoming releases, dashboard refresh | `App` `startPolling` | App (60s) | Runs for app lifetime |
 | `ActivityFacade` | `app.config` singleton | Right-rail recent activity | `App` `startPolling` | App (60s) | Runs for app lifetime |
 | `AutomationFacade` | `app.config` singleton | Dashboard refresh and synced state | `App` `startPolling` | App (60s) | Runs for app lifetime |
@@ -191,6 +227,7 @@ npm run test:smoke
 |---|---|---|
 | `/api/service-links` | GET | Browser deep-link bases from `*_EXTERNAL_URL` (Compose host ports) |
 | `/api/system/resources` | GET | Storage volume from `disk.path`, `disk.used`, `disk.total` |
+| `/api/storage/cleanup-preview` | POST | Read-only Jellyfin physical-file cleanup simulation (token required) |
 | `/api/qbt/torrents` | GET | Active torrents |
 | `/api/qbt/torrents/stop` | POST `{ "id" }` | Per-torrent pause (token required) |
 | `/api/qbt/torrents/start` | POST `{ "id" }` | Per-torrent resume (token required) |
@@ -292,6 +329,7 @@ Storage uses `/system/resources` (not `/storage/overview`) and labels the volume
 | `/library` | Library poster grid and movie/series filter |
 | `/reports` | Cron log triage |
 | `/discover` | AI Picks / Jellyseerr / Trakt |
+| `/storage` | Storage Guardian read-only cleanup preview |
 | `/dashboard` | Redirects to `/` |
 
 Design-system showcase is Storybook (`npm run storybook`), not an in-app `/ui` route.

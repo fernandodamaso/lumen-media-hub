@@ -46,8 +46,7 @@ export class CleanupPreviewFacade {
   }
 
   async runPreview(): Promise<void> {
-    const method = this.api.previewStorageCleanup;
-    if (!method) {
+    if (this.api.previewStorageCleanup === undefined) {
       this.failRequest(new Error('Cleanup preview is unavailable in this environment'));
       return;
     }
@@ -62,7 +61,7 @@ export class CleanupPreviewFacade {
     this.warningState.set('');
 
     try {
-      const preview = await method.call(this.api, request, controller.signal);
+      const preview = await this.api.previewStorageCleanup(request, controller.signal);
       if (controller.signal.aborted || serial !== this.requestSerial) return;
       this.previewState.set(preview);
       this.successfulFingerprint = fingerprint;
@@ -149,7 +148,9 @@ export class CleanupPreviewFacade {
   ): void {
     const parsed = parseInteger(value, minimum, maximum);
     if (parsed === null) return;
-    this.updatePolicy((policy) => mutate(policy, parsed));
+    this.updatePolicy((policy) => {
+      mutate(policy, parsed);
+    });
   }
 
   private updatePolicy(mutate: (policy: CleanupPolicySettings) => void): void {
@@ -187,7 +188,7 @@ export class CleanupPreviewFacade {
       },
       protections: {
         recentAdditionGraceDays: policy.protections.recentAdditionGraceDays,
-        pinnedCandidateIds: [...this.pinState()].sort(),
+        pinnedCandidateIds: [...this.pinState()].sort((left, right) => left.localeCompare(right)),
       },
     };
   }
@@ -207,8 +208,10 @@ export class CleanupPreviewFacade {
 }
 
 function parseInteger(value: string, minimum: number, maximum: number): number | null {
-  const normalized = value.trim().replace(/\s*(days?|episodes?|gib|gb)$/i, '');
-  if (!/^\d+$/.test(normalized)) return null;
+  let normalized = value.trim();
+  const firstSpace = normalized.indexOf(' ');
+  if (firstSpace >= 0) normalized = normalized.slice(0, firstSpace);
+  if (!normalized || [...normalized].some((character) => character < '0' || character > '9')) return null;
   const parsed = Number(normalized);
   return Number.isSafeInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : null;
 }
@@ -219,8 +222,9 @@ function loadPolicy(): CleanupPolicySettings {
   if (!stored) return fallback;
   try {
     const value = stored as Record<string, unknown>;
-    if (value['schemaVersion'] !== 1 || !isRecord(value['rules']) || !isRecord(value['protections'])) throw new Error();
     const rules = value['rules'];
+    const protections = value['protections'];
+    if (value['schemaVersion'] !== 1 || !isRecord(rules) || !isRecord(protections)) throw new Error();
     const movies = rules['watchedMovies'];
     const episodes = rules['watchedEpisodes'];
     const large = rules['largeWatchedFiles'];
@@ -244,7 +248,9 @@ function loadPolicy(): CleanupPolicySettings {
           idleDays: integer(large['idleDays'], 0, 3650),
         },
       },
-      protections: { recentAdditionGraceDays: integer(value['protections'] && (value['protections'] as Record<string, unknown>)['recentAdditionGraceDays'], 0, 3650) },
+      protections: {
+        recentAdditionGraceDays: integer(protections['recentAdditionGraceDays'], 0, 3650),
+      },
     };
     return policy;
   } catch {
@@ -262,16 +268,16 @@ function loadPins(): string[] {
     if (value['schemaVersion'] !== 1 || !Array.isArray(ids) || ids.length > 5000) throw new Error();
     const normalized = ids.filter((id): id is string => typeof id === 'string' && /^sg_[0-9a-f]{24}$/.test(id));
     if (normalized.length !== ids.length) throw new Error();
-    return [...new Set(normalized)].sort();
+    return [...new Set(normalized)].sort((left, right) => left.localeCompare(right));
   } catch {
     removeStorage(CLEANUP_PINS_STORAGE_KEY);
     return [];
   }
 }
 
-function readStorage(key: string): unknown | null {
+function readStorage(key: string): unknown {
   try {
-    const raw = globalThis.localStorage?.getItem(key);
+    const raw = globalThis.localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -279,11 +285,11 @@ function readStorage(key: string): unknown | null {
 }
 
 function writeStorage(key: string, value: unknown): void {
-  try { globalThis.localStorage?.setItem(key, JSON.stringify(value)); } catch { /* Browser storage is best-effort. */ }
+  try { globalThis.localStorage.setItem(key, JSON.stringify(value)); } catch { /* Browser storage is best-effort. */ }
 }
 
 function removeStorage(key: string): void {
-  try { globalThis.localStorage?.removeItem(key); } catch { /* Browser storage is best-effort. */ }
+  try { globalThis.localStorage.removeItem(key); } catch { /* Browser storage is best-effort. */ }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

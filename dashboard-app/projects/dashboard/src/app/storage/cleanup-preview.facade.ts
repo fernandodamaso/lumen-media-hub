@@ -211,9 +211,17 @@ function parseInteger(value: string, minimum: number, maximum: number): number |
   let normalized = value.trim();
   const firstSpace = normalized.indexOf(' ');
   if (firstSpace >= 0) normalized = normalized.slice(0, firstSpace);
-  if (!normalized || [...normalized].some((character) => character < '0' || character > '9')) return null;
+  if (!normalized || !isAsciiInteger(normalized)) return null;
   const parsed = Number(normalized);
   return Number.isSafeInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : null;
+}
+
+function isAsciiInteger(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 48 || code > 57) return false;
+  }
+  return true;
 }
 
 function loadPolicy(): CleanupPolicySettings {

@@ -1,0 +1,42 @@
+<article class="candidate" data-testid="cleanup-candidate">
+  <div class="candidate__heading">
+    @if (candidate().href; as href) {
+      <a [href]="href" target="_blank" rel="noopener noreferrer">{{ candidate().title }}</a>
+    } @else {
+      <h3>{{ candidate().title }}</h3>
+    }
+    <span class="candidate__size">{{ sizeLabel() }}</span>
+  </div>
+  <p class="candidate__meta">{{ meta() }}</p>
+  <p class="candidate__reason">{{ reason() }}</p>
+  @if (detailsOpen()) {
+    <div class="candidate__evidence" data-testid="cleanup-candidate-evidence">
+      @for (detail of reasonDetail(); track detail) {
+        <p>{{ detail }}</p>
+      }
+      <p>Added {{ candidate().dateAdded | date:'mediumDate' }} · Last played {{ candidate().lastPlayedAt | date:'mediumDate' }}</p>
+    </div>
+  }
+  <footer class="candidate__footer">
+    <mm-status [tone]="pinned() ? 'success' : 'gold'" [dot]="true">
+      {{ pinned() ? 'Kept' : 'Rule match' }}
+    </mm-status>
+    <div class="candidate__actions">
+      <mm-button
+        label="Why this item?"
+        variant="ghost"
+        size="sm"
+        [liftOnHover]="false"
+        (click)="toggleDetails()"
+      />
+      <mm-button
+        [label]="pinned() ? 'Kept' : 'Keep'"
+        variant="quiet"
+        size="sm"
+        [disabled]="pinned()"
+        [liftOnHover]="false"
+        (click)="keepItem()"
+      />
+    </div>
+  </footer>
+</article>

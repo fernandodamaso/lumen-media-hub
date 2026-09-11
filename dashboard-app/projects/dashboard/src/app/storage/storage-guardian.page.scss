@@ -1,0 +1,63 @@
+:host { display: block; }
+.storage-guardian { display: flex; flex-direction: column; gap: 28px; padding-bottom: 60px; }
+.storage-guardian__header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.storage-guardian__intro { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 620px; }
+h1, h2, h3, p { margin: 0; }
+h1 { color: var(--mm-semantic-text-primary); font: 700 32px/40px var(--mm-font-body); letter-spacing: -.005em; }
+h2 { color: var(--mm-semantic-text-primary); font: 600 var(--mm-text-xl)/29px var(--mm-font-body); }
+h3 { color: var(--mm-semantic-text-muted); font: 600 var(--mm-text-sm)/18px var(--mm-font-body); letter-spacing: .04em; text-transform: uppercase; }
+p { color: var(--mm-semantic-text-secondary); font: 400 var(--mm-text-md)/21px var(--mm-font-body); }
+.storage-guardian__notice { padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--mm-component-warning) 28%, transparent); border-radius: var(--mm-radius-md); background: color-mix(in srgb, var(--mm-component-warning) 8%, transparent); color: var(--mm-component-warning); font: 500 13px/19px var(--mm-font-body); }
+.storage-guardian__notice--error { border-color: color-mix(in srgb, var(--mm-component-danger) 35%, transparent); background: color-mix(in srgb, var(--mm-component-danger) 8%, transparent); color: var(--mm-component-danger); }
+.storage-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.storage-stat { display: flex; align-items: center; gap: 14px; min-height: 74px; padding: 15px 18px; overflow: hidden; border: 1px solid var(--mm-component-border); border-radius: 12px; background: var(--mm-component-card-bg); }
+.storage-stat__icon { display: grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; border: 1px solid var(--stat-border); border-radius: 10px; background: var(--stat-bg); color: var(--stat-color); }
+.storage-stat > div { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.storage-stat span:not(.storage-stat__icon) { color: var(--mm-component-text-muted); font: 700 9.5px/1 var(--mm-font-body); letter-spacing: .16em; text-transform: uppercase; }
+.storage-stat strong { overflow: hidden; color: var(--mm-component-text-primary); font: 400 19px/22.8px var(--mm-font-display); text-overflow: ellipsis; white-space: nowrap; }
+.storage-stat small { overflow: hidden; color: var(--mm-component-text-muted); font: 400 11px/13px var(--mm-font-body); text-overflow: ellipsis; white-space: nowrap; }
+.storage-stat--accent { --stat-color: var(--mm-semantic-accent); --stat-bg: color-mix(in srgb, var(--mm-semantic-accent) 14%, transparent); --stat-border: color-mix(in srgb, var(--mm-semantic-accent) 25%, transparent); }
+.storage-stat--premiere { --stat-color: var(--mm-component-premiere); --stat-bg: color-mix(in srgb, var(--mm-component-premiere) 12%, transparent); --stat-border: color-mix(in srgb, var(--mm-component-premiere) 30%, transparent); }
+.storage-stat--success { --stat-color: var(--mm-component-success); --stat-bg: color-mix(in srgb, var(--mm-component-success) 10%, transparent); --stat-border: color-mix(in srgb, var(--mm-component-success) 28%, transparent); }
+.storage-workspace { display: grid; grid-template-columns: minmax(300px, 403px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.policy-card, .preview-card { display: flex; flex-direction: column; gap: var(--mm-space-md, 16px); padding: var(--mm-space-lg, 24px); border: 1px solid var(--mm-semantic-border-default); border-radius: var(--mm-radius-lg); background: var(--mm-semantic-surface-card); box-shadow: 0 10px 34px rgb(0 0 0 / 50%); }
+.policy-card > p { max-width: 320px; }
+.policy-card h3 { margin-top: 4px; }
+.policy-card mm-input { width: 100%; }
+.policy-card--mobile { display: none; }
+.preview-card { min-width: 0; }
+.preview-card__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.preview-card__header > div { display: grid; gap: 4px; }
+.preview-card__desktop-filter { display: block; }
+.preview-card__mobile-filter { display: none; }
+.candidate-list, .unresolved-list { display: flex; flex-direction: column; gap: 12px; }
+.preview-empty { padding: 18px; border: 1px dashed var(--mm-component-border); border-radius: var(--mm-radius-md); background: color-mix(in srgb, var(--mm-component-card-bg) 70%, transparent); }
+.unresolved-item { display: grid; gap: 6px; padding: 16px; border: 1px solid color-mix(in srgb, var(--mm-component-warning) 28%, transparent); border-radius: var(--mm-radius-md); background: color-mix(in srgb, var(--mm-component-warning) 7%, transparent); }
+.unresolved-item strong { color: var(--mm-semantic-text-primary); font: 600 15px/21px var(--mm-font-body); }
+.unresolved-item span, .unresolved-item small { color: var(--mm-semantic-text-secondary); font: 400 12.5px/18px var(--mm-font-body); }
+@media (max-width: 1100px) {
+  .storage-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .storage-workspace { grid-template-columns: 330px minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .storage-guardian { gap: 20px; padding: 0 0 36px; }
+  .storage-guardian__header { align-items: stretch; flex-direction: column; gap: 16px; }
+  .storage-guardian__header mm-button { width: 100%; }
+  .storage-guardian__header mm-button ::ng-deep button { width: 100%; }
+  .storage-summary { gap: 12px 16px; }
+  .storage-stat { gap: 10px; min-height: 74px; padding: 12px; }
+  .storage-stat__icon { flex-basis: 32px; width: 32px; height: 32px; }
+  .storage-workspace { display: flex; flex-direction: column; gap: 20px; }
+  .policy-card--desktop { display: none; }
+  .policy-card--mobile { display: flex; width: 100%; padding: var(--mm-space-md, 16px); gap: 12px; }
+  .preview-card { width: 100%; padding: 0; border: 0; background: transparent; box-shadow: none; }
+  .preview-card__header { display: none; }
+  .preview-card__desktop-filter { display: none; }
+  .preview-card__mobile-filter { display: block; }
+}
+@media (max-width: 430px) {
+  .storage-guardian__intro { gap: 10px; }
+  .storage-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .storage-stat { min-width: 0; }
+  .storage-stat strong { font-size: 17px; }
+}

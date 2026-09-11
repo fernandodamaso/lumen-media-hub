@@ -186,6 +186,17 @@ mm-right-rail {
   border: 1px solid var(--mm-component-border);
   border-radius: var(--mm-radius-md);
   padding: 16px;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color var(--mm-transition-fast), background var(--mm-transition-fast);
+}
+.mini-card:hover {
+  border-color: color-mix(in srgb, var(--mm-component-accent) 26%, var(--mm-component-border));
+  background: color-mix(in srgb, var(--mm-component-card-bg) 94%, var(--mm-component-accent));
+}
+.mini-card:focus-visible {
+  outline: 2px solid var(--mm-component-focus-ring);
+  outline-offset: 2px;
 }
 .mini-card__label {
   display: flex;

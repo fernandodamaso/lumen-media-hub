@@ -90,6 +90,7 @@ function requireStorage(value: unknown): CleanupPreview['storage'] {
   exactKeys(input, [...keys], 'storage');
   const result = Object.fromEntries(keys.map((key) => [key, nonNegativeInteger(input[key], `storage.${key}`)])) as unknown as CleanupPreview['storage'];
   if (result.usedBytes > result.totalBytes || result.freeBytes > result.totalBytes) fail('invalid storage capacity');
+  if (result.usedBytes + result.freeBytes > result.totalBytes + 4096) fail('inconsistent storage capacity');
   return result;
 }
 
@@ -133,18 +134,13 @@ function requireCandidate(value: unknown, index: number): CleanupCandidate {
 function requireReason(value: unknown, candidateIndex: number, reasonIndex: number): CleanupReason {
   const input = record(value, `Malformed candidate ${candidateIndex} reason ${reasonIndex}`);
   exactKeys(input, ['code', 'evidence'], 'cleanup reason');
-  const code = input['code'];
-  if (typeof code !== 'string' || !RULE_CODES.has(code as CleanupRuleCode)) fail('invalid cleanup reason code');
+  const code = requireRuleCode(input['code']);
   const evidence = record(input['evidence'], 'Malformed cleanup reason evidence');
-  const expected = code === 'watched_movie_expired'
-    ? ['retentionDays']
-    : code === 'watched_episode_expired'
-      ? ['retentionDays', 'keepLatestPerSeries']
-      : ['minimumBytes', 'idleDays'];
+  const expected = reasonEvidenceKeys(code);
   exactKeys(evidence, expected, 'cleanup reason evidence');
   const normalized: Record<string, number> = {};
   for (const key of expected) normalized[key] = nonNegativeInteger(evidence[key], `reason evidence ${key}`);
-  return { code: code as CleanupRuleCode, evidence: normalized };
+  return { code, evidence: normalized };
 }
 
 function requireBlock(value: unknown, index: number): CleanupPreview['blocked'][number] {
@@ -174,13 +170,33 @@ function requireUnresolved(value: unknown, index: number): CleanupUnresolvedItem
   };
 }
 
+function requireRuleCode(value: unknown): CleanupRuleCode {
+  if (typeof value !== 'string' || !RULE_CODES.has(value as CleanupRuleCode)) fail('invalid cleanup reason code');
+  return value as CleanupRuleCode;
+}
+
+function reasonEvidenceKeys(code: CleanupRuleCode): string[] {
+  switch (code) {
+    case 'watched_movie_expired': return ['retentionDays'];
+    case 'watched_episode_expired': return ['retentionDays', 'keepLatestPerSeries'];
+    case 'large_watched_file_stale': return ['minimumBytes', 'idleDays'];
+  }
+}
+
 function safeHref(value: unknown, index: number): string {
   const href = text(value, `candidate ${index} href`);
-  let parsed: URL;
-  try { parsed = new URL(href); } catch { fail(`candidate ${index} has invalid href`); }
-  if (parsed!.protocol !== 'http:' && parsed!.protocol !== 'https:') fail(`candidate ${index} has unsafe href`);
-  if (parsed!.username || parsed!.password) fail(`candidate ${index} href contains credentials`);
+  const parsed = parseUrl(href, index);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') fail(`candidate ${index} has unsafe href`);
+  if (parsed.username || parsed.password) fail(`candidate ${index} href contains credentials`);
   return href;
+}
+
+function parseUrl(href: string, index: number): URL {
+  try {
+    return new URL(href);
+  } catch {
+    return fail(`candidate ${index} has invalid href`);
+  }
 }
 
 function record(value: unknown, message: string): Record<string, unknown> {
@@ -194,8 +210,8 @@ function array(value: unknown, field: string): unknown[] {
 }
 
 function exactKeys(value: Record<string, unknown>, keys: string[], field: string): void {
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
+  const actual = Object.keys(value).sort((left, right) => left.localeCompare(right));
+  const expected = [...keys].sort((left, right) => left.localeCompare(right));
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
     fail(`${field} contains unexpected fields`);
   }

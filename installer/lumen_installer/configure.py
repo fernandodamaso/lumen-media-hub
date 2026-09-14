@@ -23,10 +23,11 @@ from pathlib import Path
 from typing import Any
 
 from .commands import CommandRunner
-from .compose import ComposeOptions, run_compose
+from .compose import ComposeOptions, config as compose_config, run_compose, validate_storage_mounts
 from .dotenv import DotEnvDocument, write_atomic
 from .errors import ExitCode, InvalidInputError, PartialError
 from .http import HttpTransport
+from .storage import normalize_storage_mode, validate_storage
 from .services.base import ServiceCheckpoint, ServiceResult
 from .services.jellyfin import JellyfinAdapter
 from .services.optional import OptionalProfileResult, configure_optional_profiles
@@ -551,14 +552,18 @@ def _resolve_configure_options(
     dry_run: bool,
 ) -> ComposeOptions:
     requested = options if options is not None else ComposeOptions()
-    if requested.profiles is not None and requested.gpu is not None:
-        return requested
     state = InstallerState.load(
         root,
         allowed_stages=DEFAULT_STAGES,
         correct_modes=not dry_run,
     )
-    return requested.resolved(saved_profiles=state.profiles, saved_gpu=state.gpu_mode)
+    document = _load_environment_document(root / ".env")
+    storage_mode = normalize_storage_mode(document.get("STORAGE_MODE", "shared"))
+    return requested.resolved(
+        saved_profiles=state.profiles,
+        saved_gpu=state.gpu_mode,
+        saved_storage_mode=storage_mode,
+    )
 
 
 class _JellyfinReconciler:
@@ -651,10 +656,11 @@ class _TorznabReconciler:
 
     def configure(self, *, dry_run: bool = False, confirm: bool = False) -> Any:
         if not self.configured:
-            return _guided(
-                "torznab",
-                "torznab-credentials",
-                "Provide the Generic Torznab URL and API key, then retry configure.",
+            return ServiceResult(
+                service="torznab",
+                status="ok",
+                actions=("skip-generic-torznab",),
+                dry_run=dry_run,
             )
         if self.prowlarr is None:
             return _guided(
@@ -1006,6 +1012,7 @@ def _run_configure_unlocked(
     qbt_log_max_lines: int = DEFAULT_LOG_MAX_LINES,
     prompt: Callable[..., Any] | None = None,
     dry_run: bool = False,
+    quality_profiles: bool = False,
     reconcile: Callable[..., Any] | None = None,
     optional_reconcile: Callable[..., Any] | None = None,
     optional_tests: Mapping[str, Callable[..., Any]] | None = None,
@@ -1025,6 +1032,7 @@ def _run_configure_unlocked(
     sleep: Callable[[float], Any] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
     journal: ConfigureJournal | Any | None = None,
+    storage_validator: Callable[..., Any] = validate_storage,
 ) -> ConfigureResult:
     """Run the ordered configure transaction through injected boundaries."""
 
@@ -1032,12 +1040,18 @@ def _run_configure_unlocked(
         raise InvalidInputError("repository root must be an absolute path")
     if not isinstance(dry_run, bool):
         raise InvalidInputError("dry_run must be a boolean")
+    if not isinstance(quality_profiles, bool):
+        raise InvalidInputError("quality_profiles must be a boolean")
     root = Path(repo_root) if repo_root is not None else Path(__file__).resolve().parents[2]
     if not root.is_absolute():
         raise InvalidInputError("repository root must be an absolute path")
     compose_options = _resolve_configure_options(root, options, dry_run=dry_run)
     active_journal = journal if journal is not None else ConfigureJournal(root)
-    if all(active_journal.is_complete(stage) for stage in CONFIGURE_ORDER) and not compose_options.selected_profiles:
+    if (
+        all(active_journal.is_complete(stage) for stage in CONFIGURE_ORDER)
+        and not compose_options.selected_profiles
+        and not quality_profiles
+    ):
         return ConfigureResult(
             status="dry-run" if dry_run else "ok",
             dry_run=dry_run,
@@ -1066,7 +1080,50 @@ def _run_configure_unlocked(
             working_environment.update(document.values)
     if not isinstance(interactive, bool):
         raise InvalidInputError("interactive must be a boolean")
+    for key in ("ROOT_PATH", "DOWNLOADS_PATH", "STORAGE_MODE", "LIBRARY_MOUNT_UUID"):
+        override = os.environ.get(f"LUMEN_{key}")
+        if override:
+            working_environment[key] = override
+    storage_mode = normalize_storage_mode(
+        compose_options.storage_mode
+        if compose_options.storage_mode is not None
+        else working_environment.get("STORAGE_MODE", "shared")
+    )
+    storage_root = working_environment.get("ROOT_PATH")
+    storage_downloads = working_environment.get("DOWNLOADS_PATH")
+    if storage_mode == "separate" and not (storage_root and storage_downloads):
+        raise InvalidInputError(
+            "separate storage requires both ROOT_PATH and DOWNLOADS_PATH"
+        )
+    if storage_root and storage_downloads:
+        storage_validator(
+            storage_root,
+            storage_downloads,
+            repo_root=root,
+            dry_run=True,
+            shared_mount_required=storage_mode == "shared",
+            storage_mode=storage_mode,
+            expected_mount_uuid=working_environment.get("LIBRARY_MOUNT_UUID"),
+        )
     command_runner = runner if runner is not None else CommandRunner()
+    if storage_mode == "separate":
+        storage_payload = compose_config(
+            command_runner,
+            root,
+            env_path,
+            compose_options,
+            redact=tuple(
+                str(value)
+                for key, value in working_environment.items()
+                if isinstance(value, str) and "PASSWORD" in str(key).upper()
+            ),
+        )
+        validate_storage_mounts(
+            storage_payload,
+            root_path=storage_root,
+            downloads_path=storage_downloads,
+            storage_mode=storage_mode,
+        )
     for key in (
         "QBT_PASSWORD",
         "STACK_PASSWORD",
@@ -1113,6 +1170,7 @@ def _run_configure_unlocked(
                 configure_method,
                 dry_run=dry_run,
                 confirm=confirm,
+                quality_profiles=quality_profiles,
             )
     if env_commit is None:
         def env_commit() -> bool:
@@ -1141,7 +1199,11 @@ def _run_configure_unlocked(
     for service in CORE_ORDER:
         service_complete = active_journal.is_complete(service)
         environment_pending = service in getattr(active_journal, "pending_environment", ())
-        if service_complete and not environment_pending:
+        if (
+            service_complete
+            and not environment_pending
+            and not (quality_profiles and service in {"sonarr", "radarr"})
+        ):
             services[service] = {"service": service, "status": "already-complete"}
             continue
         environment_before = dict(working_environment)

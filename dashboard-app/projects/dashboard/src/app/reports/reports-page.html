@@ -66,6 +66,14 @@
     @if (healthView().noIssuesMessage) {
       <p class="health-empty" role="status">{{ healthView().noIssuesMessage }}</p>
     }
+
+    @if (operationalStatus(); as status) {
+      <div class="health-notice" data-testid="operational-status" role="status">
+        <p><strong>Storage</strong> · Staging {{ statusCapacity('staging') }} · Library {{ statusCapacity('library') }}</p>
+        <p><strong>Safeguards</strong> · Disk guard {{ status.guard.status }} · Verified cleanup {{ status.verifiedCleanup.status }} · Verification {{ status.verification.status }}</p>
+        <p><strong>Trakt</strong> · {{ status.trakt.auth }} · Retention {{ status.retention.status }} · Pause {{ status.pause.reason }}</p>
+      </div>
+    }
   }
 </section>
 

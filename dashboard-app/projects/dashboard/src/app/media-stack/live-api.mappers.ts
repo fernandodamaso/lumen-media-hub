@@ -10,6 +10,7 @@ import {
   MediaStackQueueHygieneEligibleItemDto,
   MediaStackQueueHygieneRunResultDto,
   MediaStackQueueHygieneSummaryDto,
+  MediaStackOperationalStatusDto,
 } from './wire/automation';
 import { MediaStackCalendarEventDto } from './wire/calendar';
 import {
@@ -192,6 +193,7 @@ export interface LiveAutomationSummary {
   prowlarr?: LiveAutomationServiceBlock;
   bazarr?: LiveAutomationServiceBlock;
   generatedAt?: string;
+  status?: unknown;
   error?: string;
 }
 
@@ -852,7 +854,7 @@ function mapPreviewItems(
  * consumed by mapAutomationSummary.
  */
 export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStackAutomationSummaryDto {
-  if (live.ok === false && !live.sonarr && !live.radarr && !live.prowlarr && !live.bazarr) {
+  if (live.ok === false && !live.sonarr && !live.radarr && !live.prowlarr && !live.bazarr && live.status == null) {
     throw new Error(live.error || 'Automation summary unavailable');
   }
 
@@ -863,6 +865,7 @@ export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStac
   const prowlarr = live.prowlarr;
   const bazarr = live.bazarr;
   const queueHygiene = sonarr?.queueHygiene == null ? null : validateQueueHygiene(sonarr.queueHygiene);
+  const operationalStatus = live.status == null ? null : validateOperationalStatus(live.status);
 
   const sonarrDegraded = sonarr?.degraded === true
     || (queueHygiene?.eligibleCount ?? 0) > 0
@@ -930,6 +933,123 @@ export function mapLiveAutomationSummary(live: LiveAutomationSummary): MediaStac
     preview,
     problems: collectAutomationProblems(live),
     queueHygiene,
+    status: operationalStatus,
+  };
+}
+
+function nonNegativeInteger(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new Error(`Malformed automation summary response: invalid ${field}`);
+  }
+  return value;
+}
+
+function nullableCapacity(value: unknown, field: string): number | null {
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`Malformed automation summary response: invalid ${field}`);
+  }
+  return value;
+}
+
+function validateOperationalStatus(value: unknown): MediaStackOperationalStatusDto {
+  if (!isRecord(value)) throw new Error('Malformed automation summary response: invalid status');
+  const storage = value['storage'];
+  const pause = value['pause'];
+  const guard = value['guard'];
+  const cleanup = value['verifiedCleanup'];
+  const verification = value['verification'];
+  const trakt = value['trakt'];
+  const retention = value['retention'];
+  if (!isRecord(storage) || !isRecord(pause) || !isRecord(guard) || !isRecord(cleanup) || !isRecord(verification) || !isRecord(trakt) || !isRecord(retention)) {
+    throw new Error('Malformed automation summary response: incomplete status');
+  }
+  if (typeof value['generatedAt'] !== 'string' || Number.isNaN(Date.parse(value['generatedAt']))) {
+    throw new Error('Malformed automation summary response: invalid status.generatedAt');
+  }
+  const rawDisks = storage['disks'];
+  if (!Array.isArray(rawDisks) || rawDisks.length > 4) {
+    throw new Error('Malformed automation summary response: invalid status.storage.disks');
+  }
+  const disks = rawDisks.map((raw, index) => {
+    if (!isRecord(raw) || typeof raw['id'] !== 'string' || typeof raw['label'] !== 'string' || typeof raw['status'] !== 'string' || typeof raw['identityStatus'] !== 'string') {
+      throw new Error(`Malformed automation summary response: invalid status.storage.disks[${index}]`);
+    }
+    return {
+      id: raw['id'],
+      label: raw['label'],
+      status: raw['status'],
+      identityStatus: raw['identityStatus'],
+      availableBytes: nullableCapacity(raw['availableBytes'], `status.storage.disks[${index}].availableBytes`),
+      freeBytes: nullableCapacity(raw['freeBytes'], `status.storage.disks[${index}].freeBytes`),
+      usedBytes: nullableCapacity(raw['usedBytes'], `status.storage.disks[${index}].usedBytes`),
+      totalBytes: nullableCapacity(raw['totalBytes'], `status.storage.disks[${index}].totalBytes`),
+    };
+  });
+  if (typeof storage['status'] !== 'string' || typeof pause['status'] !== 'string' || typeof pause['reason'] !== 'string' || typeof pause['known'] !== 'boolean' || (pause['manual'] !== null && typeof pause['manual'] !== 'boolean') || (pause['guard'] !== null && typeof pause['guard'] !== 'boolean')) {
+    throw new Error('Malformed automation summary response: invalid status pause/storage');
+  }
+  if (typeof guard['enabled'] !== 'boolean' || typeof guard['status'] !== 'string' || typeof guard['health'] !== 'string' || (guard['lastCycleAt'] !== null && (typeof guard['lastCycleAt'] !== 'string' || Number.isNaN(Date.parse(guard['lastCycleAt']))))) {
+    throw new Error('Malformed automation summary response: invalid status.guard');
+  }
+  if (typeof cleanup['enabled'] !== 'boolean' || typeof cleanup['status'] !== 'string' || !isRecord(cleanup['lastResult']) && cleanup['lastResult'] !== null) {
+    throw new Error('Malformed automation summary response: invalid status.verifiedCleanup');
+  }
+  if (cleanup['lastResult'] !== null && (typeof cleanup['lastResult']['status'] !== 'string' || (cleanup['lastResult']['reason'] !== undefined && cleanup['lastResult']['reason'] !== null && typeof cleanup['lastResult']['reason'] !== 'string'))) {
+    throw new Error('Malformed automation summary response: invalid status.verifiedCleanup.lastResult');
+  }
+  if (typeof verification['status'] !== 'string') throw new Error('Malformed automation summary response: invalid status.verification');
+  if (typeof trakt['configured'] !== 'boolean' || typeof trakt['auth'] !== 'string' || typeof trakt['health'] !== 'string' || (trakt['expiresAt'] !== null && typeof trakt['expiresAt'] !== 'string')) {
+    throw new Error('Malformed automation summary response: invalid status.trakt');
+  }
+  if (typeof retention['enabled'] !== 'boolean' || typeof retention['status'] !== 'string' || !Array.isArray(retention['skips']) || !isRecord(retention['results']) || !isRecord(retention['scheduler'])) {
+    throw new Error('Malformed automation summary response: invalid status.retention');
+  }
+  const preview = retention['preview'];
+  const lastResult = retention['lastResult'];
+  if (preview !== null && (!isRecord(preview) || typeof preview['eligibleCount'] !== 'number' || typeof preview['preservedCount'] !== 'number')) {
+    throw new Error('Malformed automation summary response: invalid status.retention.preview');
+  }
+  if (lastResult !== null && (!isRecord(lastResult) || typeof lastResult['status'] !== 'string')) {
+    throw new Error('Malformed automation summary response: invalid status.retention.lastResult');
+  }
+  const skips = retention['skips'].map((skip, index) => {
+    if (!isRecord(skip) || typeof skip['reason'] !== 'string') throw new Error(`Malformed automation summary response: invalid status.retention.skips[${index}]`);
+    return { reason: skip['reason'], count: nonNegativeInteger(skip['count'], `status.retention.skips[${index}].count`) };
+  });
+  if (typeof retention['scheduler']['enabled'] !== 'boolean' || typeof retention['scheduler']['running'] !== 'boolean') {
+    throw new Error('Malformed automation summary response: invalid status.retention.scheduler');
+  }
+  return {
+    generatedAt: value['generatedAt'],
+    storage: { status: storage['status'], disks },
+    pause: { status: pause['status'], reason: pause['reason'], manual: pause['manual'], guard: pause['guard'], known: pause['known'] },
+    guard: { enabled: guard['enabled'], status: guard['status'], health: guard['health'], lastCycleAt: guard['lastCycleAt'] },
+    verifiedCleanup: {
+      enabled: cleanup['enabled'],
+      status: cleanup['status'],
+      lastResult: cleanup['lastResult'] === null ? null : { status: cleanup['lastResult']['status'] as string, reason: (cleanup['lastResult']['reason'] ?? null) as string | null },
+      queueCount: nonNegativeInteger(cleanup['queueCount'], 'status.verifiedCleanup.queueCount'),
+    },
+    verification: {
+      status: verification['status'],
+      queuedCount: nonNegativeInteger(verification['queuedCount'], 'status.verification.queuedCount'),
+      previewCount: nonNegativeInteger(verification['previewCount'], 'status.verification.previewCount'),
+    },
+    trakt: { configured: trakt['configured'], auth: trakt['auth'], health: trakt['health'], expiresAt: trakt['expiresAt'] },
+    retention: {
+      enabled: retention['enabled'],
+      status: retention['status'],
+      preview: preview === null ? null : { eligibleCount: nonNegativeInteger(preview['eligibleCount'], 'status.retention.preview.eligibleCount'), preservedCount: nonNegativeInteger(preview['preservedCount'], 'status.retention.preview.preservedCount') },
+      skips,
+      results: {
+        deletedCount: nonNegativeInteger(retention['results']['deletedCount'], 'status.retention.results.deletedCount'),
+        preservedCount: nonNegativeInteger(retention['results']['preservedCount'], 'status.retention.results.preservedCount'),
+        pendingCount: nonNegativeInteger(retention['results']['pendingCount'], 'status.retention.results.pendingCount'),
+      },
+      lastResult: lastResult === null ? null : { status: lastResult['status'] as string, reason: (lastResult['reason'] ?? null) as string | null },
+      scheduler: { enabled: retention['scheduler']['enabled'], running: retention['scheduler']['running'] },
+    },
   };
 }
 

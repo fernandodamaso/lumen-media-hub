@@ -118,7 +118,7 @@ class InteractiveSetupRegressionTests(unittest.TestCase):
             repo.mkdir()
             (repo / ".git").mkdir()
             media = root / "media"
-            downloads = root / "downloads"
+            downloads = media / "downloads"
             (repo / ".env").write_text(
                 "\n".join(
                     (
@@ -177,7 +177,7 @@ class StorageThresholdRegressionTests(unittest.TestCase):
                 host=HOST,
                 answers={
                     "ROOT_PATH": str(root / "media"),
-                    "DOWNLOADS_PATH": str(root / "downloads"),
+                    "DOWNLOADS_PATH": str(root / "media" / "downloads"),
                     "QBT_PASSWORD": "secret",
                 },
                 storage_validator=storage_validator,
@@ -195,7 +195,7 @@ class StorageThresholdRegressionTests(unittest.TestCase):
                 "\n".join(
                     (
                         "ROOT_PATH=/srv/lumen-media",
-                        "DOWNLOADS_PATH=/srv/lumen-downloads",
+                        "DOWNLOADS_PATH=/srv/lumen-media/downloads",
                         "ACTIONS_TOKEN=token",
                         "MIN_FREE_SPACE_GIB=75",
                         "JELLYFIN_BIND_ADDRESS=127.0.0.1",

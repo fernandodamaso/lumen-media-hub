@@ -38,6 +38,7 @@ from .compose import (
     pull as compose_pull,
     redeploy_dashboard as compose_redeploy_dashboard,
     up as compose_up,
+    validate_storage_mounts,
 )
 from .docker import DockerPreflight, docker_preflight
 from .dotenv import DotEnvDocument, write_atomic
@@ -46,7 +47,14 @@ from .errors import DriftError, InvalidInputError, PartialError
 from .gpu import GpuCapabilityError, gpu_diagnostics, gpu_environment, overlay_for_mode, resolve_gpu
 from .platform import HostFacts, detect_host
 from .state import DEFAULT_STAGES, InstallerState, StageJournal
-from .storage import KNOWN_STACK_CONTAINER_NAMES, StaleContainer, find_stale_containers, validate_storage
+from .storage import (
+    KNOWN_STACK_CONTAINER_NAMES,
+    StaleContainer,
+    StorageLayoutDrift,
+    find_stale_containers,
+    normalize_storage_mode,
+    validate_storage,
+)
 from .network import plan_network
 from .answers import Answers, Resolver
 from .services.seerr import (
@@ -61,7 +69,7 @@ FOUNDATION_STAGES = tuple(DEFAULT_STAGES)
 DEFAULT_HEALTH_TIMEOUT = 120.0
 DEFAULT_HEALTH_INTERVAL = 5.0
 DEFAULT_ROOT_PATH = "/srv/lumen-media"
-DEFAULT_DOWNLOADS_PATH = "/srv/lumen-downloads"
+DEFAULT_DOWNLOADS_PATH = f"{DEFAULT_ROOT_PATH}/downloads"
 _ID = re.compile(r"^[0-9a-fA-F]{12,64}$")
 _GPU_GID = re.compile(r"^[0-9]+$")
 _SECRET_KEY = re.compile(
@@ -156,6 +164,8 @@ def _direct_answers_changed(answers: Mapping[str, Any] | None, env_path: Path) -
         "STACK_PASSWORD",
         "NETWORK_MODE",
         "PUBLIC_HOST",
+        "STORAGE_MODE",
+        "LIBRARY_MOUNT_UUID",
     ):
         present, value = _direct_answer_value(answers, key)
         if not present or value is None or (isinstance(value, str) and not value.strip()):
@@ -187,6 +197,7 @@ def _inputs(
     environment: Mapping[str, str],
     root_path: str | Path | None,
     downloads_path: str | Path | None,
+    storage_mode: str | None = None,
     qbt_password: str | None = None,
     existing: Mapping[str, Any] | None = None,
     interactive: bool = False,
@@ -199,7 +210,14 @@ def _inputs(
     # Only process environment values with the explicit LUMEN_ namespace are
     # consulted by the Linux installer.  This prevents an unrelated shell
     # credential from becoming an accidental report/input source.
-    for key in ("QBT_PASSWORD", "STACK_PASSWORD", "PUBLIC_HOST", "NETWORK_MODE"):
+    for key in (
+        "QBT_PASSWORD",
+        "STACK_PASSWORD",
+        "PUBLIC_HOST",
+        "NETWORK_MODE",
+        "STORAGE_MODE",
+        "LIBRARY_MOUNT_UUID",
+    ):
         ref = f"LUMEN_{key}"
         if ref in environment and environment[ref] != "":
             result[key] = environment[ref]
@@ -213,6 +231,7 @@ def _inputs(
         for key, value in {
             "ROOT_PATH": root_path,
             "DOWNLOADS_PATH": downloads_path,
+            "STORAGE_MODE": storage_mode,
         }.items()
         if value is not None
     }
@@ -232,8 +251,37 @@ def _inputs(
                 "DOWNLOADS_PATH": DEFAULT_DOWNLOADS_PATH,
             }[key]
     resolver = Resolver(defaults=defaults, noninteractive=not interactive)
-    for key in ("ROOT_PATH", "DOWNLOADS_PATH"):
-        result[key] = resolver.get(key, cli_values, environment, answers, prompt)
+    result["ROOT_PATH"] = resolver.get("ROOT_PATH", cli_values, environment, answers, prompt)
+    mode_default = (
+        existing.get("STORAGE_MODE")
+        if existing is not None and existing.get("STORAGE_MODE")
+        else "shared"
+    )
+    mode_is_explicit = (
+        storage_mode is not None
+        or "LUMEN_STORAGE_MODE" in environment
+        or _direct_answer_value(answers, "STORAGE_MODE")[0]
+        or (existing is not None and "STORAGE_MODE" in existing)
+    )
+    if mode_is_explicit:
+        mode = Resolver(
+            defaults={"STORAGE_MODE": mode_default}, noninteractive=not interactive
+        ).get("STORAGE_MODE", cli_values, environment, answers, prompt)
+    else:
+        mode = mode_default
+    result["STORAGE_MODE"] = normalize_storage_mode(mode)
+    existing_downloads = existing.get("DOWNLOADS_PATH") if existing is not None else None
+    download_placeholder = str(existing_downloads).strip() in {
+        ".",
+        "./downloads",
+        "downloads",
+    }
+    if not existing_downloads or download_placeholder:
+        root_default = Path(os.path.expandvars(os.path.expanduser(str(result["ROOT_PATH"]))))
+        if not root_default.is_absolute():
+            root_default = Path(os.path.abspath(str(root_default)))
+        defaults["DOWNLOADS_PATH"] = str(root_default / "downloads")
+    result["DOWNLOADS_PATH"] = resolver.get("DOWNLOADS_PATH", cli_values, environment, answers, prompt)
     if qbt_password is not None:
         result["QBT_PASSWORD"] = qbt_password
     # Answers files may carry a secret reference (``env:NAME`` or
@@ -490,7 +538,13 @@ def _lifecycle_lock(root: Path, *, dry_run: bool):
                 pass
 
 
-def _guard_storage_targets(root_path: Any, downloads_path: Any, repo: Path) -> None:
+def _guard_storage_targets(
+    root_path: Any,
+    downloads_path: Any,
+    repo: Path,
+    *,
+    storage_mode: str = "shared",
+) -> None:
     """Reject broad/overlapping targets before an injected validator runs."""
 
     try:
@@ -516,8 +570,11 @@ def _guard_storage_targets(root_path: Any, downloads_path: Any, repo: Path) -> N
         raise InvalidInputError("media path must be outside the repository")
     if downloads == repo or repo in downloads.parents or downloads in repo.parents:
         raise InvalidInputError("downloads path must be outside the repository")
-    if media == downloads or media in downloads.parents or downloads in media.parents:
-        raise InvalidInputError("media and downloads must not overlap")
+    mode = normalize_storage_mode(storage_mode)
+    if media == downloads:
+        raise InvalidInputError("storage targets must be different paths")
+    if mode == "shared" and downloads != media / "downloads":
+        raise StorageLayoutDrift(media, downloads)
     for path, label in ((media, "ROOT_PATH"), (downloads, "DOWNLOADS_PATH")):
         current = Path(path.anchor)
         for component in path.parts[1:]:
@@ -846,6 +903,8 @@ def _run_foundation_unlocked(
             "STACK_PASSWORD",
             "PUBLIC_HOST",
             "NETWORK_MODE",
+            "STORAGE_MODE",
+            "LIBRARY_MOUNT_UUID",
         )
     )
     direct_answers_changed = _direct_answers_changed(answer_values, env_path)
@@ -854,6 +913,7 @@ def _run_foundation_unlocked(
         for value in (
             requested.profiles,
             requested.gpu,
+            requested.storage_mode,
             environment if environment is not None else None,
             env_file,
             uid,
@@ -950,6 +1010,7 @@ def _run_foundation_unlocked(
         environment=process_environment,
         root_path=root_path,
         downloads_path=downloads_path,
+        storage_mode=requested.storage_mode,
         qbt_password=qbt_password,
         existing=original_doc.values,
         interactive=interactive,
@@ -980,6 +1041,8 @@ def _run_foundation_unlocked(
             or any(str(key).upper() == "QBT_PASSWORD" for key in input_values)
         ),
     )
+    storage_mode = normalize_storage_mode(env_plan.document.get("STORAGE_MODE", "shared"))
+    effective = replace(effective, storage_mode=storage_mode)
     if not active_journal.is_complete("environment"):
         if not dry_run:
             active_journal.complete("environment")
@@ -1025,9 +1088,13 @@ def _run_foundation_unlocked(
     storage_downloads = _storage_target_input(
         "DOWNLOADS_PATH", planned_downloads, original=original_doc, inputs=input_values, root=root
     )
-    _guard_storage_targets(storage_root, storage_downloads, root)
-    storage_changed = any(value is not None for value in (root_path, downloads_path))
-    if active_journal.is_complete("storage") and not storage_changed:
+    _guard_storage_targets(storage_root, storage_downloads, root, storage_mode=storage_mode)
+    storage_changed = any(value is not None for value in (root_path, downloads_path)) or requested.storage_mode is not None
+    if (
+        active_journal.is_complete("storage")
+        and not storage_changed
+        and storage_mode == "shared"
+    ):
         storage = {}
     else:
         storage = _call(
@@ -1039,6 +1106,9 @@ def _run_foundation_unlocked(
             gid=facts.gid,
             required_free_gib=env_plan.document.get("MIN_FREE_SPACE_GIB") or 0,
             dry_run=dry_run,
+            shared_mount_required=storage_mode == "shared",
+            storage_mode=storage_mode,
+            expected_mount_uuid=env_plan.document.get("LIBRARY_MOUNT_UUID"),
         )
     if not active_journal.is_complete("storage"):
         if not dry_run:
@@ -1183,6 +1253,12 @@ def _run_foundation_unlocked(
             effective,
             redact=secret_values,
         )
+    validate_storage_mounts(
+        config_payload,
+        root_path=storage_root,
+        downloads_path=storage_downloads,
+        storage_mode=storage_mode,
+    )
     pull_services = derive_pull_services(config_payload)
     build_services = derive_build_services(config_payload)
     planned = [effective.argv(root, env_path, "pull", *pull_services)]
@@ -1270,7 +1346,13 @@ def _load_lifecycle(
         allowed_stages=FOUNDATION_STAGES,
         correct_modes=not dry_run,
     )
-    return env_path, state, _effective_options(options, state)
+    storage_mode = normalize_storage_mode(_load_document(env_path).get("STORAGE_MODE", "shared"))
+    requested = options if options is not None else ComposeOptions()
+    return env_path, state, requested.resolved(
+        saved_profiles=state.profiles,
+        saved_gpu=state.gpu_mode,
+        saved_storage_mode=storage_mode,
+    )
 
 
 def run_up(
@@ -1286,6 +1368,7 @@ def run_up(
     gpu_confirm: bool | Callable[..., Any] = False,
     gpu_architecture: str | None = None,
     env_writer: Callable[..., Any] = write_atomic,
+    storage_validator: Callable[..., Any] = validate_storage,
 ) -> FoundationResult:
     root = _repo(repo_root)
     with _lifecycle_lock(root, dry_run=dry_run):
@@ -1294,6 +1377,51 @@ def run_up(
         if not env_path.is_absolute():
             env_path = root / env_path
         command_runner = runner if runner is not None else CommandRunner()
+        environment_document = _load_document(env_path)
+        selected_storage_mode = normalize_storage_mode(
+            options.storage_mode
+            if options is not None and options.storage_mode is not None
+            else environment_document.get("STORAGE_MODE", "shared")
+        )
+        storage_mode_explicit = (
+            options is not None and options.storage_mode is not None
+        ) or "STORAGE_MODE" in environment_document.values
+        effective = replace(effective, storage_mode=selected_storage_mode)
+        storage_root = environment_document.get("ROOT_PATH")
+        storage_downloads = environment_document.get("DOWNLOADS_PATH")
+        if selected_storage_mode == "separate" and not (storage_root and storage_downloads):
+            raise InvalidInputError(
+                "separate storage requires both ROOT_PATH and DOWNLOADS_PATH"
+            )
+        if storage_root and storage_downloads and storage_mode_explicit:
+            _guard_storage_targets(
+                storage_root,
+                storage_downloads,
+                root,
+                storage_mode=selected_storage_mode,
+            )
+            storage_validator(
+                storage_root,
+                storage_downloads,
+                repo_root=root,
+                dry_run=True,
+                shared_mount_required=selected_storage_mode == "shared",
+                storage_mode=selected_storage_mode,
+                expected_mount_uuid=environment_document.get("LIBRARY_MOUNT_UUID"),
+            )
+            storage_payload = compose_config(
+                command_runner,
+                root,
+                env_path,
+                effective,
+                redact=_secret_values(environment_document),
+            )
+            validate_storage_mounts(
+                storage_payload,
+                root_path=storage_root,
+                downloads_path=storage_downloads,
+                storage_mode=selected_storage_mode,
+            )
         project = compose_project
         if project is None:
             project = os.environ.get("COMPOSE_PROJECT_NAME")
@@ -1624,11 +1752,15 @@ def doctor_diagnostics(
         storage_values = (values.get("ROOT_PATH"), values.get("DOWNLOADS_PATH"))
         if all(storage_values):
             try:
+                storage_mode = normalize_storage_mode(values.get("STORAGE_MODE", "shared"))
                 checked = validate_storage(
                     *storage_values,
                     repo_root=root,
                     required_free_gib=values.get("MIN_FREE_SPACE_GIB") or 0,
                     dry_run=True,
+                    shared_mount_required=storage_mode == "shared",
+                    storage_mode=storage_mode,
+                    expected_mount_uuid=values.get("LIBRARY_MOUNT_UUID"),
                 )
                 storage_detail = checked.report
                 report["storage"] = storage_detail

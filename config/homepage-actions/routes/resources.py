@@ -7,6 +7,7 @@ import time
 import config
 import config as settings
 from http_support import send_json
+from status import build_operational_status
 
 
 def _read_cpu_times():
@@ -74,11 +75,14 @@ def _disk_stats():
 
 
 def _build_system_resources():
+    operational = build_operational_status()
     return {
         "ok": True,
         "cpu": {"percent": _cpu_percent()},
         "memory": _mem_stats(),
         "disk": _disk_stats(),
+        "disks": operational["storage"]["disks"],
+        "status": operational,
         "note": "CPU/RAM reflect the container/Docker VM view, same as Homepage widgets.",
     }
 

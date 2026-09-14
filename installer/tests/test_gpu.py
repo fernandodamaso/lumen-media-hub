@@ -212,7 +212,7 @@ class GpuProbeTests(unittest.TestCase):
             repo = root / "repo"
             repo.mkdir()
             media = root / "media"
-            downloads = root / "downloads"
+            downloads = media / "downloads"
             media.mkdir()
             downloads.mkdir()
             (repo / ".env").write_text(
@@ -318,7 +318,7 @@ class GpuProbeTests(unittest.TestCase):
             repo = Path(temporary) / "repo"
             repo.mkdir()
             env_path = repo / ".env"
-            env_path.write_text("ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/downloads\n", encoding="utf-8")
+            env_path.write_text("ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/media/downloads\n", encoding="utf-8")
             InstallerState.new(repo).save()
             runner = Runner()
             result = run_up(
@@ -347,7 +347,7 @@ class GpuProbeTests(unittest.TestCase):
             repo = Path(temporary) / "repo"
             repo.mkdir()
             env_path = repo / ".env"
-            env_path.write_text("ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/downloads\n", encoding="utf-8")
+            env_path.write_text("ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/media/downloads\n", encoding="utf-8")
             InstallerState.new(repo).save()
             before_env = env_path.read_text(encoding="utf-8")
             runner = Runner()
@@ -387,7 +387,7 @@ class GpuProbeTests(unittest.TestCase):
                     repo = root / mode
                     repo.mkdir()
                     media = root / f"{mode}-media"
-                    downloads = root / f"{mode}-downloads"
+                    downloads = media / "downloads"
                     runner = FoundationRunner()
                     result = run_foundation(
                         repo,
@@ -448,7 +448,7 @@ class GpuProbeTests(unittest.TestCase):
                                 "host": HOST,
                                 "answers": {
                                     "ROOT_PATH": str(root / "media"),
-                                    "DOWNLOADS_PATH": str(root / "downloads"),
+                                    "DOWNLOADS_PATH": str(root / "media" / "downloads"),
                                 },
                                 "preflight_checker": lambda runner: DockerPreflight(status="ok"),
                                 "storage_validator": lambda *args, **extra: SimpleNamespace(report={}),
@@ -482,7 +482,7 @@ class GpuProbeTests(unittest.TestCase):
             repo = root / "repo"
             repo.mkdir()
             media = root / "media"
-            downloads = root / "downloads"
+            downloads = media / "downloads"
             runner = FoundationRunner()
             detector = lambda mode, **kwargs: GpuProbe("nvidia", "available", True, {})
             run_foundation(
@@ -532,7 +532,7 @@ class GpuProbeTests(unittest.TestCase):
             repo.mkdir()
             env_path = repo / ".env"
             env_path.write_text(
-                "ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/downloads\n"
+                "ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/media/downloads\n"
                 "ACTIONS_TOKEN=present\nJELLYFIN_BIND_ADDRESS=127.0.0.1\n",
                 encoding="utf-8",
             )
@@ -580,7 +580,7 @@ class GpuProbeTests(unittest.TestCase):
             repo.mkdir()
             env_path = repo / ".env"
             env_path.write_text(
-                "ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/downloads\n"
+                "ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/media/downloads\n"
                 "ACTIONS_TOKEN=present\nJELLYFIN_BIND_ADDRESS=127.0.0.1\n",
                 encoding="utf-8",
             )
@@ -634,7 +634,7 @@ class GpuProbeTests(unittest.TestCase):
             template.mkdir()
             (template / ".env.example").write_text(
                 "PUID=1000\nPGID=1000\nTZ=UTC\n"
-                "ROOT_PATH=/template/media\nDOWNLOADS_PATH=/template/downloads\n"
+                "ROOT_PATH=/template/media\nDOWNLOADS_PATH=/template/media/downloads\n"
                 "QBT_PASSWORD=template-secret\nACTIONS_TOKEN=template-token\n"
                 "JELLYFIN_BIND_ADDRESS=127.0.0.1\nMANAGEMENT_BIND_ADDRESS=127.0.0.1\n"
                 "QBITTORRENT_WEBUI_PORT=8080\nQBITTORRENT_PEER_PORT=6881\n"
@@ -642,7 +642,7 @@ class GpuProbeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             media = root / "media"
-            downloads = root / "downloads"
+            downloads = media / "downloads"
             for mode in ("none", "nvidia", "vaapi"):
                 with self.subTest(mode=mode):
                     runner = PlanningRunner()
@@ -696,7 +696,7 @@ class GpuProbeTests(unittest.TestCase):
             repo.mkdir()
             env_path = repo / ".env"
             env_path.write_text(
-                "ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/downloads\n",
+                "ROOT_PATH=/srv/media\nDOWNLOADS_PATH=/srv/media/downloads\n",
                 encoding="utf-8",
             )
             InstallerState.new(repo, gpu_mode="auto").save()

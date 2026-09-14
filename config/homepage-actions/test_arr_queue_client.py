@@ -75,6 +75,40 @@ class SonarrQueueClientTestCase(unittest.TestCase):
         self.assertFalse(_CaptureRequestHandler.request_ready.is_set())
         self.assertIsNone(_CaptureRequestHandler.request_data)
 
+    def test_fetch_arr_history_all_reads_every_page_and_marks_complete(self):
+        pages = [
+            {"records": [{"id": 1}], "totalRecords": 3},
+            {"records": [{"id": 2}, {"id": 3}], "totalRecords": 3},
+        ]
+        with mock.patch.object(arr_client, "fetch_arr_history", side_effect=pages) as fetch:
+            result = arr_client.fetch_arr_history_all("http://sonarr", "key", "seriesIds", 42, page_size=2)
+
+        self.assertEqual(result, {"records": [{"id": 1}, {"id": 2}, {"id": 3}], "totalRecords": 3, "complete": True})
+        self.assertEqual(
+            [call.kwargs for call in fetch.call_args_list],
+            [{"page": 1, "page_size": 2}, {"page": 2, "page_size": 2}],
+        )
+
+    def test_fetch_arr_history_all_fails_closed_when_snapshot_changes_or_stalls(self):
+        with mock.patch.object(
+            arr_client,
+            "fetch_arr_history",
+            side_effect=[
+                {"records": [{"id": 1}], "totalRecords": 2},
+                {"records": [{"id": 2}], "totalRecords": 3},
+            ],
+        ):
+            with self.assertRaisesRegex(ValueError, "changed"):
+                arr_client.fetch_arr_history_all("http://sonarr", "key", "seriesIds", 42, page_size=1)
+
+        with mock.patch.object(
+            arr_client,
+            "fetch_arr_history",
+            return_value={"records": [], "totalRecords": 1},
+        ):
+            with self.assertRaisesRegex(ValueError, "incomplete"):
+                arr_client.fetch_arr_history_all("http://sonarr", "key", "seriesIds", 42, page_size=1)
+
 
 if __name__ == "__main__":
     unittest.main()

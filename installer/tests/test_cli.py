@@ -26,7 +26,7 @@ from lumen_installer.errors import (
     PartialError,
 )
 from lumen_installer.compose import ComposeOptions
-from lumen_installer.update import render_rollback_override
+from lumen_installer.update import RollbackValidationError, render_rollback_override
 
 
 class CliContractTests(unittest.TestCase):
@@ -708,7 +708,11 @@ class CliContractTests(unittest.TestCase):
                         dry_run=True,
                     )
                     self.assertEqual(mode, manifest.gpu_mode)
-                    self.assertIn(str(root / overlay), manifest.compose_files)
+                    expected = [str(root / overlay)]
+                    if mode != "none":
+                        self.assertIn(str(root / overlay), manifest.compose_files)
+                    else:
+                        self.assertEqual([str(root / "docker-compose.yml")], manifest.compose_files)
                     if mode == "vaapi":
                         self.assertEqual(
                             {"RENDER_GID": "65534", "VIDEO_GID": "65533"},
@@ -716,6 +720,40 @@ class CliContractTests(unittest.TestCase):
                         )
                     else:
                         self.assertEqual({}, manifest.gpu_environment)
+
+    def test_rollback_rejects_a_recorded_manifest_that_omits_the_active_local_override(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docker-compose.yml").write_text(
+                "services:\n  api:\n    image: example/api:stable\n",
+                encoding="utf-8",
+            )
+            override = root / "docker-compose.override.yml"
+            override.write_text("services: {}\n", encoding="utf-8")
+            env_path = root / ".env"
+            env_path.write_text("ACTIONS_TOKEN=token\nGPU_MODE=none\n", encoding="utf-8")
+            state_dir = root / ".state" / "installer"
+            state_dir.mkdir(parents=True)
+            (state_dir / "state.json").write_text("{}", encoding="utf-8")
+            old_manifest = cli.UpdateManifest.from_inputs(
+                env_path,
+                {},
+                {"api": "example/api:stable"},
+                {"api": "sha256:" + "a" * 64},
+                {},
+                [],
+                "none",
+                [root / "docker-compose.yml"],
+            )
+            record_dir = state_dir / "updates"
+            record_dir.mkdir()
+            record = record_dir / "run-old.json"
+            record.write_text(
+                json.dumps({"run_id": "run-old", "manifest": old_manifest.to_dict()}),
+                encoding="utf-8",
+            )
+            with self.assertRaises(RollbackValidationError):
+                cli.run_rollback(root, "run-old", confirm=True)
 
     def test_update_callbacks_order_and_rollback_commands_are_safe(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1039,7 +1077,13 @@ class CliContractTests(unittest.TestCase):
             "compose_version": (2, 24, 4),
             "secret": "must-not-appear",
         }
-        with mock.patch("lumen_installer.cli.run_host_doctor", return_value=fake_report):
+        with mock.patch("lumen_installer.cli.run_host_doctor", return_value=fake_report), mock.patch(
+            "lumen_installer.cli.doctor_diagnostics",
+            return_value={
+                "status": "needs-attention",
+                "exit_code": int(ExitCode.INVALID),
+            },
+        ):
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 result = cli.main(["doctor"])
@@ -1062,7 +1106,10 @@ class CliContractTests(unittest.TestCase):
         with mock.patch(
             "lumen_installer.cli.run_host_doctor",
             return_value={"status": "ok"},
-        ) as run_host_doctor:
+        ) as run_host_doctor, mock.patch(
+            "lumen_installer.cli.doctor_diagnostics",
+            return_value={"status": "ok", "exit_code": int(ExitCode.OK)},
+        ):
             with contextlib.redirect_stdout(io.StringIO()):
                 result = cli.main(
                     [
@@ -1078,7 +1125,7 @@ class CliContractTests(unittest.TestCase):
                     ]
                 )
 
-        self.assertEqual(result, int(ExitCode.INVALID))
+        self.assertEqual(result, int(ExitCode.OK))
         run_host_doctor.assert_called_once_with(
             uid=1001,
             gid=1002,

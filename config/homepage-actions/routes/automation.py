@@ -6,6 +6,7 @@ import config as settings
 from clients.arr import _arr_get, _bazarr_wanted_details
 from http_support import send_json
 from queue_hygiene import _read_state, normalized_state
+from status import build_operational_status
 
 
 def _safe_arr_count(fn, default=0):
@@ -294,11 +295,14 @@ def _build_automation_summary():
         if errors:
             bazarr["error"] = "; ".join(errors)
 
+    operational = build_operational_status()
     summary = {
         "ok": True,
+        "generatedAt": operational["generatedAt"],
         "sonarr": sonarr,
         "radarr": radarr,
         "prowlarr": prowlarr,
+        "status": operational,
     }
     if bazarr is not None:
         summary["bazarr"] = bazarr

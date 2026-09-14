@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
 from .errors import ExitCode, InstallerError, InvalidInputError, PartialError
+from .storage import normalize_storage_mode
 
 
 PathLike = str | os.PathLike[str]
@@ -425,6 +426,7 @@ class UpdateManifest:
     gpu_mode: bool | str
     gpu_environment: dict[str, str]
     compose_files: list[str]
+    storage_mode: str = "shared"
 
     @classmethod
     def from_inputs(
@@ -439,6 +441,7 @@ class UpdateManifest:
         compose_files: Iterable[PathLike],
         gpu_environment: Mapping[str, str] | None = None,
         allow_unverified_local_ids: bool = False,
+        storage_mode: str = "shared",
     ) -> "UpdateManifest":
         normalized_env = _absolute_path(env_path)
         if not isinstance(env_path, (str, os.PathLike)):
@@ -534,6 +537,7 @@ class UpdateManifest:
             gpu_mode=normalized_gpu,
             gpu_environment=normalized_gpu_environment,
             compose_files=normalized_compose,
+            storage_mode=normalize_storage_mode(storage_mode),
         )
 
     @classmethod
@@ -556,6 +560,9 @@ class UpdateManifest:
         gpu_environment = _strict_string_map(
             value["gpu_environment"], field="gpu_environment"
         )
+        storage_mode = value.get("storage_mode", "shared")
+        if not isinstance(storage_mode, str):
+            raise ValueError("manifest storage mode is invalid")
         gpu_mode = value["gpu_mode"]
         if not isinstance(gpu_mode, str) or gpu_mode.strip().lower() not in {
             "none",
@@ -581,7 +588,8 @@ class UpdateManifest:
             gpu_mode=gpu_mode,
             compose_files=compose_raw,
             gpu_environment=gpu_environment,
-        )
+            storage_mode=storage_mode,
+            )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -594,6 +602,7 @@ class UpdateManifest:
             "gpu_mode": self.gpu_mode,
             "gpu_environment": dict(self.gpu_environment),
             "compose_files": list(self.compose_files),
+            "storage_mode": self.storage_mode,
         }
 
 
@@ -1235,6 +1244,13 @@ def run_rollback(
         raise
     except (OSError, UnicodeError, TypeError, ValueError, KeyError, AttributeError) as exc:
         raise RollbackValidationError("rollback record is invalid") from exc
+
+    override_path = root_path / "docker-compose.override.yml"
+    if override_path.is_file() and str(override_path.resolve(strict=False)) not in manifest.compose_files:
+        raise RollbackValidationError(
+            "rollback manifest does not include the active docker-compose.override.yml: "
+            "storage compatibility mount would be lost during rollback"
+        )
 
     backup_dir = state / "backups" / safe_run_id
     try:

@@ -175,6 +175,29 @@ class ServarrAdapterTests(unittest.TestCase):
         self.assertEqual(fields["unrelated"], "preserve-me")
         self.assertNotIn(QBT_PASSWORD, repr(result))
 
+    def test_empty_schema_name_is_filled_before_testing_and_creating_qbittorrent(self):
+        schema = qbit_schema()
+        schema["name"] = ""
+        adapter, transport = self.adapter(
+            [
+                response({"version": "4.0.0"}),
+                response([]),
+                response([schema]),
+                response([]),
+                response({"status": "ok"}),
+                response({"id": 17}),
+                response({"id": 23}),
+            ]
+        )
+
+        result = adapter.configure()
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(transport.requests[4][2]["json_body"]["name"], "qBittorrent")
+        self.assertEqual(transport.requests[6][2]["json_body"]["name"], "qBittorrent")
+        self.assertTrue(transport.requests[4][2]["json_body"]["enable"])
+        self.assertTrue(transport.requests[6][2]["json_body"]["enable"])
+
     def test_schema_variants_and_matching_existing_configuration_are_a_noop(self):
         schema = qbit_schema(
             fields={

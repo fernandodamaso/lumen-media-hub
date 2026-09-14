@@ -4,11 +4,13 @@ import {
   AutomationProblemSeverity,
   AutomationServiceStatus,
   AutomationSummary,
+  OperationalStatus,
   QueueHygieneSummary,
 } from './automation.models';
 import {
   MediaStackAutomationSummaryDto,
   MediaStackQueueHygieneSummaryDto,
+  MediaStackOperationalStatusDto,
 } from '../media-stack/wire/automation';
 
 type AutomationStatusTone = 'success' | 'warning' | 'danger' | 'info';
@@ -66,12 +68,40 @@ export const mapAutomationSummary = (dto: MediaStackAutomationSummaryDto): Autom
     }),
   ),
   queueHygiene: dto.queueHygiene ? mapQueueHygiene(dto.queueHygiene) : null,
+  status: dto.status ? mapOperationalStatus(dto.status) : null,
   availability: {
     services: deriveSectionAvailability(dto.services, dto.unavailable?.services),
     preview: deriveSectionAvailability(dto.preview, dto.unavailable?.preview),
     problems: deriveSectionAvailability(dto.problems, dto.unavailable?.problems),
   },
 });
+
+function mapOperationalStatus(dto: MediaStackOperationalStatusDto): OperationalStatus {
+  return {
+    generatedAt: dto.generatedAt,
+    storage: {
+      status: dto.storage.status === 'healthy' ? 'healthy' : 'unavailable',
+      disks: dto.storage.disks.map((disk) => ({
+        ...disk,
+        status: disk.status === 'healthy' ? 'healthy' : 'unavailable',
+        identityStatus: disk.identityStatus === 'observed' ? 'observed' : 'unavailable',
+      })),
+    },
+    pause: { ...dto.pause },
+    guard: { ...dto.guard },
+    verifiedCleanup: { ...dto.verifiedCleanup, lastResult: dto.verifiedCleanup.lastResult ? { ...dto.verifiedCleanup.lastResult } : null },
+    verification: { ...dto.verification },
+    trakt: { ...dto.trakt },
+    retention: {
+      ...dto.retention,
+      preview: dto.retention.preview ? { ...dto.retention.preview } : null,
+      skips: dto.retention.skips.map((skip) => ({ ...skip })),
+      results: { ...dto.retention.results },
+      lastResult: dto.retention.lastResult ? { ...dto.retention.lastResult } : null,
+      scheduler: { ...dto.retention.scheduler },
+    },
+  };
+}
 
 function mapQueueHygiene(dto: MediaStackQueueHygieneSummaryDto): QueueHygieneSummary {
   return {

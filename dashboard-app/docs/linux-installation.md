@@ -54,13 +54,26 @@ history, CI logs, or a checked-in file.
 
 ```bash
 export LUMEN_ROOT_PATH=/srv/lumen-media
-export LUMEN_DOWNLOADS_PATH=/srv/lumen-downloads
+export LUMEN_DOWNLOADS_PATH=/srv/lumen-media/downloads
 export LUMEN_QBT_PASSWORD="use-a-secret-store"
 
 ./install.sh setup \
   --non-interactive \
   --network-mode local \
   --gpu-mode none
+```
+
+For the approved two-disk layout, select it explicitly and provide the
+permanent library filesystem UUID. This keeps the library mount at
+`/run/media/admin/ARQUIVOS` and staging at `/home/admin/lumen-downloads`:
+
+```bash
+LUMEN_STORAGE_MODE=separate \
+LUMEN_ROOT_PATH=/run/media/admin/ARQUIVOS \
+LUMEN_DOWNLOADS_PATH=/home/admin/lumen-downloads \
+LUMEN_LIBRARY_MOUNT_UUID=B8A426BFA4267FCC \
+LUMEN_QBT_PASSWORD="use-a-secret-store" \
+./install.sh setup --non-interactive --network-mode local --gpu-mode none
 ```
 
 The installer resolves CLI options before `LUMEN_*`, then non-secret answers,
@@ -75,7 +88,7 @@ An answers file contains non-secret values only:
   "schema_version": 1,
   "answers": {
     "ROOT_PATH": "/srv/lumen-media",
-    "DOWNLOADS_PATH": "/srv/lumen-downloads",
+    "DOWNLOADS_PATH": "/srv/lumen-media/downloads",
     "TZ": "America/Sao_Paulo",
     "NETWORK_MODE": "local",
     "QBT_PASSWORD": {"env": "LUMEN_QBT_PASSWORD"}
@@ -90,11 +103,32 @@ non-root invocation uses the current UID/GID. A command run through `sudo`
 uses `SUDO_UID`/`SUDO_GID`; a genuine root invocation must provide explicit,
 nonzero ownership IDs. Existing values are preserved and drift is reported.
 
-The media root and downloads path must be separate, explicit absolute paths.
-Do not use the repository, `/`, or a path containing existing symlinks as a
-media target. The installer validates ownership, writability, free space, and
-container visibility, and creates only approved subdirectories. It never
-deletes or cleans media or downloads.
+In `shared` mode, `ROOT_PATH` is mounted into qBittorrent, Sonarr, and Radarr as
+`/data`, and `DOWNLOADS_PATH` must be the exact child `ROOT_PATH/downloads`.
+Final libraries remain `/data/media/tv` and `/data/media/movies`; managed
+qBittorrent categories use `/data/downloads/sonarr` and
+`/data/downloads/radarr`, preserving hardlinks.
+
+In explicit `separate` mode, `ROOT_PATH` remains the permanent library mount at
+`/data`, while `DOWNLOADS_PATH` is the staging mount at `/downloads`.
+qBittorrent and the *arr services keep their library roots at
+`/data/media/tv` and `/data/media/movies`, while their managed download
+categories use `/downloads/sonarr` and `/downloads/radarr`. Cross-filesystem
+hardlinks are not expected in this mode; imports must use copy-and-verify
+semantics. The Linux installer requires `LIBRARY_MOUNT_UUID`, verifies the
+actual writable mount identity, renders the separate Compose overlay, and
+checks the expanded container mounts before start/update. It does not migrate
+existing files or persisted service paths in Phase 2.
+
+Do not use the repository, `/`, or paths containing existing symlinks as
+storage targets. The installer validates ownership, writability, free space,
+device identity, and container visibility, and creates only approved
+subdirectories. It never deletes or cleans media or downloads.
+
+The staged systemd units and operator sequence for the fixed ARQUIVOS host are
+in `installer/artifacts/phase9/`. They are rollout artifacts only: Phase 2
+does not install units, enable services, restart containers, or change live
+mounts.
 
 The installer writes `.env` with an atomic replace and mode `0600`. Installer
 state, journals, manifests, and backups live under the ignored

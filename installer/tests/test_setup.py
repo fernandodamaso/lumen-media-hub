@@ -42,6 +42,42 @@ HOST = HostFacts(
 
 
 class SetupFoundationTests(unittest.TestCase):
+    def test_fresh_default_download_path_tracks_the_selected_root(self):
+        media = Path("/srv/custom-media")
+
+        inputs = SETUP_MODULE._inputs(
+            {},
+            environment={},
+            root_path=media,
+            downloads_path=None,
+            existing={},
+            interactive=False,
+        )
+
+        self.assertEqual(inputs["ROOT_PATH"], media)
+        self.assertEqual(inputs["DOWNLOADS_PATH"], str(media / "downloads"))
+
+    def test_legacy_disjoint_downloads_require_migration_before_storage_mutation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            with self.assertRaises(DriftError) as raised:
+                run_foundation(
+                    repo,
+                    host=HOST,
+                    answers={
+                        "ROOT_PATH": str(root / "media"),
+                        "DOWNLOADS_PATH": str(root / "legacy-downloads"),
+                    },
+                    storage_validator=lambda *args, **kwargs: self.fail(
+                        "legacy storage reached the storage mutator"
+                    ),
+                )
+
+            self.assertIn("migration", str(raised.exception).casefold())
+
     def test_public_setup_alias_remains_callable(self):
         import lumen_installer
 
@@ -79,7 +115,7 @@ class SetupFoundationTests(unittest.TestCase):
                     options=ComposeOptions(profiles=("requests",)),
                     answers={
                         "ROOT_PATH": str(root / "media"),
-                        "DOWNLOADS_PATH": str(root / "downloads"),
+                        "DOWNLOADS_PATH": str(root / "media" / "downloads"),
                     },
                     storage_validator=lambda *args, **kwargs: {},
                     preflight_checker=lambda runner: DockerPreflight(status="ok"),
@@ -98,7 +134,7 @@ class SetupFoundationTests(unittest.TestCase):
             repo.mkdir()
             (repo / ".git").mkdir()
             media = root / "media"
-            downloads = root / "downloads"
+            downloads = media / "downloads"
             calls = []
 
             class Runner:
@@ -132,7 +168,7 @@ class SetupFoundationTests(unittest.TestCase):
             root = Path(temporary)
             repo = root / "repo"
             repo.mkdir(); (repo / ".git").mkdir()
-            media = root / "media"; downloads = root / "downloads"
+            media = root / "media"; downloads = media / "downloads"
             class Runner:
                 def run(self, argv, **kwargs):
                     if tuple(argv[-3:]) == ("config", "--format", "json"):
@@ -147,7 +183,7 @@ class SetupFoundationTests(unittest.TestCase):
     def test_dry_run_does_not_write_environment_state_or_storage(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
-            media = root / "media"; downloads = root / "downloads"; calls = []
+            media = root / "media"; downloads = media / "downloads"; calls = []
             class Runner:
                 def run(self, argv, **kwargs):
                     calls.append(tuple(argv))
@@ -167,7 +203,7 @@ class SetupFoundationTests(unittest.TestCase):
     def test_completed_setup_rerun_is_a_noop(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
-            media = root / "media"; downloads = root / "downloads"; calls = []
+            media = root / "media"; downloads = media / "downloads"; calls = []
             class Runner:
                 def run(self, argv, **kwargs):
                     calls.append(tuple(argv))
@@ -187,7 +223,7 @@ class SetupFoundationTests(unittest.TestCase):
     def test_unchanged_environment_is_restricted_to_six_hundred(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
-            media = root / "media"; downloads = root / "downloads"
+            media = root / "media"; downloads = media / "downloads"
             class Runner:
                 def run(self, argv, **kwargs):
                     if tuple(argv[-3:]) == ("config", "--format", "json"):
@@ -207,7 +243,7 @@ class SetupFoundationTests(unittest.TestCase):
     def test_explicit_profile_and_gpu_choices_persist_after_reconciliation(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
-            media = root / "media"; downloads = root / "downloads"
+            media = root / "media"; downloads = media / "downloads"
             class Runner:
                 def run(self, argv, **kwargs):
                     if tuple(argv[-3:]) == ("config", "--format", "json"):
@@ -230,7 +266,7 @@ class SetupFoundationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
             old_media = root / "old-media"; old_downloads = root / "old-downloads"
-            new_media = root / "new-media"; new_downloads = root / "new-downloads"
+            new_media = root / "new-media"; new_downloads = new_media / "downloads"
             (repo / ".env").write_text(
                 f"ROOT_PATH={old_media}\nDOWNLOADS_PATH={old_downloads}\nJELLYFIN_BIND_ADDRESS=127.0.0.1\n",
                 encoding="utf-8",
@@ -270,7 +306,7 @@ class SetupFoundationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (repo / ".env").write_text("# local note\n", encoding="utf-8")
-            media = root / "media"; downloads = root / "downloads"
+            media = root / "media"; downloads = media / "downloads"
             class Runner:
                 def run(self, argv, **kwargs):
                     if tuple(argv[-3:]) == ("config", "--format", "json"):
@@ -300,7 +336,7 @@ class SetupFoundationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (repo / ".env").write_text("# preserve this note\n", encoding="utf-8")
-            media = root / "media"; downloads = root / "downloads"
+            media = root / "media"; downloads = media / "downloads"
             detected = HostFacts(
                 uid=4321, gid=5432, timezone="Europe/London", distro_id="ubuntu",
                 distro_like=("debian",), arch="x86_64", euid=4321,
@@ -328,7 +364,7 @@ class SetupFoundationTests(unittest.TestCase):
     def test_interactive_resolver_fills_missing_paths_and_noninteractive_rejects(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
-            media = root / "media"; downloads = root / "downloads"
+            media = root / "media"; downloads = media / "downloads"
             class Runner:
                 def run(self, argv, **kwargs):
                     if tuple(argv[-3:]) == ("config", "--format", "json"):
@@ -349,8 +385,8 @@ class SetupFoundationTests(unittest.TestCase):
     def test_completed_setup_direct_answers_revalidate_changed_storage(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
-            old_media = root / "old-media"; old_downloads = root / "old-downloads"
-            new_downloads = root / "new-downloads"
+            old_media = root / "old-media"; old_downloads = old_media / "downloads"
+            new_media = root / "new-media"; new_downloads = new_media / "downloads"
             (repo / ".env").write_text(
                 f"ROOT_PATH={old_media}\nDOWNLOADS_PATH={old_downloads}\n"
                 "JELLYFIN_BIND_ADDRESS=127.0.0.1\nMANAGEMENT_BIND_ADDRESS=127.0.0.1\n"
@@ -380,7 +416,7 @@ class SetupFoundationTests(unittest.TestCase):
     def test_completed_setup_same_answers_file_is_a_noop_but_changed_file_revalidates(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
-            media = root / "media"; downloads = root / "downloads"
+            media = root / "media"; downloads = media / "downloads"
             answers_path = root / "answers.json"
             answers_path.write_text(
                 json.dumps({"schema_version": 1, "answers": {
@@ -421,8 +457,8 @@ class SetupFoundationTests(unittest.TestCase):
     def test_supplied_journal_reconciles_changed_answers_and_storage(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
-            old_media = root / "old-media"; old_downloads = root / "old-downloads"
-            new_downloads = root / "new-downloads"
+            old_media = root / "old-media"; old_downloads = old_media / "downloads"
+            new_media = root / "new-media"; new_downloads = new_media / "downloads"
             (repo / ".env").write_text(
                 f"ROOT_PATH={old_media}\nDOWNLOADS_PATH={old_downloads}\n"
                 "JELLYFIN_BIND_ADDRESS=127.0.0.1\nMANAGEMENT_BIND_ADDRESS=127.0.0.1\n"
@@ -445,18 +481,18 @@ class SetupFoundationTests(unittest.TestCase):
 
             result = run_foundation(
                 repo, runner=Runner(), host=HOST, stage_journal=journal,
-                answers={"ROOT_PATH": str(old_media), "DOWNLOADS_PATH": str(new_downloads)},
+                answers={"ROOT_PATH": str(new_media), "DOWNLOADS_PATH": str(new_downloads)},
                 storage_validator=lambda media, downloads, **kwargs: validated.append((media, downloads)) or {},
                 preflight_checker=lambda runner: DockerPreflight(status="ok"),
                 stale_finder=lambda: (), health_probe=lambda: True,
             )
             self.assertEqual(result.status, "ok")
-            self.assertEqual(validated, [(str(old_media), str(new_downloads))])
+            self.assertEqual(validated, [(str(new_media), str(new_downloads))])
 
     def test_supplied_journal_persists_explicit_profile_override(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
-            media = root / "media"; downloads = root / "downloads"
+            media = root / "media"; downloads = media / "downloads"
             (repo / ".env").write_text(
                 f"ROOT_PATH={media}\nDOWNLOADS_PATH={downloads}\n"
                 "JELLYFIN_BIND_ADDRESS=127.0.0.1\nMANAGEMENT_BIND_ADDRESS=127.0.0.1\n"
@@ -493,7 +529,7 @@ class SetupFoundationTests(unittest.TestCase):
     def test_supplied_journal_unchanged_completed_state_is_a_noop(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
-            media = root / "media"; downloads = root / "downloads"
+            media = root / "media"; downloads = media / "downloads"
             (repo / ".env").write_text(
                 f"ROOT_PATH={media}\nDOWNLOADS_PATH={downloads}\n"
                 "ACTIONS_TOKEN=actions\nJELLYFIN_BIND_ADDRESS=127.0.0.1\n"
@@ -533,7 +569,7 @@ class SetupFoundationTests(unittest.TestCase):
     def test_saved_gpu_mode_activates_validated_overlay(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); repo = root / "repo"; repo.mkdir(); (repo / ".git").mkdir()
-            media = root / "media"; downloads = root / "downloads"
+            media = root / "media"; downloads = media / "downloads"
             state = InstallerState.new(repo, gpu_mode="nvidia")
             class Runner:
                 def __init__(self): self.calls = []
@@ -624,7 +660,7 @@ class SetupFoundationTests(unittest.TestCase):
             )
             (repo / ".env").write_text("# empty local env\n", encoding="utf-8")
             observed = []
-            media = root / "media"; downloads = root / "downloads"
+            media = root / "media"; downloads = media / "downloads"
 
             def finder(*, project_name=None):
                 observed.append(project_name)

@@ -299,6 +299,15 @@ installer has a separate, confirmation-gated `configure` phase that reconciles
 the supported qBittorrent, *arr, Prowlarr/Torznab, Jellyfin-library, and Seerr
 settings; unsupported or conflicting user-owned settings remain guided/manual.
 
+Fresh Windows installs default to the hardlink-compatible layout: downloads
+live at `ROOT_PATH/downloads`, and qBittorrent, Sonarr, and Radarr see the host
+root as their single `/data` mount. The bootstrap also accepts explicit
+`-StorageMode separate`; in that mode it selects the separate Compose overlay,
+keeps final libraries at `/data/media`, and uses `/downloads` for staging.
+Cross-filesystem imports must copy and verify rather than rely on hardlinks.
+The Linux installer additionally requires the configured permanent-library
+mount UUID and validates its writable identity before start/update.
+
 ### Linux installer
 
 Linux setup is provided by `install.sh` and a Python 3.10+ standard-library
@@ -323,10 +332,15 @@ environment/secret store:
 
 ```bash
 LUMEN_ROOT_PATH=/srv/lumen-media \
-LUMEN_DOWNLOADS_PATH=/srv/lumen-downloads \
+LUMEN_DOWNLOADS_PATH=/srv/lumen-media/downloads \
 LUMEN_QBT_PASSWORD="$QBT_PASSWORD_FROM_SECRET_STORE" \
 ./install.sh setup --non-interactive --network-mode local --gpu-mode none
 ```
+
+For the fixed two-disk rollout, use `LUMEN_STORAGE_MODE=separate` with
+`LUMEN_ROOT_PATH=/run/media/admin/ARQUIVOS`,
+`LUMEN_DOWNLOADS_PATH=/home/admin/lumen-downloads`, and
+`LUMEN_LIBRARY_MOUNT_UUID=B8A426BFA4267FCC`.
 
 Use `--network-mode lan --public-host HOST` only after reviewing firewall and
 reverse-proxy policy. Existing environments missing

@@ -30,6 +30,7 @@ DEFAULT_BASE_URL = "http://127.0.0.1:9696"
 DEFAULT_QBIT_HOST = "qbittorrent"
 DEFAULT_QBIT_PORT = 8081
 DEFAULT_QBIT_USERNAME = "admin"
+DEFAULT_PROWLARR_URL = "http://prowlarr:9696"
 DEFAULT_SONARR_URL = "http://sonarr:8989"
 DEFAULT_RADARR_URL = "http://radarr:7878"
 GENERIC_TORZNAB_NAME = "Lumen Generic Torznab"
@@ -362,7 +363,7 @@ def _kind_matches(candidate: Mapping[str, Any], *needles: str) -> bool:
 
 def _is_service_application(candidate: Mapping[str, Any], service: str) -> bool:
     identity = _APPLICATION_IDENTITIES.get(_service_text(service))
-    return identity is not None and _exact_identity_matches(
+    return _exact_identity_matches(
         candidate,
         identity,
         required=("name", "implementation"),
@@ -371,10 +372,13 @@ def _is_service_application(candidate: Mapping[str, Any], service: str) -> bool:
 
 def _is_service_application_schema(candidate: Mapping[str, Any], service: str) -> bool:
     identity = _APPLICATION_IDENTITIES.get(_service_text(service))
+    if identity is None:
+        return False
+    schema_identity = {key: value for key, value in identity.items() if key != "name"}
     return identity is not None and _exact_identity_matches(
         candidate,
-        identity,
-        required=tuple(identity),
+        schema_identity,
+        required=tuple(schema_identity),
     )
 
 
@@ -383,7 +387,12 @@ def _is_qbit(candidate: Mapping[str, Any]) -> bool:
 
 
 def _is_qbit_schema(candidate: Mapping[str, Any]) -> bool:
-    return _exact_identity_matches(candidate, _QBIT_IDENTITY, required=tuple(_QBIT_IDENTITY))
+    identity = {key: value for key, value in _QBIT_IDENTITY.items() if key != "name"}
+    return _exact_identity_matches(
+        candidate,
+        identity,
+        required=tuple(identity),
+    )
 
 
 def _is_generic_torznab(candidate: Mapping[str, Any]) -> bool:
@@ -406,10 +415,13 @@ def _is_managed_generic_torznab(candidate: Mapping[str, Any]) -> bool:
 
 
 def _is_generic_torznab_schema(candidate: Mapping[str, Any]) -> bool:
+    identity = {
+        key: value for key, value in _GENERIC_TORZNAB_IDENTITY.items() if key != "name"
+    }
     return _exact_identity_matches(
         candidate,
-        _GENERIC_TORZNAB_IDENTITY,
-        required=tuple(_GENERIC_TORZNAB_IDENTITY),
+        identity,
+        required=tuple(identity),
     )
 
 
@@ -749,9 +761,13 @@ class ProwlarrAdapter:
         fields = schema.get("fields")
         payload = dict(schema)
         payload["fields"] = _set_field_values(fields, desired)
-        payload.setdefault("name", default_name)
+        if not isinstance(payload.get("name"), str) or not payload["name"].strip():
+            payload["name"] = default_name
         for key, value in defaults.items():
-            payload.setdefault(key, value)
+            if key == "enable":
+                payload[key] = value
+            else:
+                payload.setdefault(key, value)
         payload.pop("id", None)
         return payload
 
@@ -907,6 +923,9 @@ class ProwlarrAdapter:
             ("baseUrl", "url"): self._application_urls[service],
             ("apiKey", "apikey", "key"): api_key,
         }
+        prowlarr_url_actual = _field_actual_name(schema.get("fields"), ("prowlarrUrl",))
+        if prowlarr_url_actual is not None:
+            desired[("prowlarrUrl",)] = DEFAULT_PROWLARR_URL
         sync_actual = _field_actual_name(schema.get("fields"), ("syncLevel",))
         if sync_actual is not None:
             desired[("syncLevel",)] = "fullSync"

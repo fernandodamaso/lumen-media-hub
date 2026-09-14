@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+set -eu
+
+repo=${LUMEN_WRITER_REPO:-/home/admin/Projects/lumen-media-hub}
+env_file="$repo/.env"
+docker_bin=${LUMEN_WRITER_DOCKER_BIN:-/usr/bin/docker}
+action=${1:-}
+case "$action" in
+  start|stop) ;;
+  *)
+    echo "usage: lumen-storage-writers {start|stop}" >&2
+    exit 2
+    ;;
+esac
+
+if [ "$action" = "stop" ]; then
+  # Stop only the fixed container names owned by this host contract. This
+  # branch deliberately does not read .env or installer state: mount-loss and
+  # Docker-stop paths must still release owned writers after config damage.
+  owned=()
+  for service in qbittorrent sonarr radarr bazarr unpackerr; do
+    container_name=$("$docker_bin" container inspect --format '{{.Name}}' "$service" 2>/dev/null || true)
+    if [ "$container_name" = "/$service" ]; then
+      owned+=("$service")
+    fi
+  done
+  if [ "${#owned[@]}" -gt 0 ]; then
+    "$docker_bin" container stop --time 60 "${owned[@]}" >/dev/null 2>&1 || true
+  fi
+  exit 0
+fi
+
+# Start is fail-closed. The same rendered Compose payload used for the final
+# up is validated privately before any container mutation is attempted.
+plan=$(
+  PYTHONPATH="$repo/installer" /usr/bin/python3 - "$repo" "$env_file" "$docker_bin" <<'PY'
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+from lumen_installer.compose import validate_storage_mounts, validate_storage_writer_policy
+from lumen_installer.dotenv import DotEnvDocument
+from lumen_installer.state import KNOWN_PROFILES, InstallerState
+from lumen_installer.storage import validate_storage
+
+repo = Path(sys.argv[1])
+env_file = Path(sys.argv[2])
+docker_bin = sys.argv[3]
+try:
+    values = DotEnvDocument.parse(env_file).values
+except (OSError, UnicodeError):
+    raise SystemExit("storage writer environment could not be read")
+if values.get("STORAGE_MODE", "shared").strip().lower() != "separate":
+    raise SystemExit("storage writer unit requires STORAGE_MODE=separate")
+root = values.get("ROOT_PATH")
+downloads = values.get("DOWNLOADS_PATH")
+mount_uuid = values.get("LIBRARY_MOUNT_UUID")
+if not root or not downloads or not mount_uuid:
+    raise SystemExit("separate storage requires ROOT_PATH, DOWNLOADS_PATH, and LIBRARY_MOUNT_UUID")
+
+def integer(name):
+    raw = values.get(name)
+    return None if raw in (None, "") else int(raw)
+
+def number(name):
+    raw = values.get(name, "0")
+    return float(raw or 0)
+
+validate_storage(
+    root,
+    downloads,
+    repo_root=repo,
+    uid=integer("PUID"),
+    gid=integer("PGID"),
+    required_free_gib=number("MIN_FREE_SPACE_GIB"),
+    dry_run=True,
+    storage_mode="separate",
+    expected_mount_uuid=mount_uuid,
+)
+
+state = InstallerState.load(repo, correct_modes=False)
+profiles = state.profiles
+if set(profiles).difference(KNOWN_PROFILES):
+    raise SystemExit("installer state contains unsupported Compose profiles")
+services = ["qbittorrent", "sonarr", "radarr"]
+if "subtitles" in profiles and values.get("BAZARR_ENABLED", "false").strip().lower() == "true":
+    services.append("bazarr")
+if "maintenance" in profiles:
+    services.append("unpackerr")
+
+configured = values.get("COMPOSE_FILE", "").strip()
+if configured:
+    files = []
+    for raw in configured.split(":"):
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            candidate = repo / candidate
+        candidate = candidate.resolve(strict=False)
+        try:
+            candidate.relative_to(repo.resolve())
+        except ValueError:
+            raise SystemExit("COMPOSE_FILE must stay inside the Lumen checkout")
+        # The separate overlay is always forced to the end. A custom overlay
+        # after it must not be able to undo scoped mounts or restart ownership.
+        if candidate.name == "docker-compose.separate.yml":
+            continue
+        if candidate not in files:
+            files.append(candidate)
+else:
+    files = [repo / "docker-compose.yml"]
+    override = repo / "docker-compose.override.yml"
+    if override.is_file():
+        files.append(override)
+separate = repo / "docker-compose.separate.yml"
+files.append(separate)
+
+compose = [docker_bin, "compose", "--env-file", str(env_file)]
+for compose_file in files:
+    compose.extend(("-f", str(compose_file)))
+for profile in profiles:
+    compose.extend(("--profile", profile))
+render = subprocess.run(
+    (*compose, "config", "--format", "json"),
+    capture_output=True,
+    text=True,
+    check=False,
+)
+if render.returncode != 0:
+    raise SystemExit("effective Compose configuration could not be rendered")
+try:
+    payload = json.loads(render.stdout)
+except (TypeError, ValueError, json.JSONDecodeError):
+    raise SystemExit("effective Compose configuration was not valid JSON")
+validate_storage_mounts(
+    payload,
+    root_path=root,
+    downloads_path=downloads,
+    storage_mode="separate",
+)
+validate_storage_writer_policy(payload, services)
+
+for profile in profiles:
+    print(f"profile={profile}")
+for service in services:
+    print(f"service={service}")
+for compose_file in files:
+    print(f"file={compose_file}")
+PY
+)
+
+profiles=()
+services=()
+files=()
+while IFS='=' read -r kind value; do
+  case "$kind" in
+    profile) profiles+=(--profile "$value") ;;
+    service) services+=("$value") ;;
+    file) files+=("-f" "$value") ;;
+  esac
+done <<< "$plan"
+
+compose=("$docker_bin" compose --env-file "$env_file" "${files[@]}")
+"${compose[@]}" "${profiles[@]}" up -d "${services[@]}"

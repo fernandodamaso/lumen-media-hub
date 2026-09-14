@@ -83,6 +83,14 @@ Assert-Contract ($hookText -match 'npm run quality') `
 # Windows-hosted runner.
 Assert-Contract ($installerText -match "QBT_PASSWORD") `
   'Windows installer must retain the qBittorrent password contract.'
+Assert-Contract ($installerText -match 'function Assert-SharedStorageLayout') `
+  'Windows installer must validate the shared storage layout.'
+Assert-Contract ($installerText -match 'Legacy separate download storage') `
+  'Windows installer must stop legacy separate download mounts before Compose.'
+Assert-Contract ($installerText -match "Join-Path \$rootPath 'downloads'") `
+  'Windows installer must derive downloads below ROOT_PATH.'
+Assert-Contract ($installerText -match 'different Windows volumes') `
+  'Windows installer must reject cross-volume storage.'
 $composeText = Get-Content -LiteralPath (Join-Path $repositoryRoot 'docker-compose.yml') -Raw
 Assert-Contract ($composeText -match 'QBT_PASSWORD=\$\{QBT_PASSWORD') `
   'homepage-actions must receive QBT_PASSWORD from Compose environment.'

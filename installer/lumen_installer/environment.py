@@ -11,6 +11,7 @@ from typing import Any
 
 from .dotenv import DotEnvDocument
 from .secrets import ensure_actions_token
+from .storage import normalize_storage_mode
 
 
 _MISSING = object()
@@ -30,6 +31,8 @@ _DISPLAY_SAFE_KEYS = frozenset(
         "TZ",
         "ROOT_PATH",
         "DOWNLOADS_PATH",
+        "STORAGE_MODE",
+        "LIBRARY_MOUNT_UUID",
         "UMASK",
     }
 )
@@ -343,6 +346,17 @@ def plan_environment(
         normalized = _normalise_path(configured)
         if normalized is not None:
             put(key, normalized, reason="normalized absolute path")
+
+    configured_mode = _answer_value(answers, "STORAGE_MODE")
+    if not _present(configured_mode):
+        configured_mode = document.get("STORAGE_MODE", "shared")
+    mode = normalize_storage_mode(configured_mode)
+    put("STORAGE_MODE", mode, reason="explicit storage layout")
+    mount_uuid = _answer_value(answers, "LIBRARY_MOUNT_UUID")
+    if not _present(mount_uuid):
+        mount_uuid = document.get("LIBRARY_MOUNT_UUID", None)
+    if _present(mount_uuid):
+        put("LIBRARY_MOUNT_UUID", str(mount_uuid).strip().replace("-", "").upper(), reason="configured library identity")
 
     # Fresh setup takes one password answer and deliberately writes both names
     # for compatibility.  Adopted installations retain their alias exactly;

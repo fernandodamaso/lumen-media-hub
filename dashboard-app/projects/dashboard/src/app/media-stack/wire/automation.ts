@@ -95,9 +95,68 @@ export interface MediaStackAutomationSummaryDto {
   preview?: MediaStackAutomationPreviewItemDto[] | null;
   problems?: MediaStackAutomationProblemDto[] | null;
   queueHygiene?: MediaStackQueueHygieneSummaryDto | null;
+  status?: MediaStackOperationalStatusDto | null;
   unavailable?: {
     services?: boolean;
     preview?: boolean;
     problems?: boolean;
+  };
+}
+
+export interface MediaStackOperationalDiskDto {
+  id: string;
+  label: string;
+  status: string;
+  identityStatus: string;
+  availableBytes: number | null;
+  freeBytes: number | null;
+  usedBytes: number | null;
+  totalBytes: number | null;
+}
+
+export interface MediaStackOperationalStatusDto {
+  generatedAt: string;
+  storage: {
+    status: string;
+    disks: MediaStackOperationalDiskDto[];
+  };
+  pause: {
+    status: string;
+    reason: string;
+    manual: boolean | null;
+    guard: boolean | null;
+    known: boolean;
+  };
+  guard: {
+    enabled: boolean;
+    status: string;
+    health: string;
+    lastCycleAt: string | null;
+  };
+  verifiedCleanup: {
+    enabled: boolean;
+    status: string;
+    lastResult: { status: string; reason?: string | null } | null;
+    queueCount: number;
+  };
+  verification: {
+    status: string;
+    queuedCount: number;
+    previewCount: number;
+  };
+  trakt: {
+    configured: boolean;
+    auth: string;
+    health: string;
+    expiresAt: string | null;
+  };
+  retention: {
+    enabled: boolean;
+    status: string;
+    preview: { eligibleCount: number; preservedCount: number } | null;
+    skips: { reason: string; count: number }[];
+    results: { deletedCount: number; preservedCount: number; pendingCount: number };
+    lastResult: { status: string; reason?: string | null } | null;
+    scheduler: { enabled: boolean; running: boolean };
   };
 }

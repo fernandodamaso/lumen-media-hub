@@ -1,0 +1,21 @@
+[Unit]
+Description=Lumen downloader and library writers (separate storage mode)
+Requires=run-media-admin-ARQUIVOS.mount docker.service
+BindsTo=run-media-admin-ARQUIVOS.mount docker.service
+PartOf=docker.service
+RequiresMountsFor=/run/media/admin/ARQUIVOS
+After=run-media-admin-ARQUIVOS.mount docker.service
+ConditionPathIsMountPoint=/run/media/admin/ARQUIVOS
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/admin/Projects/lumen-media-hub
+ExecStartPre=/usr/bin/findmnt --target /run/media/admin/ARQUIVOS --source /dev/disk/by-uuid/B8A426BFA4267FCC --options rw
+ExecStart=/usr/bin/bash /home/admin/Projects/lumen-media-hub/installer/artifacts/phase9/lumen-storage-writers start
+ExecStop=/usr/bin/bash /home/admin/Projects/lumen-media-hub/installer/artifacts/phase9/lumen-storage-writers stop
+TimeoutStartSec=1800
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

@@ -373,6 +373,49 @@ describe('live-api.mappers', () => {
     expect(sonarrMissing?.itemCount).toBe(2);
   });
 
+  it('maps staged operational status without exposing private state', () => {
+    const dto = mapLiveAutomationSummary({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
+      status: {
+        generatedAt: '2026-07-13T12:00:00Z',
+        storage: {
+          status: 'healthy',
+          disks: [
+            { id: 'staging', label: 'Staging', status: 'healthy', identityStatus: 'observed', availableBytes: 100, freeBytes: 120, usedBytes: 20, totalBytes: 140 },
+            { id: 'library', label: 'Library', status: 'unavailable', identityStatus: 'unavailable', availableBytes: null, freeBytes: null, usedBytes: null, totalBytes: null },
+          ],
+        },
+        pause: { status: 'not_reported', reason: 'not_reported', manual: null, guard: null, known: false },
+        guard: { enabled: false, status: 'disabled', health: 'disabled', lastCycleAt: null },
+        verifiedCleanup: { enabled: false, status: 'disabled', lastResult: null, queueCount: 0 },
+        verification: { status: 'disabled', queuedCount: 0, previewCount: 0 },
+        trakt: { configured: false, auth: 'unconfigured', health: 'unavailable', expiresAt: null },
+        retention: {
+          enabled: false,
+          status: 'disabled',
+          preview: null,
+          skips: [],
+          results: { deletedCount: 0, preservedCount: 0, pendingCount: 0 },
+          lastResult: null,
+          scheduler: { enabled: false, running: false },
+        },
+      },
+    });
+    expect(dto.status?.storage.disks[0].availableBytes).toBe(100);
+    expect(dto.status?.pause.manual).toBeNull();
+    expect(dto.status?.trakt.auth).toBe('unconfigured');
+  });
+
+  it('rejects malformed staged operational status', () => {
+    expect(() => mapLiveAutomationSummary({
+      ok: true,
+      sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
+      status: { storage: {} },
+    })).toThrow(/incomplete status/);
+  });
+
   it('does not invent a Bazarr outage when the optional block is absent', () => {
     const dto = mapLiveAutomationSummary({
       ok: true,

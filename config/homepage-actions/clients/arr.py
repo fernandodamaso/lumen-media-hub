@@ -400,16 +400,54 @@ def find_sonarr_series_by_tmdb(tmdb_id):
     return matches
 
 
-def fetch_arr_history(base, api_key, entity_param, arr_id):
+def fetch_arr_history(base, api_key, entity_param, arr_id, *, page=1, page_size=1000):
     """Fetch paged Arr history scoped to one entity.
 
     Sonarr filters on seriesIds (plural); Radarr on movieIds. Singular params are ignored.
     """
+    if isinstance(arr_id, bool) or not isinstance(arr_id, int) or arr_id <= 0:
+        raise ValueError("arr_id must be a positive integer")
+    if isinstance(page, bool) or not isinstance(page, int) or page <= 0:
+        raise ValueError("page must be a positive integer")
+    if isinstance(page_size, bool) or not isinstance(page_size, int) or page_size <= 0:
+        raise ValueError("page_size must be a positive integer")
     path = (
-        f"/api/v3/history?{entity_param}={int(arr_id)}"
-        f"&page=1&pageSize=1000&sortKey=date&sortDirection=descending"
+        f"/api/v3/history?{entity_param}={arr_id}"
+        f"&page={page}&pageSize={page_size}&sortKey=date&sortDirection=descending"
     )
     return _arr_get(base, api_key, path)
+
+
+def fetch_arr_history_all(base, api_key, entity_param, arr_id, *, page_size=1000):
+    """Fetch a complete entity-scoped history snapshot or fail closed."""
+    if isinstance(page_size, bool) or not isinstance(page_size, int) or page_size <= 0:
+        raise ValueError("page_size must be a positive integer")
+    records = []
+    page = 1
+    total = None
+    while total is None or len(records) < total:
+        payload = fetch_arr_history(
+            base, api_key, entity_param, arr_id, page=page, page_size=page_size
+        )
+        if not isinstance(payload, dict) or not isinstance(payload.get("records"), list):
+            raise ValueError("Arr history response is incomplete")
+        raw_total = payload.get("totalRecords")
+        if isinstance(raw_total, bool) or not isinstance(raw_total, int) or raw_total < 0:
+            raise ValueError("Arr history total is unavailable")
+        if total is None:
+            total = raw_total
+        elif raw_total != total:
+            raise ValueError("Arr history total changed during snapshot")
+        page_records = payload["records"]
+        if len(page_records) > page_size or not page_records and len(records) < total:
+            raise ValueError("Arr history page is incomplete")
+        records.extend(page_records)
+        if len(records) > total:
+            raise ValueError("Arr history returned too many records")
+        page += 1
+        if page > total // page_size + 2:
+            raise ValueError("Arr history pagination did not converge")
+    return {"records": records, "totalRecords": total, "complete": True}
 
 
 def delete_radarr_movie(arr_id):

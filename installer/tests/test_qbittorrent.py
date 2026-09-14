@@ -13,6 +13,7 @@ from lumen_installer.errors import InvalidInputError, PartialError
 from lumen_installer.dotenv import DotEnvDocument
 from lumen_installer.http import HttpConnectionError, HttpResponse, HttpStatusError, HttpTimeoutError
 from lumen_installer.services.qbittorrent import (
+    DEFAULT_SAVE_PATH,
     QbittorrentAdapter,
     QbittorrentAuthenticationError,
     QbittorrentCategoryReconciliationError,
@@ -57,6 +58,9 @@ class DeterministicTransport:
 
 
 class QbittorrentAdapterTests(unittest.TestCase):
+    def test_default_save_path_is_inside_the_shared_data_mount(self):
+        self.assertEqual(DEFAULT_SAVE_PATH, "/data/downloads")
+
     def test_environment_update_is_redacted_in_result_report(self):
         result = QbittorrentResult(
             service="qbittorrent",
@@ -72,7 +76,7 @@ class QbittorrentAdapterTests(unittest.TestCase):
         )
         self.assertNotIn(SELECTED_PASSWORD, repr(result.report))
 
-    def _configured_responses(self, *, save_path="/downloads", categories=None):
+    def _configured_responses(self, *, save_path="/data/downloads", categories=None):
         return [
             response("Ok.", headers={"Set-Cookie": "SID=initial-session; Path=/"}),
             response({"save_path": save_path, "listen_port": 6881}),
@@ -87,14 +91,14 @@ class QbittorrentAdapterTests(unittest.TestCase):
                 response("Ok.", headers={"Set-Cookie": "SID=initial-session; Path=/"}),
                 response(
                     {
-                        "save_path": "/downloads",
+                        "save_path": "/data/downloads",
                     }
                 ),
                 response(
                     {
-                        "sonarr": {"savePath": "/downloads/sonarr"},
-                        "radarr": {"savePath": "/downloads/radarr"},
-                        "unrelated": {"savePath": "/downloads/unrelated"},
+                        "sonarr": {"savePath": "/data/downloads/sonarr"},
+                        "radarr": {"savePath": "/data/downloads/radarr"},
+                        "unrelated": {"savePath": "/data/downloads/unrelated"},
                     }
                 ),
                 response(""),
@@ -139,8 +143,8 @@ class QbittorrentAdapterTests(unittest.TestCase):
             [
                 response("Fails."),
                 response("Ok.", headers={"Set-Cookie": "SID=temp-session; Path=/"}),
-                response({"save_path": "/downloads"}),
-                response({"sonarr": {"savePath": "/downloads/sonarr"}, "radarr": {"savePath": "/downloads/radarr"}}),
+                response({"save_path": "/data/downloads"}),
+                response({"sonarr": {"savePath": "/data/downloads/sonarr"}, "radarr": {"savePath": "/data/downloads/radarr"}}),
                 response(""),
                 response("Ok.", headers={"Set-Cookie": "SID=selected-session; Path=/"}),
             ]
@@ -179,8 +183,8 @@ class QbittorrentAdapterTests(unittest.TestCase):
     def test_stack_password_is_the_current_secret_fallback_when_qbt_password_is_absent(self):
         transport = DeterministicTransport(self._configured_responses(
             categories={
-                "sonarr": {"savePath": "/downloads/sonarr"},
-                "radarr": {"savePath": "/downloads/radarr"},
+                "sonarr": {"savePath": "/data/downloads/sonarr"},
+                "radarr": {"savePath": "/data/downloads/radarr"},
             }
         ))
         adapter = QbittorrentAdapter(
@@ -199,8 +203,8 @@ class QbittorrentAdapterTests(unittest.TestCase):
     def test_dotenv_document_is_accepted_as_the_current_env_source(self):
         transport = DeterministicTransport(self._configured_responses(
             categories={
-                "sonarr": {"savePath": "/downloads/sonarr"},
-                "radarr": {"savePath": "/downloads/radarr"},
+                "sonarr": {"savePath": "/data/downloads/sonarr"},
+                "radarr": {"savePath": "/data/downloads/radarr"},
             }
         ))
         adapter = QbittorrentAdapter(
@@ -218,8 +222,8 @@ class QbittorrentAdapterTests(unittest.TestCase):
     def test_interactive_password_callback_is_last_credential_source(self):
         transport = DeterministicTransport(self._configured_responses(
             categories={
-                "sonarr": {"savePath": "/downloads/sonarr"},
-                "radarr": {"savePath": "/downloads/radarr"},
+                "sonarr": {"savePath": "/data/downloads/sonarr"},
+                "radarr": {"savePath": "/data/downloads/radarr"},
             }
         ))
         prompts = []
@@ -239,8 +243,8 @@ class QbittorrentAdapterTests(unittest.TestCase):
     def test_interactive_password_callback_is_not_read_when_current_env_authenticates(self):
         transport = DeterministicTransport(self._configured_responses(
             categories={
-                "sonarr": {"savePath": "/downloads/sonarr"},
-                "radarr": {"savePath": "/downloads/radarr"},
+                "sonarr": {"savePath": "/data/downloads/sonarr"},
+                "radarr": {"savePath": "/data/downloads/radarr"},
             }
         ))
         prompts = []
@@ -359,6 +363,24 @@ class QbittorrentAdapterTests(unittest.TestCase):
         self.assertIsNone(adapter.session)
         self.assertIsNone(raised.exception.__context__)
 
+    def test_qbittorrent_5_2_login_accepts_the_port_scoped_session_cookie(self):
+        transport = DeterministicTransport(
+            [
+                response("", status=204, headers={"Set-Cookie": "QBT_SID_8081=new-session; HttpOnly; Path=/"}),
+                response("v5.2.3"),
+            ]
+        )
+        adapter = QbittorrentAdapter(BASE_URL, transport, interactive=False)
+
+        session = adapter.authenticate(password=SELECTED_PASSWORD)
+
+        self.assertIsNotNone(session)
+        self.assertEqual(len(transport.requests), 2)
+        self.assertEqual(
+            transport.requests[1][2]["headers"]["Cookie"],
+            "QBT_SID_8081=new-session",
+        )
+
     def test_malformed_preferences_are_invalid_typed_and_redacted(self):
         transport = DeterministicTransport(
             [
@@ -379,8 +401,8 @@ class QbittorrentAdapterTests(unittest.TestCase):
         transport = DeterministicTransport(
             [
                 response("Ok.", headers={"Set-Cookie": "SID=initial-session; Path=/"}),
-                response({"save_path": "/downloads"}),
-                response({"sonarr": {"savePath": "/downloads/sonarr"}, "radarr": {"savePath": "/downloads/radarr"}}),
+                response({"save_path": "/data/downloads"}),
+                response({"sonarr": {"savePath": "/data/downloads/sonarr"}, "radarr": {"savePath": "/data/downloads/radarr"}}),
                 response(""),
                 response("Fails.", status=403),
             ]
@@ -400,11 +422,11 @@ class QbittorrentAdapterTests(unittest.TestCase):
         transport = DeterministicTransport(
             [
                 response("Ok.", headers={"Set-Cookie": "SID=initial-session; Path=/"}),
-                response({"save_path": "/downloads"}),
+                response({"save_path": "/data/downloads"}),
                 response(
                     {
-                        "sonarr": {"savePath": "/downloads/sonarr"},
-                        "radarr": {"savePath": "/downloads/radarr"},
+                        "sonarr": {"savePath": "/data/downloads/sonarr"},
+                        "radarr": {"savePath": "/data/downloads/radarr"},
                     }
                 ),
                 response(""),
@@ -442,7 +464,7 @@ class QbittorrentAdapterTests(unittest.TestCase):
                 response(
                     {
                         "sonarr": {"savePath": "/old-downloads/series", "downloadPath": "keep-me"},
-                        "radarr": {"savePath": "/downloads/radarr", "downloadPath": "keep-radarr"},
+                        "radarr": {"savePath": "/data/downloads/radarr", "downloadPath": "keep-radarr"},
                         "unrelated": {"savePath": "/keep/unrelated", "downloadPath": "keep-this"},
                     }
                 ),
@@ -458,11 +480,11 @@ class QbittorrentAdapterTests(unittest.TestCase):
         self.assertEqual(result.status, "ok")
         self.assertEqual(
             json.loads(transport.requests[3][2]["form"]["json"]),
-            {"web_ui_password": CURRENT_PASSWORD, "save_path": "/downloads"},
+            {"web_ui_password": CURRENT_PASSWORD, "save_path": "/data/downloads"},
         )
         self.assertEqual(
             transport.requests[4][2]["form"],
-            {"category": "sonarr", "savePath": "/downloads/sonarr"},
+            {"category": "sonarr", "savePath": "/data/downloads/sonarr"},
         )
         self.assertNotIn("unrelated", repr(transport.requests[4]))
         self.assertNotIn("listen_port", json.loads(transport.requests[3][2]["form"]["json"]))
@@ -503,7 +525,7 @@ class QbittorrentAdapterTests(unittest.TestCase):
         transport = DeterministicTransport(
             [
                 response("Ok.", headers={"Set-Cookie": "SID=initial-session; Path=/"}),
-                response({"save_path": "/downloads"}),
+                response({"save_path": "/data/downloads"}),
                 response({"unrelated": {"savePath": "/keep/unrelated"}}),
                 response(""),
                 response(""),
@@ -519,8 +541,8 @@ class QbittorrentAdapterTests(unittest.TestCase):
         self.assertEqual(
             [request[2]["form"] for request in transport.requests[4:6]],
             [
-                {"category": "sonarr", "savePath": "/downloads/sonarr"},
-                {"category": "radarr", "savePath": "/downloads/radarr"},
+                {"category": "sonarr", "savePath": "/data/downloads/sonarr"},
+                {"category": "radarr", "savePath": "/data/downloads/radarr"},
             ],
         )
         self.assertNotIn("unrelated", repr(transport.requests[4][2]["form"]))

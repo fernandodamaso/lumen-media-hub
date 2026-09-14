@@ -1,0 +1,34 @@
+{
+  "inventory_complete": false,
+  "storage": {
+    "staging_path": "/home/admin/lumen-downloads",
+    "library_path": "/run/media/admin/ARQUIVOS/media",
+    "library_uuid": "B8A426BFA4267FCC"
+  },
+  "files": [],
+  "orphan_staging_paths": [],
+  "flags": {
+    "verified_cleanup_enabled": false,
+    "disk_guard_enabled": false,
+    "retention_enabled": false
+  },
+  "retention": {
+    "status": "blocked",
+    "reason": "incomplete_history"
+  },
+  "services": {
+    "radarr_api": "degraded",
+    "trakt_oauth": "missing",
+    "history_complete": false
+  },
+  "storage_mount": {
+    "status": "not-run",
+    "reason": "compose/systemd checks are run separately"
+  },
+  "status_view": {
+    "read_only": true
+  },
+  "quality": {
+    "status": "preview-only"
+  }
+}

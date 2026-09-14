@@ -7,11 +7,14 @@
   .\install.ps1 -Mode stack -Gpu -Force
   .\install.ps1 -Mode redeploy-dashboard
   .\install.ps1 -Mode up -Dev -Profile subtitles,requests
+  .\install.ps1 -Mode stack -StorageMode separate
 #>
 [CmdletBinding()]
 param(
   [ValidateSet('stack', 'frontend-dev', 'both', 'redeploy-dashboard', 'up', 'connect-trakt')]
   [string]$Mode = 'both',
+  [ValidateSet('', 'shared', 'separate')]
+  [string]$StorageMode = '',
   [switch]$Force,
   [switch]$Gpu,
   [switch]$Dev,
@@ -25,6 +28,7 @@ $RepoRoot = $PSScriptRoot
 $DashboardApp = Join-Path $RepoRoot 'dashboard-app'
 $EnvFile = Join-Path $RepoRoot '.env'
 $ComposeFile = Join-Path $RepoRoot 'docker-compose.yml'
+$ComposeSeparateFile = Join-Path $RepoRoot 'docker-compose.separate.yml'
 $ComposeGpuFile = Join-Path $RepoRoot 'docker-compose.gpu.yml'
 $Interactive = -not [Console]::IsInputRedirected
 $script:NpmCiComplete = $false
@@ -42,7 +46,10 @@ function Assert-Command([string]$Name, [string]$InstallHint) {
 }
 
 function Get-ComposePullServices {
-  $configJson = docker compose --env-file $EnvFile -f $ComposeFile config --format json
+  $composeArgs = @('--env-file', $EnvFile)
+  $composeArgs += @(Get-ComposeFileArgs)
+  $composeArgs += @('config', '--format', 'json')
+  $configJson = docker compose @composeArgs
   Assert-ExitCode 'docker compose config'
   $config = $configJson | ConvertFrom-Json
   $services = @(
@@ -131,11 +138,80 @@ function Test-NonEmptyEnvValue([hashtable]$Map, [string]$Name) {
   return -not [string]::IsNullOrWhiteSpace($value)
 }
 
+function Get-StorageMode([hashtable]$Map) {
+  if ($StorageMode) { return $StorageMode }
+  if ($Map.ContainsKey('STORAGE_MODE')) {
+    $configured = (Unquote-DotEnvValue ([string]$Map['STORAGE_MODE'])).Trim().ToLowerInvariant()
+    if ($configured) { return $configured }
+  }
+  return 'shared'
+}
+
+function Get-ComposeFileArgs {
+  $map = Get-EnvMap ([string[]](Get-Content $EnvFile))
+  $fileArgs = @('-f', $ComposeFile)
+  if ((Get-StorageMode $map) -eq 'separate') { $fileArgs += @('-f', $ComposeSeparateFile) }
+  return $fileArgs
+}
+
+function Assert-SharedStorageLayout {
+  $lines = [string[]](Get-Content $EnvFile)
+  $map = Get-EnvMap $lines
+  if (-not (Test-NonEmptyEnvValue $map 'ROOT_PATH') -or -not (Test-NonEmptyEnvValue $map 'DOWNLOADS_PATH')) {
+    throw 'ROOT_PATH and DOWNLOADS_PATH must be configured before Compose starts.'
+  }
+  $rootPath = [System.IO.Path]::GetFullPath((Unquote-DotEnvValue ([string]$map['ROOT_PATH'])))
+  $downloadsPath = [System.IO.Path]::GetFullPath((Unquote-DotEnvValue ([string]$map['DOWNLOADS_PATH'])))
+  $storageMode = Get-StorageMode $map
+  if ($storageMode -notin @('shared', 'separate')) {
+    throw "STORAGE_MODE must be 'shared' or 'separate'."
+  }
+  if ($storageMode -eq 'separate') {
+    if ([string]::Equals(
+        $rootPath.TrimEnd([char[]]@('\', '/')),
+        $downloadsPath.TrimEnd([char[]]@('\', '/')),
+        [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw 'Separate storage requires distinct ROOT_PATH and DOWNLOADS_PATH targets.'
+    }
+    return
+  }
+  $expected = [System.IO.Path]::GetFullPath((Join-Path $rootPath 'downloads'))
+  $normalizedDownloads = $downloadsPath.TrimEnd([char[]]@('\', '/'))
+  $normalizedExpected = $expected.TrimEnd([char[]]@('\', '/'))
+  if (-not [string]::Equals($normalizedDownloads, $normalizedExpected, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Legacy separate download storage is not supported by the shared /data mount. Migrate DOWNLOADS_PATH to '$expected' before starting Compose. Existing files and persisted qBittorrent paths require an explicit migration."
+  }
+  $rootVolume = [System.IO.Path]::GetPathRoot($rootPath)
+  $downloadsVolume = [System.IO.Path]::GetPathRoot($downloadsPath)
+  if (-not [string]::Equals($rootVolume, $downloadsVolume, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "ROOT_PATH and DOWNLOADS_PATH are on different Windows volumes; hardlinks are unavailable."
+  }
+}
+
 function Merge-MissingEnvKeys {
   $lines = [System.Collections.Generic.List[string]]::new()
   $lines.AddRange([string[]](Get-Content $EnvFile))
   $map = Get-EnvMap $lines
   $changed = $false
+
+  if ($StorageMode) {
+    $replaced = $false
+    for ($index = 0; $index -lt $lines.Count; $index++) {
+      if ($lines[$index] -match '^STORAGE_MODE=') {
+        $lines[$index] = "STORAGE_MODE=$StorageMode"
+        $replaced = $true
+        $changed = $true
+        break
+      }
+    }
+    if (-not $replaced) {
+      $lines.Add("STORAGE_MODE=$StorageMode")
+      $changed = $true
+    }
+  } elseif (-not $map.ContainsKey('STORAGE_MODE')) {
+    $lines.Add('STORAGE_MODE=shared')
+    $changed = $true
+  }
 
   if (-not $map.ContainsKey('DOWNLOADS_PATH')) {
     $root = if ($map['ROOT_PATH']) { (Unquote-DotEnvValue $map['ROOT_PATH']) -replace '\\', '/' } else { $RepoRoot -replace '\\', '/' }
@@ -206,17 +282,24 @@ function Merge-MissingEnvKeys {
 
 function Initialize-EnvFile {
   if ((Test-Path $EnvFile) -and -not $Force) {
+    $existingMap = Get-EnvMap ([string[]](Get-Content $EnvFile))
+    if ((Test-NonEmptyEnvValue $existingMap 'ROOT_PATH') -and (Test-NonEmptyEnvValue $existingMap 'DOWNLOADS_PATH')) {
+      Assert-SharedStorageLayout
+    }
     Merge-MissingEnvKeys
+    Assert-SharedStorageLayout
     Write-Host ".env already exists (use -Force to recreate). Keeping it."
     return
   }
   $rootPath = (Read-Value 'Media root path' $RepoRoot 'ROOT_PATH') -replace '\\', '/'
+  $selectedStorageMode = if ($StorageMode) { $StorageMode } else { Read-Value 'Storage mode' 'shared' 'STORAGE_MODE' }
   $downloadsPath = (Read-Value 'Downloads path' "$rootPath/downloads" 'DOWNLOADS_PATH') -replace '\\', '/'
   $password = Read-Value 'Stack password (qBittorrent WebUI)' 'changeme' 'STACK_PASSWORD'
   if ($password -eq 'changeme') {
     Write-Warning "Using default password 'changeme'. Change it in .env and the qBittorrent WebUI."
   }
   $values = @{
+    'STORAGE_MODE'    = $selectedStorageMode
     'ROOT_PATH'       = $rootPath
     'DOWNLOADS_PATH'  = $downloadsPath
     'ACTIONS_TOKEN'   = [guid]::NewGuid().ToString('N')
@@ -229,6 +312,7 @@ function Initialize-EnvFile {
     } else { $_ }
   }
   Set-Content -Path $EnvFile -Value $lines -Encoding utf8
+  Assert-SharedStorageLayout
   Write-Host "Wrote $EnvFile (gitignored; never commit it)."
 }
 
@@ -247,11 +331,15 @@ function Invoke-RedeployDashboard {
   Assert-Docker
   Initialize-EnvFile
   Write-Step 'Building dashboard with Compose and recreating container (http://127.0.0.1:3000)'
+  $composeArgs = @('--env-file', $EnvFile)
+  $composeArgs += @(Get-ComposeFileArgs)
   if ($Gpu) {
-    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d --build --force-recreate dashboard
+    $composeArgs += @('-f', $ComposeGpuFile)
   } else {
-    docker compose --env-file $EnvFile -f $ComposeFile up -d --build --force-recreate dashboard
+    $composeArgs += @('up', '-d', '--build', '--force-recreate', 'dashboard')
   }
+  if ($Gpu) { $composeArgs += @('up', '-d', '--build', '--force-recreate', 'dashboard') }
+  docker compose @composeArgs
   Assert-ExitCode 'docker compose up --build dashboard'
   Write-Host 'Dashboard redeployed. Hard-refresh the browser (Ctrl+Shift+R) if assets look cached.'
 }
@@ -269,15 +357,20 @@ function Invoke-Stack {
 
   Write-Step 'Pulling service images'
   $composePullServices = Get-ComposePullServices
-  docker compose --env-file $EnvFile -f $ComposeFile pull $composePullServices
+  $composeArgs = @('--env-file', $EnvFile)
+  $composeArgs += @(Get-ComposeFileArgs)
+  $composeArgs += @('pull') + $composePullServices
+  docker compose @composeArgs
   Assert-ExitCode 'docker compose pull service images'
 
   Write-Step 'Building the dashboard and starting the stack'
+  $composeArgs = @('--env-file', $EnvFile)
+  $composeArgs += @(Get-ComposeFileArgs)
   if ($Gpu) {
-    docker compose --env-file $EnvFile -f $ComposeFile -f $ComposeGpuFile up -d --build
-  } else {
-    docker compose --env-file $EnvFile -f $ComposeFile up -d --build
+    $composeArgs += @('-f', $ComposeGpuFile)
   }
+  $composeArgs += @('up', '-d', '--build')
+  docker compose @composeArgs
   Assert-ExitCode 'docker compose up --build'
 
   Write-Step 'Waiting for homepage-actions health'
@@ -353,7 +446,8 @@ function Invoke-StackUp {
   Write-Step 'Clearing stale compose containers (worktree-rot guard)'
   Clear-StaleComposeContainers
   Write-Step 'Starting stack'
-  $composeArgs = @('--env-file', $EnvFile, '-f', $ComposeFile)
+  $composeArgs = @('--env-file', $EnvFile)
+  $composeArgs += @(Get-ComposeFileArgs)
   if ($Gpu) { $composeArgs += '-f', $ComposeGpuFile }
   if ($Dev) { $composeArgs += '-f', (Join-Path $RepoRoot 'docker-compose.dev.yml') }
   foreach ($p in $Profile) { $composeArgs += '--profile', $p }

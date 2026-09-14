@@ -230,6 +230,41 @@ class ProwlarrAdapterTests(unittest.TestCase):
         self.assertNotIn(TORZNAB_KEY, repr(result))
         self.assertNotIn(PROWLARR_KEY, repr(result))
 
+    def test_current_schema_templates_without_names_create_named_enabled_core_resources(self):
+        qbit = qbit_schema()
+        qbit.update({"name": "", "enable": False})
+        applications = [application_schema("sonarr"), application_schema("radarr")]
+        for schema in applications:
+            schema.pop("name")
+            schema["fields"].insert(
+                0,
+                {"name": "prowlarrUrl", "value": "http://localhost:9696"},
+            )
+        adapter, transport = self.adapter(
+            [
+                response({"version": "1.0.0"}),
+                response([qbit]),
+                response([]),
+                response(applications),
+                response([]),
+                response({"status": "ok"}),
+                response({"id": 11}),
+                response({"status": "ok"}),
+                response({"id": 12}),
+                response({"status": "ok"}),
+                response({"id": 13}),
+            ]
+        )
+
+        result = adapter.configure(include_generic_torznab=False)
+
+        self.assertEqual(result.status, "ok")
+        payloads = [transport.requests[index][2]["json_body"] for index in (5, 7, 9)]
+        self.assertEqual([payload["name"] for payload in payloads], ["qBittorrent", "Sonarr", "Radarr"])
+        self.assertTrue(all(payload["enable"] for payload in payloads))
+        self.assertEqual(fields_by_name(payloads[1])["prowlarrUrl"], "http://prowlarr:9696")
+        self.assertEqual(fields_by_name(payloads[2])["prowlarrUrl"], "http://prowlarr:9696")
+
     def test_matching_managed_resources_are_a_read_only_noop_and_unrelated_indexer_is_preserved(self):
         qbit = qbit_schema(
             fields=[

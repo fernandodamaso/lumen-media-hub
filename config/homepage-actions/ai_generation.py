@@ -254,6 +254,7 @@ class AiGenerationCoordinator:
                     "feedback": None,
                     "feedback_at": None,
                     "request_state": None,
+                    "request_provider": None,
                     "requested_at": None,
                     "jellyseerr_request_id": None,
                     "added_at": self.now(),

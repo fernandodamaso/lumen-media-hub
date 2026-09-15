@@ -1,6 +1,7 @@
 import { Location } from '@angular/common';
 import { provideLocationMocks, SpyLocation } from '@angular/common/testing';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { vi } from 'vitest';
@@ -18,6 +19,7 @@ import { MEDIA_STACK_API } from './media-stack/media-stack-api';
 import { provideOperationalLinkBases } from './media-stack/media-stack-api.providers';
 import { MockMediaStackApi } from './media-stack/mock-media-stack-api';
 import { StorageFacade } from './storage/storage.facade';
+import { CommandPalette } from './command-palette/command-palette';
 
 function provideCommandPaletteFacadeMocks() {
   return [
@@ -92,6 +94,26 @@ describe('App shell', () => {
     await Promise.resolve();
     fixture.detectChanges();
     expect(fixture.componentInstance.commandPaletteOpen()).toBe(true);
+  });
+
+  it('opens and resets the command palette from Add media', async () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const palette = fixture.debugElement.query(By.directive(CommandPalette))
+      .componentInstance as CommandPalette;
+    palette.query.set('stale query');
+    fixture.componentInstance.commandPaletteOpen.set(true);
+    fixture.detectChanges();
+
+    const trigger = fixtureHost(fixture).querySelector(
+      '[data-testid="topbar-add-media"] button',
+    ) as HTMLButtonElement;
+    trigger.click();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.commandPaletteOpen()).toBe(true);
+    expect(palette.query()).toBe('');
   });
 
   it('toggles the activity rail without removing it from the shell', () => {

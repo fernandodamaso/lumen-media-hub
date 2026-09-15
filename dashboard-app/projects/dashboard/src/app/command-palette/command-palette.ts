@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   effect,
   ElementRef,
   HostListener,
@@ -27,22 +28,36 @@ import { StorageFacade } from '../storage/storage.facade';
 import { ActivityFacade } from '../right-rail/activity.facade';
 import { refreshDashboardData } from '../dashboard/dashboard-refresh';
 import { TrendingFacade } from '../dashboard/trending.facade';
-import { MmDialog } from '@app/ui';
+import { MmDialog, MmStatus, MmStatusTone } from '@app/ui';
+import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
+import { MediaSearchItem } from '../media-request/media-request.models';
+import {
+  MediaRequestCompletion,
+  MediaRequestDialog,
+} from '../media-request/media-request-dialog/media-request-dialog';
+import { RequestableMediaItem } from '../media-request/media-request.models';
 
 export type CommandPaletteItem = {
   id: string;
-  group: 'Routes' | 'Library' | 'Actions';
+  group: 'Routes' | 'Your Library' | 'Catalog' | 'Actions';
   title: string;
   meta: string;
+  posterUrl?: string | null;
+  badgeLabel?: string;
+  badgeTone?: MmStatusTone;
+  activeBadgeLabel?: string;
+  disabled?: boolean;
+  closeOnRun?: boolean;
   run: () => void | Promise<void>;
 };
 
 const LIBRARY_QUERY_MIN_CHARS = 2;
 const LIBRARY_RESULT_CAP = 40;
+const REMOTE_SEARCH_DEBOUNCE_MS = 250;
 
 @Component({
   selector: 'mm-command-palette',
-  imports: [MmDialog],
+  imports: [MmDialog, MmStatus, MediaRequestDialog],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './command-palette.html',
   styleUrl: './command-palette.scss',
@@ -53,24 +68,45 @@ export class CommandPalette {
   private readonly libraryItems = inject(LibraryItemsFacade);
   private readonly jellyfinBases = inject(JELLYFIN_LINK_BASES);
   private readonly serviceBases = inject(SERVICE_LINK_BASES);
+  private readonly api = inject(MEDIA_STACK_API);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly open = input(false);
   readonly openChange = output<boolean>();
 
   readonly query = signal('');
   readonly activeIndex = signal(0);
+  readonly searchStatus = signal<string | null>(null);
+  readonly requestDialogItem = signal<RequestableMediaItem | null>(null);
+  readonly requestDialogOpen = signal(false);
+  private readonly remoteMediaItems = signal<MediaSearchItem[] | null>(null);
   private readonly inputRef = viewChild<ElementRef<HTMLInputElement>>('paletteInput');
   private previousOpen = false;
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
+  private searchAbort: AbortController | null = null;
+  private searchGeneration = 0;
 
   constructor() {
     effect(() => {
       const isOpen = this.open();
       if (isOpen && !this.previousOpen) {
+        this.cancelRemoteSearch();
+        this.searchGeneration += 1;
         this.query.set('');
         this.activeIndex.set(0);
+        this.remoteMediaItems.set(null);
+        this.searchStatus.set(null);
+        this.requestDialogOpen.set(false);
+        this.requestDialogItem.set(null);
         queueMicrotask(() => this.inputRef()?.nativeElement.focus());
+      } else if (!isOpen && this.previousOpen) {
+        this.cancelRemoteSearch();
+        this.searchGeneration += 1;
       }
       this.previousOpen = isOpen;
+    });
+    this.destroyRef.onDestroy(() => {
+      this.cancelRemoteSearch();
     });
   }
 
@@ -78,6 +114,11 @@ export class CommandPalette {
     const q = this.query().trim().toLowerCase();
     const staticItems = this.staticItems().filter((item) => matchesQuery(item, q));
     if (q.length < LIBRARY_QUERY_MIN_CHARS) return staticItems;
+
+    const authoritativeItems = this.remoteMediaItems();
+    if (authoritativeItems !== null) {
+      return [...staticItems, ...authoritativeItems.map((item) => this.toRemoteMediaCommand(item))];
+    }
 
     const libraryItems: CommandPaletteItem[] = [];
     for (const item of this.libraryItems.items()) {
@@ -101,6 +142,10 @@ export class CommandPalette {
     }
     return groups;
   });
+
+  readonly activeOptionId = computed(() =>
+    this.items().length ? this.optionId(this.activeIndex()) : null,
+  );
 
   private readonly staticItems = computed(() => {
     const routes: CommandPaletteItem[] = [
@@ -204,9 +249,11 @@ export class CommandPalette {
   }): CommandPaletteItem {
     return {
       id: `library-${item.id}`,
-      group: 'Library',
+      group: 'Your Library',
       title: item.title,
       meta: item.meta || item.kind,
+      badgeLabel: 'Available',
+      badgeTone: 'green',
       run: () => {
         const href = item.href ?? resolveJellyfinItemLink(item, this.jellyfinBases);
         if (href) window.open(href, '_blank', 'noreferrer');
@@ -215,8 +262,57 @@ export class CommandPalette {
     };
   }
 
+  private toRemoteMediaCommand(item: MediaSearchItem): CommandPaletteItem {
+    const href = item.status === 'available'
+      ? item.serviceHref ?? resolveJellyfinItemLink(
+          { id: item.jellyfinId ?? 'unknown', playable: true },
+          this.jellyfinBases,
+        )
+      : item.serviceHref;
+    const linkRequired = item.status === 'available' || item.status === 'tracked';
+    const disabled = item.status === 'requested' ||
+      item.status === 'processing' ||
+      item.status === 'unknown' ||
+      (linkRequired && !href);
+    const requestable = item.status === 'missing';
+    const badge = lifecycleBadge(item, href);
+    return {
+      id: `media-${item.identity}`,
+      group: item.status === 'available' ? 'Your Library' : 'Catalog',
+      title: item.title,
+      posterUrl: item.posterUrl,
+      badgeLabel: badge.label,
+      badgeTone: badge.tone,
+      activeBadgeLabel: requestable ? 'Request this title' : undefined,
+      meta: [
+        item.year,
+        item.type === 'tv' ? 'TV' : 'Movie',
+      ].filter(Boolean).join(' · '),
+      disabled,
+      closeOnRun: !requestable,
+      run: () => {
+        if (requestable) {
+          this.requestDialogItem.set({
+            identity: item.identity,
+            type: item.type,
+            tmdbId: item.tmdbId,
+            title: item.title,
+            year: item.year,
+            posterUrl: item.posterUrl,
+          });
+          this.requestDialogOpen.set(true);
+          return;
+        }
+        if (href && (item.status === 'available' || item.status === 'tracked')) {
+          window.open(href, '_blank', 'noreferrer');
+        }
+      },
+    };
+  }
+
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(event: KeyboardEvent): void {
+    if (this.requestDialogOpen()) return;
     const isPaletteShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k';
     if (isPaletteShortcut) {
       event.preventDefault();
@@ -235,8 +331,10 @@ export class CommandPalette {
   }
 
   onQueryInput(event: Event): void {
-    this.query.set((event.target as HTMLInputElement).value);
+    const value = (event.target as HTMLInputElement).value;
+    this.query.set(value);
     this.activeIndex.set(0);
+    this.scheduleRemoteSearch(value);
   }
 
   onListKeydown(event: KeyboardEvent): void {
@@ -263,14 +361,133 @@ export class CommandPalette {
 
   async selectIndex(index: number): Promise<void> {
     const item = this.items().at(index);
-    if (!item) return;
-    this.setOpen(false);
+    if (!item || item.disabled) return;
+    if (item.closeOnRun !== false) this.setOpen(false);
     await item.run();
   }
 
+  optionId(index: number): string {
+    return `command-palette-option-${index}`;
+  }
+
+  badgeLabel(item: CommandPaletteItem, index: number): string {
+    if (item.activeBadgeLabel && this.activeIndex() === index) return item.activeBadgeLabel;
+    return item.badgeLabel ?? item.group;
+  }
+
+  badgeTone(item: CommandPaletteItem): MmStatusTone {
+    if (item.badgeTone) return item.badgeTone;
+    if (item.group === 'Routes') return 'violet';
+    if (item.group === 'Actions') return 'gold';
+    return 'neutral';
+  }
+
   async selectItem(item: CommandPaletteItem): Promise<void> {
-    this.setOpen(false);
+    if (item.disabled) return;
+    if (item.closeOnRun !== false) this.setOpen(false);
     await item.run();
+  }
+
+  async onRequestCompleted(completion: MediaRequestCompletion): Promise<void> {
+    this.requestDialogOpen.set(false);
+    const query = this.query().trim();
+    if (query.length < LIBRARY_QUERY_MIN_CHARS || !this.open()) return;
+    this.cancelRemoteSearch();
+    const generation = ++this.searchGeneration;
+    await this.runRemoteSearch(query, generation, completion.identity);
+  }
+
+  private scheduleRemoteSearch(query: string): void {
+    this.cancelRemoteSearch();
+    const generation = ++this.searchGeneration;
+    this.remoteMediaItems.set(null);
+    this.searchStatus.set(null);
+    const trimmed = query.trim();
+    if (trimmed.length < LIBRARY_QUERY_MIN_CHARS) return;
+    this.searchTimer = setTimeout(() => {
+      this.searchTimer = null;
+      void this.runRemoteSearch(trimmed, generation);
+    }, REMOTE_SEARCH_DEBOUNCE_MS);
+  }
+
+  private async runRemoteSearch(
+    trimmed: string,
+    generation: number,
+    selectedIdentity?: string,
+  ): Promise<void> {
+    const controller = new AbortController();
+    this.searchAbort = controller;
+    this.searchStatus.set('Searching catalog…');
+    try {
+      const result = await this.api.searchMedia(trimmed, controller.signal);
+      if (
+        controller.signal.aborted ||
+        generation !== this.searchGeneration ||
+        this.query().trim() !== trimmed
+      ) {
+        return;
+      }
+      if (result.ok && result.availability === 'available') {
+        this.remoteMediaItems.set(result.items);
+        this.searchStatus.set(null);
+        const selectedIndex = selectedIdentity
+          ? this.items().findIndex((item) => item.id === `media-${selectedIdentity}`)
+          : -1;
+        this.activeIndex.set(selectedIndex >= 0 ? selectedIndex : 0);
+      } else if (result.availability === 'disabled') {
+        this.searchStatus.set('Catalog search is disabled. Showing local library matches.');
+      } else {
+        this.searchStatus.set('Catalog search is temporarily unavailable. Showing local library matches.');
+      }
+    } catch {
+      if (
+        !controller.signal.aborted &&
+        generation === this.searchGeneration &&
+        this.query().trim() === trimmed
+      ) {
+        this.searchStatus.set('Catalog search is temporarily unavailable. Showing local library matches.');
+      }
+    } finally {
+      if (this.searchAbort === controller) this.searchAbort = null;
+    }
+  }
+
+  private cancelRemoteSearch(): void {
+    if (this.searchTimer !== null) {
+      clearTimeout(this.searchTimer);
+      this.searchTimer = null;
+    }
+    this.searchAbort?.abort();
+    this.searchAbort = null;
+  }
+}
+
+function lifecycleBadge(
+  item: MediaSearchItem,
+  href: string | null,
+): { label: string; tone: MmStatusTone } {
+  switch (item.status) {
+    case 'available':
+      return href
+        ? { label: 'Available', tone: 'green' }
+        : { label: 'Jellyfin link unavailable', tone: 'neutral' };
+    case 'requested':
+      return { label: 'Request submitted', tone: 'info' };
+    case 'processing':
+      return { label: 'Acquisition in progress', tone: 'amber' };
+    case 'tracked':
+      if (item.service === 'sonarr') {
+        return href
+          ? { label: 'Tracked in Sonarr', tone: 'info' }
+          : { label: 'Sonarr link unavailable', tone: 'neutral' };
+      }
+      return href
+        ? { label: 'Tracked in Radarr', tone: 'info' }
+        : { label: 'Radarr link unavailable', tone: 'neutral' };
+    case 'missing':
+      return { label: 'Not available', tone: 'amber' };
+    default:
+      return { label: 'Status unavailable', tone: 'neutral' };
   }
 }
 

@@ -207,23 +207,6 @@ describe('DiscoverFacade', () => {
     expect(facade.notice()).not.toContain('backend-secret');
   });
 
-  it('composes mutation and exclusion notices with spacing and warning tone', async () => {
-    api.aiPicks.library_exclusion = { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' };
-    await facade.setTab('ai-picks');
-    api.requestResult = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
-    await facade.requestItem(facade.visibleItems()[0]);
-
-    expect(facade.notice()).toBe(
-      'Requested. Library filtering is using a cached snapshot. Showing AI Picks recommendations.',
-    );
-    expect(facade.noticeTone()).toBe('warning');
-
-    api.aiPicks.library_exclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:15:00Z' };
-    await facade.setTab('ai-picks');
-    expect(facade.notice()).toBe('Requested.');
-    expect(facade.noticeTone()).toBe('success');
-  });
-
   it('does not show a Trakt reconnect command for Jellyseerr errors', async () => {
     api.jellyseerrError = { message: 'internal reconnect', code: 'reconnect_required' };
 
@@ -242,21 +225,6 @@ describe('DiscoverFacade', () => {
 
     expect(facade.notice()).toBe('Could not refresh. Showing last loaded results.');
     expect(facade.notice()).not.toContain('onerror');
-  });
-
-  it('keeps a mutation notice while exclusion freshness changes and recovers', async () => {
-    await facade.setTab('ai-picks');
-    api.requestResult = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
-    api.aiPicks.library_exclusion = { status: 'stale', last_successful_refresh_at: '2026-08-11T12:00:00Z' };
-    await facade.requestItem(facade.visibleItems()[0]);
-
-    expect(facade.notice()).toContain('Requested.');
-    expect(facade.notice()).toContain('Library filtering');
-
-    api.aiPicks.library_exclusion = { status: 'fresh', last_successful_refresh_at: '2026-08-11T12:15:00Z' };
-    await facade.setTab('ai-picks');
-
-    expect(facade.notice()).toBe('Requested.');
   });
 
   it('preserves disabled Jellyseerr availability while a tab refresh is pending', async () => {
@@ -422,22 +390,6 @@ describe('DiscoverFacade', () => {
     ]);
   });
 
-  it('requestItem calls only requestMedia and tracks sync-failed notices', async () => {
-    await facade.setTab('ai-picks');
-    api.requestResult = {
-      ok: true,
-      dashboard_state_persisted: false,
-      partial_success: true,
-      message: 'Added to Sonarr/Radarr; dashboard synchronization failed.',
-    };
-    await facade.requestItem(facade.visibleItems()[0]);
-    expect(api.requestCalls).toHaveLength(1);
-    expect(api.feedbackCalls).toEqual([]);
-    expect(facade.isSyncFailed('ai-eligible')).toBe(true);
-    expect(facade.noticeTone()).toBe('warning');
-    expect(facade.notice()).toContain('synchronization failed');
-  });
-
   it('prevents duplicate busy mutations', async () => {
     await facade.setTab('ai-picks');
     const { promise: feedbackGate, resolve: resolveFeedback } = Promise.withResolvers<DiscoverAction>();
@@ -533,28 +485,6 @@ describe('DiscoverFacade', () => {
     expect(facade.notice()).toContain('already pending');
   });
 
-  it('clears sync-failed ids once AI Picks shows requested state', async () => {
-    await facade.setTab('ai-picks');
-    api.requestResult = {
-      ok: true,
-      dashboard_state_persisted: false,
-      message: 'sync failed',
-    };
-    await facade.requestItem(facade.visibleItems()[0]);
-    expect(facade.isSyncFailed('ai-eligible')).toBe(true);
-
-    api.aiPicks.items = [
-      {
-        ...api.aiPicks.items[0],
-        request_state: 'requested',
-        requested_at: '2026-07-12T00:00:00Z',
-        jellyseerr_request_id: 1,
-      },
-    ];
-    await facade.setTab('ai-picks');
-    expect(facade.isSyncFailed('ai-eligible')).toBe(false);
-  });
-
   it('recomputes ready/empty when switching AI Picks view after active becomes empty', async () => {
     api.aiPicks.items = [
       {
@@ -607,36 +537,49 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift', 'Copper Skies']);
   });
 
-  it('marks external items requested and refuses duplicate requestMedia calls', async () => {
-    await facade.setTab('jellyseerr');
-    await flush();
-    const item = facade.visibleItems()[0];
-    expect(item.requestState).toBeNull();
-
-    await facade.requestItem(item);
-    expect(api.requestCalls).toHaveLength(1);
-    expect(facade.visibleItems()[0].requestState).toBe('requested');
-
-    await facade.requestItem(facade.visibleItems()[0]);
-    expect(api.requestCalls).toHaveLength(1);
-  });
-
-  it('seeds requested keys from AI Picks so external tabs disable duplicates', async () => {
+  it('uses the active feed lifecycle instead of projecting AI Picks request state', async () => {
     api.aiPicks.items = [
       {
         ...api.aiPicks.items[0],
         request_state: 'requested',
+        media_status: 'requested',
+        service: null,
+        service_href: null,
+        request_id: 9001,
+        monitored: null,
         requested_at: '2026-07-09T09:00:00Z',
         jellyseerr_request_id: 9001,
       },
     ];
-    api.jellyseerr.trending = [{ type: 'movie', title: 'Same Title', tmdb_id: 101001 }];
+    api.jellyseerr.trending = [{
+      type: 'movie',
+      title: 'Same Title',
+      tmdb_id: 101001,
+      media_status: 'missing',
+      service: null,
+      service_href: null,
+      request_id: null,
+      monitored: null,
+    }];
     await facade.setTab('ai-picks');
     await facade.setTab('jellyseerr');
     await flush();
-    expect(facade.visibleItems()[0].requestState).toBe('requested');
-    await facade.requestItem(facade.visibleItems()[0]);
-    expect(api.requestCalls).toHaveLength(0);
+    expect(facade.visibleItems()[0]).toMatchObject({
+      mediaStatus: 'missing',
+      requestState: null,
+    });
+  });
+
+  it('refreshes the active source and filter after request completion', async () => {
+    await facade.setTab('jellyseerr');
+    facade.setJellyseerrKind('tv');
+    await flush();
+    expect(api.jellyseerrCalls).toEqual(['trending', 'tv']);
+
+    await facade.refreshActiveFeed();
+
+    expect(api.jellyseerrCalls).toEqual(['trending', 'tv', 'tv']);
+    expect(api.aiPicksCalls).toBe(0);
   });
 
   it('honors pending_request_sync as sync-failed across identities', async () => {
@@ -670,8 +613,6 @@ describe('DiscoverFacade', () => {
     await facade.setTab('jellyseerr');
     await flush();
     expect(facade.isSyncFailed(facade.visibleItems()[0])).toBe(true);
-    await facade.requestItem(facade.visibleItems()[0]);
-    expect(api.requestCalls).toHaveLength(0);
   });
 
   it('ignores stale AI Picks failures after switching tabs', async () => {
@@ -900,18 +841,6 @@ describe('DiscoverFacade', () => {
     expect(facade.visibleItems()).toEqual([]);
   });
 
-  it('keeps a mutation notice when the follow-up AI Picks refresh fails', async () => {
-    await facade.setTab('ai-picks');
-    api.requestResult = { ok: true, dashboard_state_persisted: true, message: 'Requested.' };
-    api.aiPicks = { ok: false, items: [], error: 'AI Picks offline' };
-    await facade.requestItem(facade.visibleItems()[0]);
-    expect(facade.status()).toBe('ready');
-    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
-    expect(facade.noticeTone()).toBe('warning');
-    expect(facade.notice()).toContain('Requested');
-    expect(facade.notice()).toBe('Requested. Could not refresh. Showing last loaded results.');
-  });
-
   it('ignores a superseded AI Picks success after a newer failure', async () => {
     const { promise: firstGate, resolve: releaseFirst } = Promise.withResolvers<AiPicksDiscover>();
     api.aiPicksGate = firstGate;
@@ -988,22 +917,6 @@ describe('DiscoverFacade', () => {
       watched_exclusion: { status: 'fresh', last_successful_refresh_at: null },
     });
     await returned;
-  });
-
-  it('keeps browse status ready while a request mutation is busy', async () => {
-    await facade.setTab('ai-picks');
-    const { promise: requestGate, resolve: releaseRequest } = Promise.withResolvers<DiscoverAction>();
-    api.requestGate = requestGate;
-    const pending = facade.requestItem(facade.visibleItems()[0]);
-    await Promise.resolve();
-    expect(facade.busyItemId()).toBe('ai-eligible');
-    expect(facade.status()).toBe('ready');
-    expect(facade.visibleItems()).toHaveLength(1);
-    releaseRequest({ ok: false, error: 'Cannot request' });
-    await pending;
-    expect(facade.status()).toBe('ready');
-    expect(facade.visibleItems().map((item) => item.title)).toEqual(['Signal Drift']);
-    expect(facade.noticeTone()).toBe('danger');
   });
 
   it('skips overlapping scheduled polls while a refresh is in flight', async () => {
@@ -1132,6 +1045,8 @@ async function flush(): Promise<void> {
 }
 
 class MockApi implements MediaStackApi {
+  searchMedia: MediaStackApi['searchMedia'] = () => Promise.resolve({ ok: true, availability: 'available', sources: { jellyseerr: 'fresh' }, items: [] });
+  getTvSeasons: MediaStackApi['getTvSeasons'] = (tmdbId) => Promise.resolve({ tmdbId, title: 'Fixture', seasons: [] });
   setLibraryItemPlayed = mediaStackLibraryMutationStub.setLibraryItemPlayed;
   previewLibraryItemDeletion = mediaStackLibraryMutationStub.previewLibraryItemDeletion;
   deleteLibraryItem = mediaStackLibraryMutationStub.deleteLibraryItem;

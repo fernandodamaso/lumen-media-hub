@@ -5,7 +5,13 @@ import threading
 
 import config
 import config as settings
-from recommendations_store import RecommendationError, apply_request, utc_now
+from recommendations_store import (
+    REQUEST_PROVIDER_VALUES,
+    RecommendationError,
+    RecommendationValidationError,
+    apply_request,
+    utc_now,
+)
 
 from shared import _find_ai_picks_item
 
@@ -45,9 +51,13 @@ def _normalize_reconciliation_entry(entry):
         return None
     if isinstance(request_id, bool) or not isinstance(request_id, int) or request_id <= 0:
         return None
+    provider = entry.get("request_provider", "arr_legacy")
+    if provider not in REQUEST_PROVIDER_VALUES:
+        return None
     normalized = {
         "ai_pick_id": ai_pick_id.strip(),
         "jellyseerr_request_id": request_id,
+        "request_provider": provider,
     }
     queued_at = entry.get("queued_at")
     if isinstance(queued_at, str) and queued_at:
@@ -71,6 +81,7 @@ def _pending_request_sync_public():
             {
                 "id": normalized["ai_pick_id"],
                 "jellyseerr_request_id": normalized["jellyseerr_request_id"],
+                "request_provider": normalized["request_provider"],
             }
         )
     return pending
@@ -110,18 +121,24 @@ def _write_reconciliation_queue(queue):
         raise
 
 
-def _enqueue_request_reconciliation(ai_pick_id, jellyseerr_request_id):
+def _enqueue_request_reconciliation(ai_pick_id, jellyseerr_request_id, provider):
     entry = {
         "ai_pick_id": ai_pick_id,
         "jellyseerr_request_id": jellyseerr_request_id,
+        "request_provider": provider,
         "queued_at": utc_now(),
     }
+    if _normalize_reconciliation_entry(entry) is None:
+        raise RecommendationValidationError("invalid request reconciliation entry")
     with settings._reconciliation_lock:
         queue = _read_reconciliation_queue()
         for existing in queue:
+            normalized = _normalize_reconciliation_entry(existing)
             if (
-                existing.get("ai_pick_id") == ai_pick_id
-                and existing.get("jellyseerr_request_id") == jellyseerr_request_id
+                normalized
+                and normalized["ai_pick_id"] == ai_pick_id.strip()
+                and normalized["jellyseerr_request_id"] == jellyseerr_request_id
+                and normalized["request_provider"] == provider
             ):
                 return False
         queue.append(entry)
@@ -246,22 +263,33 @@ def _reconcile_pending_requests():
 
             ai_pick_id = normalized["ai_pick_id"]
             request_id = normalized["jellyseerr_request_id"]
+            provider = normalized["request_provider"]
 
-            def _apply(doc, _ai_picks_id=ai_pick_id, _request_id=request_id):
+            def _apply(
+                doc,
+                _ai_picks_id=ai_pick_id,
+                _request_id=request_id,
+                _provider=provider,
+            ):
                 item = _find_ai_picks_item(doc, _ai_picks_id)
                 if not item:
                     raise AiPickItemNotFound()
                 if item.get("request_state") == "requested":
                     existing_id = item.get("jellyseerr_request_id")
-                    if existing_id == _request_id:
+                    existing_provider = item.get("request_provider")
+                    if existing_id == _request_id and existing_provider == _provider:
                         raise AlreadyReconciled()
-                    if existing_id is not None and existing_id != _request_id:
+                    if existing_provider != _provider or (
+                        existing_id is not None and existing_id != _request_id
+                    ):
                         raise RequestSyncConflict(
                             f"ai_pick_id={_ai_picks_id!r} "
                             f"queued_jellyseerr_request_id={_request_id!r} "
-                            f"persisted_jellyseerr_request_id={existing_id!r}"
+                            f"persisted_jellyseerr_request_id={existing_id!r} "
+                            f"queued_provider={_provider!r} "
+                            f"persisted_provider={existing_provider!r}"
                         )
-                apply_request(item, request_id=_request_id)
+                apply_request(item, provider=_provider, request_id=_request_id)
 
             try:
                 settings.RECOMMENDATIONS_STORE.update(_apply)

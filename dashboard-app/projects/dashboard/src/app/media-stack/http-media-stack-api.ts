@@ -33,6 +33,12 @@ import { mapActivityFeed } from '../activity/activity-format';
 import { AutomationService, AutomationSummary, QueueHygieneRunResult } from '../automation/automation.models';
 import { CronLogs } from '../reports/reports.models';
 import { StorageOverview } from '../storage/storage.models';
+import { MediaSearchResult, TvSeasonCollection } from '../media-request/media-request.models';
+import {
+  mapMediaRequestAction,
+  mapMediaSearchResult,
+  mapTvSeasonCollection,
+} from '../media-request/media-request-format';
 import { MediaStackApi } from './media-stack-api';
 import { mapArrLibrary, mapCalendarEvent } from '../calendar/calendar-format';
 import { mapAutomationSummary } from '../automation/automation-format';
@@ -99,6 +105,18 @@ export class HttpMediaStackApi implements MediaStackApi {
   private readonly base = environment.apiBaseUrl.replace(/\/$/, '');
   /** Share concurrent identical GETs so stats/calendar/probes do not fan out duplicate traffic. */
   private readonly inFlightGets = new Map<string, Observable<unknown>>();
+
+  searchMedia(query: string, signal?: AbortSignal): Promise<MediaSearchResult> {
+    const path = `/media/search?q=${encodeURIComponent(query)}`;
+    return this.getRaw<unknown>(path, signal, true).then(mapMediaSearchResult);
+  }
+
+  getTvSeasons(tmdbId: number, signal?: AbortSignal): Promise<TvSeasonCollection> {
+    const path = `/media/tv/${tmdbId}/seasons`;
+    return this.getRaw<unknown>(path, signal).then((data) =>
+      mapTvSeasonCollection(data, tmdbId),
+    );
+  }
 
   listTorrents(signal?: AbortSignal): Promise<DownloadTorrent[]> {
     return this.getRaw<unknown>('/qbt/torrents', signal).then((data) => {
@@ -542,7 +560,7 @@ export class HttpMediaStackApi implements MediaStackApi {
   }
 
   requestMedia(payload: DiscoverRequestPayload): Promise<DiscoverAction> {
-    return this.mutateSoft('/discover/request', 'POST', toDiscoverRequestPayloadDto(payload));
+    return this.mutateMediaRequest(toDiscoverRequestPayloadDto(payload));
   }
 
   private mapJellyfinListItems(
@@ -586,7 +604,11 @@ export class HttpMediaStackApi implements MediaStackApi {
     return data;
   }
 
-  private async getRaw<T>(path: string, signal?: AbortSignal): Promise<T> {
+  private async getRaw<T>(
+    path: string,
+    signal?: AbortSignal,
+    preserveSoftEnvelope = false,
+  ): Promise<T> {
     if (signal?.aborted) {
       throw new DOMException('The operation was aborted.', 'AbortError');
     }
@@ -616,6 +638,14 @@ export class HttpMediaStackApi implements MediaStackApi {
     } catch (error) {
       if (signal?.aborted) {
         throw new DOMException('The operation was aborted.', 'AbortError');
+      }
+      if (
+        preserveSoftEnvelope &&
+        error instanceof HttpErrorResponse &&
+        isRecord(error.error) &&
+        typeof error.error['ok'] === 'boolean'
+      ) {
+        return error.error as T;
       }
       const isDiscoverBrowse = path.startsWith('/discover/jellyseerr') || path.startsWith('/discover/trakt');
       throw this.toError(error, isDiscoverBrowse ? DISCOVER_LOAD_ERROR : `GET ${path} failed`, isDiscoverBrowse);
@@ -706,6 +736,19 @@ export class HttpMediaStackApi implements MediaStackApi {
         }
       }
       throw this.toError(error, `${method} ${path} failed`);
+    }
+  }
+
+  private async mutateMediaRequest(body: unknown): Promise<DiscoverAction> {
+    const path = '/discover/request';
+    try {
+      const data = await firstValueFrom(this.http.post<unknown>(`${this.base}${path}`, body));
+      return mapMediaRequestAction(data);
+    } catch (error) {
+      if (error instanceof HttpErrorResponse && isRecord(error.error)) {
+        return mapMediaRequestAction(error.error);
+      }
+      throw this.toError(error, `POST ${path} failed`);
     }
   }
 

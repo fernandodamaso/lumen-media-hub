@@ -173,6 +173,16 @@ Manual “refresh all” goes through [`dashboard-refresh.ts`](../projects/dashb
 
 The Live override container runs `npm run start:live` with [`proxy.conf.js`](../projects/dashboard/proxy.conf.js) and Compose-provided `ACTIONS_TOKEN` / `LIVE_API_PROXY_TARGET`. Keep those scripts and the Angular `live` configuration for the container; host Live `ng serve` is not a supported workflow.
 
+### Global media search and request lifecycle
+
+The topbar search and **Add media** button open the same command palette. At two trimmed characters the palette renders matching Jellyfin items from `LibraryItemsFacade` immediately, then replaces only that local-media slice after the 250 ms authoritative search returns. Routes and actions remain filtered and available throughout. Media results are grouped as **Your Library** (`available`) and **Catalog** (every other lifecycle state).
+
+`MediaStackApi.searchMedia` has matching Demo and Live implementations. Demo fixtures exercise every lifecycle state without private services; Live calls `GET /api/media/search?q=...`. Superseded reads are aborted and generation-guarded. A disabled or unavailable catalog keeps local matches and announces the degraded state in a polite live region; backend error details are not rendered.
+
+The server-owned `media_status`, `service`, `service_href`, `request_id`, and `monitored` fields are authoritative in both the palette and Discover after every load. The action matrix is: `available` opens Jellyfin, `tracked` opens Sonarr/Radarr, `missing` opens the shared request dialog, and `requested` / `processing` / `unknown` are explained but disabled. No component-local requested-identity set overrides a later server response.
+
+Movies and TV use the same request dialog; TV loads seasons and defaults regular seasons on with specials off. Jellyseerr is the only request writer. A successful request closes only the child dialog, toasts through the shared dialog, and refetches the active palette query or Discover feed. Sonarr and Radarr are lifecycle readers/deep-link targets, not browser-selected fallback writers.
+
 Empty calendar bases must not fall back to relative `/series/...` or `/movie/...` URLs. Resolvers treat a missing or blank base as "no link."
 
 ### Stack deploy (`D:\media`)
@@ -210,7 +220,9 @@ npm run test:smoke
 | `http://homepage-actions:8085/internal/ai-picks/jobs/*` | POST | Worker-only claim, complete, and fail endpoints |
 | `/api/discover/jellyseerr` | GET | Jellyseerr discover |
 | `/api/discover/trakt` | GET | Trakt discover |
-| `/api/discover/request` | POST | Request media (token required) |
+| `/api/media/search?q=<2–100 chars>` | GET | Authoritative catalog search plus Jellyfin/Jellyseerr/Arr lifecycle state |
+| `/api/media/tv/{tmdbId}/seasons` | GET | Normalized TV season choices for the shared request dialog |
+| `/api/discover/request` | POST `{ mediaType, mediaId, seasons?, hermesId? }` | Idempotent Jellyseerr request writer (token required) |
 
 ### Trakt authentication and watched cache
 
@@ -301,6 +313,7 @@ Design-system showcase is Storybook (`npm run storybook`), not an in-app `/ui` r
 - `ACTIONS_TOKEN` is consumed from the Compose environment via Nginx `envsubst`.
 - Nginx injects it into the `X-Actions-Token` header on proxied requests.
 - The token never appears in Angular source, bundles, source maps, HTML, or error pages.
+- Jellyseerr, Sonarr, Radarr, and Jellyfin credentials stay in `homepage-actions`; search, season, and lifecycle responses contain only browser-safe fields and links.
 - SABnzbd is excluded from the live application shell; only qBittorrent on port `8081` remains as a download client.
 
 Backend security (fail-closed `ACTIONS_TOKEN`, per-torrent qBT routes, CORS allowlist) is implemented in `D:\media\config\homepage-actions` (Milestone 1, commit `f0b4213` on the media stack repo).

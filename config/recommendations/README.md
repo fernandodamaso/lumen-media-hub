@@ -54,3 +54,23 @@ The Jellyfin collection is named **AI Picks**. If only the legacy collection
 exists, the backend reposts its complete item DTO with only `Name` changed. If
 both collections exist, it uses AI Picks and logs a warning without deleting
 either collection.
+
+## Media request state
+
+Schema v4 requires `request_provider` on every item. It is `null` while
+`request_state` is `null`, `jellyseerr` for new requests, and `arr_legacy` for
+migrated v3 requested rows and legacy reconciliation entries. Jellyseerr is the
+only current request writer; the browser never supplies Arr roots, profiles, or
+server configuration.
+
+`POST /discover/request` accepts `mediaType`, `mediaId`, optional `aiPickId`, and
+TV `seasons` as a unique non-negative integer array or `"all"`. Successful
+responses expose the real Jellyseerr request id, normalized status, and whether
+the request already existed. If Jellyseerr succeeds but recommendation-state
+persistence fails, the reconciliation queue retains the request id and provider
+until it can be applied without overwriting newer state.
+
+Discover responses include authoritative `media_status`, `service`,
+`service_href`, `request_id`, and `monitored` fields. The dashboard refetches the
+active feed after the shared request dialog succeeds instead of treating local
+component memory as request authority.

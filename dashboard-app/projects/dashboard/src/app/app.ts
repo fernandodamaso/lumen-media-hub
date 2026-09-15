@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import {
   LucideCompass,
   LucideFileText,
@@ -41,7 +41,6 @@ import { environment } from '../environments/environment';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class App {
-  private readonly router = inject(Router);
   private readonly health = inject(ServiceHealthFacade);
   private readonly calendar = inject(CalendarFacade);
   private readonly automation = inject(AutomationFacade);
@@ -96,6 +95,6 @@ export class App {
   }
 
   onAddMedia(): void {
-    void this.router.navigate(['/discover']);
+    this.openCommandPalette();
   }
 }

@@ -17,6 +17,10 @@ import {
   MediaStackExternalDiscoverItemDto,
   MediaStackAiPicksDiscoverDto,
 } from '../media-stack/wire/discover';
+import {
+  MediaLifecycleService,
+  MediaLifecycleStatus,
+} from '../media-request/media-request.models';
 
 export type DiscoverHistoryFilter = 'all' | DiscoverFeedback | 'requested';
 
@@ -24,7 +28,8 @@ export type DiscoverRequestAction = {
   label: string;
   title: string;
   disabled: boolean;
-  syncFailed?: boolean;
+  intent: 'open' | 'request' | 'disabled';
+  href?: string;
 };
 
 export type DiscoverCardItem = {
@@ -44,6 +49,11 @@ export type DiscoverCardItem = {
   traktHistorySync?: TraktHistorySyncState | null;
   posterUrl?: string | null;
   rating?: number | null;
+  mediaStatus?: MediaLifecycleStatus;
+  service?: MediaLifecycleService;
+  serviceHref?: string | null;
+  requestId?: number | null;
+  monitored?: boolean | null;
 };
 
 export function toAiPickCardItem(item: DiscoverItem): DiscoverCardItem {
@@ -63,6 +73,11 @@ export function toAiPickCardItem(item: DiscoverItem): DiscoverCardItem {
     traktHistorySync: item.trakt_history_sync ?? null,
     posterUrl: item.poster_url,
     rating: item.rating,
+    mediaStatus: item.media_status ?? 'unknown',
+    service: item.service ?? null,
+    serviceHref: item.service_href ?? null,
+    requestId: item.request_id ?? null,
+    monitored: item.monitored ?? null,
   };
 }
 
@@ -73,9 +88,10 @@ export function mediaIdentityKey(type: DiscoverCardItem['type'], tmdbId: number)
 export function toExternalCardItem(
   item: ExternalDiscoverItem,
   source: string,
-  requestedKeys: ReadonlySet<string> = new Set(),
 ): DiscoverCardItem {
-  const requestState = requestedKeys.has(mediaIdentityKey(item.type, item.tmdb_id)) ? 'requested' : null;
+  const requestState = item.media_status === 'requested' || item.media_status === 'processing'
+    ? 'requested'
+    : null;
   return {
     id: item.id ?? `${source}-${item.type}-${item.tmdb_id}`,
     title: item.title,
@@ -89,46 +105,90 @@ export function toExternalCardItem(
     watchedOnTrakt: false,
     posterUrl: item.poster_url,
     rating: item.rating,
+    mediaStatus: item.media_status ?? 'unknown',
+    service: item.service ?? null,
+    serviceHref: item.service_href ?? null,
+    requestId: item.request_id ?? null,
+    monitored: item.monitored ?? null,
   };
 }
 
 export function resolveRequestAction(
-  item: Pick<DiscoverCardItem, 'tmdbId' | 'requestState' | 'inLibrary'>,
-  options: { syncFailed?: boolean } = {},
+  item: Pick<DiscoverCardItem, 'tmdbId' | 'mediaStatus' | 'service' | 'serviceHref'>,
 ): DiscoverRequestAction {
   if (!item.tmdbId) {
     return {
       label: 'No TMDB ID',
       title: 'Cannot request — missing TMDB id',
       disabled: true,
+      intent: 'disabled',
     };
   }
-  if (options.syncFailed) {
+  const status = item.mediaStatus ?? 'unknown';
+  if (status === 'available') {
+    if (!item.serviceHref) {
+      return {
+        label: 'Available',
+        title: 'Jellyfin link is unavailable',
+        disabled: true,
+        intent: 'disabled',
+      };
+    }
     return {
-      label: 'Added (sync failed)',
-      title: 'Added to Sonarr/Radarr; dashboard synchronization failed.',
-      disabled: true,
-      syncFailed: true,
+      label: 'Open in Jellyfin',
+      title: 'Open in Jellyfin',
+      disabled: false,
+      intent: 'open',
+      href: item.serviceHref,
     };
   }
-  if (item.requestState === 'requested') {
+  if (status === 'requested') {
     return {
       label: 'Requested',
-      title: 'Already added to Sonarr/Radarr',
+      title: 'Request submitted to Jellyseerr',
       disabled: true,
+      intent: 'disabled',
     };
   }
-  if (item.inLibrary) {
+  if (status === 'processing') {
     return {
-      label: 'In library',
-      title: 'Already in your Jellyfin library',
+      label: 'Processing',
+      title: 'Acquisition is in progress',
       disabled: true,
+      intent: 'disabled',
+    };
+  }
+  if (status === 'tracked') {
+    const serviceLabel = item.service === 'sonarr' ? 'Sonarr' : 'Radarr';
+    if (!item.serviceHref) {
+      return {
+        label: `Tracked in ${serviceLabel}`,
+        title: `${serviceLabel} link is unavailable`,
+        disabled: true,
+        intent: 'disabled',
+      };
+    }
+    return {
+      label: `Open in ${serviceLabel}`,
+      title: `Open in ${serviceLabel}`,
+      disabled: false,
+      intent: 'open',
+      href: item.serviceHref,
+    };
+  }
+  if (status === 'missing') {
+    return {
+      label: 'Request',
+      title: 'Request through Jellyseerr',
+      disabled: false,
+      intent: 'request',
     };
   }
   return {
-    label: 'Request',
-    title: 'Add to Sonarr/Radarr without monitoring or downloading',
-    disabled: false,
+    label: 'Status unavailable',
+    title: 'Media status is unavailable; requesting is disabled',
+    disabled: true,
+    intent: 'disabled',
   };
 }
 
@@ -240,10 +300,20 @@ const mapDiscoverItem = (dto: MediaStackDiscoverItemDto): DiscoverItem => ({
   notes: dto.notes,
   rating: dto.rating,
   trakt_history_sync: dto.trakt_history_sync ?? null,
+  media_status: dto.media_status ?? 'unknown',
+  service: dto.service ?? null,
+  service_href: dto.service_href ?? null,
+  request_id: dto.request_id ?? null,
+  monitored: dto.monitored ?? null,
 });
 
 const mapExternalDiscoverItem = (dto: MediaStackExternalDiscoverItemDto): ExternalDiscoverItem => ({
   ...dto,
+  media_status: dto.media_status ?? 'unknown',
+  service: dto.service ?? null,
+  service_href: dto.service_href ?? null,
+  request_id: dto.request_id ?? null,
+  monitored: dto.monitored ?? null,
 });
 
 export const mapAiPicksDiscover = (dto: MediaStackAiPicksDiscoverDto): AiPicksDiscover => ({
@@ -289,7 +359,12 @@ export const mapDiscoverAction = (dto: MediaStackDiscoverActionDto): DiscoverAct
 
 export const toDiscoverRequestPayloadDto = (
   payload: DiscoverRequestPayload,
-): MediaStackDiscoverRequestPayloadDto => ({ ...payload });
+): MediaStackDiscoverRequestPayloadDto => ({
+  ...payload,
+  ...(Array.isArray(payload.seasons)
+    ? { seasons: [...payload.seasons].sort((left, right) => left - right) }
+    : {}),
+});
 
 export function formatDiscoverMeta(item: Pick<DiscoverCardItem, 'year' | 'type' | 'rating'>): string {
   const parts = [item.year ? String(item.year) : null, item.type === 'tv' ? 'TV' : 'Movie', item.rating != null ? `${item.rating.toFixed(1)}★` : null].filter(

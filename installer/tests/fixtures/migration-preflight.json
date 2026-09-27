@@ -1,9 +1,9 @@
 {
   "inventory_complete": false,
   "storage": {
-    "staging_path": "/home/admin/lumen-downloads",
-    "library_path": "/run/media/admin/ARQUIVOS/media",
-    "library_uuid": "B8A426BFA4267FCC"
+    "staging_path": "/srv/lumen-staging",
+    "library_path": "/srv/lumen-library/media",
+    "library_uuid": "EXAMPLE-LIBRARY-UUID"
   },
   "files": [],
   "orphan_staging_paths": [],

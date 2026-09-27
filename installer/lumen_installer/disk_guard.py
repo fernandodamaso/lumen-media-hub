@@ -21,9 +21,9 @@ from typing import Any, Callable, Iterable, Mapping
 
 
 GIB = 1024**3
-DEFAULT_STAGING_PATH = Path("/home/admin/lumen-downloads")
-DEFAULT_LIBRARY_PATH = Path("/run/media/admin/ARQUIVOS/media")
-DEFAULT_LIBRARY_UUID = "B8A426BFA4267FCC"
+DEFAULT_STAGING_PATH = Path("/srv/lumen-staging")
+DEFAULT_LIBRARY_PATH = Path("/srv/lumen-library/media")
+DEFAULT_LIBRARY_UUID = "0000000000000000"
 DEFAULT_STAGING_RESERVE_GIB = 75
 DEFAULT_LIBRARY_RESERVE_GIB = 50
 DEFAULT_RESUME_MARGIN_GIB = 10
@@ -253,9 +253,10 @@ class DiskGuardConfig:
             return value
 
         enabled = str(values.get("DISK_GUARD_ENABLED", "false")).strip().lower() in {"1", "true", "yes", "on"}
+        root_path = values.get("ROOT_PATH")
         return cls(
             staging_path=Path(values.get("DOWNLOADS_PATH", str(DEFAULT_STAGING_PATH))),
-            library_path=Path(values.get("ROOT_PATH", str(DEFAULT_LIBRARY_PATH))) / "media",
+            library_path=Path(root_path) / "media" if root_path else DEFAULT_LIBRARY_PATH,
             library_uuid=values.get("LIBRARY_MOUNT_UUID", DEFAULT_LIBRARY_UUID),
             staging_reserve_bytes=number("DISK_GUARD_STAGING_RESERVE_GIB", DEFAULT_STAGING_RESERVE_GIB) * GIB,
             library_reserve_bytes=number("DISK_GUARD_LIBRARY_RESERVE_GIB", DEFAULT_LIBRARY_RESERVE_GIB) * GIB,
@@ -377,12 +378,14 @@ class DiskGuard:
         errors: list[str] = []
         try:
             staging = self._measure(self.config.staging_path)
-        except Exception as exc:
-            errors.append(f"staging:{exc}")
+        except Exception:
+            errors.append("staging_unavailable")
         try:
             library = self._measure(self.config.library_path, expected_uuid=self.config.library_uuid)
-        except Exception as exc:
-            errors.append(f"library:{exc}")
+        except Exception:
+            errors.append("library_unavailable")
+        if staging is not None and library is not None and staging.device == library.device:
+            errors.append("storage_not_separate")
         return CapacitySnapshot(staging, library, "; ".join(errors))
 
     def plan(
@@ -556,6 +559,15 @@ class GuardSupervisor:
     def mark_container_stopped(self) -> None:
         self._container_stopped = True
 
+    @staticmethod
+    def _attempt(action: Callable[[], Any], label: str, actions: list[str]) -> bool:
+        try:
+            action()
+        except Exception:
+            return False
+        actions.append(label)
+        return True
+
     def cycle(
         self,
         items: Iterable[GuardItem | Mapping[str, Any]],
@@ -570,20 +582,28 @@ class GuardSupervisor:
             snapshot = self._snapshot_provider()
             if not isinstance(snapshot, CapacitySnapshot):
                 raise RuntimeError("invalid guard snapshot")
-        except Exception as exc:
-            self._runner.stop_downloader()
-            self._runner.suspend_writers()
-            self._writers_suspended = True
-            return SupervisorResult(
-                "guard-failed", ("stop_downloader", "suspend_writers"), str(exc)
+        except Exception:
+            downloader_stopped = self._attempt(
+                self._runner.stop_downloader, "stop_downloader", actions
             )
+            writers_suspended = self._attempt(
+                self._runner.suspend_writers, "suspend_writers", actions
+            )
+            self._writers_suspended = writers_suspended
+            reason = "snapshot_unavailable"
+            if not downloader_stopped or not writers_suspended:
+                reason = "fail_closed_action_failed"
+            return SupervisorResult("guard-failed", tuple(actions), reason)
         if not snapshot.healthy:
-            self._runner.stop_downloader()
-            actions.append("stop_downloader")
+            action_failed = not self._attempt(
+                self._runner.stop_downloader, "stop_downloader", actions
+            )
             if not self._writers_suspended:
-                self._runner.suspend_writers()
-                self._writers_suspended = True
-                actions.append("suspend_writers")
+                suspended = self._attempt(
+                    self._runner.suspend_writers, "suspend_writers", actions
+                )
+                self._writers_suspended = suspended
+                action_failed = action_failed or not suspended
             # A filesystem failure must stop admission immediately, but the
             # qBittorrent health failure still owns the container stop path.
             try:
@@ -591,38 +611,58 @@ class GuardSupervisor:
             except Exception:
                 qbit_healthy = False
             if not qbit_healthy:
-                self._runner.stop_container("qbittorrent")
-                self._container_stopped = True
-                actions.append("stop_container:qbittorrent")
+                stopped = self._attempt(
+                    lambda: self._runner.stop_container("qbittorrent"),
+                    "stop_container:qbittorrent",
+                    actions,
+                )
+                self._container_stopped = stopped
+                action_failed = action_failed or not stopped
             return SupervisorResult(
-                "destination-unavailable" if snapshot.library is None else "guard-failed",
+                "guard-failed"
+                if action_failed
+                else ("destination-unavailable" if snapshot.library is None else "guard-failed"),
                 tuple(actions),
-                snapshot.reason,
+                "fail_closed_action_failed" if action_failed else snapshot.reason,
             )
+        if self._container_stopped:
+            if not self._attempt(
+                lambda: self._runner.start_container("qbittorrent"),
+                "start_container:qbittorrent",
+                actions,
+            ):
+                return SupervisorResult("guard-failed", tuple(actions), "container_start_failed")
+            self._container_stopped = False
         try:
             healthy = self._qbit_health() is True
-        except Exception as exc:
+        except Exception:
             healthy = False
-            reason = str(exc)
+            reason = "qbit_health_failed"
         else:
             reason = ""
         if not healthy:
-            self._runner.stop_container("qbittorrent")
-            self._container_stopped = True
-            actions.append("stop_container:qbittorrent")
+            stopped = self._attempt(
+                lambda: self._runner.stop_container("qbittorrent"),
+                "stop_container:qbittorrent",
+                actions,
+            )
+            self._container_stopped = stopped
             if not self._writers_suspended:
-                self._runner.suspend_writers()
-                self._writers_suspended = True
-                actions.append("suspend_writers")
+                suspended = self._attempt(
+                    self._runner.suspend_writers, "suspend_writers", actions
+                )
+                self._writers_suspended = suspended
+            if not stopped or not self._writers_suspended:
+                return SupervisorResult(
+                    "guard-failed", tuple(actions), "fail_closed_action_failed"
+                )
             return SupervisorResult("qbit-unavailable", tuple(actions), reason)
-        if self._container_stopped:
-            self._runner.start_container("qbittorrent")
-            self._container_stopped = False
-            actions.append("start_container:qbittorrent")
         if self._writers_suspended:
-            self._runner.resume_writers()
+            if not self._attempt(
+                self._runner.resume_writers, "resume_writers", actions
+            ):
+                return SupervisorResult("guard-failed", tuple(actions), "writer_resume_failed")
             self._writers_suspended = False
-            actions.append("resume_writers")
         plan = self._guard.plan(items, snapshot, accounting=accounting, resume=resume)
         return SupervisorResult("healthy", tuple(actions), plan=plan)
 

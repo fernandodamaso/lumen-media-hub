@@ -589,7 +589,7 @@ class UpdateManifest:
             compose_files=compose_raw,
             gpu_environment=gpu_environment,
             storage_mode=storage_mode,
-            )
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -1284,6 +1284,16 @@ def run_rollback(
     except (OSError, ValueError, TypeError) as exc:
         raise RollbackValidationError("rollback image metadata is invalid") from exc
 
+    if callback_factory is not None:
+        try:
+            generated_stop, generated_start = callback_factory(manifest)
+        except InstallerError:
+            raise
+        except Exception as exc:
+            raise RollbackValidationError("rollback lifecycle setup failed") from exc
+        stop_callback = generated_stop
+        start_callback = generated_start
+
     if dry_run:
         return {"action": "rollback", "dry_run": True, "run_id": safe_run_id}
 
@@ -1296,16 +1306,6 @@ def run_rollback(
     _ensure_private_dir(state / "failed-runs")
     failed_dir = state / "failed-runs" / safe_run_id
     _ensure_private_dir(failed_dir)
-
-    if callback_factory is not None:
-        try:
-            generated_stop, generated_start = callback_factory(manifest)
-        except InstallerError:
-            raise
-        except Exception as exc:
-            raise RollbackValidationError("rollback lifecycle setup failed") from exc
-        stop_callback = generated_stop
-        start_callback = generated_start
 
     if stop_callback is not None:
         _invoke_callback(stop_callback, safe_run_id)

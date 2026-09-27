@@ -549,6 +549,13 @@ class SetupFoundationTests(unittest.TestCase):
         for lifecycle in (run_up, run_down, run_redeploy_dashboard):
             with self.subTest(lifecycle=lifecycle.__name__), tempfile.TemporaryDirectory() as temporary:
                 repo = Path(temporary) / "repo"; repo.mkdir(); (repo / ".git").mkdir()
+                media = Path(temporary) / "media"
+                downloads = media / "downloads"
+                downloads.mkdir(parents=True)
+                (repo / ".env").write_text(
+                    f"ROOT_PATH={media}\nDOWNLOADS_PATH={downloads}\n",
+                    encoding="utf-8",
+                )
                 installer = repo / ".state" / "installer"; installer.mkdir(parents=True)
                 state_path = installer / "state.json"
                 state_path.write_text(
@@ -561,7 +568,22 @@ class SetupFoundationTests(unittest.TestCase):
                 os.chmod(repo / ".state", 0o755)
                 os.chmod(installer, 0o755)
                 os.chmod(state_path, 0o644)
-                lifecycle(repo, dry_run=True, stale_finder=lambda: ()) if lifecycle is run_up else lifecycle(repo, dry_run=True)
+                if lifecycle is run_up:
+                    class Runner:
+                        def run(self, argv, **kwargs):
+                            return CommandResult(
+                                tuple(argv), 0, '{"services":{"jellyfin":{"image":"x"}}}'
+                            )
+
+                    lifecycle(
+                        repo,
+                        runner=Runner(),
+                        dry_run=True,
+                        stale_finder=lambda: (),
+                        storage_validator=lambda *args, **kwargs: {},
+                    )
+                else:
+                    lifecycle(repo, dry_run=True)
                 self.assertEqual(stat.S_IMODE((repo / ".state").stat().st_mode), 0o755)
                 self.assertEqual(stat.S_IMODE(installer.stat().st_mode), 0o755)
                 self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o644)
@@ -636,19 +658,45 @@ class SetupFoundationTests(unittest.TestCase):
 
     def test_stale_project_uses_compose_environment_before_dotenv(self):
         with tempfile.TemporaryDirectory() as temporary:
+            media = Path(temporary) / "media"
+            downloads = media / "downloads"
+            downloads.mkdir(parents=True)
             repo = Path(temporary) / "_worktree"; repo.mkdir(); (repo / ".git").mkdir()
-            (repo / ".env").write_text("COMPOSE_PROJECT_NAME=from-file\n", encoding="utf-8")
+            (repo / ".env").write_text(
+                "COMPOSE_PROJECT_NAME=from-file\n"
+                f"ROOT_PATH={media}\nDOWNLOADS_PATH={downloads}\n",
+                encoding="utf-8",
+            )
             observed = []
+
+            class Runner:
+                def run(self, argv, **kwargs):
+                    return CommandResult(
+                        tuple(argv), 0, '{"services":{"jellyfin":{"image":"x"}}}'
+                    )
 
             def finder(*, project_name=None):
                 observed.append(project_name)
                 return ()
 
             with mock.patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": "from-process"}):
-                run_up(repo, dry_run=True, stale_finder=finder)
+                run_up(
+                    repo,
+                    runner=Runner(),
+                    dry_run=True,
+                    stale_finder=finder,
+                    storage_validator=lambda *args, **kwargs: {},
+                )
             self.assertEqual(observed, ["from-process"])
 
-            run_up(repo, dry_run=True, compose_project="explicit", stale_finder=finder)
+            run_up(
+                repo,
+                runner=Runner(),
+                dry_run=True,
+                compose_project="explicit",
+                stale_finder=finder,
+                storage_validator=lambda *args, **kwargs: {},
+            )
             self.assertEqual(observed[-1], "explicit")
 
     def test_fresh_stale_project_uses_seeded_compose_project_name(self):

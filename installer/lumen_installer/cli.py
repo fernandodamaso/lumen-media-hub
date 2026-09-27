@@ -73,6 +73,20 @@ PUBLIC_COMMANDS = (
     "update",
 )
 
+_UPDATE_RUNTIME_CONFIG_DIRS = (
+    "bazarr",
+    "jellyfin",
+    "jellyseerr",
+    "maintainerr",
+    "prowlarr",
+    "qbittorrent",
+    "radarr",
+    "recommendations",
+    "recyclarr",
+    "sonarr",
+    "unpackerr",
+)
+
 # This alias lets callers inspect command discovery without spelling the
 # private argparse implementation type themselves.
 CommandChoicesAction = argparse._SubParsersAction
@@ -385,7 +399,9 @@ def _known_compose_files(root: Path, values: Mapping[str, str], args: argparse.N
                 )
             candidates.append(candidate)
         if selected_storage_mode == "separate":
-            candidates.append(root / "docker-compose.separate.yml")
+            separate = (root / "docker-compose.separate.yml").resolve(strict=False)
+            candidates = [candidate for candidate in candidates if candidate != separate]
+            candidates.append(separate)
     else:
         candidates.append(root / "docker-compose.yml")
         override = root / "docker-compose.override.yml"
@@ -724,12 +740,6 @@ def _update_manifest(
     values = _read_update_env(root / ".env")
     saved_state = _saved_update_state(root)
     values = _saved_update_gpu_mode(root, values, saved_state)
-    storage_mode_configured = values.get("STORAGE_MODE")
-    storage_mode_requested = (
-        getattr(args, "storage_mode", None)
-        if args is not None and getattr(args, "storage_mode", None) is not None
-        else None
-    )
     profiles = _active_update_profiles(
         values,
         args,
@@ -754,15 +764,15 @@ def _update_manifest(
     )
     values["STORAGE_MODE"] = storage_mode
     compose_files = _known_compose_files(root, values, args)
+    declared_services, active_services = _compose_service_activity(compose_files, profiles)
     storage_root = values.get("ROOT_PATH", "").strip()
     storage_downloads = values.get("DOWNLOADS_PATH", "").strip()
-    if storage_mode == "separate" and not (storage_root and storage_downloads):
-        raise InvalidInputError(
-            "separate storage requires both ROOT_PATH and DOWNLOADS_PATH"
-        )
-    if storage_root and storage_downloads and (
-        storage_mode_configured is not None or storage_mode_requested is not None
+    storage_services = {"qbittorrent", "sonarr", "radarr", "jellyfin", "homepage-actions"}
+    if storage_services.intersection(declared_services) and not (
+        storage_root and storage_downloads
     ):
+        raise InvalidInputError("storage requires both ROOT_PATH and DOWNLOADS_PATH")
+    if storage_root and storage_downloads:
         validate_storage(
             storage_root,
             storage_downloads,
@@ -794,7 +804,6 @@ def _update_manifest(
                 storage_mode=storage_mode,
             )
     image_refs, _declared_profiles = _compose_metadata(compose_files, values, profiles)
-    declared_services, active_services = _compose_service_activity(compose_files, profiles)
     build_services = _compose_build_services(compose_files)
     active_build_services = build_services.intersection(active_services)
     configured_image_refs = _env_json_map(values, ("LUMEN_IMAGE_REFS", "IMAGE_REFS"))
@@ -960,7 +969,10 @@ def _update_manifest(
         return UpdateManifest.from_inputs(
             env_path=root / ".env",
             runtime_paths={
-                "config": root / "config",
+                **{
+                    name: root / "config" / name
+                    for name in _UPDATE_RUNTIME_CONFIG_DIRS
+                },
                 "state": root / ".state" / "installer" / "state.json",
             },
             image_refs=image_refs,
@@ -1099,13 +1111,62 @@ def _rollback_callbacks(
     manifest: UpdateManifest,
     args: argparse.Namespace,
     runner: CommandRunner,
+    run_id: str | None = None,
 ) -> tuple[Callable[..., object], Callable[..., object]]:
     """Build stop/start seams for a recorded rollback run."""
 
     env_path = Path(manifest.env_path)
     options = _update_compose_options(manifest, args)
-    values = _read_update_env(env_path)
+    validation_env_path = env_path
+    if run_id is not None:
+        try:
+            env_relative = env_path.resolve(strict=False).relative_to(
+                root.resolve(strict=False)
+            )
+        except ValueError as exc:
+            raise InvalidInputError("rollback environment is outside the checkout") from exc
+        validation_env_path = (
+            root / ".state" / "installer" / "backups" / run_id / env_relative
+        )
+    values = _read_update_env(validation_env_path)
     redact = _secret_values(values)
+    storage_mode = normalize_storage_mode(values.get("STORAGE_MODE", "shared"))
+    if storage_mode != manifest.storage_mode:
+        raise InvalidInputError("rollback storage mode does not match its manifest")
+    declared_services, _active_services = _compose_service_activity(
+        tuple(Path(path) for path in manifest.compose_files), manifest.profiles
+    )
+    storage_services = {"qbittorrent", "sonarr", "radarr", "jellyfin", "homepage-actions"}
+    if storage_services.intersection(declared_services):
+        storage_root = values.get("ROOT_PATH", "").strip()
+        storage_downloads = values.get("DOWNLOADS_PATH", "").strip()
+        if not (storage_root and storage_downloads):
+            raise InvalidInputError(
+                "rollback storage requires both ROOT_PATH and DOWNLOADS_PATH"
+            )
+        validate_storage(
+            storage_root,
+            storage_downloads,
+            repo_root=root,
+            dry_run=True,
+            shared_mount_required=storage_mode == "shared",
+            storage_mode=storage_mode,
+            expected_mount_uuid=values.get("LIBRARY_MOUNT_UUID"),
+        )
+        if storage_mode == "separate":
+            storage_payload = compose_config(
+                runner,
+                root,
+                validation_env_path,
+                options,
+                redact=redact,
+            )
+            validate_storage_mounts(
+                storage_payload,
+                root_path=storage_root,
+                downloads_path=storage_downloads,
+                storage_mode=storage_mode,
+            )
     services = tuple(
         dict.fromkeys((*manifest.image_refs, *manifest.local_image_ids))
     )
@@ -1170,10 +1231,12 @@ def _update(args: argparse.Namespace) -> int:
                 confirm=confirm,
                 dry_run=dry_run,
                 callback_factory=(
-                    None
-                    if dry_run
-                    else lambda rollback_manifest: _rollback_callbacks(
-                        root, rollback_manifest, args, runner
+                    lambda rollback_manifest: _rollback_callbacks(
+                        root,
+                        rollback_manifest,
+                        args,
+                        runner,
+                        safe_rollback_id,
                     )
                 ),
             )

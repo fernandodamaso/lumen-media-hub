@@ -363,7 +363,7 @@ def _kind_matches(candidate: Mapping[str, Any], *needles: str) -> bool:
 
 def _is_service_application(candidate: Mapping[str, Any], service: str) -> bool:
     identity = _APPLICATION_IDENTITIES.get(_service_text(service))
-    return _exact_identity_matches(
+    return identity is not None and _exact_identity_matches(
         candidate,
         identity,
         required=("name", "implementation"),

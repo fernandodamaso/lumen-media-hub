@@ -27,10 +27,10 @@ from lumen_installer.disk_guard import (  # noqa: E402
 )
 
 
-def identity(path, *, uuid="STAGING-UUID", available=200 * GIB, readonly=False):
+def identity(path, *, uuid="STAGING-UUID", available=200 * GIB, readonly=False, device=7):
     return FilesystemIdentity(
         path=Path(path),
-        device=7,
+        device=device,
         mount_target=Path(path).parent,
         source="/dev/fake",
         uuid=uuid,
@@ -65,7 +65,7 @@ class FilesystemIdentityTests(unittest.TestCase):
             with self.assertRaisesRegex(DiskIdentityError, "UUID"):
                 measure_filesystem(
                     target,
-                    expected_uuid="B8A426BFA4267FCC",
+                    expected_uuid="LIBRARY-UUID",
                     mount_probe=lambda _path: {"target": str(Path(temporary)), "source": "/dev/fake", "uuid": "WRONG", "options": "rw", "fstype": "ntfs"},
                 )
 
@@ -86,7 +86,7 @@ class FilesystemIdentityTests(unittest.TestCase):
             with self.assertRaisesRegex(DiskIdentityError, "read-only"):
                 measure_filesystem(
                     target,
-                    mount_probe=lambda _path: {"target": str(Path(temporary)), "source": "/dev/fake", "uuid": "B8A426BFA4267FCC", "options": "ro", "fstype": "ntfs"},
+                    mount_probe=lambda _path: {"target": str(Path(temporary)), "source": "/dev/fake", "uuid": "LIBRARY-UUID", "options": "ro", "fstype": "ntfs"},
                 )
 
     def test_capacity_probe_error_does_not_measure_root(self):
@@ -111,9 +111,9 @@ class FilesystemIdentityTests(unittest.TestCase):
 class GuardPlanningTests(unittest.TestCase):
     def setUp(self):
         self.config = DiskGuardConfig(
-            staging_path=Path("/home/admin/lumen-downloads"),
-            library_path=Path("/run/media/admin/ARQUIVOS/media"),
-            library_uuid="B8A426BFA4267FCC",
+            staging_path=Path("/srv/lumen-staging"),
+            library_path=Path("/srv/lumen-library/media"),
+            library_uuid="LIBRARY-UUID",
             staging_reserve_bytes=75 * GIB,
             library_reserve_bytes=50 * GIB,
             resume_margin_bytes=10 * GIB,
@@ -121,7 +121,7 @@ class GuardPlanningTests(unittest.TestCase):
         )
         self.snapshot = CapacitySnapshot(
             staging=identity(self.config.staging_path, available=100 * GIB),
-            library=identity(self.config.library_path, uuid="B8A426BFA4267FCC", available=100 * GIB),
+            library=identity(self.config.library_path, uuid="LIBRARY-UUID", available=100 * GIB, device=8),
         )
 
     def test_admits_fitting_queue_subset_in_order_without_deadlock(self):
@@ -168,7 +168,7 @@ class GuardPlanningTests(unittest.TestCase):
         guard = DiskGuard(self.config)
         snapshot = CapacitySnapshot(
             staging=identity(self.config.staging_path, available=84 * GIB),
-            library=identity(self.config.library_path, uuid="B8A426BFA4267FCC", available=100 * GIB),
+            library=identity(self.config.library_path, uuid="LIBRARY-UUID", available=100 * GIB, device=8),
         )
         item = GuardItem("guard", staging_bytes=1 * GIB, guard_paused=True)
         plan = guard.plan([item], snapshot, resume=True)
@@ -226,8 +226,21 @@ class SupervisorTests(unittest.TestCase):
         self.config = DiskGuardConfig(enabled=True)
         self.good = CapacitySnapshot(
             staging=identity(self.config.staging_path),
-            library=identity(self.config.library_path, uuid=self.config.library_uuid),
+            library=identity(self.config.library_path, uuid=self.config.library_uuid, device=8),
         )
+
+    def test_generic_environment_default_does_not_duplicate_media(self):
+        config = DiskGuardConfig.from_env({})
+        self.assertEqual(config.library_path, Path("/srv/lumen-library/media"))
+
+    def test_snapshot_rejects_same_filesystem(self):
+        guard = DiskGuard(
+            self.config,
+            measure=lambda path, **_kwargs: identity(path, uuid=self.config.library_uuid),
+        )
+        snapshot = guard.snapshot()
+        self.assertFalse(snapshot.healthy)
+        self.assertEqual(snapshot.reason, "storage_not_separate")
 
     def test_guard_crash_stops_downloader_and_does_not_escape(self):
         runner = self.Runner()
@@ -258,6 +271,37 @@ class SupervisorTests(unittest.TestCase):
         result = supervisor.cycle([])
         self.assertEqual(result.status, "healthy")
         self.assertIn(("start_container", "qbittorrent"), runner.calls)
+
+    def test_restart_happens_before_health_probe(self):
+        runner = self.Runner()
+        health_calls = []
+
+        def health():
+            health_calls.append(tuple(runner.calls))
+            return True
+
+        supervisor = GuardSupervisor(self.config, lambda: self.good, health, runner)
+        supervisor.mark_container_stopped()
+        self.assertEqual(supervisor.cycle([]).status, "healthy")
+        self.assertIn(("start_container", "qbittorrent"), health_calls[0])
+
+    def test_failed_fail_closed_action_is_reported_without_escaping(self):
+        runner = self.Runner()
+
+        def fail_stop():
+            raise RuntimeError("cannot stop")
+
+        runner.stop_downloader = fail_stop
+        supervisor = GuardSupervisor(
+            self.config,
+            lambda: (_ for _ in ()).throw(RuntimeError("private path")),
+            lambda: True,
+            runner,
+        )
+        result = supervisor.cycle([])
+        self.assertEqual(result.status, "guard-failed")
+        self.assertEqual(result.reason, "fail_closed_action_failed")
+        self.assertNotIn("private path", result.reason)
 
     def test_default_off_does_not_probe_or_mutate(self):
         runner = self.Runner()

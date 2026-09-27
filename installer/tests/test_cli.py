@@ -118,7 +118,10 @@ class CliContractTests(unittest.TestCase):
         self.assertEqual(
             manifest.runtime_paths,
             {
-                "config": str((WORKTREE_ROOT / "config").resolve()),
+                **{
+                    name: str((WORKTREE_ROOT / "config" / name).resolve())
+                    for name in cli._UPDATE_RUNTIME_CONFIG_DIRS
+                },
                 "state": str(
                     (WORKTREE_ROOT / ".state" / "installer" / "state.json").resolve()
                 ),
@@ -192,7 +195,7 @@ class CliContractTests(unittest.TestCase):
     def test_update_backup_filesystem_failure_returns_stable_cli_error(self):
         manifest = cli.UpdateManifest.from_inputs(
             WORKTREE_ROOT / ".env",
-            {"config": WORKTREE_ROOT / "config"},
+            {"recommendations": WORKTREE_ROOT / "config" / "recommendations"},
             {},
             {},
             {},
@@ -286,6 +289,39 @@ class CliContractTests(unittest.TestCase):
             )
             self.assertEqual("sha256:built", manifest.local_image_ids["built"])
             self.assertEqual(3, len(calls))
+
+    def test_update_manifest_excludes_build_dependencies_from_runtime_backup(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dependency_bin = root / "config" / "ai-recommendations" / "node_modules" / ".bin"
+            dependency_bin.mkdir(parents=True)
+            outside = root / "tool"
+            outside.write_text("tool", encoding="utf-8")
+            (dependency_bin / "tsx").symlink_to(outside)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / ".env").write_text("GPU_MODE=none\n", encoding="utf-8")
+
+            manifest = cli._update_manifest(
+                root,
+                SimpleNamespace(profiles=None, gpu_mode="none", gpu=None, dev=False),
+                dry_run=True,
+            )
+
+            self.assertNotIn(
+                str((root / "config" / "ai-recommendations").resolve()),
+                manifest.runtime_paths.values(),
+            )
+            self.assertEqual(
+                {
+                    str((root / "config" / name).resolve())
+                    for name in cli._UPDATE_RUNTIME_CONFIG_DIRS
+                },
+                {
+                    path
+                    for name, path in manifest.runtime_paths.items()
+                    if name != "state"
+                },
+            )
 
     def test_update_manifest_uses_saved_profiles_when_env_profiles_are_absent(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -861,6 +897,56 @@ class CliContractTests(unittest.TestCase):
             self.assertTrue(all("--remove-orphans" not in call for call in calls))
             health.assert_called_once()
 
+    def test_rollback_preflight_uses_the_backed_up_environment(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            env_path = root / ".env"
+            env_path.write_text(
+                "ROOT_PATH=/srv/current\nDOWNLOADS_PATH=/srv/current/downloads\n",
+                encoding="utf-8",
+            )
+            compose_file = root / "docker-compose.yml"
+            compose_file.write_text(
+                "services:\n  qbittorrent:\n    image: example/qbt:stable\n",
+                encoding="utf-8",
+            )
+            manifest = cli.UpdateManifest.from_inputs(
+                env_path,
+                {},
+                {"qbittorrent": "example/qbt:stable"},
+                {"qbittorrent": "sha256:" + "a" * 64},
+                {},
+                [],
+                "none",
+                [compose_file],
+                storage_mode="shared",
+            )
+            backup_env = (
+                root / ".state" / "installer" / "backups" / "run-2" / ".env"
+            )
+            backup_env.parent.mkdir(parents=True)
+            backup_env.write_text(
+                "ROOT_PATH=/srv/backup\nDOWNLOADS_PATH=/srv/legacy-downloads\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(
+                cli, "validate_storage", side_effect=InvalidInputError("unsafe backup")
+            ) as storage_check:
+                with self.assertRaisesRegex(InvalidInputError, "unsafe backup"):
+                    cli._rollback_callbacks(
+                        root,
+                        manifest,
+                        SimpleNamespace(dev=False),
+                        mock.Mock(),
+                        "run-2",
+                    )
+
+            self.assertEqual(
+                storage_check.call_args.args[:2],
+                ("/srv/backup", "/srv/legacy-downloads"),
+            )
+
     def test_update_and_rollback_callbacks_honor_ordered_compose_file_selection(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -921,6 +1007,28 @@ class CliContractTests(unittest.TestCase):
                 self.assertEqual(expected_files, selected[:2])
                 self.assertNotIn(str(root / "docker-compose.yml"), argv)
                 self.assertNotIn("--remove-orphans", argv)
+
+    def test_separate_storage_overlay_is_last_for_configured_compose_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            base = root / "docker-compose.yml"
+            separate = root / "docker-compose.separate.yml"
+            tail = root / "docker-compose.tail.yml"
+            for path in (base, separate, tail):
+                path.write_text("services: {}\n", encoding="utf-8")
+
+            files = cli._known_compose_files(
+                root,
+                {
+                    "STORAGE_MODE": "separate",
+                    "COMPOSE_FILE": os.pathsep.join(
+                        (base.name, separate.name, tail.name)
+                    ),
+                },
+                SimpleNamespace(storage_mode=None),
+            )
+
+            self.assertEqual(files, [base, tail, separate])
 
     def test_setup_confirmation_is_explicit_and_not_a_gpu_confirmation_abbreviation(self):
         parser = cli.build_parser()

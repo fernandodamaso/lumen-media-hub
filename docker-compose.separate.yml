@@ -1,8 +1,5 @@
 services:
-  # In separate-disk mode systemd owns storage-writer startup. Docker must
-  # not independently restart a writer while the library mount is absent.
   qbittorrent:
-    restart: "no"
     volumes: !override
       - type: bind
         source: ${DOWNLOADS_PATH}
@@ -12,10 +9,7 @@ services:
       - type: bind
         source: ./config/qbittorrent
         target: /config
-        bind:
-          create_host_path: false
   sonarr:
-    restart: "no"
     volumes: !override
       - type: bind
         source: ${ROOT_PATH}/media
@@ -30,10 +24,7 @@ services:
       - type: bind
         source: ./config/sonarr
         target: /config
-        bind:
-          create_host_path: false
   radarr:
-    restart: "no"
     volumes: !override
       - type: bind
         source: ${ROOT_PATH}/media
@@ -48,10 +39,7 @@ services:
       - type: bind
         source: ./config/radarr
         target: /config
-        bind:
-          create_host_path: false
   bazarr:
-    restart: "no"
     volumes: !override
       - type: bind
         source: ${ROOT_PATH}/media
@@ -61,10 +49,7 @@ services:
       - type: bind
         source: ./config/bazarr
         target: /config
-        bind:
-          create_host_path: false
   unpackerr:
-    restart: "no"
     volumes: !override
       - type: bind
         source: ${ROOT_PATH}/media
@@ -79,8 +64,6 @@ services:
       - type: bind
         source: ./config/unpackerr
         target: /config
-        bind:
-          create_host_path: false
   jellyfin:
     volumes: !override
       - type: bind
@@ -90,16 +73,8 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: ${DOWNLOADS_PATH}
-        target: /downloads
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
         source: ./config/jellyfin
         target: /config
-        bind:
-          create_host_path: false
   homepage-actions:
     volumes: !override
       - type: bind
@@ -116,14 +91,6 @@ services:
       - type: bind
         source: ${TRAKT_STATE_PATH:-./.state/trakt}
         target: /state
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ./.state/guard
-        target: /guard-state
-        read_only: true
-        bind:
-          create_host_path: false
       - type: bind
         source: ${ROOT_PATH}/media
         target: /data/media

@@ -14,13 +14,14 @@ import hashlib
 import json
 import os
 import re
+import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from .disk_guard import (
-    DEFAULT_LIBRARY_UUID,
+    CapacitySnapshot,
     DEFAULT_LIBRARY_RESERVE_GIB,
     DEFAULT_RESUME_MARGIN_GIB,
     DEFAULT_STAGING_RESERVE_GIB,
@@ -33,11 +34,10 @@ from .disk_guard import (
     measure_filesystem,
 )
 from .queue import classify_queue
+from .dotenv import write_atomic
 
 
 SCHEMA_VERSION = 1
-DEFAULT_STAGING_PATH = Path("/home/admin/lumen-downloads")
-DEFAULT_LIBRARY_PATH = Path("/run/media/admin/ARQUIVOS/media")
 _HASH = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 _SECRET_FIELD = re.compile(
     r"(?:password|secret|token|api[_-]?key|credential|cookie|private[_-]?key|oauth)",
@@ -63,6 +63,20 @@ def _absolute(value: Any, field: str) -> Path:
     if "\x00" in str(path):
         raise ValueError(f"{field} is invalid")
     return Path(os.path.abspath(os.fspath(path)))
+
+
+def _reject_symlink_components(path: Path, field: str) -> None:
+    current = Path(path.anchor)
+    for component in path.parts[1:]:
+        current /= component
+        try:
+            metadata = os.lstat(current)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise ValueError(f"{field} could not be inspected") from exc
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ValueError(f"{field} must not contain symlink components")
 
 
 def _is_temp(path: Path | str) -> bool:
@@ -230,6 +244,9 @@ def _parse_files(payload: Mapping[str, Any]) -> tuple[MigrationFile, ...]:
     if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
         raise ValueError("fixture files must be a list")
     parsed: list[MigrationFile] = []
+    identifiers: set[str] = set()
+    sources: set[Path] = set()
+    destinations: set[Path] = set()
     for index, row in enumerate(rows):
         if not isinstance(row, Mapping):
             raise ValueError(f"fixture file {index + 1} is invalid")
@@ -238,6 +255,15 @@ def _parse_files(payload: Mapping[str, Any]) -> tuple[MigrationFile, ...]:
         identifier = str(row.get("id", row.get("identifier", source))).strip()
         if not identifier:
             raise ValueError(f"fixture file {index + 1} identifier is empty")
+        if identifier in identifiers:
+            raise ValueError(f"fixture file {index + 1} identifier is duplicated")
+        if source in sources:
+            raise ValueError(f"fixture file {index + 1} source is duplicated")
+        if destination in destinations:
+            raise ValueError(f"fixture file {index + 1} destination is duplicated")
+        identifiers.add(identifier)
+        sources.add(source)
+        destinations.add(destination)
         torrent = row.get("torrent") if isinstance(row.get("torrent"), Mapping) else {}
         arr = row.get("arr") if isinstance(row.get("arr"), Mapping) else {}
         queue = row.get("queue") if isinstance(row.get("queue"), Mapping) else {}
@@ -292,8 +318,12 @@ def _file_preview(item: MigrationFile, source_root: Path, library_root: Path) ->
         destination["device"] = item.metadata["destination_device"]
     source_hash = source.get("sha256")
     destination_hash = destination.get("sha256")
-    source_in_scope = _path_in(item.source, source_root)
-    destination_in_scope = _path_in(item.destination, library_root)
+    source_in_scope = _path_in(
+        item.source.resolve(strict=False), source_root.resolve(strict=False)
+    )
+    destination_in_scope = _path_in(
+        item.destination.resolve(strict=False), library_root.resolve(strict=False)
+    )
     reasons: list[str] = []
     if _is_temp(item.source) or _is_temp(item.destination):
         reasons.append("temporary_name_excluded")
@@ -471,7 +501,7 @@ def run_dry_run(
     *,
     source_path: Path | str | None = None,
     library_path: Path | str | None = None,
-    library_uuid: str = DEFAULT_LIBRARY_UUID,
+    library_uuid: str | None = None,
     mount_probe: Callable[[Path], Mapping[str, Any]] | None = None,
     statvfs_probe: Callable[[Path], Any] | None = None,
     manifest_path: Path | str | None = None,
@@ -481,9 +511,12 @@ def run_dry_run(
     if not isinstance(payload, Mapping):
         raise ValueError("migration fixture must be an object")
     storage = payload.get("storage") if isinstance(payload.get("storage"), Mapping) else {}
-    staging = _absolute(source_path or storage.get("staging_path", DEFAULT_STAGING_PATH), "staging_path")
-    library = _absolute(library_path or storage.get("library_path", DEFAULT_LIBRARY_PATH), "library_path")
-    configured_uuid = str(library_uuid or storage.get("library_uuid") or DEFAULT_LIBRARY_UUID)
+    staging = _absolute(source_path or storage.get("staging_path"), "staging_path")
+    library = _absolute(library_path or storage.get("library_path"), "library_path")
+    configured_uuid_value = library_uuid or storage.get("library_uuid")
+    if not isinstance(configured_uuid_value, str) or not configured_uuid_value.strip():
+        raise ValueError("library_uuid is required")
+    configured_uuid = configured_uuid_value.strip()
     staging_identity, staging_error = _measure(
         staging, expected_uuid=None, mount_probe=mount_probe, statvfs_probe=statvfs_probe
     )
@@ -531,12 +564,30 @@ def run_dry_run(
         )
         for item in previews
     ]
-    plan = guard.plan(guard_items)
+    storage_reason = ""
+    if (
+        staging_identity is not None
+        and library_identity is not None
+        and staging_identity.device == library_identity.device
+        and staging_identity.source == library_identity.source
+    ):
+        storage_reason = "storage_not_separate"
+    plan = guard.plan(
+        guard_items,
+        CapacitySnapshot(staging_identity, library_identity, storage_reason),
+    )
     admitted = {item.identifier for item in plan.admitted}
     for item in previews:
         if item["id"] not in admitted and not item["preservation_reasons"]:
             item["preservation_reasons"].append("unaffordable_capacity")
             item["transition"] = "preserve"
+            item["copy_bytes"] = 0
+            item["transitions"] = {
+                "copy": "preserved",
+                "verify": "preserved",
+                "commit": "preserved",
+                "delete_source": "never",
+            }
             blockers.append(f"file:{item['id']}:unaffordable_capacity")
     capacity = {
         "staging_available_bytes": staging_identity.available_bytes if staging_identity else None,
@@ -607,8 +658,10 @@ def run_dry_run(
     output_path = None
     if manifest_path is not None:
         output_path = _absolute(manifest_path, "manifest_path")
+        _reject_symlink_components(output_path, "manifest_path")
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(output, encoding="utf-8")
+        _reject_symlink_components(output_path, "manifest_path")
+        write_atomic(output_path, output)
     return DryRunResult(
         status="ready" if not unique_blockers else "blocked",
         blockers=unique_blockers,
@@ -632,7 +685,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--fixture", type=Path, required=True, help="JSON inventory fixture")
     parser.add_argument("--staging-path", type=Path)
     parser.add_argument("--library-path", type=Path)
-    parser.add_argument("--library-uuid", default=DEFAULT_LIBRARY_UUID)
+    parser.add_argument("--library-uuid")
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true", help="required safety acknowledgement")
     args = parser.parse_args(argv)
@@ -654,8 +707,6 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 __all__ = [
-    "DEFAULT_LIBRARY_PATH",
-    "DEFAULT_STAGING_PATH",
     "DryRunResult",
     "MigrationFile",
     "SCHEMA_VERSION",

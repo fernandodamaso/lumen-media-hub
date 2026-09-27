@@ -390,10 +390,10 @@ Stack is up. Remaining manual steps (one-time):
   1. Optional profiles: subtitles enables Bazarr; requests enables Jellyseerr;
      ai enables the model-agnostic AI Picks worker.
      Enable them before opening those services, for example:
-       docker compose --profile subtitles --profile requests up -d
+       .\install.ps1 -Mode up -Profile subtitles,requests
      Set BAZARR_ENABLED=true / JELLYSEERR_ENABLED=true only after their API keys are configured.
      For AI Picks, also set AI_ENABLED=true, AI_PROVIDER, AI_MODEL, and the selected
-     provider credential before running docker compose --profile ai up -d --build.
+     provider credential before running .\install.ps1 -Mode up -Profile ai.
   2. Open each enabled service and copy its API key into .env:
        Jellyfin    http://localhost:8096   (Dashboard > API Keys)
        Radarr      http://127.0.0.1:7878   (Settings > General)
@@ -402,7 +402,7 @@ Stack is up. Remaining manual steps (one-time):
        Bazarr      http://127.0.0.1:6767   (Settings > General)
        Jellyseerr  http://127.0.0.1:5055
   3. Set the selected BAZARR_ENABLED/JELLYSEERR_ENABLED flags to true in .env, then apply the keys and keep those profiles enabled:
-       docker compose --profile subtitles --profile requests up -d
+       .\install.ps1 -Mode up -Profile subtitles,requests
      (omit profiles you did not enable)
   4. Dashboard:       http://127.0.0.1:3000
   qBittorrent WebUI:  http://127.0.0.1:8081 (admin; set WebUI password to match QBT_PASSWORD in .env on first login)

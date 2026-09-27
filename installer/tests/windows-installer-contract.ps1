@@ -17,7 +17,16 @@ $installerAst = [System.Management.Automation.Language.Parser]::ParseFile(
 )
 Assert-Contract ($parseErrors.Count -eq 0) 'install.ps1 did not parse successfully.'
 
-foreach ($Name in @('Assert-ExitCode', 'Assert-Command', 'Assert-Docker', 'Get-ComposePullServices')) {
+foreach ($Name in @(
+    'Assert-ExitCode',
+    'Assert-Command',
+    'Assert-Docker',
+    'Unquote-DotEnvValue',
+    'Get-EnvMap',
+    'Get-StorageMode',
+    'Get-ComposeFileArgs',
+    'Get-ComposePullServices'
+  )) {
   $functionAst = $installerAst.Find({
       param($Node)
       $Node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -54,6 +63,8 @@ Assert-Contract (
 
 $envFile = Join-Path $repositoryRoot '.env.example'
 $composeFile = Join-Path $repositoryRoot 'docker-compose.yml'
+$composeSeparateFile = Join-Path $repositoryRoot 'docker-compose.separate.yml'
+$storageMode = ''
 $pullServices = @(Get-ComposePullServices)
 Assert-Contract ($pullServices.Count -eq 1 -and $pullServices[0] -eq 'registry') `
   'Compose pull derivation must select image-only services and exclude build services.'

@@ -388,6 +388,43 @@ def validate_storage_mounts(
             "Compose storage view is missing required services: "
             + ", ".join(sorted(missing))
         )
+    for service, definition in services.items():
+        volumes = definition.get("volumes") if isinstance(definition, Mapping) else None
+        if not isinstance(volumes, Sequence) or isinstance(
+            volumes, (str, bytes, bytearray)
+        ):
+            continue
+        expected = expected_by_service.get(service, {})
+        for volume in volumes:
+            if isinstance(volume, Mapping):
+                source = volume.get("source")
+                target = volume.get("target")
+            elif isinstance(volume, str):
+                parts = volume.split(":")
+                source, target = (parts[0], parts[1]) if len(parts) >= 2 else (None, None)
+            else:
+                continue
+            if not isinstance(source, str) or not isinstance(target, str):
+                continue
+            source_path = Path(source)
+            if source_path == root:
+                raise InvalidInputError(
+                    f"Compose storage root is exposed for {service}"
+                )
+            if target == "/data":
+                raise InvalidInputError(
+                    f"Compose storage mount /data is too broad for {service}"
+                )
+            storage_source = (
+                root in source_path.parents
+                or source_path == downloads
+                or downloads in source_path.parents
+            )
+            allowed = expected.get(target)
+            if storage_source and (allowed is None or source_path != allowed[0]):
+                raise InvalidInputError(
+                    f"Compose storage mount {target} is unexpected for {service}"
+                )
     for service in tuple(expected_by_service):
         if service not in services:
             continue
@@ -416,6 +453,11 @@ def validate_storage_mounts(
             raise InvalidInputError(f"Compose storage root is exposed for {service}")
         if "/data" in mounts:
             raise InvalidInputError(f"Compose storage mount /data is too broad for {service}")
+        for target, (source, _read_only) in mounts.items():
+            if Path(source) in {media, downloads} and target not in expected:
+                raise InvalidInputError(
+                    f"Compose storage mount {target} is unexpected for {service}"
+                )
         for target, (source, read_only) in expected.items():
             actual = mounts.get(target)
             if actual is None or Path(actual[0]) != source:
@@ -425,23 +467,6 @@ def validate_storage_mounts(
                 raise InvalidInputError(
                     f"Compose storage mount {target} must be {access} for {service}"
                 )
-
-
-def validate_storage_writer_policy(
-    payload: Mapping[str, Any],
-    services: Sequence[str],
-) -> None:
-    """Require systemd-owned writers to have Docker restart disabled."""
-
-    definitions = _config_services(payload)
-    for service in services:
-        definition = definitions.get(service)
-        if not isinstance(definition, Mapping):
-            raise InvalidInputError(f"Compose writer service is missing: {service}")
-        if definition.get("restart") != "no":
-            raise InvalidInputError(
-                f"Compose writer restart policy is not systemd-owned for {service}"
-            )
 
 
 def pull(
@@ -550,6 +575,5 @@ __all__ = [
     "redeploy_dashboard",
     "run_compose",
     "validate_storage_mounts",
-    "validate_storage_writer_policy",
     "up",
 ]

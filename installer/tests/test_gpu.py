@@ -40,7 +40,12 @@ class Runner:
     def run(self, argv, **kwargs):
         key = tuple(argv)
         self.calls.append((key, kwargs))
-        value = self.responses.get(key, CommandResult(key, 1, "", "not configured"))
+        if key in self.responses:
+            value = self.responses[key]
+        elif key[-3:] == ("config", "--format", "json"):
+            value = CommandResult(key, 0, '{"services":{"jellyfin":{"image":"x"}}}')
+        else:
+            value = CommandResult(key, 1, "", "not configured")
         if isinstance(value, BaseException):
             raise value
         return value
@@ -291,8 +296,14 @@ class GpuProbeTests(unittest.TestCase):
         from lumen_installer.state import InstallerState
 
         with tempfile.TemporaryDirectory() as temporary:
-            repo = Path(temporary) / "repo"
+            root = Path(temporary)
+            repo = root / "repo"
             repo.mkdir()
+            (repo / ".env").write_text(
+                f"ROOT_PATH={root / 'media'}\n"
+                f"DOWNLOADS_PATH={root / 'media' / 'downloads'}\n",
+                encoding="utf-8",
+            )
             InstallerState.new(repo).save()
             runner = Runner()
             result = run_up(
@@ -301,6 +312,7 @@ class GpuProbeTests(unittest.TestCase):
                 options=ComposeOptions(gpu="nvidia"),
                 dry_run=True,
                 stale_finder=lambda: (),
+                storage_validator=lambda *_args, **_kwargs: SimpleNamespace(report={}),
             )
 
         probed = [call for call, _ in runner.calls if call and (call[0] == "nvidia-smi" or call[0:2] == ("docker", "run"))]
@@ -329,6 +341,7 @@ class GpuProbeTests(unittest.TestCase):
                     "vaapi", "available", True, {}, render_gid=107, video_gid=44
                 ),
                 stale_finder=lambda: (),
+                storage_validator=lambda *_args, **_kwargs: SimpleNamespace(report={}),
             )
             rendered_env = env_path.read_text(encoding="utf-8")
             saved_state = InstallerState.load(repo)
@@ -360,6 +373,7 @@ class GpuProbeTests(unittest.TestCase):
                 ),
                 dry_run=True,
                 stale_finder=lambda: (),
+                storage_validator=lambda *_args, **_kwargs: SimpleNamespace(report={}),
             )
             after_env = env_path.read_text(encoding="utf-8")
             after_state = InstallerState.load(repo)
@@ -442,6 +456,15 @@ class GpuProbeTests(unittest.TestCase):
                         "dry_run": True,
                         "stale_finder": lambda: (),
                     }
+                    if lifecycle is run_up:
+                        (repo / ".env").write_text(
+                            f"ROOT_PATH={root / 'media'}\n"
+                            f"DOWNLOADS_PATH={root / 'media' / 'downloads'}\n",
+                            encoding="utf-8",
+                        )
+                        kwargs["storage_validator"] = (
+                            lambda *_args, **_extra: SimpleNamespace(report={})
+                        )
                     if lifecycle is run_foundation:
                         kwargs.update(
                             {
@@ -463,7 +486,7 @@ class GpuProbeTests(unittest.TestCase):
                         [call for call, _ in runner.calls if call and (call[0] == "nvidia-smi" or call[:2] == ("docker", "run"))],
                         [],
                     )
-                    self.assertFalse((repo / ".env").exists())
+                    self.assertEqual((repo / ".env").exists(), lifecycle is run_up)
 
     def test_confirmed_auto_foundation_saves_resolved_gpu_mode_for_future_up(self):
         from lumen_installer.setup import run_foundation, run_up
@@ -711,6 +734,7 @@ class GpuProbeTests(unittest.TestCase):
                 gpu_detector=detector,
                 gpu_confirm=True,
                 stale_finder=lambda: (),
+                storage_validator=lambda *_args, **_kwargs: SimpleNamespace(report={}),
             )
             saved = InstallerState.load(repo)
             rendered = env_path.read_text(encoding="utf-8")
@@ -726,8 +750,14 @@ class GpuProbeTests(unittest.TestCase):
         from lumen_installer.state import InstallerState
 
         with tempfile.TemporaryDirectory() as temporary:
-            repo = Path(temporary) / "repo"
+            root = Path(temporary)
+            repo = root / "repo"
             repo.mkdir()
+            (repo / ".env").write_text(
+                f"ROOT_PATH={root / 'media'}\n"
+                f"DOWNLOADS_PATH={root / 'media' / 'downloads'}\n",
+                encoding="utf-8",
+            )
             InstallerState.new(repo, gpu_mode="auto").save()
             runner = Runner()
             detector = lambda mode, **kwargs: GpuProbe("nvidia", "available", True, {})
@@ -738,6 +768,7 @@ class GpuProbeTests(unittest.TestCase):
                 gpu_detector=detector,
                 gpu_confirm=True,
                 stale_finder=lambda: (),
+                storage_validator=lambda *_args, **_kwargs: SimpleNamespace(report={}),
             )
             self.assertEqual(InstallerState.load(repo).gpu_mode, "nvidia")
 
@@ -746,6 +777,7 @@ class GpuProbeTests(unittest.TestCase):
                 runner=runner,
                 gpu_detector=detector,
                 stale_finder=lambda: (),
+                storage_validator=lambda *_args, **_kwargs: SimpleNamespace(report={}),
             )
 
         self.assertEqual(first.options.gpu_mode, "nvidia")

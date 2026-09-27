@@ -1383,17 +1383,12 @@ def run_up(
             if options is not None and options.storage_mode is not None
             else environment_document.get("STORAGE_MODE", "shared")
         )
-        storage_mode_explicit = (
-            options is not None and options.storage_mode is not None
-        ) or "STORAGE_MODE" in environment_document.values
         effective = replace(effective, storage_mode=selected_storage_mode)
         storage_root = environment_document.get("ROOT_PATH")
         storage_downloads = environment_document.get("DOWNLOADS_PATH")
-        if selected_storage_mode == "separate" and not (storage_root and storage_downloads):
-            raise InvalidInputError(
-                "separate storage requires both ROOT_PATH and DOWNLOADS_PATH"
-            )
-        if storage_root and storage_downloads and storage_mode_explicit:
+        if not (storage_root and storage_downloads):
+            raise InvalidInputError("storage requires both ROOT_PATH and DOWNLOADS_PATH")
+        if storage_root and storage_downloads:
             _guard_storage_targets(
                 storage_root,
                 storage_downloads,

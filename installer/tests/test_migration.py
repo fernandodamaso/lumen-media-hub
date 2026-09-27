@@ -220,6 +220,17 @@ class MigrationDryRunTests(unittest.TestCase):
             self.assertEqual(capacity["library_available_bytes"], 70 * GIB)
             self.assertEqual(capacity["resume_floor"]["staging_bytes"], 85 * GIB)
             self.assertIn("unaffordable_capacity", result.manifest["files"][0]["preservation_reasons"])
+            self.assertEqual(result.manifest["files"][0]["copy_bytes"], 0)
+            self.assertEqual(
+                result.manifest["files"][0]["transitions"],
+                {
+                    "copy": "preserved",
+                    "verify": "preserved",
+                    "commit": "preserved",
+                    "delete_source": "never",
+                },
+            )
+            self.assertEqual(capacity["pending_copy_bytes"], 0)
 
             missing = root / "missing"
             failed = run_dry_run(
@@ -263,6 +274,160 @@ class MigrationDryRunTests(unittest.TestCase):
             document = json.loads(manifest.read_text(encoding="utf-8"))
             self.assertEqual(document["schema_version"], 1)
             self.assertFalse(document["mutation"]["performed"])
+
+    def test_manifest_output_rejects_symlink_target_and_parent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            staging = root / "staging"
+            library = root / "library"
+            outside = root / "outside"
+            staging.mkdir()
+            library.mkdir()
+            outside.mkdir()
+            source = staging / "movie.mkv"
+            source.write_bytes(b"fixture")
+            protected = outside / "protected.json"
+            protected.write_text("unchanged", encoding="utf-8")
+            probes = self._mount_probe(
+                {
+                    staging: ("/dev/main", None, "btrfs"),
+                    library: ("/dev/library", DEFAULT_LIBRARY_UUID, "ntfs"),
+                }
+            )
+            arguments = {
+                "source_path": staging,
+                "library_path": library,
+                "mount_probe": probes,
+                "statvfs_probe": self._statvfs_probe(200 * GIB),
+            }
+
+            linked_manifest = root / "manifest.json"
+            linked_manifest.symlink_to(protected)
+            with self.assertRaisesRegex(ValueError, "symlink components"):
+                run_dry_run(
+                    self._payload(source, library / "movie.mkv"),
+                    manifest_path=linked_manifest,
+                    **arguments,
+                )
+
+            linked_parent = root / "linked-parent"
+            linked_parent.symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "symlink components"):
+                run_dry_run(
+                    self._payload(source, library / "movie.mkv"),
+                    manifest_path=linked_parent / "manifest.json",
+                    **arguments,
+                )
+            self.assertEqual(protected.read_text(encoding="utf-8"), "unchanged")
+
+    def test_duplicate_identifiers_sources_and_destinations_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            staging = root / "staging"
+            library = root / "library"
+            staging.mkdir()
+            library.mkdir()
+            first = staging / "first.mkv"
+            second = staging / "second.mkv"
+            first.write_bytes(b"first")
+            second.write_bytes(b"second")
+            base = self._payload(first, library / "first.mkv")
+            duplicate = dict(base["files"][0])
+            duplicate.update(
+                id="torrent-b/movie.mkv",
+                source=str(second),
+                destination=str(library / "second.mkv"),
+            )
+
+            for field, value in (
+                ("id", base["files"][0]["id"]),
+                ("source", str(first)),
+                ("destination", str(library / "first.mkv")),
+            ):
+                with self.subTest(field=field):
+                    row = dict(duplicate)
+                    row[field] = value
+                    payload = dict(base)
+                    payload["files"] = [base["files"][0], row]
+                    with self.assertRaisesRegex(ValueError, "duplicated"):
+                        run_dry_run(
+                            payload,
+                            source_path=staging,
+                            library_path=library,
+                            mount_probe=self._mount_probe(
+                                {
+                                    staging: ("/dev/main", None, "ext4"),
+                                    library: ("/dev/library", DEFAULT_LIBRARY_UUID, "ext4"),
+                                }
+                            ),
+                            statvfs_probe=self._statvfs_probe(200 * GIB),
+                        )
+
+    def test_parent_symlink_cannot_escape_migration_scope(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            staging = root / "staging"
+            library = root / "library"
+            outside = root / "outside"
+            staging.mkdir()
+            library.mkdir()
+            outside.mkdir()
+            source = outside / "movie.mkv"
+            source.write_bytes(b"outside")
+            (staging / "link").symlink_to(outside, target_is_directory=True)
+            payload = self._payload(staging / "link" / "movie.mkv", library / "movie.mkv")
+
+            result = run_dry_run(
+                payload,
+                source_path=staging,
+                library_path=library,
+                mount_probe=self._mount_probe(
+                    {
+                        staging: ("/dev/main", None, "ext4"),
+                        library: ("/dev/library", DEFAULT_LIBRARY_UUID, "ext4"),
+                    }
+                ),
+                statvfs_probe=self._statvfs_probe(200 * GIB),
+            )
+
+            self.assertIn(
+                "source_outside_staging",
+                result.manifest["files"][0]["preservation_reasons"],
+            )
+
+    def test_payload_library_uuid_is_used_when_no_argument_is_supplied(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            staging = root / "staging"
+            library = root / "library"
+            staging.mkdir()
+            library.mkdir()
+            source = staging / "movie.mkv"
+            source.write_bytes(b"movie")
+            payload = self._payload(source, library / "movie.mkv")
+            payload["storage"]["library_uuid"] = "A1B2C3D4"
+            observed = []
+
+            def mount_probe(path):
+                observed.append(path)
+                return {
+                    "target": str(path),
+                    "source": "/dev/library" if path == library else "/dev/main",
+                    "uuid": "A1B2C3D4" if path == library else None,
+                    "options": "rw",
+                    "fstype": "ext4",
+                }
+
+            result = run_dry_run(
+                payload,
+                source_path=staging,
+                library_path=library,
+                mount_probe=mount_probe,
+                statvfs_probe=self._statvfs_probe(200 * GIB),
+            )
+
+            self.assertEqual(result.manifest["storage"]["library"]["uuid"], "A1B2C3D4")
+            self.assertEqual(observed, [staging, library])
 
 
 if __name__ == "__main__":

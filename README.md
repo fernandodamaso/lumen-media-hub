@@ -164,7 +164,10 @@ For the deeper architecture, facade lifetimes, polling ownership, API endpoints 
 
 ## Media stack
 
-A plain `docker compose up -d` starts the core stack.
+A plain `docker compose up -d` starts the core stack. Storage bind mounts never
+create missing host paths, so create `ROOT_PATH/media/movies`,
+`ROOT_PATH/media/tv`, and `DOWNLOADS_PATH` first when starting Compose without
+an installer.
 
 ### Core services
 

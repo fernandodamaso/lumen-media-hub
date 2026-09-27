@@ -461,7 +461,16 @@ class ComposeNetworkBindingTests(unittest.TestCase):
 
         for service in ("qbittorrent", "sonarr", "radarr"):
             self.assertEqual(host_volume(service, "/data"), "/srv/media")
-            self.assertFalse(any(volume["target"] == "/downloads" for volume in services[service]["volumes"]))
+            # Persisted /downloads save/import paths from older installs must
+            # keep resolving to the same shared directory as /data/downloads.
+            self.assertEqual(host_volume(service, "/downloads"), "/srv/media/downloads")
+
+    def test_homepage_actions_measures_mounted_library_disk(self):
+        service = self._compose_config()["homepage-actions"]
+        environment = service["environment"]
+        targets = {volume["target"] for volume in service["volumes"]}
+        self.assertEqual(environment["DATA_PATH"], "/data/media")
+        self.assertIn(environment["DATA_PATH"], targets)
 
     def test_dev_override_keeps_dashboard_loopback_and_retargets_container_port(self):
         services = self._compose_config(dev=True)

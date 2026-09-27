@@ -71,7 +71,7 @@ Enable profiles with `docker compose --profile subtitles --profile requests up -
 
 Upgrade existing hosts by adding the enable flag for every optional service already represented by an API key, enabling its Compose profile, and rerunning `docker compose up -d`. Keys without `BAZARR_ENABLED=true` or `JELLYSEERR_ENABLED=true` no longer activate those capabilities after upgrade.
 
-**Manual path** (no installer): copy `.env.example` → `.env`, set `ROOT_PATH` / `DOWNLOADS_PATH` (forward slashes), then run `docker compose up -d --build` from the repo root. Compose uses `dashboard-app/Dockerfile` for the single production-live build.
+**Manual path** (no installer): copy `.env.example` → `.env`, set `ROOT_PATH` / `DOWNLOADS_PATH` (forward slashes), create `ROOT_PATH/media/movies`, `ROOT_PATH/media/tv`, and `DOWNLOADS_PATH` (Compose does not create storage bind sources), then run `docker compose up -d --build` from the repo root. Compose uses `dashboard-app/Dockerfile` for the single production-live build.
 
 ## How to use this project
 

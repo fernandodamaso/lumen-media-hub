@@ -107,7 +107,14 @@ In `shared` mode, `ROOT_PATH` is mounted into qBittorrent, Sonarr, and Radarr as
 `/data`, and `DOWNLOADS_PATH` must be the exact child `ROOT_PATH/downloads`.
 Final libraries remain `/data/media/tv` and `/data/media/movies`; managed
 qBittorrent categories use `/data/downloads/sonarr` and
-`/data/downloads/radarr`, preserving hardlinks.
+`/data/downloads/radarr`, preserving hardlinks. The same directory is also
+mounted at `/downloads` in those three services so save and import paths
+persisted by older installs keep working; hardlinks cannot cross the two
+mounts, so move persisted paths to `/data/downloads` to regain hardlinking.
+Compose never creates missing storage bind sources: the installers create
+`ROOT_PATH/media`, `ROOT_PATH/media/movies`, `ROOT_PATH/media/tv`, and
+`DOWNLOADS_PATH`, and a manual Compose start requires those directories to
+exist first.
 
 In explicit `separate` mode, the `ROOT_PATH/media` child is the permanent
 library view at `/data/media`, while `DOWNLOADS_PATH` is the staging mount at
@@ -209,6 +216,14 @@ qBittorrent and Arr evidence before qBittorrent is asked to remove its original
 files. Missing history, state, identity, stop confirmation, or provider access
 preserves the data and reports a degraded or blocked status. Leave the flag
 false until the host configuration and status telemetry have been reviewed.
+Cleanup only considers torrents whose qBittorrent content path is below
+`/downloads`; torrents saved under `/data/downloads` in `shared` mode are
+skipped as `source_outside_downloads` and remain untouched.
+
+If an ignored `docker-compose.override.yml` exists in the repository root, the
+installer includes it in every Compose render. It is host-local
+configuration: review it before `up` or `update`, because its port bindings
+and mounts are applied as written.
 
 The separate-storage disk guard is an independent staged library and remains
 disabled and uninstalled; setting `DISK_GUARD_ENABLED` alone does not start a

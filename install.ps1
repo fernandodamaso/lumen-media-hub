@@ -188,6 +188,26 @@ function Assert-SharedStorageLayout {
   }
 }
 
+# Compose binds storage with create_host_path disabled so an unmounted disk is
+# never silently replaced by an empty directory; first-time setup creates the
+# layout explicitly instead.
+function Initialize-StorageDirectories([hashtable]$Map) {
+  if (-not (Test-NonEmptyEnvValue $Map 'ROOT_PATH') -or -not (Test-NonEmptyEnvValue $Map 'DOWNLOADS_PATH')) {
+    throw 'ROOT_PATH and DOWNLOADS_PATH must be configured before Compose starts.'
+  }
+  $rootPath = Unquote-DotEnvValue ([string]$Map['ROOT_PATH'])
+  $downloadsPath = Unquote-DotEnvValue ([string]$Map['DOWNLOADS_PATH'])
+  foreach ($directory in @(
+      $rootPath,
+      (Join-Path $rootPath 'media'),
+      (Join-Path $rootPath 'media/movies'),
+      (Join-Path $rootPath 'media/tv'),
+      $downloadsPath
+    )) {
+    New-Item -ItemType Directory -Force $directory | Out-Null
+  }
+}
+
 function Merge-MissingEnvKeys {
   $lines = [System.Collections.Generic.List[string]]::new()
   $lines.AddRange([string[]](Get-Content $EnvFile))
@@ -349,11 +369,7 @@ function Invoke-Stack {
   Initialize-EnvFile
   Clear-StaleComposeContainers
 
-  $envContent = Get-Content $EnvFile -Raw
-  if ($envContent -match '(?m)^DOWNLOADS_PATH=(?:"([^"]*)"|([^\r\n]+))') {
-    $downloadsDir = if ($Matches[1]) { $Matches[1] } else { (Unquote-DotEnvValue $Matches[2].Trim()) }
-    New-Item -ItemType Directory -Force $downloadsDir | Out-Null
-  }
+  Initialize-StorageDirectories (Get-EnvMap ([string[]](Get-Content $EnvFile)))
 
   Write-Step 'Pulling service images'
   $composePullServices = Get-ComposePullServices

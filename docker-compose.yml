@@ -49,6 +49,13 @@ services:
         target: /data
         bind:
           create_host_path: false
+      # Legacy alias of ROOT_PATH/downloads for persisted /downloads save and
+      # import paths. Use /data/downloads for new paths so imports hardlink.
+      - type: bind
+        source: ${DOWNLOADS_PATH}
+        target: /downloads
+        bind:
+          create_host_path: false
       - ./config/qbittorrent:/config
     logging:
       driver: json-file
@@ -75,6 +82,13 @@ services:
         target: /data
         bind:
           create_host_path: false
+      # Legacy alias of ROOT_PATH/downloads for persisted /downloads save and
+      # import paths. Use /data/downloads for new paths so imports hardlink.
+      - type: bind
+        source: ${DOWNLOADS_PATH}
+        target: /downloads
+        bind:
+          create_host_path: false
       - ./config/radarr:/config
     logging:
       driver: json-file
@@ -99,6 +113,13 @@ services:
       - type: bind
         source: ${ROOT_PATH}
         target: /data
+        bind:
+          create_host_path: false
+      # Legacy alias of ROOT_PATH/downloads for persisted /downloads save and
+      # import paths. Use /data/downloads for new paths so imports hardlink.
+      - type: bind
+        source: ${DOWNLOADS_PATH}
+        target: /downloads
         bind:
           create_host_path: false
       - ./config/sonarr:/config
@@ -305,7 +326,10 @@ services:
       - CORS_ORIGINS=http://${PUBLIC_HOST:-127.0.0.1}:${DASHBOARD_PORT:-3000},http://localhost:3000,http://127.0.0.1:3000,http://localhost:4200,http://127.0.0.1:4200
       - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
       - PORT=8085
-      - DATA_PATH=/data
+      # Disk usage is measured on the library mount; cron-job logs are read
+      # from /data/tmp only when a host override mounts ROOT_PATH/tmp there.
+      - DATA_PATH=/data/media
+      - TMP_DIR=/data/tmp
       - QUEUE_HYGIENE_MODE=${QUEUE_HYGIENE_MODE:-observe}
       - QUEUE_HYGIENE_INTERVAL_SECONDS=${QUEUE_HYGIENE_INTERVAL_SECONDS:-300}
       - QUEUE_HYGIENE_GRACE_SECONDS=${QUEUE_HYGIENE_GRACE_SECONDS:-21600}

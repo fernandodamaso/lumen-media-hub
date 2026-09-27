@@ -337,10 +337,10 @@ LUMEN_QBT_PASSWORD="$QBT_PASSWORD_FROM_SECRET_STORE" \
 ./install.sh setup --non-interactive --network-mode local --gpu-mode none
 ```
 
-For the fixed two-disk rollout, use `LUMEN_STORAGE_MODE=separate` with
-`LUMEN_ROOT_PATH=/run/media/admin/ARQUIVOS`,
-`LUMEN_DOWNLOADS_PATH=/home/admin/lumen-downloads`, and
-`LUMEN_LIBRARY_MOUNT_UUID=B8A426BFA4267FCC`.
+For a two-disk rollout, use `LUMEN_STORAGE_MODE=separate` with generic host
+paths such as `LUMEN_ROOT_PATH=/srv/lumen-library` and
+`LUMEN_DOWNLOADS_PATH=/srv/lumen-staging`, plus the actual permanent-library
+filesystem UUID in `LUMEN_LIBRARY_MOUNT_UUID`.
 
 Use `--network-mode lan --public-host HOST` only after reviewing firewall and
 reverse-proxy policy. Existing environments missing

@@ -1,35 +1,38 @@
-"""Bounded, read-only status projections for staged storage protections.
+"""Bounded, read-only status projections for storage protections.
 
-The installer guard and the two cleanup runners are not started by this API.
-This module reports their configured state and durable summaries without
-calling qBittorrent, Arr, Jellyfin, or Trakt and without exposing private
-state-file contents.
+The disk guard remains an independent staged feature. The API starts the
+verified-cleanup and Trakt-retention schedulers only when their explicit flags
+are enabled. This module reports configuration, scheduler telemetry, and
+durable summaries without calling qBittorrent, Arr, Jellyfin, or Trakt or
+exposing private state-file contents.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import time
 from datetime import datetime, timezone
 
 import config as settings
+import trakt_retention
+import verified_cleanup
 from clients.trakt import TraktTokenStore
 
 
 MAX_STATE_ITEMS = 20
 _KNOWN_RESULT_STATUSES = {
-    "ambiguous_delete",
-    "delete_outcome_unknown",
     "deleted",
-    "library_missing_after_delete",
     "preserved",
     "skipped",
-    "source_remains",
     "verified",
-}
+} | verified_cleanup._UNRESOLVED_STATUSES
 _KNOWN_RETENTION_STATUSES = {"deleted", "planned", "preserved", "unmonitored"}
+_SCHEDULER_TIMESTAMP = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})"
+)
 _SAFE_REASON = {
     "disabled",
     "auth_required",
@@ -44,6 +47,7 @@ _SAFE_REASON = {
     "revalidation_failed",
     "sonarr_state_changed",
     "unmonitor_failed",
+    "unmonitor_rollback_failed",
     "unknown_series_identity",
     "ambiguous_series_mapping",
     "unwatched_episode",
@@ -58,9 +62,11 @@ def _read_object(path):
     try:
         with open(path, encoding="utf-8") as handle:
             value = json.load(handle)
-    except (OSError, TypeError, ValueError, UnicodeDecodeError):
+    except FileNotFoundError:
         return {}
-    return value if isinstance(value, dict) else {}
+    except (OSError, TypeError, ValueError, UnicodeDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def _safe_reason(value):
@@ -126,6 +132,9 @@ def build_storage_status():
 
 def _state_summary(path, statuses):
     raw = _read_object(path)
+    valid = raw is not None
+    if raw is None:
+        raw = {}
     records = raw.get("items") if isinstance(raw.get("items"), dict) else raw
     if not isinstance(records, dict):
         records = {}
@@ -138,20 +147,88 @@ def _state_summary(path, statuses):
         if status in counts:
             counts[status] += 1
             latest = {"status": status, "reason": _safe_reason(record.get("reason"))}
-    return counts, latest
+    return counts, latest, valid
+
+
+def _valid_scheduler_stamp(value):
+    if value is None:
+        return True
+    if not isinstance(value, str) or not _SCHEDULER_TIMESTAMP.fullmatch(value):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
+
+
+def _scheduler_snapshot():
+    raw = verified_cleanup.get_verified_cleanup_scheduler_status()
+    if (
+        not isinstance(raw, dict)
+        or not {"running", "lastCycleAt", "lastStatus", "lastError"} <= raw.keys()
+        or type(raw["running"]) is not bool
+        or not _valid_scheduler_stamp(raw["lastCycleAt"])
+        or (raw["lastStatus"] is not None and (
+            not isinstance(raw["lastStatus"], str)
+            or raw["lastStatus"] not in verified_cleanup._SAFE_CYCLE_STATUSES
+        ))
+        or raw["lastError"] not in (None, "cleanup_cycle_failed")
+    ):
+        return {
+            "running": False,
+            "lastCycleAt": None,
+            "lastStatus": "cleanup_cycle_failed",
+            "lastError": "cleanup_cycle_failed",
+        }
+    return {
+        "running": raw["running"],
+        "lastCycleAt": raw["lastCycleAt"],
+        "lastStatus": raw["lastStatus"],
+        "lastError": raw["lastError"],
+    }
 
 
 def _verified_cleanup_status():
     enabled = bool(getattr(settings, "VERIFIED_CLEANUP_ENABLED", False))
-    counts, latest = _state_summary(settings.VERIFIED_CLEANUP_STATE_PATH, _KNOWN_RESULT_STATUSES)
+    counts, latest, state_valid = _state_summary(
+        settings.VERIFIED_CLEANUP_STATE_PATH, _KNOWN_RESULT_STATUSES
+    )
     pending = counts.get("verified", 0)
-    result = {
+    scheduler = _scheduler_snapshot()
+    last_status = scheduler["lastStatus"]
+    failed_cycle = scheduler["lastError"] is not None or last_status in (
+        "degraded",
+        "qbit_unavailable",
+        "cleanup_cycle_failed",
+    )
+    if not enabled:
+        status = "disabled"
+    elif (
+        failed_cycle
+        or not state_valid
+        or any(counts[outcome] for outcome in verified_cleanup._UNRESOLVED_STATUSES)
+    ):
+        status = "degraded"
+    elif not scheduler["running"]:
+        status = "not_running"
+    elif last_status is None:
+        status = "starting"
+    elif last_status != "ok":
+        status = "degraded"
+    elif pending:
+        status = "queued"
+    elif latest:
+        status = "ready"
+    else:
+        status = "idle"
+    return {
         "enabled": enabled,
-        "status": "disabled" if not enabled else ("queued" if pending else ("ready" if latest else "idle")),
+        "status": status,
         "lastResult": latest if enabled else None,
         "queueCount": pending if enabled else 0,
+        "scheduler": scheduler,
     }
-    return result
 
 
 def _verification_status(cleanup):
@@ -166,10 +243,12 @@ def _verification_status(cleanup):
 
 def _retention_status():
     enabled = bool(getattr(settings, "TRAKT_RETENTION_ENABLED", False))
-    counts, latest = _state_summary(settings.TRAKT_RETENTION_STATE_PATH, _KNOWN_RETENTION_STATUSES)
+    counts, latest, state_valid = _state_summary(
+        settings.TRAKT_RETENTION_STATE_PATH, _KNOWN_RETENTION_STATUSES
+    )
     skips = []
     raw = _read_object(settings.TRAKT_RETENTION_STATE_PATH)
-    records = raw.get("items") if isinstance(raw.get("items"), dict) else raw
+    records = raw.get("items") if isinstance(raw, dict) and isinstance(raw.get("items"), dict) else raw
     reasons = {}
     if isinstance(records, dict):
         for record in records.values():
@@ -188,14 +267,48 @@ def _retention_status():
         "preservedCount": counts.get("preserved", 0),
         "pendingCount": counts.get("planned", 0) + counts.get("unmonitored", 0),
     }
+    scheduler = trakt_retention.get_trakt_retention_scheduler_status()
+    scheduler_valid = (
+        isinstance(scheduler, dict)
+        and type(scheduler.get("running")) is bool
+        and _valid_scheduler_stamp(scheduler.get("lastCycleAt"))
+        and scheduler.get("lastStatus") in trakt_retention._SAFE_CYCLE_STATUSES | {None}
+        and scheduler.get("lastError") in (None, "retention_cycle_failed")
+    )
+    if not scheduler_valid:
+        scheduler = {
+            "running": False,
+            "lastCycleAt": None,
+            "lastStatus": "retention_cycle_failed",
+            "lastError": "retention_cycle_failed",
+        }
+    failed = (
+        not state_valid
+        or results["pendingCount"] > 0
+        or reasons.get("unmonitor_rollback_failed", 0) > 0
+        or scheduler["lastError"] is not None
+        or scheduler["lastStatus"] in {"blocked", "retention_cycle_failed"}
+    )
+    if not enabled:
+        status = "disabled"
+    elif failed:
+        status = "degraded"
+    elif not scheduler["running"]:
+        status = "not_running"
+    elif scheduler["lastStatus"] is None:
+        status = "starting"
+    elif latest:
+        status = "result"
+    else:
+        status = "idle"
     return {
         "enabled": enabled,
-        "status": "disabled" if not enabled else ("result" if latest else "idle"),
+        "status": status,
         "preview": preview if enabled else None,
         "skips": skips if enabled else [],
         "results": results if enabled else {"deletedCount": 0, "preservedCount": 0, "pendingCount": 0},
         "lastResult": latest if enabled else None,
-        "scheduler": {"enabled": False, "running": False},
+        "scheduler": scheduler,
     }
 
 
@@ -221,7 +334,16 @@ def _guard_status():
     enabled = bool(getattr(settings, "DISK_GUARD_ENABLED", False))
     if not enabled:
         return {"enabled": False, "status": "disabled", "health": "disabled", "lastCycleAt": None}
-    state = _read_object(getattr(settings, "DISK_GUARD_STATE_PATH", "/state/disk-guard-state.json"))
+    state = _read_object(
+        getattr(settings, "DISK_GUARD_STATE_PATH", "/state/disk-guard-state.json")
+    )
+    if state is None:
+        return {
+            "enabled": True,
+            "status": "staged",
+            "health": "unavailable",
+            "lastCycleAt": None,
+        }
     updated_at = state.get("updated_at") if isinstance(state.get("updated_at"), str) else None
     fresh = False
     if updated_at:

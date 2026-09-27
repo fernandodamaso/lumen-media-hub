@@ -1,16 +1,19 @@
 """Staged verification and opt-in removal of imported torrent originals.
 
 This module is deliberately separate from queue hygiene and library deletion.
-It never runs at startup and only qBittorrent owns source removal.
+qBittorrent owns source removal. The scheduler starts only when
+``VERIFIED_CLEANUP_ENABLED`` is true.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -33,6 +36,7 @@ STOPPED_STATES = {
     "paused",
 }
 _PATH_KEYS = ("sourcePath", "droppedPath", "downloadedPath", "source_path")
+
 _DESTINATION_KEYS = (
     "importedPath",
     "destinationPath",
@@ -42,11 +46,32 @@ _DESTINATION_KEYS = (
     "imported_path",
 )
 
+_UNRESOLVED_STATUSES = {
+    "ambiguous_delete",
+    "delete_outcome_unknown",
+    "source_remains",
+    "library_missing_after_delete",
+    "library_changed_after_delete",
+}
+_DEGRADED_SKIP_REASONS = {
+    "arr_unavailable",
+    "incomplete_import_history",
+    "qbit_file_inventory_unavailable",
+    "qbit_torrent_inventory_unavailable",
+    "qbit_unavailable",
+    "stop_failed",
+    "stop_not_confirmed",
+}
+
 
 class _Skip(Exception):
     def __init__(self, reason):
         super().__init__(reason)
         self.reason = reason
+
+
+class _StateUnavailable(RuntimeError):
+    pass
 
 
 def _valid_hash(value):
@@ -105,6 +130,15 @@ def _lexically_inside(path, root):
 def _path_overlap(left, right):
     left, right = _resolved(left), _resolved(right)
     return left == right or _inside(left, right) or _inside(right, left)
+
+
+def _same_inode(left, right):
+    try:
+        left_stat = os.lstat(left)
+        right_stat = os.lstat(right)
+    except OSError:
+        return False
+    return left_stat.st_dev == right_stat.st_dev and left_stat.st_ino == right_stat.st_ino
 
 
 def _has_symlink(path, stop):
@@ -217,7 +251,11 @@ def _qbit_files(files, content_path):
                 raise _Skip("unsafe_file_path")
             source = content_path
         else:
-            source = _safe_file_path(content_path, name)
+            relative = name
+            parts = Path(name).parts if isinstance(name, str) else ()
+            if len(parts) >= 2 and parts[0] == content_path.name:
+                relative = str(Path(*parts[1:]))
+            source = _safe_file_path(content_path, relative)
         if name in names:
             raise _Skip("qbit_file_inventory_incomplete")
         names.add(name)
@@ -380,7 +418,7 @@ def _fresh_snapshot(torrent_hash, mapping, qbit, arr, downloads_root, library_ro
         destination = _resolved(destination)
         if destination in destinations:
             raise _Skip("ambiguous_import_history")
-        if _path_overlap(source, destination):
+        if _path_overlap(source, destination) or _same_inode(source, destination):
             raise _Skip("source_destination_alias")
         destinations.add(destination)
         source_fingerprint = _fingerprint(source, "source_missing")
@@ -427,28 +465,39 @@ class _State:
     def load(self):
         try:
             value = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError):
+        except FileNotFoundError:
             return {}
-        return value if isinstance(value, dict) else {}
+        except (OSError, ValueError, TypeError) as exc:
+            raise _StateUnavailable("cleanup_state_unavailable") from exc
+        if not isinstance(value, dict):
+            raise _StateUnavailable("cleanup_state_unavailable")
+        return value
 
     def put(self, torrent_hash, record):
-        value = self.load()
-        value[torrent_hash] = record
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        fd, temporary = tempfile.mkstemp(prefix=f".{self.path.name}.", dir=self.path.parent)
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(value, handle, sort_keys=True, separators=(",", ":"))
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.chmod(temporary, 0o600)
-            os.replace(temporary, self.path)
-        finally:
+            value = self.load()
+            value[torrent_hash] = record
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            fd, temporary = tempfile.mkstemp(
+                prefix=f".{self.path.name}.", dir=self.path.parent
+            )
             try:
-                os.unlink(temporary)
-            except FileNotFoundError:
-                pass
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump(value, handle, sort_keys=True, separators=(",", ":"))
+                    handle.write("\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.chmod(temporary, 0o600)
+                os.replace(temporary, self.path)
+            finally:
+                try:
+                    os.unlink(temporary)
+                except FileNotFoundError:
+                    pass
+        except _StateUnavailable:
+            raise
+        except (OSError, TypeError, ValueError) as exc:
+            raise _StateUnavailable("cleanup_state_unavailable") from exc
 
 
 def verify_torrent(
@@ -470,14 +519,7 @@ def verify_torrent(
 def _terminal_record(record, torrent_hash):
     if not isinstance(record, dict) or record.get("torrent_hash", torrent_hash) != torrent_hash:
         return None
-    if record.get("status") in {
-        "ambiguous_delete",
-        "delete_outcome_unknown",
-        "source_remains",
-        "library_missing_after_delete",
-        "library_changed_after_delete",
-        "deleted",
-    }:
+    if record.get("status") in _UNRESOLVED_STATUSES:
         return record
     return None
 
@@ -506,15 +548,15 @@ def apply_verified_cleanup(
         return {"status": "skipped", "reason": "invalid_torrent_hash", "torrent_hash": torrent_hash}
     torrent_hash = torrent_hash.lower()
     state = _State(state_path or settings.VERIFIED_CLEANUP_STATE_PATH)
-    previous = state.load().get(torrent_hash)
-    terminal = _terminal_record(previous, torrent_hash)
-    if terminal is not None:
-        return dict(terminal, status=terminal["status"], reason=terminal["status"])
-    if qbit is None:
-        qbit = QbittorrentVerificationClient()
-    if arr is None:
-        arr = ArrVerificationClient()
     try:
+        previous = state.load().get(torrent_hash)
+        terminal = _terminal_record(previous, torrent_hash)
+        if terminal is not None:
+            return dict(terminal, status=terminal["status"], reason=terminal["status"])
+        if qbit is None:
+            qbit = QbittorrentVerificationClient()
+        if arr is None:
+            arr = ArrVerificationClient()
         before = _fresh_snapshot(torrent_hash, mapping, qbit, arr, downloads_root, library_root)
         state.put(torrent_hash, {"status": "verified", "torrent_hash": torrent_hash, "fingerprint": before["fingerprint"], "files": before["files"]})
         if before["state"] not in STOPPED_STATES:
@@ -610,11 +652,28 @@ def apply_verified_cleanup(
         state.put(torrent_hash, record)
         return dict(record, reason="deleted")
     except _Skip as error:
-        state.put(
-            torrent_hash,
-            {"status": "preserved", "torrent_hash": torrent_hash, "reason": error.reason},
-        )
+        try:
+            state.put(
+                torrent_hash,
+                {
+                    "status": "preserved",
+                    "torrent_hash": torrent_hash,
+                    "reason": error.reason,
+                },
+            )
+        except _StateUnavailable:
+            return {
+                "status": "error",
+                "reason": "cleanup_state_unavailable",
+                "torrent_hash": torrent_hash,
+            }
         return {"status": "skipped", "reason": error.reason, "torrent_hash": torrent_hash}
+    except _StateUnavailable:
+        return {
+            "status": "error",
+            "reason": "cleanup_state_unavailable",
+            "torrent_hash": torrent_hash,
+        }
 
 
 class QbittorrentVerificationClient:
@@ -672,6 +731,15 @@ class ArrVerificationClient:
             return settings.RADARR_URL, settings.RADARR_API_KEY, "movieIds", "/api/v3/movie/"
         raise ValueError("unsupported Arr service")
 
+    def configured_services(self):
+        """Return the configured Arr service names without exposing credentials."""
+        configured = []
+        if settings.SONARR_URL and settings.SONARR_API_KEY:
+            configured.append("sonarr")
+        if settings.RADARR_URL and settings.RADARR_API_KEY:
+            configured.append("radarr")
+        return tuple(configured)
+
     def library(self, service, arr_id):
         from clients.arr import _arr_get
 
@@ -684,10 +752,330 @@ class ArrVerificationClient:
         base, key, entity_param, _path = self._target(service)
         return fetch_arr_history_all(base, key, entity_param, arr_id)
 
+    def history_for_download(self, service, download_id):
+        from clients.arr import fetch_arr_history_for_download_all
+
+        base, key, _entity_param, _path = self._target(service)
+        return fetch_arr_history_for_download_all(base, key, download_id)
+
+
+_MAPPING_ENTITY_KEYS = {"sonarr": "seriesId", "radarr": "movieId"}
+
+
+def _configured_mapping_services(arr):
+    getter = getattr(arr, "configured_services", None)
+    if not callable(getter):
+        raise RuntimeError("import_history_unavailable") from None
+    services = getter()
+    if not isinstance(services, (tuple, list)):
+        raise RuntimeError("import_history_unavailable") from None
+    validated = []
+    for service in services:
+        if service not in _MAPPING_ENTITY_KEYS or service in validated:
+            raise RuntimeError("import_history_unavailable") from None
+        validated.append(service)
+    return tuple(validated)
+
+
+def _complete_history_records(payload):
+    if not isinstance(payload, dict) or payload.get("complete") is not True:
+        return None
+    records = payload.get("records")
+    total = payload.get("totalRecords")
+    if (
+        not isinstance(records, list)
+        or isinstance(total, bool)
+        or not isinstance(total, int)
+        or total != len(records)
+    ):
+        return None
+    return records
+
+
+def mapping_for_torrent(arr, torrent_hash):
+    """Return one unique Arr import mapping for a torrent, or None.
+
+    Every configured service is inspected through both hash-case variants of a
+    complete history snapshot.  Absent evidence, conflicting evidence across
+    entities, services, pages, or casings, and no configured service all yield
+    ``None``.  A configured service that cannot be read or returns incomplete
+    evidence raises ``RuntimeError("import_history_unavailable")`` so the caller
+    can preserve the torrent.
+    """
+    if not _valid_hash(torrent_hash):
+        return None
+    torrent_hash = torrent_hash.lower()
+    found = []
+    for service in _configured_mapping_services(arr):
+        entity_key = _MAPPING_ENTITY_KEYS[service]
+        for candidate in (torrent_hash.upper(), torrent_hash):
+            try:
+                payload = arr.history_for_download(service, candidate)
+            except Exception:
+                raise RuntimeError("import_history_unavailable") from None
+            records = _complete_history_records(payload)
+            if records is None:
+                raise RuntimeError("import_history_unavailable") from None
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                if str(record.get("downloadId") or "").lower() != torrent_hash:
+                    continue
+                if record.get("eventType") not in IMPORT_EVENTS:
+                    continue
+                arr_id = _positive_id(record.get(entity_key))
+                if arr_id is None:
+                    continue
+                mapping = {"service": service, "id": arr_id}
+                if mapping not in found:
+                    found.append(mapping)
+    if len(found) != 1:
+        return None
+    return found[0]
+
+
+def _torrent_complete(torrent):
+    progress = torrent.get("progress")
+    amount_left = torrent.get("amount_left")
+    return (
+        not isinstance(progress, bool)
+        and isinstance(progress, (int, float))
+        and math.isfinite(progress)
+        and progress >= 1.0
+        and not isinstance(amount_left, bool)
+        and isinstance(amount_left, int)
+        and amount_left == 0
+    )
+
+
+def run_verified_cleanup_cycle(
+    *,
+    qbit=None,
+    arr=None,
+    downloads_root="/downloads",
+    library_root="/data/media",
+    enabled=None,
+    state_path=None,
+    apply=None,
+    mapping_lookup=None,
+):
+    """Apply verified cleanup to complete imported torrents when enabled.
+
+    One failing item never stops the cycle: every item outcome is recorded
+    independently and the cycle degrades instead of raising.
+    """
+    if enabled is None:
+        enabled = settings.VERIFIED_CLEANUP_ENABLED
+    if not enabled:
+        return {"status": "disabled", "results": []}
+    try:
+        if qbit is None:
+            qbit = QbittorrentVerificationClient()
+        torrents = qbit.torrents()
+    except Exception:
+        return {"status": "qbit_unavailable", "results": []}
+    if not isinstance(torrents, list):
+        return {"status": "qbit_unavailable", "results": []}
+    if arr is None:
+        arr = ArrVerificationClient()
+    lookup = mapping_lookup or (lambda torrent_hash: mapping_for_torrent(arr, torrent_hash))
+    apply_fn = apply or apply_verified_cleanup
+    results = []
+    degraded = False
+    for torrent in torrents:
+        if not isinstance(torrent, dict):
+            results.append({"status": "skipped", "reason": "invalid_torrent"})
+            continue
+        torrent_hash = torrent.get("hash")
+        if not _valid_hash(torrent_hash):
+            results.append(
+                {"status": "skipped", "reason": "invalid_torrent_hash", "torrent_hash": torrent_hash}
+            )
+            continue
+        torrent_hash = torrent_hash.lower()
+        if not _torrent_complete(torrent):
+            results.append(
+                {
+                    "status": "skipped",
+                    "reason": "torrent_incomplete",
+                    "torrent_hash": torrent_hash,
+                }
+            )
+            continue
+        try:
+            mapping = lookup(torrent_hash)
+        except Exception:
+            results.append(
+                {
+                    "status": "error",
+                    "reason": "import_history_unavailable",
+                    "torrent_hash": torrent_hash,
+                }
+            )
+            degraded = True
+            continue
+        if not mapping:
+            results.append(
+                {
+                    "status": "skipped",
+                    "reason": "no_import_mapping",
+                    "torrent_hash": torrent_hash,
+                }
+            )
+            continue
+        try:
+            result = apply_fn(
+                torrent_hash,
+                mapping,
+                qbit=qbit,
+                arr=arr,
+                downloads_root=downloads_root,
+                library_root=library_root,
+                enabled=True,
+                state_path=state_path,
+            )
+        except Exception:
+            results.append(
+                {
+                    "status": "error",
+                    "reason": "cleanup_item_failed",
+                    "torrent_hash": torrent_hash,
+                }
+            )
+            degraded = True
+            continue
+        if (
+            not isinstance(result, dict)
+            or not isinstance(result.get("status"), str)
+            or result["status"] == "error"
+        ):
+            results.append(
+                {
+                    "status": "error",
+                    "reason": "cleanup_item_failed",
+                    "torrent_hash": torrent_hash,
+                }
+            )
+            degraded = True
+            continue
+        if result.get("status") in _UNRESOLVED_STATUSES:
+            degraded = True
+        if result.get("reason") in _DEGRADED_SKIP_REASONS:
+            degraded = True
+        results.append(result)
+    return {"status": "degraded" if degraded else "ok", "results": results}
+
+
+_scheduler_stop = threading.Event()
+_scheduler_thread = None
+_scheduler_thread_lock = threading.Lock()
+_scheduler_status_lock = threading.Lock()
+_scheduler_status = {"lastCycleAt": None, "lastStatus": None, "lastError": None}
+_SAFE_CYCLE_STATUSES = {"ok", "disabled", "degraded", "qbit_unavailable", "cleanup_cycle_failed"}
+_scheduler_logger = logging.getLogger(__name__)
+
+
+def get_verified_cleanup_scheduler_status():
+    """Return a copy of the in-process scheduler telemetry snapshot."""
+    with _scheduler_thread_lock:
+        with _scheduler_status_lock:
+            return {
+                "running": bool(_scheduler_thread is not None and _scheduler_thread.is_alive()),
+                "lastCycleAt": _scheduler_status["lastCycleAt"],
+                "lastStatus": _scheduler_status["lastStatus"],
+                "lastError": _scheduler_status["lastError"],
+            }
+
+
+def _record_scheduler_cycle(status, error=None):
+    with _scheduler_status_lock:
+        _scheduler_status["lastCycleAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        _scheduler_status["lastStatus"] = status
+        _scheduler_status["lastError"] = error
+
+
+def _verified_cleanup_scheduler_loop(interval_seconds, stop_event, run_cycle, wait):
+    while True:
+        try:
+            cycle = run_cycle()
+        except Exception:
+            _record_scheduler_cycle("cleanup_cycle_failed", "cleanup_cycle_failed")
+            _scheduler_logger.warning("cleanup_cycle_failed")
+        else:
+            status = cycle.get("status") if isinstance(cycle, dict) else None
+            if not isinstance(status, str) or status not in _SAFE_CYCLE_STATUSES:
+                status = "cleanup_cycle_failed"
+            _record_scheduler_cycle(
+                status, "cleanup_cycle_failed" if status == "cleanup_cycle_failed" else None
+            )
+        if wait(stop_event, interval_seconds):
+            return
+
+
+def _validated_interval(interval_seconds):
+    if isinstance(interval_seconds, bool) or not isinstance(interval_seconds, (int, float)):
+        raise ValueError("verified-cleanup interval must be a positive finite number")
+    if not math.isfinite(interval_seconds) or interval_seconds <= 0:
+        raise ValueError("verified-cleanup interval must be a positive finite number")
+    return float(interval_seconds)
+
+
+def start_verified_cleanup_scheduler(interval_seconds=None, *, run_cycle=None):
+    """Start only when the explicit feature flag is enabled."""
+    if not settings.VERIFIED_CLEANUP_ENABLED:
+        return False
+    interval = _validated_interval(
+        settings.VERIFIED_CLEANUP_INTERVAL_SECONDS
+        if interval_seconds is None
+        else interval_seconds
+    )
+    global _scheduler_thread, _scheduler_stop
+    with _scheduler_thread_lock:
+        if _scheduler_thread is not None and _scheduler_thread.is_alive():
+            return False
+        stop_event = threading.Event()
+        _scheduler_stop = stop_event
+        cycle = run_cycle or run_verified_cleanup_cycle
+        thread = threading.Thread(
+            target=lambda: _verified_cleanup_scheduler_loop(
+                interval,
+                stop_event,
+                cycle,
+                lambda event, timeout: event.wait(timeout),
+            ),
+            name="verified-cleanup",
+            daemon=True,
+        )
+        _scheduler_thread = thread
+        thread.start()
+        return True
+
+
+def stop_verified_cleanup_scheduler(timeout=2.0):
+    global _scheduler_thread
+    with _scheduler_thread_lock:
+        thread = _scheduler_thread
+        _scheduler_stop.set()
+    if thread is None:
+        return True
+    if thread.is_alive():
+        thread.join(timeout=timeout)
+        if thread.is_alive():
+            return False
+    with _scheduler_thread_lock:
+        if _scheduler_thread is thread:
+            _scheduler_thread = None
+    return True
+
 
 __all__ = [
     "ArrVerificationClient",
     "QbittorrentVerificationClient",
     "apply_verified_cleanup",
+    "get_verified_cleanup_scheduler_status",
+    "mapping_for_torrent",
+    "run_verified_cleanup_cycle",
+    "start_verified_cleanup_scheduler",
+    "stop_verified_cleanup_scheduler",
     "verify_torrent",
 ]

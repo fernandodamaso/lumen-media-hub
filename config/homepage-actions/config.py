@@ -35,7 +35,7 @@ TRAKT_CLIENT_ID = os.environ.get("TRAKT_CLIENT_ID", "")
 TRAKT_CLIENT_SECRET = os.environ.get("TRAKT_CLIENT_SECRET", "")
 TRAKT_TOKEN_PATH = os.environ.get("TRAKT_TOKEN_PATH", "/state/trakt-token.json")
 TRAKT_WATCHED_PATH = os.environ.get("TRAKT_WATCHED_PATH", "/state/trakt-watched.json")
-# Staged Phase 6 rule. It remains disabled pending the coordinator's live gates.
+# Independent retention rule; default-off until its live rollout gates pass.
 TRAKT_RETENTION_ENABLED = os.environ.get("TRAKT_RETENTION_ENABLED", "false").strip().lower() in {
     "1", "true", "yes", "on"
 }
@@ -178,6 +178,7 @@ QUEUE_HYGIENE_STATE_PATH = os.environ.get("QUEUE_HYGIENE_STATE_PATH", "/recommen
 VERIFIED_CLEANUP_ENABLED = os.environ.get("VERIFIED_CLEANUP_ENABLED", "false").strip().lower() in {
     "1", "true", "yes", "on"
 }
+VERIFIED_CLEANUP_INTERVAL_SECONDS = float(os.environ.get("VERIFIED_CLEANUP_INTERVAL_SECONDS", "300"))
 VERIFIED_CLEANUP_STATE_PATH = os.environ.get(
     "VERIFIED_CLEANUP_STATE_PATH", "/recommendations/verified-cleanup-state.json"
 )

@@ -400,6 +400,69 @@ def find_sonarr_series_by_tmdb(tmdb_id):
     return matches
 
 
+def fetch_arr_history_for_download(base, api_key, download_id, *, page=1, page_size=1000):
+    """Fetch Arr history for one torrent hash."""
+    if not isinstance(download_id, str) or not download_id.strip():
+        raise ValueError("download_id must be a non-empty string")
+    download_id = download_id.strip()
+    if len(download_id) not in (40, 64) or any(
+        char not in "0123456789abcdefABCDEF" for char in download_id
+    ):
+        raise ValueError("download_id must be a torrent hash")
+    if isinstance(page, bool) or not isinstance(page, int) or page <= 0:
+        raise ValueError("page must be a positive integer")
+    if isinstance(page_size, bool) or not isinstance(page_size, int) or page_size <= 0:
+        raise ValueError("page_size must be a positive integer")
+    path = (
+        f"/api/v3/history?downloadId={urllib.parse.quote(download_id)}"
+        f"&page={page}&pageSize={page_size}&sortKey=date&sortDirection=descending"
+    )
+    return _arr_get(base, api_key, path)
+
+
+def fetch_arr_history_for_download_all(base, api_key, download_id, *, page_size=1000):
+    """Fetch a complete download-id history snapshot or fail closed."""
+    if isinstance(page_size, bool) or not isinstance(page_size, int) or page_size <= 0:
+        raise ValueError("page_size must be a positive integer")
+    records = []
+    seen_ids = set()
+    page = 1
+    total = None
+    while total is None or len(records) < total:
+        payload = fetch_arr_history_for_download(
+            base, api_key, download_id, page=page, page_size=page_size
+        )
+        if not isinstance(payload, dict) or not isinstance(payload.get("records"), list):
+            raise ValueError("Arr history response is incomplete")
+        raw_total = payload.get("totalRecords")
+        if isinstance(raw_total, bool) or not isinstance(raw_total, int) or raw_total < 0:
+            raise ValueError("Arr history total is unavailable")
+        if total is None:
+            total = raw_total
+        elif raw_total != total:
+            raise ValueError("Arr history total changed during snapshot")
+        page_records = payload["records"]
+        if len(page_records) > page_size or not page_records and len(records) < total:
+            raise ValueError("Arr history page is incomplete")
+        for record in page_records:
+            if (
+                not isinstance(record, dict)
+                or isinstance(record.get("id"), bool)
+                or not isinstance(record.get("id"), int)
+            ):
+                raise ValueError("Arr history returned a malformed record")
+            if record["id"] in seen_ids:
+                raise ValueError("Arr history returned duplicate record ids")
+            seen_ids.add(record["id"])
+        records.extend(page_records)
+        if len(records) > total:
+            raise ValueError("Arr history returned too many records")
+        page += 1
+        if page > total // page_size + 2:
+            raise ValueError("Arr history pagination did not converge")
+    return {"records": records, "totalRecords": total, "complete": True}
+
+
 def fetch_arr_history(base, api_key, entity_param, arr_id, *, page=1, page_size=1000):
     """Fetch paged Arr history scoped to one entity.
 

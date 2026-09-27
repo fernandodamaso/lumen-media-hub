@@ -8,6 +8,7 @@ from unittest import mock
 
 from clients.trakt import TraktAuthError
 from trakt_retention import (
+    RetentionBlocked,
     RetentionStateStore,
     SonarrRetentionClient,
     TraktRetentionRunner,
@@ -22,8 +23,11 @@ NOW = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
 TVDB_ID = 100
 
 
-def watch(season, number, watched_at, *, tvdb=TVDB_ID):
+def watch(season, number, watched_at, *, tvdb=TVDB_ID, history_id=None):
+    if history_id is None:
+        history_id = int(datetime.fromisoformat(watched_at).timestamp()) * 10000 + season * 100 + number
     return {
+        "id": history_id,
         "watched_at": watched_at,
         "show": {"ids": {"tvdb": tvdb}},
         "episode": {"season": season, "number": number, "ids": {"trakt": season * 100 + number}},
@@ -65,6 +69,11 @@ class FakeTrakt:
         return payload, {
             "X-Pagination-Page": str(page),
             "X-Pagination-Page-Count": str(count),
+            "X-Pagination-Item-Count": str(
+                len(self.entries)
+                if self.pages is None
+                else sum(len(items) for items in self.pages.values())
+            ),
         }
 
 
@@ -196,6 +205,22 @@ class TraktRetentionTests(unittest.TestCase):
         result = runner.preview(now=NOW)
         self.assertEqual(result["reason"], "incomplete_history_pagination")
 
+    def test_history_shift_with_stable_item_count_blocks_snapshot(self):
+        first = old_watch(1, 1)
+
+        class ShiftedPages:
+            def get_page(self, path):
+                page = int(path.split("page=")[1].split("&", 1)[0])
+                payload = [first] if page == 1 else [first]
+                return payload, {
+                    "X-Pagination-Page": str(page),
+                    "X-Pagination-Page-Count": "2",
+                    "X-Pagination-Item-Count": "2",
+                }
+
+        with self.assertRaisesRegex(RetentionBlocked, "history_changed_during_snapshot"):
+            fetch_complete_trakt_history(ShiftedPages(), limit=1)
+
     def test_missing_watch_timestamp_blocks_preview(self):
         malformed = old_watch()
         malformed.pop("watched_at")
@@ -260,6 +285,29 @@ class TraktRetentionTests(unittest.TestCase):
         )
         self.assertEqual(result["eligible"], [])
         self.assertEqual(result["preserved"][0]["reason"], "ambiguous_series_mapping")
+
+    def test_ambiguous_secondary_series_identity_blocks_unique_primary_match(self):
+        sonarr = FakeSonarr(
+            [episode(1)],
+            series=[
+                {"id": 1, "tvdbId": TVDB_ID, "tmdbId": 200},
+                {"id": 2, "tvdbId": 101, "tmdbId": 200},
+            ],
+        )
+        result = build_retention_preview(
+            trakt=FakeTrakt([old_watch()]),
+            sonarr=sonarr,
+            jellyfin=FakeJellyfin(),
+            now=NOW,
+        )
+
+        self.assertEqual(result["eligible"], [])
+        self.assertTrue(
+            all(
+                item["reason"] == "ambiguous_series_mapping"
+                for item in result["preserved"]
+            )
+        )
 
     def test_multi_episode_file_requires_every_episode(self):
         result = self._preview([old_watch(1, 1)], episodes=[episode(1), episode(2)])
@@ -339,6 +387,106 @@ class TraktRetentionTests(unittest.TestCase):
             result = second.run(now=NOW)
             self.assertEqual(result["outcomes"][0]["reason"], "watch_within_48h")
             self.assertEqual(len(sonarr.delete_calls), delete_attempts)
+            self.assertTrue(all(row["monitored"] for row in sonarr._episodes))
+
+    def test_post_unmonitor_playback_restores_monitoring(self):
+        class PlaybackAfterUnmonitor(FakeJellyfin):
+            def __init__(self):
+                super().__init__()
+                self.calls = 0
+
+            def playback_for_file(self, path):
+                self.calls += 1
+                return self.calls >= 4
+
+        with tempfile.TemporaryDirectory() as temporary:
+            sonarr = FakeSonarr([episode(1)])
+            runner = TraktRetentionRunner(
+                enabled=True,
+                trakt=FakeTrakt([old_watch()]),
+                sonarr=sonarr,
+                jellyfin=PlaybackAfterUnmonitor(),
+                state=RetentionStateStore(Path(temporary) / "state.json"),
+            )
+
+            result = runner.run(now=NOW)
+
+            self.assertEqual(result["outcomes"][0]["reason"], "playback_active")
+            self.assertTrue(all(row["monitored"] for row in sonarr._episodes))
+            self.assertEqual(sonarr.delete_calls, [])
+
+    def test_partial_unmonitor_failure_restores_changed_episodes(self):
+        class FailingSecondEpisode(FakeSonarr):
+            def __init__(self, episodes):
+                super().__init__(episodes)
+                self.unmonitor_calls = 0
+
+            def set_episode(self, row):
+                self.set_calls.append(dict(row))
+                if row["monitored"] is False:
+                    self.unmonitor_calls += 1
+                    if self.unmonitor_calls == 2:
+                        raise RuntimeError("second update failed")
+                for current in self._episodes:
+                    if current["id"] == row["id"]:
+                        current.update(row)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            sonarr = FailingSecondEpisode([episode(1), episode(2, episode_id=2)])
+            runner = TraktRetentionRunner(
+                enabled=True,
+                trakt=FakeTrakt([old_watch(1, 1), old_watch(1, 2)]),
+                sonarr=sonarr,
+                jellyfin=FakeJellyfin(),
+                state=RetentionStateStore(Path(temporary) / "state.json"),
+            )
+
+            result = runner.run(now=NOW)
+
+            self.assertEqual(result["outcomes"][0]["reason"], "unmonitor_failed")
+            self.assertTrue(all(row["monitored"] for row in sonarr._episodes))
+            self.assertEqual(sonarr.delete_calls, [])
+
+    def test_failed_unmonitor_rollback_is_terminal(self):
+        class FailingRollback(FakeSonarr):
+            def __init__(self, episodes):
+                super().__init__(episodes)
+                self.unmonitor_calls = 0
+
+            def set_episode(self, row):
+                self.set_calls.append(dict(row))
+                if row["monitored"] is False:
+                    self.unmonitor_calls += 1
+                    if self.unmonitor_calls == 2:
+                        raise RuntimeError("second update failed")
+                elif self.unmonitor_calls >= 2:
+                    raise RuntimeError("rollback failed")
+                for current in self._episodes:
+                    if current["id"] == row["id"]:
+                        current.update(row)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            state = RetentionStateStore(Path(temporary) / "state.json")
+            sonarr = FailingRollback([episode(1), episode(2, episode_id=2)])
+            kwargs = {
+                "enabled": True,
+                "trakt": FakeTrakt([old_watch(1, 1), old_watch(1, 2)]),
+                "sonarr": sonarr,
+                "jellyfin": FakeJellyfin(),
+                "state": state,
+            }
+            first = TraktRetentionRunner(**kwargs).run(now=NOW)
+            call_count = len(sonarr.set_calls)
+            second = TraktRetentionRunner(**kwargs).run(now=NOW)
+
+            self.assertEqual(
+                first["outcomes"][0]["reason"], "unmonitor_rollback_failed"
+            )
+            self.assertEqual(
+                second["outcomes"][0]["reason"], "unmonitor_rollback_failed"
+            )
+            self.assertEqual(len(sonarr.set_calls), call_count)
+            self.assertEqual(sonarr.delete_calls, [])
 
     def test_no_whole_series_deletion_helper_is_used(self):
         with tempfile.TemporaryDirectory() as temporary:

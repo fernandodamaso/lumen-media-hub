@@ -311,9 +311,8 @@ services:
       - QUEUE_HYGIENE_GRACE_SECONDS=${QUEUE_HYGIENE_GRACE_SECONDS:-21600}
       - QUEUE_HYGIENE_STATE_PATH=${QUEUE_HYGIENE_STATE_PATH:-/recommendations/queue-hygiene-state.json}
       - VERIFIED_CLEANUP_ENABLED=${VERIFIED_CLEANUP_ENABLED:-false}
+      - VERIFIED_CLEANUP_INTERVAL_SECONDS=${VERIFIED_CLEANUP_INTERVAL_SECONDS:-300}
       - VERIFIED_CLEANUP_STATE_PATH=${VERIFIED_CLEANUP_STATE_PATH:-/recommendations/verified-cleanup-state.json}
-      - DISK_GUARD_ENABLED=${DISK_GUARD_ENABLED:-false}
-      - DISK_GUARD_STATE_PATH=/guard-state/disk-guard-state.json
       - TRAKT_RETENTION_ENABLED=${TRAKT_RETENTION_ENABLED:-false}
       - TRAKT_RETENTION_INTERVAL_SECONDS=${TRAKT_RETENTION_INTERVAL_SECONDS:-3600}
       - TRAKT_RETENTION_STATE_PATH=${TRAKT_RETENTION_STATE_PATH:-/recommendations/trakt-retention-state.json}
@@ -321,12 +320,6 @@ services:
       - ./config/homepage-actions:/app:ro
       - ./config/recommendations:/recommendations
       - ${TRAKT_STATE_PATH:-./.state/trakt}:/state
-      - type: bind
-        source: ./.state/guard
-        target: /guard-state
-        read_only: true
-        bind:
-          create_host_path: false
       - type: bind
         source: ${ROOT_PATH}/media
         target: /data/media

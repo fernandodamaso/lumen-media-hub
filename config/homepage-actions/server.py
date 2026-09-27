@@ -161,6 +161,8 @@ def run_server():
     )
     from ai_schedule import AiPicksSchedule, AiPicksScheduleRunner
     from queue_hygiene import start_queue_hygiene_scheduler, stop_queue_hygiene_scheduler
+    from verified_cleanup import start_verified_cleanup_scheduler, stop_verified_cleanup_scheduler
+    from trakt_retention import start_trakt_retention_scheduler, stop_trakt_retention_scheduler
 
     config.RECOMMENDATIONS_STORE.ensure_current()
     coordinator = discover._generation_coordinator()
@@ -178,6 +180,8 @@ def run_server():
     ai_schedule.start()
     start_reconciliation_scheduler()
     start_queue_hygiene_scheduler()
+    start_verified_cleanup_scheduler()
+    start_trakt_retention_scheduler()
     server = ThreadingHTTPServer(("0.0.0.0", config.PORT), ActionsHandler)
     discover._request_ai_picks_collection_sync()
     print(
@@ -191,5 +195,7 @@ def run_server():
     finally:
         ai_schedule.stop()
         stop_queue_hygiene_scheduler()
+        stop_verified_cleanup_scheduler()
+        stop_trakt_retention_scheduler()
         stop_reconciliation_scheduler()
         server.server_close()

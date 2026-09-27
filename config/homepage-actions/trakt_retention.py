@@ -1,4 +1,4 @@
-"""Staged, default-off Trakt 48-hour episode retention.
+"""Default-off Trakt 48-hour episode retention.
 
 The retention rule is intentionally small and conservative.  Trakt is read
 through the existing OAuth client, Sonarr owns episode-file deletion, and
@@ -10,6 +10,7 @@ module.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import tempfile
@@ -80,16 +81,23 @@ def _season_identifier(value):
 def _history_pagination(headers, page):
     raw_page = _header(headers, "X-Pagination-Page")
     raw_count = _header(headers, "X-Pagination-Page-Count")
-    if raw_page is None or raw_count is None:
+    raw_items = _header(headers, "X-Pagination-Item-Count")
+    if raw_page is None or raw_count is None or raw_items is None:
         raise RetentionBlocked("incomplete_history_pagination")
     try:
         page_header = int(raw_page)
         page_count = int(raw_count)
+        item_count = int(raw_items)
     except (TypeError, ValueError):
         raise RetentionBlocked("invalid_history_pagination") from None
-    if page_header != page or page_count < 1 or page > page_count:
+    if (
+        page_header != page
+        or page_count < 1
+        or page > page_count
+        or item_count < 0
+    ):
         raise RetentionBlocked("invalid_history_pagination")
-    return page_count
+    return page_count, item_count
 
 
 def fetch_complete_trakt_history(client, *, limit=HISTORY_PAGE_LIMIT):
@@ -102,23 +110,35 @@ def fetch_complete_trakt_history(client, *, limit=HISTORY_PAGE_LIMIT):
         raise ValueError("history limit must be positive")
     page = 1
     page_count = None
+    item_count = None
     entries = []
+    history_ids = set()
     while page_count is None or page <= page_count:
         response = client.get_page(f"/sync/history/episodes?page={page}&limit={limit}")
         payload, headers = _response_parts(response)
         if not isinstance(payload, list):
             raise RetentionBlocked("invalid_history_response")
-        current_count = _history_pagination(headers, page)
+        current_count, current_items = _history_pagination(headers, page)
         if page_count is None:
             page_count = current_count
-        elif current_count != page_count:
+            item_count = current_items
+        elif current_count != page_count or current_items != item_count:
             raise RetentionBlocked("history_changed_during_snapshot")
         if len(payload) > limit:
             raise RetentionBlocked("invalid_history_page")
         if not payload and page < page_count:
             raise RetentionBlocked("incomplete_history_page")
-        entries.extend(payload)
+        for entry in payload:
+            if not isinstance(entry, dict):
+                raise RetentionBlocked("invalid_history_entry")
+            history_id = _positive_identifier(entry.get("id"))
+            if history_id is None or history_id in history_ids:
+                raise RetentionBlocked("history_changed_during_snapshot")
+            history_ids.add(history_id)
+            entries.append(entry)
         page += 1
+    if len(entries) != item_count:
+        raise RetentionBlocked("history_changed_during_snapshot")
     return entries
 
 
@@ -402,6 +422,19 @@ def build_retention_preview(*, trakt, sonarr, jellyfin, now=None, clock=None):
         if series_id in processed_series:
             continue
         processed_series.add(series_id)
+        if any(
+            len(identity_map.get(series_identity, [])) != 1
+            for series_identity in _sonarr_ids(series)
+        ):
+            preview["preserved"].append(
+                {
+                    "identity": identity,
+                    "season": season,
+                    "number": number,
+                    "reason": "ambiguous_series_mapping",
+                }
+            )
+            continue
         try:
             episodes = sonarr.episodes(series_id)
         except RetentionBlocked:
@@ -585,6 +618,27 @@ class TraktRetentionRunner:
             raise RetentionBlocked("sonarr_state_changed")
         return current
 
+    def _preserve_after_unmonitor(self, item, prior, reason):
+        """Restore monitoring when a post-unmonitor delete gate blocks."""
+        expected = {row["id"]: row["monitored"] for row in prior["episodes"]}
+        current = self._current_group(item)
+        rollback_failed = current is None or not _same_file(current, item)
+        if not rollback_failed:
+            for episode in current["raw_episodes"]:
+                monitored = expected.get(episode.get("id"))
+                if monitored is None or episode.get("monitored") is monitored:
+                    continue
+                payload = dict(episode)
+                payload["monitored"] = monitored
+                try:
+                    self.sonarr.set_episode(payload)
+                except Exception:
+                    rollback_failed = True
+        final_reason = "unmonitor_rollback_failed" if rollback_failed else reason
+        record = {**prior, "status": "preserved", "reason": final_reason}
+        self.state.put(item["key"], record)
+        return {"key": item["key"], "status": "preserved", "reason": final_reason}
+
     def _commit_item(self, item, prior):
         key = item["key"]
         current = self._current_group(item)
@@ -613,14 +667,34 @@ class TraktRetentionRunner:
                 return {"key": key, "status": "preserved", "reason": "revalidation_failed"}
             record = {**prior, "status": "planned"}
             self.state.put(key, record)
+            changed = []
             try:
                 for episode in current["raw_episodes"]:
                     if expected_monitoring.get(episode.get("id")) is True:
                         payload = dict(episode)
                         payload["monitored"] = False
                         self.sonarr.set_episode(payload)
+                        changed.append(dict(episode))
             except Exception:
-                return {"key": key, "status": "preserved", "reason": "unmonitor_failed"}
+                rollback_failed = False
+                for episode in reversed(changed):
+                    try:
+                        self.sonarr.set_episode(episode)
+                    except Exception:
+                        rollback_failed = True
+                reason = (
+                    "unmonitor_rollback_failed" if rollback_failed else "unmonitor_failed"
+                )
+                failed = {
+                    **record,
+                    "status": "preserved",
+                    "reason": reason,
+                    "changed_episode_ids": sorted(
+                        row.get("id") for row in changed if _positive_identifier(row.get("id"))
+                    ),
+                }
+                self.state.put(key, failed)
+                return {"key": key, "status": "preserved", "reason": reason}
             record["status"] = "unmonitored"
             record["unmonitored_episode_ids"] = sorted(expected_monitoring)
             self.state.put(key, record)
@@ -630,14 +704,13 @@ class TraktRetentionRunner:
             # playback after unmonitoring and immediately before deletion.
             self._revalidate_before_delete(item)
             if self.jellyfin.playback_for_file(item["file"]["path"]):
-                self.state.put(key, {**prior, "status": "preserved", "reason": "playback_active"})
-                return {"key": key, "status": "preserved", "reason": "playback_active"}
+                return self._preserve_after_unmonitor(item, prior, "playback_active")
         except RetentionBlocked as error:
-            self.state.put(key, {**prior, "status": "preserved", "reason": error.reason})
-            return {"key": key, "status": "preserved", "reason": error.reason}
+            return self._preserve_after_unmonitor(item, prior, error.reason)
         except Exception:
-            self.state.put(key, {**prior, "status": "preserved", "reason": "playback_query_failed"})
-            return {"key": key, "status": "preserved", "reason": "playback_query_failed"}
+            return self._preserve_after_unmonitor(
+                item, prior, "playback_query_failed"
+            )
         try:
             self.sonarr.delete_episode_file(item["file"]["id"])
         except Exception:
@@ -685,6 +758,19 @@ class TraktRetentionRunner:
             previous = records.get(item["key"])
             if previous and previous.get("status") == "deleted":
                 continue
+            if (
+                previous
+                and previous.get("status") == "preserved"
+                and previous.get("reason") == "unmonitor_rollback_failed"
+            ):
+                outcomes.append(
+                    {
+                        "key": item["key"],
+                        "status": "preserved",
+                        "reason": "unmonitor_rollback_failed",
+                    }
+                )
+                continue
             prior = previous if previous and previous.get("status") in {"planned", "unmonitored"} else {
                 "key": item["key"],
                 "status": "planned",
@@ -710,40 +796,95 @@ def run_trakt_retention_cycle(*, now=None, **kwargs):
 _scheduler_stop = threading.Event()
 _scheduler_thread = None
 _scheduler_thread_lock = threading.Lock()
+_scheduler_status_lock = threading.Lock()
+_scheduler_status = {"lastCycleAt": None, "lastStatus": None, "lastError": None}
+_SAFE_CYCLE_STATUSES = {"blocked", "completed", "disabled", "retention_cycle_failed"}
+_scheduler_logger = logging.getLogger(__name__)
+
+
+def get_trakt_retention_scheduler_status():
+    with _scheduler_thread_lock:
+        with _scheduler_status_lock:
+            return {
+                "running": bool(
+                    _scheduler_thread is not None and _scheduler_thread.is_alive()
+                ),
+                "lastCycleAt": _scheduler_status["lastCycleAt"],
+                "lastStatus": _scheduler_status["lastStatus"],
+                "lastError": _scheduler_status["lastError"],
+            }
+
+
+def _record_scheduler_cycle(status, error=None):
+    with _scheduler_status_lock:
+        _scheduler_status["lastCycleAt"] = time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+        )
+        _scheduler_status["lastStatus"] = status
+        _scheduler_status["lastError"] = error
 
 
 def _retention_scheduler_loop(interval_seconds, stop_event, run_cycle, wait):
     while True:
         try:
-            run_cycle()
+            cycle = run_cycle()
         except Exception:
-            # A failed controller cycle must never terminate the seam or turn
-            # an incomplete snapshot into a delete.  The next hourly pass can
-            # retry with fresh auth/history/state.
-            pass
+            _record_scheduler_cycle(
+                "retention_cycle_failed", "retention_cycle_failed"
+            )
+            _scheduler_logger.warning("retention_cycle_failed")
+        else:
+            status = cycle.get("status") if isinstance(cycle, dict) else None
+            if status not in _SAFE_CYCLE_STATUSES:
+                status = "retention_cycle_failed"
+            _record_scheduler_cycle(
+                status,
+                "retention_cycle_failed"
+                if status == "retention_cycle_failed"
+                else None,
+            )
         if wait(stop_event, interval_seconds):
             return
+
+
+def _validated_interval(interval_seconds):
+    if isinstance(interval_seconds, bool) or not isinstance(
+        interval_seconds, (int, float)
+    ):
+        raise ValueError("Trakt retention interval must be a positive finite number")
+    if not math.isfinite(interval_seconds) or interval_seconds <= 0:
+        raise ValueError("Trakt retention interval must be a positive finite number")
+    return float(interval_seconds)
 
 
 def start_trakt_retention_scheduler(interval_seconds=None, *, run_cycle=None):
     """Start only when the explicit feature flag is enabled."""
     if not settings.TRAKT_RETENTION_ENABLED or not settings.TRAKT_CLIENT_ID or not settings.TRAKT_CLIENT_SECRET:
         return False
-    interval = settings.TRAKT_RETENTION_INTERVAL_SECONDS if interval_seconds is None else float(interval_seconds)
-    if isinstance(interval, bool) or not math.isfinite(float(interval)) or float(interval) <= 0:
-        raise ValueError("Trakt retention interval must be a positive finite number")
-    global _scheduler_thread
+    interval = _validated_interval(
+        settings.TRAKT_RETENTION_INTERVAL_SECONDS
+        if interval_seconds is None
+        else interval_seconds
+    )
+    global _scheduler_thread, _scheduler_stop
     with _scheduler_thread_lock:
         if _scheduler_thread is not None and _scheduler_thread.is_alive():
             return False
-        _scheduler_stop.clear()
+        stop_event = threading.Event()
+        _scheduler_stop = stop_event
         cycle = run_cycle or run_trakt_retention_cycle
-        _scheduler_thread = threading.Thread(
-            target=lambda: _retention_scheduler_loop(interval, _scheduler_stop, cycle, lambda event, timeout: event.wait(timeout)),
+        thread = threading.Thread(
+            target=lambda: _retention_scheduler_loop(
+                interval,
+                stop_event,
+                cycle,
+                lambda event, timeout: event.wait(timeout),
+            ),
             name="trakt-48h-retention",
             daemon=True,
         )
-        _scheduler_thread.start()
+        _scheduler_thread = thread
+        thread.start()
         return True
 
 
@@ -752,10 +893,15 @@ def stop_trakt_retention_scheduler(timeout=2.0):
     with _scheduler_thread_lock:
         thread = _scheduler_thread
         _scheduler_stop.set()
-        _scheduler_thread = None
-    if thread is not None and thread.is_alive():
+    if thread is None:
+        return True
+    if thread.is_alive():
         thread.join(timeout=timeout)
-        return not thread.is_alive()
+        if thread.is_alive():
+            return False
+    with _scheduler_thread_lock:
+        if _scheduler_thread is thread:
+            _scheduler_thread = None
     return True
 
 
@@ -769,6 +915,7 @@ __all__ = [
     "TraktRetentionRunner",
     "build_retention_preview",
     "fetch_complete_trakt_history",
+    "get_trakt_retention_scheduler_status",
     "latest_watches",
     "preview_trakt_retention",
     "run_trakt_retention_cycle",

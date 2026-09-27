@@ -1,16 +1,12 @@
 """Discover / AI Picks route handlers."""
 import json
-import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 
 import config as settings
-from clients.arr import _add_to_arr_unmonitored, _arr_get
 from clients.jellyfin import (
-    JELLYFIN_PAGE_SIZE,
     _jellyfin_image_url,
     _jellyfin_item_is_playable,
     _jellyfin_items_path,
@@ -20,6 +16,17 @@ from clients.jellyfin import (
 )
 from clients.jellyseerr import _jellyseerr_get, _trakt_get, _trakt_get_page
 from clients.trakt import TraktAuthError
+import media_state
+from media_state import LibraryExclusionSnapshot
+from media_requests import (
+    HermesIdentityMismatch,
+    HermesItemNotFound as RequestAiPickItemNotFound,
+    MediaRequestConflict,
+    MediaRequestUnavailable,
+    MediaRequestUpstreamFailure,
+    MediaRequestValidationError,
+    request_media,
+)
 from trakt_history import TraktWatchedService, WatchedSnapshotStore
 from http_support import (
     _BodyTooLarge,
@@ -30,7 +37,6 @@ from http_support import (
 from recommendations_store import (
     RecommendationError,
     apply_feedback,
-    apply_request,
     media_identity,
 )
 from ai_candidates import build_candidate_snapshot
@@ -43,7 +49,6 @@ from trakt_history_sync import (
 )
 from reconciliation import (
     AiPickItemNotFound,
-    _enqueue_request_reconciliation,
     _pending_request_sync_public,
     run_reconciliation_cycle,
 )
@@ -57,87 +62,156 @@ from shared import (
 
 VALID_FEEDBACK_STATUSES = frozenset({"liked", "disliked", "watched", "skipped"})
 
+
+_JELLYSEERR_ACTIVE_REQUEST_PAGE_SIZE = 100
+_JELLYSEERR_ACTIVE_REQUEST_MAX_PAGES = 3
+
+
+def _jellyseerr_active_request_snapshot(identities, *, fetch=_jellyseerr_get):
+    """Read active request state with a bounded number of list requests."""
+    requested = {
+        identity
+        for item_type, tmdb_id in identities or ()
+        for identity in [media_state._typed_identity(item_type, tmdb_id)]
+        if identity
+    }
+    if not requested:
+        return media_state.JellyseerrRequestSnapshot({}, {})
+
+    states = {}
+    complete = False
+    for page_index in range(_JELLYSEERR_ACTIVE_REQUEST_MAX_PAGES):
+        skip = page_index * _JELLYSEERR_ACTIVE_REQUEST_PAGE_SIZE
+        payload = fetch(
+            "/api/v1/request"
+            f"?take={_JELLYSEERR_ACTIVE_REQUEST_PAGE_SIZE}"
+            f"&skip={skip}&filter=unavailable&sort=modified&sortDirection=desc"
+        )
+        if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+            raise ValueError("invalid Jellyseerr request list")
+        rows = payload["results"]
+        for row in rows:
+            if not isinstance(row, dict) or row.get("is4k") is True:
+                continue
+            media = row.get("media") or {}
+            if not isinstance(media, dict):
+                media = {}
+            identity = media_state._typed_identity(
+                row.get("type") or media.get("mediaType"),
+                media.get("tmdbId") or row.get("tmdbId"),
+            )
+            status = media_state._normalized_request_status(row.get("status"))
+            if identity not in requested or not status:
+                continue
+            candidate = {
+                "status": status,
+                "request_id": media_state._positive_int(row.get("id")),
+            }
+            current = states.get(identity)
+            if current is None or (
+                current.get("status") == "processing" and status == "requested"
+            ):
+                states[identity] = candidate
+
+        if requested.issubset(states):
+            complete = True
+            break
+        page_info = payload.get("pageInfo") or {}
+        if not isinstance(page_info, dict):
+            page_info = {}
+        page_count = media_state._positive_int(page_info.get("pages"))
+        if page_count is not None:
+            if page_index + 1 >= page_count:
+                complete = True
+                break
+        elif len(rows) < _JELLYSEERR_ACTIVE_REQUEST_PAGE_SIZE:
+            complete = True
+            break
+
+    return media_state.JellyseerrRequestSnapshot(
+        states=states,
+        sources={
+            identity: "fresh" if complete or identity in states else "unavailable"
+            for identity in requested
+        },
+    )
+
+def _decorate_discover_lifecycle(items, *, library=None):
+    identities = [
+        (item.get("type"), item.get("tmdb_id"))
+        for item in items
+        if isinstance(item, dict)
+    ]
+    if library is None:
+        try:
+            library = media_state.get_library_exclusion_snapshot()
+        except Exception:
+            library = media_state.LibraryExclusionSnapshot.from_maps(
+                {}, {}, status="unavailable", last_successful_refresh_at=None
+            )
+    try:
+        arr = media_state.get_arr_tracking_snapshot()
+    except Exception:
+        arr = media_state.ArrTrackingSnapshot.from_maps(
+            movie={},
+            tv={},
+            sources={"radarr": "unavailable", "sonarr": "unavailable"},
+        )
+    try:
+        requests = _jellyseerr_active_request_snapshot(identities)
+    except Exception:
+        requests = media_state.JellyseerrRequestSnapshot(
+            {},
+            {
+                f"{item_type}:{tmdb_id}": "unavailable"
+                for item_type, tmdb_id in identities
+                if item_type in ("movie", "tv") and _normalize_tmdb_id(tmdb_id)
+            },
+        )
+    for item in items:
+        item_type = item.get("type")
+        tmdb_id = item.get("tmdb_id")
+        state = media_state.resolve_media_state(
+            item_type,
+            tmdb_id,
+            library=library,
+            arr=arr,
+            jellyseerr=requests.get(item_type, tmdb_id),
+            jellyseerr_status=requests.status(item_type, tmdb_id),
+        )
+        item.update(
+            media_status=state.get("status", "unknown"),
+            service=state.get("service"),
+            service_href=state.get("serviceHref"),
+            request_id=state.get("requestId"),
+            monitored=state.get("monitored"),
+        )
+    return items
+
 # Keep the dashboard response independent from the recommendation-store schema.
 # In particular, identity sets and generation context are server-only data.
 _AI_PICKS_PUBLIC_ITEM_FIELDS = frozenset(
     {
         "id", "source", "type", "title", "year", "tmdb_id", "reason", "active",
-        "feedback", "feedback_at", "request_state", "requested_at",
+        "feedback", "feedback_at", "request_state", "request_provider", "requested_at",
         "jellyseerr_request_id", "in_library", "excluded_reason", "watched_on_trakt",
         "jellyfin_id", "poster_path", "poster_url", "added_at", "notes", "rating",
-        "trakt_history_sync",
+        "trakt_history_sync", "media_status", "service", "service_href", "request_id",
+        "monitored",
     }
 )
 
 
-@dataclass(frozen=True)
-class LibraryExclusionSnapshot:
-    """Last known playable Jellyfin identities used by all Discover sources."""
-
-    movie: dict
-    tv: dict
-    status: str
-    last_successful_refresh_at: str | None
-
-    @classmethod
-    def from_maps(cls, movie, tv, *, status, last_successful_refresh_at):
-        return cls(dict(movie or {}), dict(tv or {}), status, last_successful_refresh_at)
-
-    @property
-    def identities(self):
-        return {
-            f"movie:{normalized}"
-            for tmdb_id in self.movie
-            for normalized in [_normalize_tmdb_id(tmdb_id)]
-            if normalized
-        } | {
-            f"tv:{normalized}"
-            for tmdb_id in self.tv
-            for normalized in [_normalize_tmdb_id(tmdb_id)]
-            if normalized
-        }
-
-    def contains(self, item_type, tmdb_id):
-        kind = "tv" if item_type == "tv" else "movie"
-        normalized = _normalize_tmdb_id(tmdb_id)
-        return bool(normalized and normalized in self._map(kind))
-
-    def jellyfin_id(self, item_type, tmdb_id):
-        kind = "tv" if item_type == "tv" else "movie"
-        normalized = _normalize_tmdb_id(tmdb_id)
-        return self._map(kind).get(normalized) if normalized else None
-
-    def _map(self, kind):
-        return self.tv if kind == "tv" else self.movie
-
-    def public(self):
-        return {
-            "status": self.status,
-            "last_successful_refresh_at": self.last_successful_refresh_at,
-        }
-
-
-_TMDB_LIBRARY_CACHE = {
-    "expires": 0.0,
-    "movie": {},
-    "tv": {},
-    "status": "unavailable",
-    "last_successful_refresh_at": None,
-}
-_TMDB_LIBRARY_CACHE_TTL = 90.0
-_TMDB_LIBRARY_CACHE_LOCK = threading.Lock()
+_TMDB_LIBRARY_CACHE = media_state._TMDB_LIBRARY_CACHE
+_TMDB_LIBRARY_CACHE_TTL = media_state.TMDB_LIBRARY_CACHE_TTL
+_TMDB_LIBRARY_CACHE_LOCK = media_state._TMDB_LIBRARY_CACHE_LOCK
 _TRAKT_WATCHED_SERVICE = None
 _TRAKT_WATCHED_SERVICE_LOCK = threading.Lock()
 
 
 def invalidate_discover_library_caches():
     """Expire library exclusion caches without discarding the last-good snapshot."""
-    with _TMDB_LIBRARY_CACHE_LOCK:
-        _TMDB_LIBRARY_CACHE["expires"] = 0.0
-        if _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None:
-            _TMDB_LIBRARY_CACHE["status"] = "stale"
-    with _tracked_media_cache_lock:
-        _tracked_media_cache["expires"] = 0.0
+    media_state.invalidate_media_state_caches()
 
 
 def _trakt_watched_snapshot(*, force=False):
@@ -162,93 +236,24 @@ def _filter_watched_items(items, snapshot):
     return [item for item in items if not snapshot.contains(item.get("type"), item.get("tmdb_id"))]
 
 
-def _provider_tmdb_id(raw):
-    providers = raw.get("ProviderIds") or {}
-    value = providers.get("Tmdb") or providers.get("tmdb")
-    return _normalize_tmdb_id(value)
-
-
-def _fetch_tmdb_map_for_type(item_type):
-    mapping = {}
-    start = 0
-    while True:
-        data = jellyfin_get(
-            _jellyfin_items_path(),
-            {
-                "Recursive": "true",
-                "IncludeItemTypes": item_type,
-                "StartIndex": str(start),
-                "Limit": str(JELLYFIN_PAGE_SIZE),
-                "Fields": "Path,IsPlaceHolder,ProviderIds",
-            },
-        )
-        batch = data.get("Items", [])
-        for raw in batch:
-            if not _jellyfin_item_is_playable(raw, item_type):
-                continue
-            tmdb_id = _provider_tmdb_id(raw)
-            jf_id = raw.get("Id")
-            if tmdb_id and jf_id and tmdb_id not in mapping:
-                mapping[tmdb_id] = jf_id
-        total = data.get("TotalRecordCount", start + len(batch))
-        start += len(batch)
-        if not batch or start >= total:
-            break
-    return mapping
+_provider_tmdb_id = media_state._provider_tmdb_id
+_fetch_tmdb_map_for_type = media_state._fetch_tmdb_map_for_type
 
 
 def _tmdb_library_maps(*, force=False):
-    if not settings.JELLYFIN_API_KEY:
-        with _TMDB_LIBRARY_CACHE_LOCK:
-            has_last_good = _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None
-            if has_last_good:
-                _TMDB_LIBRARY_CACHE["status"] = "stale"
-                return {
-                    "movie": _TMDB_LIBRARY_CACHE["movie"],
-                    "tv": _TMDB_LIBRARY_CACHE["tv"],
-                }
-            _TMDB_LIBRARY_CACHE["status"] = "unavailable"
-            return {"movie": {}, "tv": {}}
-    now = time.time()
-    with _TMDB_LIBRARY_CACHE_LOCK:
-        if not force and now < _TMDB_LIBRARY_CACHE["expires"]:
-            return {
-                "movie": _TMDB_LIBRARY_CACHE["movie"],
-                "tv": _TMDB_LIBRARY_CACHE["tv"],
-            }
-        previous_movie_map = _TMDB_LIBRARY_CACHE["movie"]
-        previous_tv_map = _TMDB_LIBRARY_CACHE["tv"]
-        try:
-            refreshed_movie_map = _fetch_tmdb_map_for_type("Movie")
-            refreshed_tv_map = _fetch_tmdb_map_for_type("Series")
-            _TMDB_LIBRARY_CACHE["movie"] = refreshed_movie_map
-            _TMDB_LIBRARY_CACHE["tv"] = refreshed_tv_map
-            _TMDB_LIBRARY_CACHE["expires"] = now + _TMDB_LIBRARY_CACHE_TTL
-            _TMDB_LIBRARY_CACHE["status"] = "fresh"
-            _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] = datetime.now(
-                timezone.utc
-            ).isoformat(timespec="seconds")
-        except Exception:
-            _TMDB_LIBRARY_CACHE["status"] = (
-                "stale"
-                if _TMDB_LIBRARY_CACHE["last_successful_refresh_at"] is not None
-                else "unavailable"
-            )
-            return {"movie": previous_movie_map, "tv": previous_tv_map}
-        return {"movie": refreshed_movie_map, "tv": refreshed_tv_map}
+    return media_state.get_tmdb_library_maps(
+        fetch=_fetch_tmdb_map_for_type,
+        now_fn=time.time,
+        force=force,
+    )
 
 
 def _library_exclusion_snapshot(*, force=False):
     """Return the cached library exclusion set and its refresh health."""
-    maps = _tmdb_library_maps(force=force)
-    with _TMDB_LIBRARY_CACHE_LOCK:
-        status = _TMDB_LIBRARY_CACHE["status"]
-        refreshed_at = _TMDB_LIBRARY_CACHE["last_successful_refresh_at"]
-    return LibraryExclusionSnapshot.from_maps(
-        maps.get("movie"),
-        maps.get("tv"),
-        status=status,
-        last_successful_refresh_at=refreshed_at,
+    return media_state.get_library_exclusion_snapshot(
+        fetch=_fetch_tmdb_map_for_type,
+        now_fn=time.time,
+        force=force,
     )
 
 
@@ -731,6 +736,7 @@ def handle_discover_ai_picks_get(handler):
             for item in _ai_picks_items(data)
         ]
         items = _enrich_ai_picks_posters(_enrich_ai_picks_library_flags(items, snapshot))
+        items = _decorate_discover_lifecycle(items, library=snapshot)
         items = [_ai_picks_public_item(item) for item in items]
     except Exception:
         send_json(handler, 500, {"ok": False, "error": "Discover recommendations are temporarily unavailable"})
@@ -847,64 +853,22 @@ def _should_auto_retain_ai_picks_item(item):
 
 
 AI_PICKS_TASTE_CAP = 50
-TRACKED_MEDIA_CACHE_TTL = float(os.environ.get("TRACKED_MEDIA_CACHE_TTL", "60"))
-_tracked_media_cache = {"expires": 0.0, "ids": [], "errors": [], "has_success": False}
-_tracked_media_cache_lock = threading.Lock()
+TRACKED_MEDIA_CACHE_TTL = media_state.TRACKED_MEDIA_CACHE_TTL
+_tracked_media_cache = media_state._tracked_media_cache
+_tracked_media_cache_lock = media_state._tracked_media_cache_lock
 
 
 def _build_tracked_media_ids():
-    """Return sorted movie:/tv: identities currently in Radarr/Sonarr."""
-    ids = set()
-    errors = []
-    if settings.RADARR_API_KEY:
-        try:
-            for movie in _arr_get(settings.RADARR_URL, settings.RADARR_API_KEY, "/api/v3/movie"):
-                tmdb_id = _normalize_tmdb_id(movie.get("tmdbId"))
-                if tmdb_id:
-                    ids.add(f"movie:{tmdb_id}")
-        except Exception:
-            errors.append("radarr: unavailable")
-    if settings.SONARR_API_KEY:
-        try:
-            for series in _arr_get(settings.SONARR_URL, settings.SONARR_API_KEY, "/api/v3/series"):
-                tmdb_id = _normalize_tmdb_id(series.get("tmdbId"))
-                if tmdb_id:
-                    ids.add(f"tv:{tmdb_id}")
-        except Exception:
-            errors.append("sonarr: unavailable")
-    return sorted(ids), errors
+    return media_state.build_tracked_media_ids()
 
 
 def _get_tracked_media_ids(*, force=False):
-    """Cached Arr tracked identities; preserve a complete stale set on errors."""
-    now = time.monotonic()
-    with _tracked_media_cache_lock:
-        if not force and now < _tracked_media_cache["expires"]:
-            return list(_tracked_media_cache["ids"]), list(_tracked_media_cache["errors"])
-    ids, errors = _build_tracked_media_ids()
-    errors = [_safe_arr_error(error) for error in errors]
-    with _tracked_media_cache_lock:
-        if errors:
-            # A partial Arr response must never replace a complete deny set.
-            # Before the first complete refresh, retain the existing soft-fail
-            # behavior and expose whatever provider data was available.
-            result = (
-                list(_tracked_media_cache["ids"])
-                if _tracked_media_cache["has_success"]
-                else list(ids)
-            )
-            if not _tracked_media_cache["has_success"]:
-                _tracked_media_cache["ids"] = list(ids)
-        else:
-            result = list(ids)
-            _tracked_media_cache["ids"] = list(ids)
-            _tracked_media_cache["has_success"] = True
-        _tracked_media_cache["errors"] = list(errors)
-        # Cache successes longer; on errors keep a short retry window so a
-        # failed provider does not prevent recovery for the full cache TTL.
-        ttl = TRACKED_MEDIA_CACHE_TTL if not errors else min(TRACKED_MEDIA_CACHE_TTL, 15.0)
-        _tracked_media_cache["expires"] = time.monotonic() + ttl
-        return result, errors
+    return media_state.get_tracked_media_ids(
+        build=_build_tracked_media_ids,
+        ttl=TRACKED_MEDIA_CACHE_TTL,
+        now_fn=time.monotonic,
+        force=force,
+    )
 
 
 def _in_library_media_ids_from_maps(maps):
@@ -929,11 +893,7 @@ def _get_in_library_media_ids():
 
 
 def _safe_arr_error(error):
-    value = str(error)
-    for provider in ("radarr", "sonarr"):
-        if value.startswith(f"{provider}:"):
-            return f"{provider}: unavailable"
-    return "arr: unavailable"
+    return media_state.safe_arr_error(error)
 
 
 def _ai_picks_required_retain(
@@ -1102,6 +1062,7 @@ def handle_discover_jellyseerr(handler, query):
         )
         watched_snapshot = _trakt_watched_snapshot()
         items = _filter_watched_items(items, watched_snapshot)
+        items = _decorate_discover_lifecycle(items, library=snapshot)
         send_json(
             handler,
             200,
@@ -1180,6 +1141,7 @@ def handle_discover_trakt(handler, query):
             [_map_trakt_result(item, media_type) for item in results if item], snapshot
         )
         items = _filter_watched_items(items, watched_snapshot)
+        items = _decorate_discover_lifecycle(items, library=snapshot)
         send_json(
             handler,
             200,
@@ -1216,119 +1178,47 @@ def handle_discover_request(handler):
     if not isinstance(body, dict):
         send_json(handler, 400, {"ok": False, "error": "Expected a JSON object body"})
         return
-
-    media_type = body.get("mediaType")
-    media_id = _normalize_tmdb_id(body.get("mediaId"))
-    if not media_type or not media_id:
-        send_json(handler, 400, {"ok": False, "error": "mediaType and mediaId required"})
-        return
-
-    ai_pick_id = body.get("aiPickId")
-    if ai_pick_id:
-        try:
-            current = settings.RECOMMENDATIONS_STORE.load()
-        except RecommendationError:
-            send_json(handler, 500, {"ok": False, "error": "Discover recommendations are temporarily unavailable"})
-            return
-        item = _find_ai_picks_item(current, ai_pick_id)
-        if not item:
-            send_json(handler, 404, {"ok": False, "error": "AI Picks item not found"})
-            return
-        expected_type = "tv" if str(media_type).lower() in ("tv", "series") else "movie"
-        if item.get("type") != expected_type or item.get("tmdb_id") != media_id:
-            send_json(
-                handler,
-                400,
-                {"ok": False, "error": "AI Picks item does not match the requested media"},
-            )
-            return
-
     try:
-        arr_result = _add_to_arr_unmonitored(media_type, media_id)
-    except RecommendationError:
-        send_json(handler, 502, {"ok": False, "error": "Unable to add this title to the library"})
+        result = request_media(body)
+    except MediaRequestValidationError as error:
+        send_json(handler, 400, {"ok": False, "error": str(error)})
         return
-    except Exception:
-        send_json(handler, 502, {"ok": False, "error": "Unable to add this title to the library"})
+    except RequestAiPickItemNotFound:
+        send_json(handler, 404, {"ok": False, "error": "AI Picks item not found"})
         return
-
-    arr_id = arr_result.get("arr_id")
-    dashboard_state_persisted = True
-    reconciliation_queued = False
-    if ai_pick_id:
-        def _apply(doc):
-            item = _find_ai_picks_item(doc, ai_pick_id)
-            if not item:
-                raise AiPickItemNotFound()
-            # Request fields only; feedback is preserved. Store the *arr id in
-            # jellyseerr_request_id for durable tracing of the add.
-            apply_request(item, request_id=arr_id)
-
-        try:
-            settings.RECOMMENDATIONS_STORE.update(_apply)
-        except Exception as error:
-            dashboard_state_persisted = False
-            persistence_error = type(error).__name__
-            try:
-                _enqueue_request_reconciliation(ai_pick_id, arr_id)
-                reconciliation_queued = True
-            except Exception as queue_error:
-                reconciliation_queued = False
-                print(
-                    "[discover-request] reconciliation enqueue failed "
-                    f"exception={type(queue_error).__name__}",
-                    flush=True,
-                )
-            print(
-                "[discover-request] Arr add succeeded but dashboard state "
-                "persistence diverged "
-                f"exception={persistence_error}",
-                flush=True,
-            )
-
-    if not dashboard_state_persisted:
+    except HermesIdentityMismatch:
         send_json(
             handler,
-            200,
-            {
-                "ok": True,
-                "partial_success": True,
-                "jellyseerr_request_id": arr_id,
-                "arr_id": arr_id,
-                "service": arr_result.get("service"),
-                "already_added": arr_result.get("already_added"),
-                "monitored": arr_result.get("monitored"),
-                "dashboard_state_persisted": False,
-                "reconciliation_queued": reconciliation_queued,
-                "message": (
-                    "Added to Sonarr/Radarr; dashboard synchronization failed."
-                ),
-            },
+            400,
+            {"ok": False, "error": "AI Picks item does not match the requested media"},
         )
         return
+    except MediaRequestConflict:
+        send_json(handler, 409, {"ok": False, "error": "This title is already managed"})
+        return
+    except MediaRequestUnavailable:
+        send_json(
+            handler,
+            503,
+            {"ok": False, "error": "Media status is temporarily unavailable"},
+        )
+        return
+    except MediaRequestUpstreamFailure:
+        send_json(
+            handler,
+            502,
+            {"ok": False, "error": "Jellyseerr could not accept this request"},
+        )
+        return
+    except Exception:
+        send_json(
+            handler,
+            502,
+            {"ok": False, "error": "Jellyseerr could not accept this request"},
+        )
+        return
+    send_json(handler, 200, result)
 
-    service = arr_result.get("service")
-    title = arr_result.get("title") or "title"
-    already = bool(arr_result.get("already_added"))
-    if already:
-        message = f"Already in {service}: {title} (left unmonitored / no search)."
-    else:
-        message = f"Added to {service} unmonitored (no download): {title}."
-
-    send_json(
-        handler,
-        200,
-        {
-            "ok": True,
-            "jellyseerr_request_id": arr_id,
-            "arr_id": arr_id,
-            "service": service,
-            "already_added": already,
-            "monitored": arr_result.get("monitored"),
-            "dashboard_state_persisted": True,
-            "message": message,
-        },
-    )
 
 
 def handle_discover_request_reconcile(handler):

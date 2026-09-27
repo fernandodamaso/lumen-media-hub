@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config
 from http_support import _reject_mutating, _reject_post, _valid_library_item_id, send_json, send_options
-from routes import activity, arr, automation, discover, jellyfin, library, qbittorrent, queue_hygiene, reports, resources, service_links
+from routes import activity, arr, automation, discover, jellyfin, library, media, qbittorrent, queue_hygiene, reports, resources, service_links
 
 
 class ActionsHandler(BaseHTTPRequestHandler):
@@ -60,6 +60,11 @@ class ActionsHandler(BaseHTTPRequestHandler):
             discover.handle_discover_jellyseerr(self, query)
         elif path == "/discover/trakt":
             discover.handle_discover_trakt(self, query)
+        elif path == "/media/search":
+            media.handle_media_search(self, query)
+        elif path.startswith("/media/tv/") and path.endswith("/seasons"):
+            tmdb_id = path[len("/media/tv/"):-len("/seasons")]
+            media.handle_media_tv_seasons(self, tmdb_id)
         elif path.startswith("/library/items/") and path.endswith("/delete-preview"):
             if _reject_mutating(self):
                 return

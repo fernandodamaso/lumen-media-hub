@@ -1,20 +1,66 @@
 """Jellyseerr and Trakt HTTP clients."""
 import json
+import socket
+import urllib.error
 import urllib.request
 
 import config as settings
 from clients.trakt import TraktClient
 
-def _jellyseerr_get(path):
+
+class JellyseerrUpstreamError(Exception):
+    """Internal Jellyseerr failure with sanitized transport metadata."""
+
+    def __init__(self, *, status=None, ambiguous=False, safe_detail=None):
+        del safe_detail
+        super().__init__("Jellyseerr upstream request failed")
+        self.status = status if isinstance(status, int) and not isinstance(status, bool) else None
+        self.ambiguous = bool(ambiguous)
+
+
+def _jellyseerr_json(path, *, method="GET", payload=None):
     if not settings.JELLYSEERR_ENABLED:
         raise RuntimeError("Jellyseerr is disabled (set JELLYSEERR_ENABLED=true)")
     if not settings.JELLYSEERR_API_KEY:
         raise RuntimeError("JELLYSEERR_API_KEY not configured")
-    req = urllib.request.Request(f"{settings.JELLYSEERR_URL}{path}")
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        f"{settings.JELLYSEERR_URL}{path}", data=data, method=method
+    )
     req.add_header("X-Api-Key", settings.JELLYSEERR_API_KEY)
     req.add_header("Accept", "application/json")
-    with urllib.request.urlopen(req, timeout=settings.TIMEOUT) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=settings.TIMEOUT) as resp:
+            raw = resp.read()
+            if not raw:
+                return None
+            return json.loads(raw.decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        # The status is useful for duplicate recovery. The upstream body is
+        # deliberately neither read nor retained.
+        try:
+            error.close()
+        except Exception:
+            pass
+        raise JellyseerrUpstreamError(status=error.code) from None
+    except (TimeoutError, socket.timeout):
+        raise JellyseerrUpstreamError(ambiguous=method == "POST") from None
+    except urllib.error.URLError as error:
+        ambiguous = method == "POST" and isinstance(
+            getattr(error, "reason", None), (TimeoutError, socket.timeout)
+        )
+        raise JellyseerrUpstreamError(ambiguous=ambiguous) from None
+    except (UnicodeDecodeError, ValueError):
+        raise JellyseerrUpstreamError() from None
+
+
+def _jellyseerr_post(path, payload):
+    return _jellyseerr_json(path, method="POST", payload=payload)
+
+def _jellyseerr_get(path):
+    return _jellyseerr_json(path)
 def _trakt_get(path):
     return _trakt_client().get(path)
 

@@ -11,7 +11,9 @@ describe('Topbar', () => {
 
     const pill = fixtureHost(fixture).querySelector('[data-testid="topbar-search"]');
     expect(pill).toBeTruthy();
-    expect(pill?.textContent).toContain('Search movies, shows, people');
+    expect(pill?.textContent).toContain('Search movies and shows');
+    expect(pill?.textContent).not.toContain('people');
+    expect(pill?.getAttribute('aria-label')).toBe('Search movies and shows');
     expect(pill?.querySelector('kbd')?.textContent).toContain('⌘K');
   });
 

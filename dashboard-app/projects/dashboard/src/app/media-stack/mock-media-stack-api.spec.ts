@@ -141,6 +141,17 @@ describe('MockMediaStackApi', () => {
     expect(aiPicks.items.some((item) => item.id === 'ai-no-tmdb' && item.tmdb_id === 0)).toBe(true);
     expect(aiPicks.items.some((item) => item.id === MOCK_SYNC_FAILED_AI_PICK_ID)).toBe(true);
     expect(aiPicks.items.some((item) => !item.active && item.feedback === 'liked')).toBe(true);
+    expect(aiPicks.items.find((item) => item.id === 'ai-eligible')).toMatchObject({
+      media_status: 'missing',
+      service: null,
+    });
+    expect(aiPicks.items.find((item) => item.id === 'ai-in-library')).toMatchObject({
+      media_status: 'available',
+      service: 'jellyfin',
+    });
+    const requested = aiPicks.items.find((item) => item.id === 'ai-requested');
+    expect(requested?.media_status).toBe('requested');
+    expect(typeof requested?.request_id).toBe('number');
 
     const jellyseerrTrending = await api.listJellyseerrDiscover('trending');
     const jellyseerrMovies = await api.listJellyseerrDiscover('movies');
@@ -151,11 +162,140 @@ describe('MockMediaStackApi', () => {
     expect(jellyseerrTrending.items.map((item) => item.tmdb_id)).not.toEqual(
       jellyseerrMovies.items.map((item) => item.tmdb_id),
     );
+    expect(jellyseerrTrending.items.every((item) => item.media_status === 'missing')).toBe(true);
 
     const traktMovies = await api.listTraktDiscover('movies');
     const traktShows = await api.listTraktDiscover('shows');
     expect(traktMovies.items.map((item) => item.title)).toEqual(['Trakt Horizon', 'Trakt Meridian']);
     expect(traktShows.items.map((item) => item.title)).toEqual(['Trakt Relay', 'Trakt Cascade']);
+  });
+
+  it('provides deterministic search fixtures for every lifecycle state', async () => {
+    const api = createApi();
+    const result = await api.searchMedia('demo');
+
+    expect(result.ok).toBe(true);
+    expect(result.availability).toBe('available');
+    expect(result.items.map((item) => item.status)).toEqual([
+      'available',
+      'requested',
+      'processing',
+      'tracked',
+      'missing',
+      'unknown',
+    ]);
+    expect(result.items.find((item) => item.status === 'available')).toMatchObject({
+      service: 'jellyfin',
+      jellyfinId: 'jf-demo-available',
+    });
+    expect(result.items.find((item) => item.status === 'tracked')).toMatchObject({
+      service: 'radarr',
+      monitored: true,
+    });
+    expect(result.items.every((item) => item.posterUrl === '/mock-media-poster.svg')).toBe(true);
+  });
+
+  it.each([
+    [
+      'media search',
+      (api: MockMediaStackApi, signal: AbortSignal): Promise<unknown> =>
+        api.searchMedia('demo', signal),
+    ],
+    [
+      'TV seasons',
+      (api: MockMediaStackApi, signal: AbortSignal): Promise<unknown> =>
+        api.getTvSeasons(501005, signal),
+    ],
+  ])('rejects an in-flight %s read promptly when aborted', async (_label, read) => {
+    vi.useFakeTimers();
+    try {
+      const api = createApi();
+      api.latencyMs = 500;
+      const controller = new AbortController();
+      let outcome = 'pending';
+      const pending = read(api, controller.signal).then(
+        () => {
+          outcome = 'resolved';
+        },
+        (error: unknown) => {
+          outcome = error instanceof DOMException ? error.name : 'unexpected error';
+        },
+      );
+
+      controller.abort();
+      await Promise.resolve();
+
+      expect(outcome).toBe('AbortError');
+      expect(vi.getTimerCount()).toBe(0);
+      await pending;
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('provides disabled and unavailable media-search scenarios', async () => {
+    const api = createApi();
+    await expect(api.searchMedia('disabled')).resolves.toEqual({
+      ok: true,
+      availability: 'disabled',
+      sources: { jellyseerr: 'disabled' },
+      items: [],
+      error: undefined,
+    });
+    await expect(api.searchMedia('unavailable')).resolves.toEqual({
+      ok: false,
+      availability: 'unavailable',
+      sources: { jellyseerr: 'unavailable' },
+      items: [],
+      error: 'Media search is temporarily unavailable',
+    });
+  });
+
+  it('returns exact TV seasons and makes requests idempotent in subsequent search state', async () => {
+    const api = createApi();
+    const missing = (await api.searchMedia('demo')).items.find(
+      (item) => item.type === 'tv' && item.status === 'missing',
+    );
+    if (!missing) throw new Error('missing TV fixture not found');
+
+    await expect(api.getTvSeasons(missing.tmdbId)).resolves.toEqual({
+      tmdbId: missing.tmdbId,
+      title: missing.title,
+      seasons: [
+        { seasonNumber: 0, name: 'Specials', episodeCount: 2, airDate: null },
+        { seasonNumber: 1, name: 'Season 1', episodeCount: 8, airDate: '2024-03-01' },
+        { seasonNumber: 2, name: 'Season 2', episodeCount: 10, airDate: '2025-04-11' },
+      ],
+    });
+
+    const first = await api.requestMedia({
+      mediaType: 'tv',
+      mediaId: missing.tmdbId,
+      seasons: [2, 1],
+    });
+    expect(first).toMatchObject({
+      ok: true,
+      request_status: 'requested',
+      already_requested: false,
+    });
+    const refreshed = await api.searchMedia('demo');
+    expect(refreshed.items.find((item) => item.identity === missing.identity)).toMatchObject({
+      status: 'requested',
+      requestId: first.jellyseerr_request_id,
+    });
+
+    const second = await api.requestMedia({
+      mediaType: 'tv',
+      mediaId: missing.tmdbId,
+      seasons: [1, 2],
+    });
+    expect(second).toMatchObject({
+      ok: true,
+      request_status: 'requested',
+      already_requested: true,
+      jellyseerr_request_id: first.jellyseerr_request_id,
+    });
   });
 
   it('keeps feedback mutation isolated from request fields', async () => {
@@ -227,9 +367,9 @@ describe('MockMediaStackApi', () => {
     const api = createApi();
     const first = await api.requestMedia({ mediaType: 'movie', mediaId: 301001 });
     expect(first.ok).toBe(true);
-    expect(first.message).toBe('Requested');
+    expect(first.message).toBe('Request submitted to Jellyseerr.');
     const second = await api.requestMedia({ mediaType: 'movie', mediaId: 301001 });
-    expect(second.message).toBe('Already requested');
+    expect(second.message).toBe('This title is already requested in Jellyseerr.');
   });
 
   it('provides deterministic automation summary with mixed service health', async () => {

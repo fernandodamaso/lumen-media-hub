@@ -11,24 +11,45 @@ describe('DiscoverCard', () => {
     fixture = TestBed.createComponent(DiscoverCard);
   });
 
-  it('disables Request with contract explanations for unavailable states', () => {
+  it('renders backend lifecycle actions with durable explanations', () => {
     setItem({ tmdbId: 0, title: 'Untitled' });
     expect(requestButton().textContent).toContain('No TMDB ID');
     expect(requestButton().disabled).toBe(true);
     expect(requestWrapper().title).toContain('missing TMDB id');
 
-    setItem({ tmdbId: 1, inLibrary: true, title: 'Owned' });
-    expect(requestButton().textContent).toContain('In library');
-    expect(requestWrapper().title).toContain('Jellyfin library');
+    setItem({ tmdbId: 1, mediaStatus: 'available', service: 'jellyfin', serviceHref: 'https://jellyfin.example/item/1', title: 'Owned' });
+    expect(requestButton().textContent).toContain('Open in Jellyfin');
+    expect(requestWrapper().title).toContain('Open in Jellyfin');
 
-    setItem({ tmdbId: 1, requestState: 'requested', title: 'Queued' });
+    setItem({ tmdbId: 1, mediaStatus: 'requested', title: 'Queued' });
     expect(requestButton().textContent).toContain('Requested');
 
-    setItem({ tmdbId: 1, title: 'Partial' });
-    fixture.componentRef.setInput('syncFailed', true);
-    fixture.detectChanges();
-    expect(requestButton().textContent).toContain('Added (sync failed)');
-    expect(requestWrapper().title).toContain('synchronization failed');
+    setItem({ tmdbId: 1, mediaStatus: 'processing', title: 'Downloading' });
+    expect(requestButton().textContent).toContain('Processing');
+
+    setItem({ tmdbId: 1, mediaStatus: 'unknown', title: 'Unclear' });
+    expect(requestButton().textContent).toContain('Status unavailable');
+    expect(requestButton().disabled).toBe(true);
+  });
+
+  it('emits the server-derived open or request action', () => {
+    const actions: unknown[] = [];
+    fixture.componentInstance.request.subscribe((action) => actions.push(action));
+
+    setItem({
+      title: 'Tracked',
+      mediaStatus: 'tracked',
+      service: 'sonarr',
+      serviceHref: 'https://sonarr.example/series/1',
+    });
+    requestButton().click();
+    setItem({ title: 'Missing', mediaStatus: 'missing', service: null, serviceHref: null });
+    requestButton().click();
+
+    expect(actions).toEqual([
+      expect.objectContaining({ intent: 'open', href: 'https://sonarr.example/series/1' }),
+      expect.objectContaining({ intent: 'request' }),
+    ]);
   });
 
   it('emits feedback without invoking request', () => {
@@ -168,6 +189,9 @@ describe('DiscoverCard', () => {
       feedback: null,
       requestState: null,
       inLibrary: false,
+      mediaStatus: 'missing',
+      service: null,
+      serviceHref: null,
       ...overrides,
     };
     fixture.componentRef.setInput('item', item);
@@ -177,7 +201,7 @@ describe('DiscoverCard', () => {
 
   function requestButton(): HTMLButtonElement {
     const button = Array.from(fixtureHost(fixture).querySelectorAll('button')).find((candidate) =>
-      /Request|Requested|In library|No TMDB|sync failed/i.test(candidate.textContent),
+      /Request|Requested|Processing|Open in|Status unavailable|No TMDB/i.test(candidate.textContent),
     );
     if (!button) throw new Error('Request button not found');
     return button;

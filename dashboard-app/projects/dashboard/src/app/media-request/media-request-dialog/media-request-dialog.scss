@@ -1,0 +1,111 @@
+:host {
+  display: contents;
+}
+
+.media-request {
+  display: grid;
+  min-width: min(420px, calc(100vw - 64px));
+  gap: var(--mm-space-lg);
+}
+
+.media-request__summary {
+  display: grid;
+  gap: var(--mm-space-xs);
+}
+
+.media-request__eyebrow,
+.media-request__year,
+.media-request__confirmation,
+.media-request__state,
+.media-request__feedback {
+  margin: 0;
+}
+
+.media-request__eyebrow {
+  color: var(--mm-component-accent);
+  font: 650 11px/1.2 var(--mm-font-body);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.media-request__summary h3 {
+  margin: 0;
+  color: var(--mm-component-text-primary);
+  font: 600 22px/1.2 var(--mm-font-display);
+}
+
+.media-request__year,
+.media-request__confirmation,
+.media-request__state {
+  color: var(--mm-component-text-secondary);
+  font: 400 13px/1.55 var(--mm-font-body);
+}
+
+.media-request__seasons {
+  display: grid;
+  max-height: min(360px, 48vh);
+  gap: var(--mm-space-xs);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 0;
+}
+
+.media-request__seasons legend {
+  margin-bottom: var(--mm-space-sm);
+  color: var(--mm-component-text-primary);
+  font: 600 13px/1.3 var(--mm-font-body);
+}
+
+.media-request__season {
+  padding: var(--mm-space-sm) var(--mm-space-md);
+  border: 1px solid var(--mm-component-border-subtle);
+  border-radius: var(--mm-radius-md);
+  background: var(--mm-component-control-bg);
+}
+
+.media-request__season-copy {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--mm-space-md);
+}
+
+.media-request__season-name {
+  color: var(--mm-component-text-primary);
+  font-weight: 600;
+}
+
+.media-request__season-meta {
+  color: var(--mm-component-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.media-request__feedback {
+  padding: var(--mm-space-sm) var(--mm-space-md);
+  border: 1px solid color-mix(in srgb, var(--mm-component-danger) 35%, transparent);
+  border-radius: var(--mm-radius-md);
+  background: color-mix(in srgb, var(--mm-component-danger) 9%, transparent);
+  color: var(--mm-component-danger);
+  font: 500 12px/1.45 var(--mm-font-body);
+}
+
+.media-request__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--mm-space-sm);
+}
+
+@media (max-width: 520px) {
+  .media-request {
+    min-width: 0;
+  }
+
+  .media-request__season-copy {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+}

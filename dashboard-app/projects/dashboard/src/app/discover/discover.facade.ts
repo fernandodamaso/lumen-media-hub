@@ -7,7 +7,6 @@ import {
   isAiPickActiveItem,
   matchesHistoryFilter,
   mediaIdentityKey,
-  resolveRequestAction,
   toExternalCardItem,
   toAiPickCardItem,
 } from './discover-format';
@@ -106,7 +105,6 @@ export class DiscoverFacade {
   private readonly _requestingMore = signal(false);
   private readonly _requestSyncFailedIds = signal<ReadonlySet<string>>(new Set());
   private readonly _requestSyncFailedKeys = signal<ReadonlySet<string>>(new Set());
-  private readonly _requestedKeys = signal<ReadonlySet<string>>(new Set());
 
   private aiPicksRequestId = 0;
   private readonly jellyseerrGeneration: Record<JellyseerrDiscoverKind, number> = {
@@ -165,28 +163,20 @@ export class DiscoverFacade {
 
   readonly visibleItems = computed<DiscoverCardItem[]>(() => {
     const tab = this._tab();
-    const requestedKeys = this._requestedKeys();
     if (tab === 'ai-picks') {
       const view = this._aiPicksView();
       const filter = this._historyFilter();
       return this._aiPickItems()
         .filter((item) => (view === 'active' ? isAiPickActiveItem(item) : !isAiPickActiveItem(item)))
         .filter((item) => (view === 'history' ? matchesHistoryFilter(item, filter) : true))
-        .map((item) => {
-          const card = toAiPickCardItem(item);
-          if (card.requestState === 'requested') return card;
-          if (requestedKeys.has(mediaIdentityKey(card.type, card.tmdbId))) {
-            return { ...card, requestState: 'requested' as const };
-          }
-          return card;
-        });
+        .map((item) => toAiPickCardItem(item));
     }
     if (tab === 'jellyseerr') {
       const kind = this._jellyseerrKind();
-      return (this._jellyseerrCache()[kind]?.items ?? []).map((item) => toExternalCardItem(item, 'jellyseerr', requestedKeys));
+      return (this._jellyseerrCache()[kind]?.items ?? []).map((item) => toExternalCardItem(item, 'jellyseerr'));
     }
     const type = this._traktType();
-    return (this._traktCache()[type]?.items ?? []).map((item) => toExternalCardItem(item, 'trakt', requestedKeys));
+    return (this._traktCache()[type]?.items ?? []).map((item) => toExternalCardItem(item, 'trakt'));
   });
 
   constructor() {
@@ -229,6 +219,10 @@ export class DiscoverFacade {
     void this.refreshCurrentTab();
   }
 
+  async refreshActiveFeed(): Promise<void> {
+    await this.refreshCurrentTab();
+  }
+
   async submitFeedback(
     id: string,
     feedback: DiscoverFeedback,
@@ -267,39 +261,6 @@ export class DiscoverFacade {
       await this.loadAiPicks();
     } catch {
       this.setMutationNotice('Could not save feedback. Try again.', 'danger');
-    } finally {
-      this._busyItemId.set(null);
-    }
-  }
-
-  async requestItem(item: DiscoverCardItem): Promise<void> {
-    if (this._busyItemId()) return;
-    const action = resolveRequestAction(item, { syncFailed: this.isSyncFailed(item) });
-    if (action.disabled) return;
-    this._busyItemId.set(item.id);
-    this.clearMutationNotice();
-    try {
-      const result = await this.api.requestMedia({
-        mediaType: item.type,
-        mediaId: item.tmdbId,
-        aiPickId: item.aiPickId,
-      });
-      if (!result.ok) {
-        this.setMutationNotice(result.error ?? 'Could not request media.', 'danger');
-        return;
-      }
-      if (result.dashboard_state_persisted === false) {
-        this.addSyncFailed(item);
-        this.setMutationNotice(result.message ?? 'Added to Sonarr/Radarr; dashboard synchronization failed.', 'warning');
-      } else {
-        this.markRequested(item.type, item.tmdbId);
-        this.setMutationNotice(result.message ?? 'Requested.', 'success');
-      }
-      if (this._tab() === 'ai-picks') {
-        await this.loadAiPicks();
-      }
-    } catch {
-      this.setMutationNotice('Could not request media. Try again.', 'danger');
     } finally {
       this._busyItemId.set(null);
     }
@@ -634,7 +595,6 @@ export class DiscoverFacade {
     if (this._tab() === 'ai-picks') {
       this.applyExclusionNotice(response.library_exclusion, response.watched_exclusion);
     }
-    this.seedRequestedFromAiPicks(response.items);
     this.applyPendingRequestSync(response.items, response.pending_request_sync);
     this.reconcileSyncFailed(response.items);
     const generation = response.generation;
@@ -679,18 +639,6 @@ export class DiscoverFacade {
     this._status.set(this.visibleItems().length ? 'ready' : 'empty');
   }
 
-  private seedRequestedFromAiPicks(items: DiscoverItem[]): void {
-    const keys = items
-      .filter((item) => item.request_state === 'requested' && item.tmdb_id)
-      .map((item) => mediaIdentityKey(item.type, item.tmdb_id));
-    if (!keys.length) return;
-    this._requestedKeys.update((existing) => {
-      const next = new Set(existing);
-      for (const key of keys) next.add(key);
-      return next;
-    });
-  }
-
   private applyPendingRequestSync(
     items: DiscoverItem[],
     pending?: { id: string; jellyseerr_request_id: number }[],
@@ -709,29 +657,6 @@ export class DiscoverFacade {
       }
       return next;
     });
-  }
-
-  private markRequested(type: DiscoverCardItem['type'], tmdbId: number): void {
-    this._requestedKeys.update((keys) => {
-      const next = new Set(keys);
-      next.add(mediaIdentityKey(type, tmdbId));
-      return next;
-    });
-  }
-
-  private addSyncFailed(item: DiscoverCardItem): void {
-    this._requestSyncFailedIds.update((ids) => {
-      const next = new Set(ids);
-      next.add(item.id);
-      return next;
-    });
-    if (item.tmdbId) {
-      this._requestSyncFailedKeys.update((keys) => {
-        const next = new Set(keys);
-        next.add(mediaIdentityKey(item.type, item.tmdbId));
-        return next;
-      });
-    }
   }
 
   private reconcileSyncFailed(items: DiscoverItem[]): void {

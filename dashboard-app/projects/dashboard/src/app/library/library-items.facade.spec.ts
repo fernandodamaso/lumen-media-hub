@@ -151,6 +151,8 @@ describe('LibraryItemsFacade', () => {
 });
 
 class MockApi implements MediaStackApi {
+  searchMedia: MediaStackApi['searchMedia'] = () => Promise.resolve({ ok: true, availability: 'available', sources: { jellyseerr: 'fresh' }, items: [] });
+  getTvSeasons: MediaStackApi['getTvSeasons'] = (tmdbId) => Promise.resolve({ tmdbId, title: 'Fixture', seasons: [] });
   result: LibraryListResult = {
     items: [movie('m1', 'Moonrise'), series('s1', 'Night Watch')],
     availability: 'complete',

@@ -31,7 +31,8 @@ It is also a portfolio-grade Angular project designed to demonstrate production-
 |---|---|---|
 | 🎬 | **Watch & browse** | Continue watching, trending titles, newly available media, movies and series |
 | 🔎 | **Discover** | Combines optional model-agnostic AI Picks, Jellyseerr and Trakt sources |
-| ➕ | **Request media** | Sends supported requests through the Live API |
+| 🔍 | **Global media search** | Searches movies and shows from the shell with library and catalog lifecycle state |
+| ➕ | **Request media** | Uses one Jellyseerr-backed movie/TV dialog, including TV season selection |
 | ⬇️ | **Downloads** | Shows active qBittorrent transfers with pause/resume controls |
 | 📅 | **Upcoming releases** | Surfaces Sonarr calendar data directly in the shell |
 | ⚙️ | **Automation** | Summarizes automation state and exposes cron/report triage |
@@ -112,6 +113,8 @@ Browser → :3000
 ```
 
 The browser never needs direct credentials for those services.
+
+Global media search and Discover share the same backend-owned lifecycle contract. Jellyfin availability wins, active Jellyseerr requests follow, then Sonarr/Radarr tracking, confirmed missing state, and finally unknown. Jellyseerr is the only current request writer; the browser never receives Jellyseerr or Arr credentials and never falls back to direct Arr writes. Demo mode mirrors the same statuses and dialog flow with local fixtures.
 
 ---
 

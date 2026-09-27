@@ -13,11 +13,21 @@
           [value]="query()"
           placeholder="Search media, routes, actions…"
           aria-label="Search commands"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls="command-palette-results"
+          [attr.aria-expanded]="open()"
+          [attr.aria-activedescendant]="activeOptionId()"
           (input)="onQueryInput($event)"
         />
         <kbd>esc</kbd>
       </div>
-      <div class="palette__results" role="listbox" aria-label="Command results">
+      <div
+        id="command-palette-results"
+        class="palette__results"
+        [attr.role]="grouped().length > 0 ? 'listbox' : null"
+        [attr.aria-label]="grouped().length > 0 ? 'Command results' : null"
+      >
         @for (group of grouped(); track group.name; let groupIndex = $index) {
           <div class="palette__group">
             <p class="palette__group-label">{{ group.name }}</p>
@@ -25,22 +35,50 @@
               <button
                 type="button"
                 class="palette__item"
+                [class.palette__item--media]="item.posterUrl"
                 role="option"
+                [id]="optionId(flatIndex(groupIndex, itemIndex))"
                 [class.is-active]="activeIndex() === flatIndex(groupIndex, itemIndex)"
                 [attr.aria-selected]="activeIndex() === flatIndex(groupIndex, itemIndex)"
+                [attr.aria-disabled]="item.disabled ? true : null"
                 (mouseenter)="activeIndex.set(flatIndex(groupIndex, itemIndex))"
                 (click)="selectItem(item)"
               >
+                @if (item.posterUrl) {
+                  <span class="palette__item-poster" aria-hidden="true">
+                    <img [src]="item.posterUrl" alt="" loading="lazy" decoding="async" />
+                  </span>
+                }
                 <span class="palette__item-title">{{ item.title }}</span>
                 <span class="palette__item-meta">{{ item.meta }}</span>
-                <span class="palette__item-kind">{{ item.group }}</span>
+                <mm-status
+                  class="palette__item-kind"
+                  [tone]="badgeTone(item)"
+                  [dot]="true"
+                >{{ badgeLabel(item, flatIndex(groupIndex, itemIndex)) }}</mm-status>
               </button>
             }
           </div>
         } @empty {
-          <p class="palette__empty">No matches</p>
+          <p class="palette__empty" role="status">No matches</p>
         }
       </div>
+      @if (searchStatus()) {
+        <p
+          class="palette__search-status"
+          data-testid="palette-search-status"
+          role="status"
+          aria-live="polite"
+        >{{ searchStatus() }}</p>
+      }
       <div class="palette__foot">↑↓ navigate · ↵ select</div>
   </div>
 </mm-dialog>
+
+@if (requestDialogItem(); as item) {
+  <mm-media-request-dialog
+    [item]="item"
+    [(opened)]="requestDialogOpen"
+    (completed)="onRequestCompleted($event)"
+  />
+}

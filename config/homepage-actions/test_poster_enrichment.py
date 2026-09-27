@@ -146,6 +146,7 @@ def make_ai_picks_item(tmdb_id, **extra):
         "feedback": None,
         "feedback_at": None,
         "request_state": None,
+        "request_provider": None,
         "requested_at": None,
         "jellyseerr_request_id": None,
         "added_at": "2026-01-01T00:00:00Z",

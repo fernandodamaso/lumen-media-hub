@@ -112,7 +112,8 @@ class AiCollectionMigrationTests(unittest.TestCase):
                 "id": "ai-movie-42", "identity": "movie:42", "source": "ai",
                 "type": "movie", "title": "Fixture", "tmdb_id": 42,
                 "reason": "Test", "active": True, "feedback": None,
-                "feedback_at": None, "request_state": None, "requested_at": None,
+                "feedback_at": None, "request_state": None, "request_provider": None,
+                "requested_at": None,
                 "jellyseerr_request_id": None, "added_at": "2026-08-29T10:00:00Z",
             }),
         ))

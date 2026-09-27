@@ -282,6 +282,7 @@ def _retention_status():
             "lastStatus": "retention_cycle_failed",
             "lastError": "retention_cycle_failed",
         }
+    scheduler = {"enabled": enabled, **scheduler}
     failed = (
         not state_valid
         or results["pendingCount"] > 0

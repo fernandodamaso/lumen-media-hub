@@ -90,6 +90,7 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(
             result["retention"]["scheduler"],
             {
+                "enabled": False,
                 "running": False,
                 "lastCycleAt": None,
                 "lastStatus": None,

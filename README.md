@@ -167,7 +167,9 @@ For the deeper architecture, facade lifetimes, polling ownership, API endpoints 
 A plain `docker compose up -d` starts the core stack. Storage bind mounts never
 create missing host paths, so create `ROOT_PATH/media/movies`,
 `ROOT_PATH/media/tv`, and `DOWNLOADS_PATH` first when starting Compose without
-an installer.
+an installer. `/reports` cron-log tails read `/data/tmp` inside
+`homepage-actions`, which is not mounted by default; hosts that write job logs
+to `ROOT_PATH/tmp` can bind it there read-only in a local override.
 
 ### Core services
 

@@ -127,6 +127,20 @@ def _lexically_inside(path, root):
         return False
 
 
+# In shared storage mode qBittorrent sees ROOT_PATH/downloads both as
+# /downloads (legacy alias) and /data/downloads. Compare other torrents in
+# this service's /downloads view so an alias cannot hide shared source files.
+_SHARED_DOWNLOADS_ALIASES = (Path("/data/downloads"),)
+
+
+def _downloads_view(path, downloads_root):
+    for alias in _SHARED_DOWNLOADS_ALIASES:
+        if _lexically_inside(path, alias):
+            relative = Path(os.path.abspath(os.fspath(path))).relative_to(alias)
+            return Path(downloads_root) / relative
+    return path
+
+
 def _path_overlap(left, right):
     left, right = _resolved(left), _resolved(right)
     return left == right or _inside(left, right) or _inside(right, left)
@@ -374,7 +388,10 @@ def _fresh_snapshot(torrent_hash, mapping, qbit, arr, downloads_root, library_ro
     for other in all_torrents:
         if not isinstance(other, dict) or not _valid_hash(other.get("hash")):
             raise _Skip("qbit_torrent_inventory_incomplete")
-        other_path = _absolute(other.get("content_path"), "qbit_torrent_inventory_incomplete")
+        other_path = _downloads_view(
+            _absolute(other.get("content_path"), "qbit_torrent_inventory_incomplete"),
+            downloads_root,
+        )
         if _has_symlink(other_path, downloads_root):
             raise _Skip("symlink_source")
         other_hash = other["hash"].lower()

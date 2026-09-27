@@ -484,6 +484,23 @@ class VerifiedCleanupTests(unittest.TestCase):
             )
             self.assertEqual(result["reason"], "shared_source_path")
 
+    def test_shared_mode_data_downloads_alias_is_treated_as_same_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            downloads, library, source, _destination, torrent, files, history = _fixture(base)
+            relative = Path(torrent["content_path"]).relative_to(downloads)
+            other = dict(torrent, hash=OTHER_HASH, content_path=str(Path("/data/downloads") / relative))
+            result = verify_torrent(
+                HASH,
+                {"service": "sonarr", "id": 42},
+                qbit=FakeQbit(torrent, files, all_torrents=[torrent, other]),
+                arr=FakeArr(history),
+                downloads_root=downloads,
+                library_root=library,
+            )
+            self.assertEqual(result["reason"], "shared_source_path")
+            self.assertTrue(source.exists())
+
     def test_source_mutation_or_destination_removal_after_snapshot_skips(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)

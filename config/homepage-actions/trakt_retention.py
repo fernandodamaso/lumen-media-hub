@@ -311,15 +311,22 @@ class RetentionStateStore:
         self.path = os.fspath(path or settings.TRAKT_RETENTION_STATE_PATH)
 
     def load(self):
+        # Only a missing file is an empty state. Unreadable or malformed state
+        # may hold unmonitor intents, so fail closed instead of letting the
+        # next put() overwrite them.
         try:
             with open(self.path, encoding="utf-8") as handle:
                 value = json.load(handle)
+        except FileNotFoundError:
+            return {"schema_version": 1, "items": {}}
         except (OSError, ValueError, TypeError):
-            return {"schema_version": 1, "items": {}}
+            raise RetentionBlocked("retention_state_invalid") from None
         if not isinstance(value, dict) or value.get("schema_version") != 1:
-            return {"schema_version": 1, "items": {}}
-        items = value.get("items")
-        return {"schema_version": 1, "items": items if isinstance(items, dict) else {}}
+            raise RetentionBlocked("retention_state_invalid")
+        items = value.get("items", {})
+        if not isinstance(items, dict):
+            raise RetentionBlocked("retention_state_invalid")
+        return {"schema_version": 1, "items": items}
 
     def put(self, key, record):
         state = self.load()
@@ -737,7 +744,10 @@ class TraktRetentionRunner:
         if preview.get("status") != "preview":
             return preview
         self._commit_now = now
-        records = self.state.load().get("items", {})
+        try:
+            records = self.state.load().get("items", {})
+        except RetentionBlocked as error:
+            return {**preview, "status": "blocked", "reason": error.reason, "outcomes": []}
         candidates = {item["key"]: item for item in preview["eligible"]}
         # A restart can leave an unmonitor intent while the next fresh
         # snapshot moves the item to preserved (for example, a rewatch). Keep

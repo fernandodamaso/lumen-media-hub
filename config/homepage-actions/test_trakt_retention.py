@@ -350,6 +350,55 @@ class TraktRetentionTests(unittest.TestCase):
             self.assertEqual(outcome["outcomes"][0]["status"], "deleted")
             self.assertEqual(sonarr.set_calls.__len__(), 1)
 
+    def test_corrupt_state_blocks_commit_and_is_not_overwritten(self):
+        for content in ("{not json", '{"schema_version": 2, "items": {}}', '{"schema_version": 1, "items": []}'):
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "state.json"
+                path.write_text(content, encoding="utf-8")
+                sonarr = FakeSonarr([episode(1)])
+                runner = TraktRetentionRunner(
+                    enabled=True,
+                    trakt=FakeTrakt([old_watch()]),
+                    sonarr=sonarr,
+                    jellyfin=FakeJellyfin(),
+                    state=RetentionStateStore(path),
+                )
+
+                result = runner.run(now=NOW)
+
+                self.assertEqual(result["status"], "blocked")
+                self.assertEqual(result["reason"], "retention_state_invalid")
+                self.assertEqual(sonarr.set_calls, [])
+                self.assertEqual(sonarr.delete_calls, [])
+                self.assertEqual(path.read_text(encoding="utf-8"), content)
+
+    def test_missing_state_file_is_empty_state(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = RetentionStateStore(Path(temporary) / "absent.json")
+            self.assertEqual(state.load(), {"schema_version": 1, "items": {}})
+
+    def test_failed_delete_keeps_unmonitored_intent_without_deleting(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = RetentionStateStore(Path(temporary) / "state.json")
+            sonarr = FakeSonarr([episode(1)])
+            sonarr.fail_delete = True
+            runner = TraktRetentionRunner(
+                enabled=True,
+                trakt=FakeTrakt([old_watch()]),
+                sonarr=sonarr,
+                jellyfin=FakeJellyfin(),
+                state=state,
+            )
+
+            result = runner.run(now=NOW)
+
+            outcome = result["outcomes"][0]
+            self.assertEqual((outcome["status"], outcome["reason"]), ("unmonitored", "delete_failed"))
+            stored = state.load()["items"][outcome["key"]]
+            self.assertEqual(stored["status"], "unmonitored")
+            self.assertEqual(stored["reason"], "delete_failed")
+            self.assertIn("prior_monitoring", stored)
+
     def test_rewatch_is_revalidated_before_unmonitor_and_delete(self):
         with tempfile.TemporaryDirectory() as temporary:
             recent = watch(1, 1, (NOW - timedelta(hours=1)).isoformat())

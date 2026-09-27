@@ -1,6 +1,15 @@
 export type AutomationServiceStatus = 'healthy' | 'degraded' | 'down' | 'unknown';
 export type AutomationProblemSeverity = 'actionable' | 'warning' | 'info';
 
+export type CleanupSchedulerTelemetry = 'unknown' | 'ok' | 'failed';
+
+export interface CleanupScheduler {
+  running: boolean;
+  lastCycleAt: string | null;
+  lastStatus: string | null;
+  lastError: string | null;
+}
+
 export interface AutomationService {
   id: string;
   name: string;
@@ -89,7 +98,7 @@ export interface QueueHygieneRunResult extends QueueHygieneSummary {
   counts?: { eligible: number; blocked: number; queued: number };
 }
 
-export interface OperationalStatusDisk {
+interface OperationalStatusDisk {
   id: string;
   label: string;
   status: 'healthy' | 'unavailable';
@@ -110,6 +119,8 @@ export interface OperationalStatus {
     status: string;
     lastResult: { status: string; reason?: string | null } | null;
     queueCount: number;
+    scheduler: CleanupScheduler | null;
+    schedulerTelemetry: CleanupSchedulerTelemetry;
   };
   verification: { status: string; queuedCount: number; previewCount: number };
   trakt: { configured: boolean; auth: string; health: string; expiresAt: string | null };

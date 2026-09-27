@@ -6,6 +6,34 @@ import {
   formatShortDate,
   mapAutomationSummary,
 } from './automation-format';
+import type { CleanupScheduler } from './automation.models';
+import type { MediaStackOperationalStatusDto } from '../media-stack/wire/automation';
+
+function stagedStatus(verifiedCleanup: MediaStackOperationalStatusDto['verifiedCleanup']): MediaStackOperationalStatusDto {
+  return {
+    generatedAt: '2026-07-13T12:00:00Z',
+    storage: { status: 'healthy', disks: [] },
+    pause: { status: 'not_reported', reason: 'not_reported', manual: null, guard: null, known: false },
+    guard: { enabled: false, status: 'disabled', health: 'disabled', lastCycleAt: null },
+    verifiedCleanup,
+    verification: { status: 'disabled', queuedCount: 0, previewCount: 0 },
+    trakt: { configured: false, auth: 'unconfigured', health: 'unavailable', expiresAt: null },
+    retention: {
+      enabled: false,
+      status: 'disabled',
+      preview: null,
+      skips: [],
+      results: { deletedCount: 0, preservedCount: 0, pendingCount: 0 },
+      lastResult: null,
+      scheduler: { enabled: false, running: false },
+    },
+  };
+}
+
+function cleanupDto(scheduler?: CleanupScheduler | null): MediaStackOperationalStatusDto['verifiedCleanup'] {
+  const base = { enabled: true, status: 'not_running', lastResult: null, queueCount: 0 };
+  return scheduler === undefined ? base : { ...base, scheduler };
+}
 
 describe('automation format / automation mapping', () => {
   it('maps a healthy automation summary DTO into a domain summary', () => {
@@ -164,6 +192,42 @@ describe('automation format / automation mapping', () => {
   it('reports unavailable generated time for empty or invalid timestamps', () => {
     expect(formatGeneratedAt('')).toBe('Generated time unavailable');
     expect(formatGeneratedAt('not-a-date')).toBe('Generated time unavailable');
+  });
+
+  describe('verified cleanup scheduler telemetry', () => {
+    it('reports unknown telemetry when the scheduler snapshot is missing', () => {
+      const summary = mapAutomationSummary({ generatedAt: '', status: stagedStatus(cleanupDto()) });
+      expect(summary.status?.verifiedCleanup.scheduler).toBeNull();
+      expect(summary.status?.verifiedCleanup.schedulerTelemetry).toBe('unknown');
+    });
+
+    it('reports unknown telemetry before the first cycle result', () => {
+      const summary = mapAutomationSummary({
+        generatedAt: '',
+        status: stagedStatus(cleanupDto({ running: true, lastCycleAt: null, lastStatus: null, lastError: null })),
+      });
+      expect(summary.status?.verifiedCleanup.schedulerTelemetry).toBe('unknown');
+    });
+
+    it('reports ok telemetry after a successful cycle', () => {
+      const summary = mapAutomationSummary({
+        generatedAt: '',
+        status: stagedStatus(cleanupDto({ running: true, lastCycleAt: '2026-07-13T11:55:00Z', lastStatus: 'ok', lastError: null })),
+      });
+      expect(summary.status?.verifiedCleanup.schedulerTelemetry).toBe('ok');
+    });
+
+    it('reports failed telemetry for a failed, degraded, or unavailable cycle', () => {
+      const failing: CleanupScheduler[] = [
+        { running: true, lastCycleAt: '2026-07-13T11:55:00Z', lastStatus: 'cleanup_cycle_failed', lastError: 'cleanup_cycle_failed' },
+        { running: false, lastCycleAt: '2026-07-13T11:55:00Z', lastStatus: 'degraded', lastError: null },
+        { running: true, lastCycleAt: '2026-07-13T11:55:00Z', lastStatus: 'qbit_unavailable', lastError: null },
+      ];
+      for (const scheduler of failing) {
+        const summary = mapAutomationSummary({ generatedAt: '', status: stagedStatus(cleanupDto(scheduler)) });
+        expect(summary.status?.verifiedCleanup.schedulerTelemetry).toBe('failed');
+      }
+    });
   });
 
   describe('formatShortDate', () => {

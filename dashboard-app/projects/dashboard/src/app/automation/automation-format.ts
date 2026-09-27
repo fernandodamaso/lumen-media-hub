@@ -4,6 +4,8 @@ import {
   AutomationProblemSeverity,
   AutomationServiceStatus,
   AutomationSummary,
+  CleanupScheduler,
+  CleanupSchedulerTelemetry,
   OperationalStatus,
   QueueHygieneSummary,
 } from './automation.models';
@@ -89,7 +91,12 @@ function mapOperationalStatus(dto: MediaStackOperationalStatusDto): OperationalS
     },
     pause: { ...dto.pause },
     guard: { ...dto.guard },
-    verifiedCleanup: { ...dto.verifiedCleanup, lastResult: dto.verifiedCleanup.lastResult ? { ...dto.verifiedCleanup.lastResult } : null },
+    verifiedCleanup: {
+      ...dto.verifiedCleanup,
+      lastResult: dto.verifiedCleanup.lastResult ? { ...dto.verifiedCleanup.lastResult } : null,
+      scheduler: dto.verifiedCleanup.scheduler ? { ...dto.verifiedCleanup.scheduler } : null,
+      schedulerTelemetry: deriveCleanupSchedulerTelemetry(dto.verifiedCleanup.scheduler ?? null),
+    },
     verification: { ...dto.verification },
     trakt: { ...dto.trakt },
     retention: {
@@ -101,6 +108,14 @@ function mapOperationalStatus(dto: MediaStackOperationalStatusDto): OperationalS
       scheduler: { ...dto.retention.scheduler },
     },
   };
+}
+
+function deriveCleanupSchedulerTelemetry(scheduler: CleanupScheduler | null): CleanupSchedulerTelemetry {
+  if (!scheduler) return 'unknown';
+  if (scheduler.lastError !== null || ['degraded', 'qbit_unavailable', 'cleanup_cycle_failed'].includes(scheduler.lastStatus ?? '')) {
+    return 'failed';
+  }
+  return scheduler.lastStatus === 'ok' ? 'ok' : 'unknown';
 }
 
 function mapQueueHygiene(dto: MediaStackQueueHygieneSummaryDto): QueueHygieneSummary {

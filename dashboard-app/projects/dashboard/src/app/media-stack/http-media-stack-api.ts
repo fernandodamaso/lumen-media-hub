@@ -83,6 +83,10 @@ import {
 
 const DISCOVER_LOAD_ERROR = 'Discover is temporarily unavailable. Try again.';
 const TRAKT_RECONNECT_ERROR = 'Trakt reconnect required';
+/** Shared fallback for library delete failures (HTTP, soft envelope, thrown errors). */
+const DELETE_LIBRARY_ITEM_FAILED = 'DELETE library item failed';
+/** Shared guard message for delete-preview payload validation. */
+const MALFORMED_DELETE_PREVIEW = 'Malformed delete preview response';
 
 /** Narrow validated envelopes to Record so require* payload helpers accept them. */
 function requireEnvelopeRecord(data: OkEnvelope, fallback: string): OkEnvelopeRecord {
@@ -222,14 +226,14 @@ export class HttpMediaStackApi implements MediaStackApi {
           `${this.base}/library/items/${encodeURIComponent(id)}?previewId=${encodeURIComponent(previewId)}`,
         ),
       );
-      return this.mapDeleteResult(requireSoftEnvelope(data, 'DELETE library item failed'));
+      return this.mapDeleteResult(requireSoftEnvelope(data, DELETE_LIBRARY_ITEM_FAILED));
     } catch (error) {
       if (error instanceof HttpErrorResponse && isRecord(error.error)) {
         return this.mapDeleteResult(
-          requireSoftEnvelope(error.error, 'DELETE library item failed'),
+          requireSoftEnvelope(error.error, DELETE_LIBRARY_ITEM_FAILED),
         );
       }
-      throw this.toError(error, 'DELETE library item failed');
+      throw this.toError(error, DELETE_LIBRARY_ITEM_FAILED);
     }
   }
 
@@ -240,7 +244,7 @@ export class HttpMediaStackApi implements MediaStackApi {
       );
       const envelope = requireHardEnvelope(
         data,
-        'DELETE library item failed',
+        DELETE_LIBRARY_ITEM_FAILED,
       ) as unknown as Record<string, unknown>;
       if (envelope['removed'] !== true || envelope['mode'] !== 'jellyfin-direct') {
         throw new Error('Malformed direct delete response');
@@ -252,7 +256,7 @@ export class HttpMediaStackApi implements MediaStackApi {
         title: typeof envelope['title'] === 'string' ? envelope['title'] : null,
       };
     } catch (error) {
-      throw this.toError(error, 'DELETE library item failed');
+      throw this.toError(error, DELETE_LIBRARY_ITEM_FAILED);
     }
   }
 
@@ -731,28 +735,28 @@ export class HttpMediaStackApi implements MediaStackApi {
 
   private validateDeletePreview(envelope: OkEnvelope & Partial<LibraryDeletePreview>): void {
     if (typeof envelope.previewId !== 'string' || !envelope.previewId.trim()) {
-      throw new Error('Malformed delete preview response');
+      throw new Error(MALFORMED_DELETE_PREVIEW);
     }
     if (typeof envelope.title !== 'string' || !envelope.title.trim()) {
-      throw new Error('Malformed delete preview response');
+      throw new Error(MALFORMED_DELETE_PREVIEW);
     }
     if (envelope.kind !== 'movie' && envelope.kind !== 'series') {
-      throw new Error('Malformed delete preview response');
+      throw new Error(MALFORMED_DELETE_PREVIEW);
     }
     if (envelope.manager !== 'Radarr' && envelope.manager !== 'Sonarr') {
-      throw new Error('Malformed delete preview response');
+      throw new Error(MALFORMED_DELETE_PREVIEW);
     }
     if (typeof envelope.torrentCount !== 'number' || !Number.isFinite(envelope.torrentCount)) {
-      throw new Error('Malformed delete preview response');
+      throw new Error(MALFORMED_DELETE_PREVIEW);
     }
     if (typeof envelope.expiresAt !== 'string' || !envelope.expiresAt.trim()) {
-      throw new Error('Malformed delete preview response');
+      throw new Error(MALFORMED_DELETE_PREVIEW);
     }
     if (
       envelope.episodeCount != null &&
       (typeof envelope.episodeCount !== 'number' || !Number.isFinite(envelope.episodeCount))
     ) {
-      throw new Error('Malformed delete preview response');
+      throw new Error(MALFORMED_DELETE_PREVIEW);
     }
   }
 
@@ -781,18 +785,8 @@ export class HttpMediaStackApi implements MediaStackApi {
 
   private toError(error: unknown, fallback: string, safeDiscoverError = false): Error {
     if (error instanceof HttpErrorResponse) {
-      const body: unknown = error.error;
-      if (isRecord(body) && body['code'] === 'reconnect_required') {
-        const mapped = new Error(TRAKT_RECONNECT_ERROR);
-        Object.assign(mapped, { code: 'reconnect_required' as const });
-        return mapped;
-      }
-      if (isRecord(body) && typeof body['error'] === 'string' && body['error'].trim()) {
-        return new Error(safeDiscoverError ? fallback : body['error']);
-      }
-      if (typeof body === 'string' && body.trim()) {
-        return new Error(safeDiscoverError ? fallback : body);
-      }
+      const bodyError = httpBodyError(error.error, fallback, safeDiscoverError);
+      if (bodyError) return bodyError;
       return new Error(error.message || `HTTP ${error.status}` || fallback);
     }
     if (error instanceof Error) {
@@ -800,6 +794,28 @@ export class HttpMediaStackApi implements MediaStackApi {
     }
     return new Error(fallback);
   }
+}
+
+/**
+ * Read a server-provided message out of an HTTP error body, or `null` when the body
+ * carries none. Discover callers redact server text and keep the caller's fallback.
+ */
+function httpBodyError(body: unknown, fallback: string, safeDiscoverError: boolean): Error | null {
+  if (isRecord(body)) {
+    if (body['code'] === 'reconnect_required') {
+      const mapped = new Error(TRAKT_RECONNECT_ERROR);
+      Object.assign(mapped, { code: 'reconnect_required' as const });
+      return mapped;
+    }
+    if (typeof body['error'] === 'string' && body['error'].trim()) {
+      return new Error(safeDiscoverError ? fallback : body['error']);
+    }
+    return null;
+  }
+  if (typeof body === 'string' && body.trim()) {
+    return new Error(safeDiscoverError ? fallback : body);
+  }
+  return null;
 }
 
 function jellyfinListTotal(data: LiveJellyfinListResponse, mappedLength: number): number {

@@ -15,6 +15,47 @@ import {
   requireExternalDiscoverPayload,
 } from './live-api.mappers';
 
+function stagedStatusPayload(verifiedCleanup: Record<string, unknown>): Record<string, unknown> {
+  return {
+    generatedAt: '2026-07-13T12:00:00Z',
+    storage: {
+      status: 'healthy',
+      disks: [
+        { id: 'staging', label: 'Staging', status: 'healthy', identityStatus: 'observed', availableBytes: 100, freeBytes: 120, usedBytes: 20, totalBytes: 140 },
+      ],
+    },
+    pause: { status: 'not_reported', reason: 'not_reported', manual: null, guard: null, known: false },
+    guard: { enabled: false, status: 'disabled', health: 'disabled', lastCycleAt: null },
+    verifiedCleanup,
+    verification: { status: 'disabled', queuedCount: 0, previewCount: 0 },
+    trakt: { configured: false, auth: 'unconfigured', health: 'unavailable', expiresAt: null },
+    retention: {
+      enabled: false,
+      status: 'disabled',
+      preview: null,
+      skips: [],
+      results: { deletedCount: 0, preservedCount: 0, pendingCount: 0 },
+      lastResult: null,
+      scheduler: { enabled: false, running: false },
+    },
+  };
+}
+
+function mapSchedulerPayload(scheduler?: unknown) {
+  return mapLiveAutomationSummary({
+    ok: true,
+    generatedAt: '2026-07-13T12:00:00Z',
+    sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
+    status: stagedStatusPayload({
+      enabled: true,
+      status: 'not_running',
+      lastResult: null,
+      queueCount: 0,
+      ...(scheduler === undefined ? {} : { scheduler }),
+    }),
+  });
+}
+
 describe('live-api.mappers', () => {
   it('requires and validates library exclusion freshness for every Discover source', () => {
     for (const resource of ['AI Picks', 'Jellyseerr', 'Trakt'] as const) {
@@ -414,6 +455,120 @@ describe('live-api.mappers', () => {
       sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
       status: { storage: {} },
     })).toThrow(/incomplete status/);
+  });
+
+  it('preserves safe scheduler failure codes from the operational status', () => {
+    const dto = mapLiveAutomationSummary({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
+      status: stagedStatusPayload({
+        enabled: true,
+        status: 'degraded',
+        lastResult: { status: 'error', reason: 'cleanup_item_failed' },
+        queueCount: 0,
+        scheduler: {
+          running: true,
+          lastCycleAt: '2026-07-13T11:55:00Z',
+          lastStatus: 'cleanup_cycle_failed',
+          lastError: 'cleanup_cycle_failed',
+        },
+      }),
+    });
+
+    expect(dto.status?.verifiedCleanup.scheduler).toEqual({
+      running: true,
+      lastCycleAt: '2026-07-13T11:55:00Z',
+      lastStatus: 'cleanup_cycle_failed',
+      lastError: 'cleanup_cycle_failed',
+    });
+    expect(dto.status?.verifiedCleanup.lastResult?.reason).toBe('cleanup_item_failed');
+  });
+
+  it('redacts cleanup reason text and keeps an absent scheduler unknown', () => {
+    const redacted = mapLiveAutomationSummary({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
+      status: stagedStatusPayload({
+        enabled: true,
+        status: 'degraded',
+        lastResult: { status: 'error', reason: 'RuntimeError: boom' },
+        queueCount: 0,
+        scheduler: {
+          running: true,
+          lastCycleAt: '2026-07-13T11:55:00Z',
+          lastStatus: 'cleanup_cycle_failed',
+          lastError: 'cleanup_cycle_failed',
+        },
+      }),
+    });
+    expect(redacted.status?.verifiedCleanup.lastResult?.reason).toBe('other');
+    expect(mapSchedulerPayload().status?.verifiedCleanup.scheduler).toBeNull();
+  });
+
+  it.each(['running', 'lastCycleAt', 'lastStatus', 'lastError'])(
+    'rejects a present scheduler missing %s',
+    (field) => {
+      const complete: Record<string, unknown> = {
+        running: true,
+        lastCycleAt: '2026-07-13T11:55:00Z',
+        lastStatus: 'ok',
+        lastError: null,
+      };
+      const snapshot: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(complete)) {
+        if (key !== field) snapshot[key] = value;
+      }
+      expect(() => mapSchedulerPayload(snapshot)).toThrow(/invalid status\.verifiedCleanup\.scheduler/);
+    },
+  );
+
+  it.each([
+    ['invalid timestamp', { running: true, lastCycleAt: 'not-a-timestamp', lastStatus: 'ok', lastError: null }, 'not-a-timestamp'],
+    ['newline timestamp', { running: true, lastCycleAt: '2026-07-13T11:55:00Z\n', lastStatus: 'ok', lastError: null }, '2026-07-13T11:55:00Z\n'],
+    ['invalid calendar day', { running: true, lastCycleAt: '2026-02-30T10:00:00Z', lastStatus: 'ok', lastError: null }, '2026-02-30'],
+    ['unknown lowercase status', { running: true, lastCycleAt: null, lastStatus: 'privateidentifier', lastError: null }, 'privateidentifier'],
+    ['unknown lowercase error', { running: true, lastCycleAt: null, lastStatus: 'ok', lastError: 'privateidentifier' }, 'privateidentifier'],
+    ['exception text', { running: true, lastCycleAt: null, lastStatus: 'RuntimeError: boom', lastError: null }, 'RuntimeError'],
+    ['newline code', { running: true, lastCycleAt: null, lastStatus: 'ok\n', lastError: null }, 'ok\n'],
+    ['explicit null block', null, 'null'],
+  ] as const)('rejects %s in a present scheduler without echoing it', (_label, snapshot, secret) => {
+    let message = '';
+    try {
+      mapSchedulerPayload(snapshot);
+    } catch (error) {
+      message = String(error);
+    }
+    expect(message).toMatch(/invalid status\.verifiedCleanup\.scheduler/);
+    expect(message).not.toContain(secret);
+  });
+
+  it.each(['ok', 'disabled', 'degraded', 'qbit_unavailable', 'cleanup_cycle_failed'])(
+    'preserves fixed scheduler status %s',
+    (code) => {
+      expect(mapSchedulerPayload({
+        running: true,
+        lastCycleAt: '2026-07-13T11:55:00Z',
+        lastStatus: code,
+        lastError: null,
+      }).status?.verifiedCleanup.scheduler?.lastStatus).toBe(code);
+    },
+  );
+
+  it('rejects a malformed scheduler snapshot', () => {
+    expect(() => mapLiveAutomationSummary({
+      ok: true,
+      generatedAt: '2026-07-13T12:00:00Z',
+      sonarr: { ok: true, missing: 0, monitored: 1, queued: 0 },
+      status: stagedStatusPayload({
+        enabled: true,
+        status: 'not_running',
+        lastResult: null,
+        queueCount: 0,
+        scheduler: { running: 'yes' },
+      }),
+    })).toThrow(/invalid status.verifiedCleanup.scheduler/);
   });
 
   it('does not invent a Bazarr outage when the optional block is absent', () => {

@@ -2,12 +2,16 @@
 
 `npm run quality` is the default commit gate. It runs the full static-check suite in parallel and fails if any check fails.
 
+## Validation runtime
+
+Validate with **Node 22.22.3**, the exact version CI uses. `dashboard-app/.node-version` pins it for version managers such as mise, nvm, and fnm; it never changes the machine-wide default Node. If your shell still resolves a different Node, run commands through the pinned runtime (for example `mise x node@22.22.3 -- npm run quality`).
+
 ## Scripts
 
 | Script | When | What |
 |---|---|---|
 | `lint:fast` / `lint:agent` / `lint:styles:agent` | Day-to-day / idle agent | Fast feedback only |
-| `lint` / `lint:styles` | Targeted strict checks | Rigorous ESLint and Stylelint |
+| `lint` / `lint:styles` | Targeted strict checks | Rigorous ESLint (zero-warning) and Stylelint |
 | `lint:fix` / `lint:styles:fix` | Safe autofix | Fix lint and style issues when appropriate |
 | `typecheck` | Before commit / CI | TypeScript contract check |
 | `quality:duplicates` | Before commit / CI | jscpd duplication scan |
@@ -19,7 +23,7 @@
 
 - `0` means the process passed.
 - Non-zero means a blocking failure.
-- Warnings from ESLint or SonarJS stay informational while the command still exits `0`.
+- ESLint warnings are blocking: `lint` runs with `--max-warnings=0`, so any warning fails the gate (zero-warning policy), including SonarJS findings.
 - Knip configuration hints stay visible and should be investigated, not hidden.
 - jscpd below the configured threshold stays informational.
 - Dependency Cruiser warnings are informational unless a rule is configured as `error`.
@@ -43,7 +47,7 @@ npm run hooks:install
 
 | Process | Blocks when | Usual fix |
 |---|---|---|
-| `LINT` | ESLint strict profile fails | Fix the rule or use `lint:fix` if safe |
+| `LINT` | ESLint reports an error or any warning (`--max-warnings=0`) | Fix the rule or use `lint:fix` if safe |
 | `TYPECHECK` | TypeScript reports an error | Fix the type or contract |
 | `STYLES` | Stylelint reports an error | Fix the stylesheet or use `lint:styles:fix` if safe |
 | `DUPLICATES` | Duplicates cross the threshold | Refactor the clone, do not add ignores |

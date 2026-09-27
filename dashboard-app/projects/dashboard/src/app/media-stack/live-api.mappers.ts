@@ -26,6 +26,10 @@ import { MediaStackStorageVolumeDto } from './wire/storage';
 import { MediaStackTorrentDto } from './wire/torrents';
 import { MediaStackActivityFeedDto, MediaStackActivityItemDto, MediaStackActivityKindDto, MediaStackActivitySourceDto, MediaStackActivitySourceStatusDto } from './wire/activity';
 
+/** Context labels for optional-field helpers; they appear in malformed-response messages. */
+const JELLYFIN_ITEMS_CONTEXT = 'jellyfin items';
+const WATCH_NEXT_CONTEXT = 'watch-next';
+
 /** Validated live torrent member — required identity/state/progress fields are present. */
 interface ValidatedLiveQbtTorrent {
   hash: string;
@@ -292,11 +296,11 @@ function requireLiveJellyfinItem(raw: unknown, index = 0): ValidatedLiveJellyfin
   return {
     id,
     name,
-    year: optionalNullableFiniteNumber(raw, 'year', index, 'jellyfin items'),
-    image: optionalNullableString(raw, 'image', index, 'jellyfin items'),
-    rating: optionalNullableFiniteNumber(raw, 'rating', index, 'jellyfin items'),
-    episodeCount: optionalNullableFiniteNumber(raw, 'episodeCount', index, 'jellyfin items'),
-    played: optionalBoolean(raw, 'played', index, 'jellyfin items') ?? false,
+    year: optionalNullableFiniteNumber(raw, 'year', index, JELLYFIN_ITEMS_CONTEXT),
+    image: optionalNullableString(raw, 'image', index, JELLYFIN_ITEMS_CONTEXT),
+    rating: optionalNullableFiniteNumber(raw, 'rating', index, JELLYFIN_ITEMS_CONTEXT),
+    episodeCount: optionalNullableFiniteNumber(raw, 'episodeCount', index, JELLYFIN_ITEMS_CONTEXT),
+    played: optionalBoolean(raw, 'played', index, JELLYFIN_ITEMS_CONTEXT) ?? false,
   };
 }
 
@@ -458,7 +462,7 @@ function requireLiveWatchNextItem(raw: unknown, index = 0): ValidatedLiveWatchNe
     throw new Error(`Malformed watch-next response: member ${index} is missing progressPercent`);
   }
 
-  const subtitle = optionalString(raw, 'subtitle', index, 'watch-next') ?? '';
+  const subtitle = optionalString(raw, 'subtitle', index, WATCH_NEXT_CONTEXT) ?? '';
   const parentIdRaw = raw['parentId'];
   let parentId: string | null = null;
   if (parentIdRaw !== undefined && parentIdRaw !== null) {
@@ -474,7 +478,7 @@ function requireLiveWatchNextItem(raw: unknown, index = 0): ValidatedLiveWatchNe
     throw new Error(`Malformed watch-next response: member ${index} movie parentId must be null`);
   }
 
-  const playable = optionalBoolean(raw, 'playable', index, 'watch-next');
+  const playable = optionalBoolean(raw, 'playable', index, WATCH_NEXT_CONTEXT);
 
   return {
     id,
@@ -482,17 +486,17 @@ function requireLiveWatchNextItem(raw: unknown, index = 0): ValidatedLiveWatchNe
     title,
     subtitle,
     kind: kindRaw,
-    image: optionalNullableString(raw, 'image', index, 'watch-next'),
+    image: optionalNullableString(raw, 'image', index, WATCH_NEXT_CONTEXT),
     playable,
     progressPercent,
-    year: optionalNullableFiniteNumber(raw, 'year', index, 'watch-next') ?? null,
-    rating: optionalNullableFiniteNumber(raw, 'rating', index, 'watch-next') ?? null,
-    genres: optionalStringArray(raw, 'genres', index, 'watch-next') ?? [],
-    overview: optionalNullableString(raw, 'overview', index, 'watch-next') ?? null,
-    runtimeTicks: optionalNullableFiniteNumber(raw, 'runtimeTicks', index, 'watch-next') ?? null,
-    positionTicks: optionalNullableFiniteNumber(raw, 'positionTicks', index, 'watch-next') ?? null,
-    backdropUrl: optionalNullableString(raw, 'backdropUrl', index, 'watch-next') ?? null,
-    thumbUrl: optionalNullableString(raw, 'thumbUrl', index, 'watch-next') ?? null,
+    year: optionalNullableFiniteNumber(raw, 'year', index, WATCH_NEXT_CONTEXT) ?? null,
+    rating: optionalNullableFiniteNumber(raw, 'rating', index, WATCH_NEXT_CONTEXT) ?? null,
+    genres: optionalStringArray(raw, 'genres', index, WATCH_NEXT_CONTEXT) ?? [],
+    overview: optionalNullableString(raw, 'overview', index, WATCH_NEXT_CONTEXT) ?? null,
+    runtimeTicks: optionalNullableFiniteNumber(raw, 'runtimeTicks', index, WATCH_NEXT_CONTEXT) ?? null,
+    positionTicks: optionalNullableFiniteNumber(raw, 'positionTicks', index, WATCH_NEXT_CONTEXT) ?? null,
+    backdropUrl: optionalNullableString(raw, 'backdropUrl', index, WATCH_NEXT_CONTEXT) ?? null,
+    thumbUrl: optionalNullableString(raw, 'thumbUrl', index, WATCH_NEXT_CONTEXT) ?? null,
   };
 }
 
@@ -521,6 +525,29 @@ export function mapLiveWatchNextItem(raw: unknown, index = 0): MediaStackWatchNe
 }
 
 const hasExplicitTimezone = (value: string): boolean => /(?:Z|[+-]\d{2}:\d{2})$/i.test(value);
+
+/** Episodes require a parentId; movies must not carry one. */
+function requireRecentlyAvailableParentId(
+  raw: Record<string, unknown>,
+  kindRaw: unknown,
+  index: number,
+): string | null {
+  const parentIdRaw = raw['parentId'];
+  let parentId: string | null = null;
+  if (parentIdRaw !== undefined && parentIdRaw !== null) {
+    if (typeof parentIdRaw !== 'string') {
+      throw new Error(`Malformed recently-available response: member ${index} has invalid parentId`);
+    }
+    parentId = parentIdRaw.trim() || null;
+  }
+  if (kindRaw === 'episode' && !parentId) {
+    throw new Error(`Malformed recently-available response: member ${index} is missing parentId`);
+  }
+  if (kindRaw === 'movie' && parentId) {
+    throw new Error(`Malformed recently-available response: member ${index} movie parentId must be null`);
+  }
+  return parentId;
+}
 
 function requireLiveRecentlyAvailableItem(raw: unknown, index = 0): ValidatedLiveRecentlyAvailableItem {
   if (!isRecord(raw)) {
@@ -554,20 +581,7 @@ function requireLiveRecentlyAvailableItem(raw: unknown, index = 0): ValidatedLiv
   if (kindRaw === 'episode' && !subtitle.trim()) {
     throw new Error(`Malformed recently-available response: member ${index} is missing subtitle`);
   }
-  const parentIdRaw = raw['parentId'];
-  let parentId: string | null = null;
-  if (parentIdRaw !== undefined && parentIdRaw !== null) {
-    if (typeof parentIdRaw !== 'string') {
-      throw new Error(`Malformed recently-available response: member ${index} has invalid parentId`);
-    }
-    parentId = parentIdRaw.trim() || null;
-  }
-  if (kindRaw === 'episode' && !parentId) {
-    throw new Error(`Malformed recently-available response: member ${index} is missing parentId`);
-  }
-  if (kindRaw === 'movie' && parentId) {
-    throw new Error(`Malformed recently-available response: member ${index} movie parentId must be null`);
-  }
+  const parentId = requireRecentlyAvailableParentId(raw, kindRaw, index);
 
   const year = optionalNullableFiniteNumber(raw, 'year', index, 'recently-available') ?? null;
   if (year !== null && (!Number.isInteger(year) || typeof raw['year'] === 'boolean')) {
@@ -952,7 +966,20 @@ function nullableCapacity(value: unknown, field: string): number | null {
   return value;
 }
 
-function validateOperationalStatus(value: unknown): MediaStackOperationalStatusDto {
+/** Every record block required by the operational status envelope. */
+interface OperationalStatusBlocks {
+  generatedAt: string;
+  storage: Record<string, unknown>;
+  pause: Record<string, unknown>;
+  guard: Record<string, unknown>;
+  cleanup: Record<string, unknown>;
+  verification: Record<string, unknown>;
+  trakt: Record<string, unknown>;
+  retention: Record<string, unknown>;
+}
+
+/** Validate the envelope and its required record blocks before reading any field. */
+function requireOperationalStatusBlocks(value: unknown): OperationalStatusBlocks {
   if (!isRecord(value)) throw new Error('Malformed automation summary response: invalid status');
   const storage = value['storage'];
   const pause = value['pause'];
@@ -964,14 +991,22 @@ function validateOperationalStatus(value: unknown): MediaStackOperationalStatusD
   if (!isRecord(storage) || !isRecord(pause) || !isRecord(guard) || !isRecord(cleanup) || !isRecord(verification) || !isRecord(trakt) || !isRecord(retention)) {
     throw new Error('Malformed automation summary response: incomplete status');
   }
-  if (typeof value['generatedAt'] !== 'string' || Number.isNaN(Date.parse(value['generatedAt']))) {
+  const generatedAt = value['generatedAt'];
+  if (typeof generatedAt !== 'string' || Number.isNaN(Date.parse(generatedAt))) {
     throw new Error('Malformed automation summary response: invalid status.generatedAt');
   }
+  return { generatedAt, storage, pause, guard, cleanup, verification, trakt, retention };
+}
+
+type OperationalDiskList = MediaStackOperationalStatusDto['storage']['disks'];
+
+/** Validate `storage.disks` members (at most four) with their capacities. */
+function requireOperationalDisks(storage: Record<string, unknown>): OperationalDiskList {
   const rawDisks = storage['disks'];
   if (!Array.isArray(rawDisks) || rawDisks.length > 4) {
     throw new Error('Malformed automation summary response: invalid status.storage.disks');
   }
-  const disks = rawDisks.map((raw, index) => {
+  return rawDisks.map((raw, index) => {
     if (!isRecord(raw) || typeof raw['id'] !== 'string' || typeof raw['label'] !== 'string' || typeof raw['status'] !== 'string' || typeof raw['identityStatus'] !== 'string') {
       throw new Error(`Malformed automation summary response: invalid status.storage.disks[${index}]`);
     }
@@ -986,23 +1021,119 @@ function validateOperationalStatus(value: unknown): MediaStackOperationalStatusD
       totalBytes: nullableCapacity(raw['totalBytes'], `status.storage.disks[${index}].totalBytes`),
     };
   });
+}
+
+/** Validate the storage status plus the pause block. */
+function requireOperationalPause(
+  pause: Record<string, unknown>,
+  storage: Record<string, unknown>,
+): { storageStatus: string; pause: MediaStackOperationalStatusDto['pause'] } {
   if (typeof storage['status'] !== 'string' || typeof pause['status'] !== 'string' || typeof pause['reason'] !== 'string' || typeof pause['known'] !== 'boolean' || (pause['manual'] !== null && typeof pause['manual'] !== 'boolean') || (pause['guard'] !== null && typeof pause['guard'] !== 'boolean')) {
     throw new Error('Malformed automation summary response: invalid status pause/storage');
   }
+  return {
+    storageStatus: storage['status'],
+    pause: { status: pause['status'], reason: pause['reason'], manual: pause['manual'], guard: pause['guard'], known: pause['known'] },
+  };
+}
+
+/** Validate the disk-guard block. */
+function requireOperationalGuard(guard: Record<string, unknown>): MediaStackOperationalStatusDto['guard'] {
   if (typeof guard['enabled'] !== 'boolean' || typeof guard['status'] !== 'string' || typeof guard['health'] !== 'string' || (guard['lastCycleAt'] !== null && (typeof guard['lastCycleAt'] !== 'string' || Number.isNaN(Date.parse(guard['lastCycleAt']))))) {
     throw new Error('Malformed automation summary response: invalid status.guard');
   }
+  return { enabled: guard['enabled'], status: guard['status'], health: guard['health'], lastCycleAt: guard['lastCycleAt'] };
+}
+
+const SAFE_TELEMETRY_CODE = /^[a-z][a-z0-9_]{0,63}$/;
+const SCHEDULER_STATUSES = new Set(['ok', 'disabled', 'degraded', 'qbit_unavailable', 'cleanup_cycle_failed']);
+const SCHEDULER_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const SCHEDULER_TIME = /^\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function validSchedulerTimestamp(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const parts = value.split('T');
+  if (parts.length !== 2) return false;
+  const [datePart, timePart] = parts;
+  if (!SCHEDULER_DATE.test(datePart) || !SCHEDULER_TIME.test(timePart) || Number.isNaN(Date.parse(value))) {
+    return false;
+  }
+  const day = new Date(`${datePart}T00:00:00Z`);
+  return !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === datePart;
+}
+
+function safeReasonCode(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string') return null;
+  return SAFE_TELEMETRY_CODE.test(value) ? value : 'other';
+}
+
+function requireCleanupScheduler(raw: unknown): MediaStackOperationalStatusDto['verifiedCleanup']['scheduler'] {
+  if (!isRecord(raw) || !(['running', 'lastCycleAt', 'lastStatus', 'lastError'].every((field) => Object.hasOwn(raw, field))) || typeof raw['running'] !== 'boolean') {
+    throw new Error('Malformed automation summary response: invalid status.verifiedCleanup.scheduler');
+  }
+  const lastCycleAt = raw['lastCycleAt'];
+  if (lastCycleAt !== null && !validSchedulerTimestamp(lastCycleAt)) {
+    throw new Error('Malformed automation summary response: invalid status.verifiedCleanup.scheduler.lastCycleAt');
+  }
+  const lastStatus = raw['lastStatus'];
+  if (lastStatus !== null && (typeof lastStatus !== 'string' || !SCHEDULER_STATUSES.has(lastStatus))) {
+    throw new Error('Malformed automation summary response: invalid status.verifiedCleanup.scheduler.lastStatus');
+  }
+  const lastError = raw['lastError'];
+  if (lastError !== null && lastError !== 'cleanup_cycle_failed') {
+    throw new Error('Malformed automation summary response: invalid status.verifiedCleanup.scheduler.lastError');
+  }
+  return {
+    running: raw['running'],
+    lastCycleAt,
+    lastStatus,
+    lastError,
+  };
+}
+
+/** Validate the verified-cleanup block (queue count stays with the caller's parse order). */
+function requireOperationalCleanup(
+  cleanup: Record<string, unknown>,
+): { enabled: boolean; status: string; lastResult: { status: string; reason?: string | null } | null; scheduler: MediaStackOperationalStatusDto['verifiedCleanup']['scheduler'] } {
   if (typeof cleanup['enabled'] !== 'boolean' || typeof cleanup['status'] !== 'string' || !isRecord(cleanup['lastResult']) && cleanup['lastResult'] !== null) {
     throw new Error('Malformed automation summary response: invalid status.verifiedCleanup');
   }
   if (cleanup['lastResult'] !== null && (typeof cleanup['lastResult']['status'] !== 'string' || (cleanup['lastResult']['reason'] !== undefined && cleanup['lastResult']['reason'] !== null && typeof cleanup['lastResult']['reason'] !== 'string'))) {
     throw new Error('Malformed automation summary response: invalid status.verifiedCleanup.lastResult');
   }
-  if (typeof verification['status'] !== 'string') throw new Error('Malformed automation summary response: invalid status.verification');
+  return {
+    enabled: cleanup['enabled'],
+    status: cleanup['status'],
+    lastResult: cleanup['lastResult'] === null ? null : { status: cleanup['lastResult']['status'] as string, reason: safeReasonCode(cleanup['lastResult']['reason']) },
+    scheduler: Object.hasOwn(cleanup, 'scheduler') ? requireCleanupScheduler(cleanup['scheduler']) : null,
+  };
+}
+
+/** Validate the Trakt block. */
+function requireOperationalTrakt(trakt: Record<string, unknown>): MediaStackOperationalStatusDto['trakt'] {
   if (typeof trakt['configured'] !== 'boolean' || typeof trakt['auth'] !== 'string' || typeof trakt['health'] !== 'string' || (trakt['expiresAt'] !== null && typeof trakt['expiresAt'] !== 'string')) {
     throw new Error('Malformed automation summary response: invalid status.trakt');
   }
-  if (typeof retention['enabled'] !== 'boolean' || typeof retention['status'] !== 'string' || !Array.isArray(retention['skips']) || !isRecord(retention['results']) || !isRecord(retention['scheduler'])) {
+  return { configured: trakt['configured'], auth: trakt['auth'], health: trakt['health'], expiresAt: trakt['expiresAt'] };
+}
+
+/** Retention pieces validated here; numeric counts stay in the caller's parse order. */
+interface OperationalRetentionState {
+  enabled: boolean;
+  status: string;
+  preview: Record<string, unknown> | null;
+  skips: { reason: string; count: number }[];
+  results: Record<string, unknown>;
+  lastResult: Record<string, unknown> | null;
+  scheduler: { enabled: boolean; running: boolean };
+}
+
+/** Validate the retention block, its preview/last result, skips, and scheduler flags. */
+function requireOperationalRetention(retention: Record<string, unknown>): OperationalRetentionState {
+  const results = retention['results'];
+  const scheduler = retention['scheduler'];
+  if (typeof retention['enabled'] !== 'boolean' || typeof retention['status'] !== 'string' || !Array.isArray(retention['skips']) || !isRecord(results) || !isRecord(scheduler)) {
     throw new Error('Malformed automation summary response: invalid status.retention');
   }
   const preview = retention['preview'];
@@ -1017,54 +1148,76 @@ function validateOperationalStatus(value: unknown): MediaStackOperationalStatusD
     if (!isRecord(skip) || typeof skip['reason'] !== 'string') throw new Error(`Malformed automation summary response: invalid status.retention.skips[${index}]`);
     return { reason: skip['reason'], count: nonNegativeInteger(skip['count'], `status.retention.skips[${index}].count`) };
   });
-  if (typeof retention['scheduler']['enabled'] !== 'boolean' || typeof retention['scheduler']['running'] !== 'boolean') {
+  if (typeof scheduler['enabled'] !== 'boolean' || typeof scheduler['running'] !== 'boolean') {
     throw new Error('Malformed automation summary response: invalid status.retention.scheduler');
   }
   return {
-    generatedAt: value['generatedAt'],
-    storage: { status: storage['status'], disks },
-    pause: { status: pause['status'], reason: pause['reason'], manual: pause['manual'], guard: pause['guard'], known: pause['known'] },
-    guard: { enabled: guard['enabled'], status: guard['status'], health: guard['health'], lastCycleAt: guard['lastCycleAt'] },
+    enabled: retention['enabled'],
+    status: retention['status'],
+    preview,
+    skips,
+    results,
+    lastResult,
+    scheduler: { enabled: scheduler['enabled'], running: scheduler['running'] },
+  };
+}
+
+function validateOperationalStatus(value: unknown): MediaStackOperationalStatusDto {
+  const blocks = requireOperationalStatusBlocks(value);
+  const { storage, pause, guard, cleanup, verification, trakt, retention } = blocks;
+  const disks = requireOperationalDisks(storage);
+  const pauseBlock = requireOperationalPause(pause, storage);
+  const guardBlock = requireOperationalGuard(guard);
+  const cleanupBlock = requireOperationalCleanup(cleanup);
+  if (typeof verification['status'] !== 'string') throw new Error('Malformed automation summary response: invalid status.verification');
+  const traktBlock = requireOperationalTrakt(trakt);
+  const retentionBlock = requireOperationalRetention(retention);
+  const preview = retentionBlock.preview;
+  const lastResult = retentionBlock.lastResult;
+  return {
+    generatedAt: blocks.generatedAt,
+    storage: { status: pauseBlock.storageStatus, disks },
+    pause: pauseBlock.pause,
+    guard: guardBlock,
     verifiedCleanup: {
-      enabled: cleanup['enabled'],
-      status: cleanup['status'],
-      lastResult: cleanup['lastResult'] === null ? null : { status: cleanup['lastResult']['status'] as string, reason: (cleanup['lastResult']['reason'] ?? null) as string | null },
+      enabled: cleanupBlock.enabled,
+      status: cleanupBlock.status,
+      lastResult: cleanupBlock.lastResult,
       queueCount: nonNegativeInteger(cleanup['queueCount'], 'status.verifiedCleanup.queueCount'),
+      scheduler: cleanupBlock.scheduler,
     },
     verification: {
       status: verification['status'],
       queuedCount: nonNegativeInteger(verification['queuedCount'], 'status.verification.queuedCount'),
       previewCount: nonNegativeInteger(verification['previewCount'], 'status.verification.previewCount'),
     },
-    trakt: { configured: trakt['configured'], auth: trakt['auth'], health: trakt['health'], expiresAt: trakt['expiresAt'] },
+    trakt: traktBlock,
     retention: {
-      enabled: retention['enabled'],
-      status: retention['status'],
+      enabled: retentionBlock.enabled,
+      status: retentionBlock.status,
       preview: preview === null ? null : { eligibleCount: nonNegativeInteger(preview['eligibleCount'], 'status.retention.preview.eligibleCount'), preservedCount: nonNegativeInteger(preview['preservedCount'], 'status.retention.preview.preservedCount') },
-      skips,
+      skips: retentionBlock.skips,
       results: {
-        deletedCount: nonNegativeInteger(retention['results']['deletedCount'], 'status.retention.results.deletedCount'),
-        preservedCount: nonNegativeInteger(retention['results']['preservedCount'], 'status.retention.results.preservedCount'),
-        pendingCount: nonNegativeInteger(retention['results']['pendingCount'], 'status.retention.results.pendingCount'),
+        deletedCount: nonNegativeInteger(retentionBlock.results['deletedCount'], 'status.retention.results.deletedCount'),
+        preservedCount: nonNegativeInteger(retentionBlock.results['preservedCount'], 'status.retention.results.preservedCount'),
+        pendingCount: nonNegativeInteger(retentionBlock.results['pendingCount'], 'status.retention.results.pendingCount'),
       },
       lastResult: lastResult === null ? null : { status: lastResult['status'] as string, reason: (lastResult['reason'] ?? null) as string | null },
-      scheduler: { enabled: retention['scheduler']['enabled'], running: retention['scheduler']['running'] },
+      scheduler: retentionBlock.scheduler,
     },
   };
 }
 
-function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutomationProblemDto[] {
-  const problems: MediaStackAutomationProblemDto[] = [];
-  const sonarr = live.sonarr;
-  const radarr = live.radarr;
-  const prowlarr = live.prowlarr;
-  const bazarr = live.bazarr;
-
+/** Actionable problems for configured services that errored or came back not-ok. */
+function collectServiceErrorProblems(
+  live: LiveAutomationSummary,
+  problems: MediaStackAutomationProblemDto[],
+): void {
   for (const [id, block] of [
-    ['sonarr', sonarr],
-    ['radarr', radarr],
-    ['prowlarr', prowlarr],
-    ['bazarr', bazarr],
+    ['sonarr', live.sonarr],
+    ['radarr', live.radarr],
+    ['prowlarr', live.prowlarr],
+    ['bazarr', live.bazarr],
   ] as const) {
     if (block?.configured === false) continue;
     if (block?.error || block?.ok === false) {
@@ -1076,7 +1229,13 @@ function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutom
       });
     }
   }
+}
 
+/** Warning problems for disabled and cooling-down Prowlarr indexers. */
+function collectIndexerProblems(
+  prowlarr: LiveAutomationServiceBlock | undefined,
+  problems: MediaStackAutomationProblemDto[],
+): void {
   const disabledIndexers = prowlarr?.disabled ?? [];
   if (disabledIndexers.length > 0) {
     problems.push({
@@ -1110,7 +1269,13 @@ function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutom
       itemCount: cooldownIndexers.length,
     });
   }
+}
 
+/** Sonarr missing, queue-warning, and queue-hygiene problems. */
+function collectSonarrProblems(
+  sonarr: LiveAutomationServiceBlock | undefined,
+  problems: MediaStackAutomationProblemDto[],
+): void {
   if ((sonarr?.missing ?? 0) > 0) {
     const items = mapProblemDetailItems(sonarr?.missingItems);
     problems.push({
@@ -1149,7 +1314,13 @@ function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutom
       });
     }
   }
+}
 
+/** Radarr missing problems, otherwise queue warnings (never both). */
+function collectRadarrProblems(
+  radarr: LiveAutomationServiceBlock | undefined,
+  problems: MediaStackAutomationProblemDto[],
+): void {
   if ((radarr?.missing ?? 0) > 0) {
     const items = mapProblemDetailItems(radarr?.missingItems);
     problems.push({
@@ -1174,6 +1345,14 @@ function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutom
       });
     }
   }
+}
+
+function collectAutomationProblems(live: LiveAutomationSummary): MediaStackAutomationProblemDto[] {
+  const problems: MediaStackAutomationProblemDto[] = [];
+  collectServiceErrorProblems(live, problems);
+  collectIndexerProblems(live.prowlarr, problems);
+  collectSonarrProblems(live.sonarr, problems);
+  collectRadarrProblems(live.radarr, problems);
 
   if (live.error) {
     problems.push({

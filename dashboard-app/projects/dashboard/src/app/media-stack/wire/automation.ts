@@ -103,7 +103,7 @@ export interface MediaStackAutomationSummaryDto {
   };
 }
 
-export interface MediaStackOperationalDiskDto {
+interface MediaStackOperationalDiskDto {
   id: string;
   label: string;
   status: string;
@@ -138,6 +138,12 @@ export interface MediaStackOperationalStatusDto {
     status: string;
     lastResult: { status: string; reason?: string | null } | null;
     queueCount: number;
+    scheduler?: {
+      running: boolean;
+      lastCycleAt: string | null;
+      lastStatus: string | null;
+      lastError: string | null;
+    } | null;
   };
   verification: {
     status: string;

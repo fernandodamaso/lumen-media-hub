@@ -12,6 +12,7 @@ import {
   AutomationProblemSeverity,
   AutomationService,
   AutomationServiceStatus,
+  OperationalStatus,
 } from '../automation/automation.models';
 import { serviceIconPath } from '../automation/service-catalog';
 import { ServiceHealthFacade } from '../automation/service-health.facade';
@@ -19,6 +20,7 @@ import { MmServiceRow } from '../automation/service-row';
 import { buildServiceHealthReportView, cronStatusView, formatRunTimestamp } from './reports-format';
 import { ReportsFacade } from './reports.facade';
 import type { CronHistoricalRun } from './reports.models';
+import { formatStorageBytes } from '../storage/storage-format';
 
 @Component({
   selector: 'mm-reports-page',
@@ -60,6 +62,10 @@ export class ReportsPage {
   readonly historyRuns = this.facade.historyRuns;
   readonly confirmCleanup = signal(false);
   readonly queueHygiene = this.health.queueHygiene;
+  readonly operationalStatus = computed<OperationalStatus | null>(() => {
+    const maybeStatus = (this.health as unknown as { operationalStatus?: unknown }).operationalStatus;
+    return typeof maybeStatus === 'function' ? (maybeStatus as () => OperationalStatus | null)() : null;
+  });
 
   constructor() {
     void this.facade.load();
@@ -130,6 +136,11 @@ export class ReportsPage {
 
   serviceDetail(service: AutomationService): string {
     return service.detail || this.serviceStatusLabel(service.status);
+  }
+
+  statusCapacity(id: string): string {
+    const disk = this.operationalStatus()?.storage.disks.find((item) => item.id === id);
+    return disk?.availableBytes == null ? 'capacity unavailable' : `${formatStorageBytes(disk.availableBytes)} available`;
   }
 
   problemSeverityView(severity: AutomationProblemSeverity) {

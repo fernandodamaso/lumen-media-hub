@@ -31,7 +31,7 @@ from .base import ServiceCheckpoint, ServicePlan, ServiceResult
 SERVICE_NAME = "qbittorrent"
 USERNAME = "admin"
 DEFAULT_BASE_URL = "http://127.0.0.1:8081"
-DEFAULT_SAVE_PATH = "/downloads"
+DEFAULT_SAVE_PATH = "/data/downloads"
 DEFAULT_LOG_MAX_BYTES = 64 * 1024
 DEFAULT_LOG_MAX_LINES = 200
 
@@ -460,7 +460,14 @@ def _cookie(response: Any) -> str | None:
     if "=" not in candidate or any(ord(char) < 0x20 or ord(char) == 0x7F for char in candidate):
         return None
     name, cookie_value = candidate.split("=", 1)
-    if name != "SID" or not cookie_value or any(char.isspace() for char in cookie_value):
+    port_scoped = name.removeprefix("QBT_SID_") if name.startswith("QBT_SID_") else None
+    valid_name = name == "SID" or (
+        port_scoped is not None
+        and port_scoped.isascii()
+        and port_scoped.isdecimal()
+        and 1 <= int(port_scoped) <= 65535
+    )
+    if not valid_name or not cookie_value or any(char.isspace() for char in cookie_value):
         return None
     return candidate
 
@@ -552,6 +559,11 @@ class QbittorrentAdapter:
                 max_bytes=log_max_bytes,
                 max_lines=log_max_lines,
             )
+        if (
+            default_save_path == DEFAULT_SAVE_PATH
+            and str(self._env.get("STORAGE_MODE", "")).strip().lower() == "separate"
+        ):
+            default_save_path = "/downloads"
         self._default_save_path = self._validated_path(default_save_path, "default save path")
         paths = {
             "sonarr": f"{self._default_save_path.rstrip('/')}/sonarr",

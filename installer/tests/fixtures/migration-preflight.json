@@ -1,0 +1,34 @@
+{
+  "inventory_complete": false,
+  "storage": {
+    "staging_path": "/srv/lumen-staging",
+    "library_path": "/srv/lumen-library/media",
+    "library_uuid": "EXAMPLE-LIBRARY-UUID"
+  },
+  "files": [],
+  "orphan_staging_paths": [],
+  "flags": {
+    "verified_cleanup_enabled": false,
+    "disk_guard_enabled": false,
+    "retention_enabled": false
+  },
+  "retention": {
+    "status": "blocked",
+    "reason": "incomplete_history"
+  },
+  "services": {
+    "radarr_api": "degraded",
+    "trakt_oauth": "missing",
+    "history_complete": false
+  },
+  "storage_mount": {
+    "status": "not-run",
+    "reason": "compose/systemd checks are run separately"
+  },
+  "status_view": {
+    "read_only": true
+  },
+  "quality": {
+    "status": "preview-only"
+  }
+}

@@ -156,8 +156,22 @@ class JellyfinAdapterTests(unittest.TestCase):
             [request[0:2] for request in transport.requests],
             [
                 ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
-                ("GET", f"{BASE_URL}/System/Configuration"),
+                ("GET", f"{BASE_URL}/System/Configuration/network"),
             ],
+        )
+
+    def test_remote_access_reads_the_named_network_configuration(self):
+        adapter, transport = self.authenticated_adapter(
+            [response({"EnableRemoteAccess": False})],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        adapter.plan_remote_access("local")
+
+        self.assertEqual(
+            transport.requests[-1][0:2],
+            ("GET", f"{BASE_URL}/System/Configuration/network"),
         )
 
     def test_lan_network_plan_enables_remote_access(self):
@@ -175,7 +189,7 @@ class JellyfinAdapterTests(unittest.TestCase):
             [request[0:2] for request in transport.requests],
             [
                 ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
-                ("GET", f"{BASE_URL}/System/Configuration"),
+                ("GET", f"{BASE_URL}/System/Configuration/network"),
             ],
         )
 
@@ -205,8 +219,8 @@ class JellyfinAdapterTests(unittest.TestCase):
             [request[0:2] for request in transport.requests],
             [
                 ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
-                ("GET", f"{BASE_URL}/System/Configuration"),
-                ("GET", f"{BASE_URL}/System/Configuration"),
+                ("GET", f"{BASE_URL}/System/Configuration/network"),
+                ("GET", f"{BASE_URL}/System/Configuration/network"),
             ],
         )
 
@@ -234,9 +248,9 @@ class JellyfinAdapterTests(unittest.TestCase):
             [request[0:2] for request in transport.requests],
             [
                 ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
-                ("GET", f"{BASE_URL}/System/Configuration"),
-                ("GET", f"{BASE_URL}/System/Configuration"),
-                ("POST", f"{BASE_URL}/System/Configuration"),
+                ("GET", f"{BASE_URL}/System/Configuration/network"),
+                ("GET", f"{BASE_URL}/System/Configuration/network"),
+                ("POST", f"{BASE_URL}/System/Configuration/network"),
             ],
         )
         self.assertEqual(
@@ -1183,38 +1197,58 @@ class JellyfinAdapterTests(unittest.TestCase):
             self.assertNotIn(existing_key, repr(value))
             self.assertNotIn(unrelated_key, repr(value))
 
-    def test_inactive_or_revoked_lumen_keys_are_guided_without_reuse_or_creation(self):
-        for item, checkpoint_code in (
-            (
-                {"AppName": "Lumen", "AccessToken": "inactive-lumen-key", "IsActive": False},
-                "jellyfin-api-key-inactive",
-            ),
-            (
+    def test_jellyfin_10_11_api_key_is_reused_when_session_projection_is_inactive(self):
+        existing_key = "jellyfin-10-11-lumen-api-key"
+        adapter, transport = self.authenticated_adapter(
+            [api_keys([
                 {
                     "AppName": "Lumen",
-                    "AccessToken": "revoked-lumen-key",
-                    "DateRevoked": "2026-09-03T00:00:00Z",
+                    "AccessToken": existing_key,
+                    "DeviceId": "",
+                    "DeviceName": "",
+                    "IsActive": False,
+                    "UserId": "00000000000000000000000000000000",
                 },
-                "jellyfin-api-key-revoked",
-            ),
-        ):
-            with self.subTest(checkpoint_code=checkpoint_code):
-                adapter, transport = self.authenticated_adapter(
-                    [api_keys([item])],
-                    admin_name=ADMIN,
-                    admin_password=PASSWORD,
-                )
+            ])],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
 
-                result = adapter.reconcile_api_key()
+        result = adapter.reconcile_api_key()
 
-                self.assertEqual(result.status, "guided")
-                self.assertEqual(result.checkpoints[0].code, checkpoint_code)
-                self.assertIsNone(adapter.api_key_handoff)
-                self.assertEqual([request[0:2] for request in transport.requests], [
-                    ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
-                    ("GET", f"{BASE_URL}/Auth/Keys"),
-                ])
-                self.assertNotIn(item["AccessToken"], repr(result))
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.actions, ("reuse-api-key",))
+        self.assertEqual(adapter.api_key_handoff.consume(), existing_key)
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Auth/Keys"),
+            ],
+        )
+
+    def test_revoked_lumen_key_is_guided_without_reuse_or_creation(self):
+        item = {
+            "AppName": "Lumen",
+            "AccessToken": "revoked-lumen-key",
+            "DateRevoked": "2026-09-03T00:00:00Z",
+        }
+        adapter, transport = self.authenticated_adapter(
+            [api_keys([item])],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        result = adapter.reconcile_api_key()
+
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].code, "jellyfin-api-key-revoked")
+        self.assertIsNone(adapter.api_key_handoff)
+        self.assertEqual([request[0:2] for request in transport.requests], [
+            ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+            ("GET", f"{BASE_URL}/Auth/Keys"),
+        ])
+        self.assertNotIn(item["AccessToken"], repr(result))
 
     def test_missing_lumen_key_is_created_once_and_exact_readback_is_required(self):
         generated_key = "generated-lumen-api-key"
@@ -1246,51 +1280,37 @@ class JellyfinAdapterTests(unittest.TestCase):
             self.assertTrue(authorization.startswith("MediaBrowser Token="))
             self.assertNotIn("X-Emby-Authorization", request[2]["headers"])
 
-    def test_post_create_inactive_or_revoked_lumen_readback_is_guided_without_handoff(self):
-        for item, checkpoint_code in (
-            (
-                {
-                    "AppName": "Lumen",
-                    "AccessToken": "inactive-created-lumen-key",
-                    "IsActive": False,
-                },
-                "jellyfin-api-key-inactive",
-            ),
-            (
-                {
-                    "AppName": "Lumen",
-                    "AccessToken": "revoked-created-lumen-key",
-                    "DateRevoked": "2026-09-03T00:00:00Z",
-                },
-                "jellyfin-api-key-revoked",
-            ),
-        ):
-            with self.subTest(checkpoint_code=checkpoint_code):
-                adapter, transport = self.authenticated_adapter(
-                    [
-                        api_keys([]),
-                        response(None, status=204),
-                        api_keys([item]),
-                    ],
-                    admin_name=ADMIN,
-                    admin_password=PASSWORD,
-                )
+    def test_post_create_revoked_lumen_readback_is_guided_without_handoff(self):
+        item = {
+            "AppName": "Lumen",
+            "AccessToken": "revoked-created-lumen-key",
+            "DateRevoked": "2026-09-03T00:00:00Z",
+        }
+        adapter, transport = self.authenticated_adapter(
+            [
+                api_keys([]),
+                response(None, status=204),
+                api_keys([item]),
+            ],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
 
-                result = adapter.reconcile_api_key()
+        result = adapter.reconcile_api_key()
 
-                self.assertEqual(result.status, "guided")
-                self.assertEqual(result.checkpoints[0].code, checkpoint_code)
-                self.assertIsNone(adapter.api_key_handoff)
-                self.assertEqual(
-                    [request[0:2] for request in transport.requests],
-                    [
-                        ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
-                        ("GET", f"{BASE_URL}/Auth/Keys"),
-                        ("POST", f"{BASE_URL}/Auth/Keys?app=Lumen"),
-                        ("GET", f"{BASE_URL}/Auth/Keys"),
-                    ],
-                )
-                self.assertNotIn(item["AccessToken"], repr(result))
+        self.assertEqual(result.status, "guided")
+        self.assertEqual(result.checkpoints[0].code, "jellyfin-api-key-revoked")
+        self.assertIsNone(adapter.api_key_handoff)
+        self.assertEqual(
+            [request[0:2] for request in transport.requests],
+            [
+                ("POST", f"{BASE_URL}/Users/AuthenticateByName"),
+                ("GET", f"{BASE_URL}/Auth/Keys"),
+                ("POST", f"{BASE_URL}/Auth/Keys?app=Lumen"),
+                ("GET", f"{BASE_URL}/Auth/Keys"),
+            ],
+        )
+        self.assertNotIn(item["AccessToken"], repr(result))
 
     def test_duplicate_lumen_keys_are_guided_without_mutation_or_handoff(self):
         adapter, transport = self.authenticated_adapter(
@@ -1869,6 +1889,24 @@ class JellyfinAdapterTests(unittest.TestCase):
         )
         for value in (session, adapter, guided, guided.report, guided.error):
             self.assertNotIn(token, repr(value))
+
+    def test_authentication_request_identifies_the_client_without_a_token(self):
+        adapter, transport = self.adapter(
+            [response({"AccessToken": TOKEN, "User": {"Id": SERVER_ID}})],
+            admin_name=ADMIN,
+            admin_password=PASSWORD,
+        )
+
+        adapter.authenticate()
+
+        headers = transport.requests[0][2]["headers"]
+        self.assertEqual(
+            headers["Authorization"],
+            'MediaBrowser Client="Lumen Installer", Device="installer", '
+            'DeviceId="lumen-installer", Version="1.0"',
+        )
+        self.assertNotIn("Token=", headers["Authorization"])
+        self.assertNotIn("X-Emby-Authorization", headers)
 
     def test_startup_configuration_preserves_existing_fields_when_changing_server_name(self):
         adapter, transport = self.adapter(

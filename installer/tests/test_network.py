@@ -357,7 +357,7 @@ class ComposeNetworkBindingTests(unittest.TestCase):
                         "PGID=1000",
                         "UMASK=002",
                         "ROOT_PATH=/srv/media",
-                        "DOWNLOADS_PATH=/srv/downloads",
+                        "DOWNLOADS_PATH=/srv/media/downloads",
                         "JELLYFIN_BIND_ADDRESS=0.0.0.0",
                         "MANAGEMENT_BIND_ADDRESS=127.0.0.1",
                         "PUBLIC_HOST=media.example.test",
@@ -451,7 +451,7 @@ class ComposeNetworkBindingTests(unittest.TestCase):
         self.assertEqual(environment["JELLYFIN_EXTERNAL_URL"], "http://media.example.test:18096")
         self.assertEqual(environment["QBITTORRENT_EXTERNAL_URL"], "http://127.0.0.1:18081")
 
-    def test_disjoint_download_path_is_shared_at_downloads_for_qbittorrent_and_arrs(self):
+    def test_shared_root_mount_is_used_for_qbittorrent_and_arrs(self):
         services = self._compose_config()
 
         def host_volume(service, target):
@@ -459,10 +459,18 @@ class ComposeNetworkBindingTests(unittest.TestCase):
             self.assertEqual(len(matches), 1, service + target)
             return matches[0]["source"]
 
-        self.assertEqual(host_volume("qbittorrent", "/downloads"), "/srv/downloads")
-        self.assertEqual(host_volume("sonarr", "/downloads"), "/srv/downloads")
-        self.assertEqual(host_volume("radarr", "/downloads"), "/srv/downloads")
-        self.assertEqual(host_volume("qbittorrent", "/data"), "/srv/media")
+        for service in ("qbittorrent", "sonarr", "radarr"):
+            self.assertEqual(host_volume(service, "/data"), "/srv/media")
+            # Persisted /downloads save/import paths from older installs must
+            # keep resolving to the same shared directory as /data/downloads.
+            self.assertEqual(host_volume(service, "/downloads"), "/srv/media/downloads")
+
+    def test_homepage_actions_measures_mounted_library_disk(self):
+        service = self._compose_config()["homepage-actions"]
+        environment = service["environment"]
+        targets = {volume["target"] for volume in service["volumes"]}
+        self.assertEqual(environment["DATA_PATH"], "/data/media")
+        self.assertIn(environment["DATA_PATH"], targets)
 
     def test_dev_override_keeps_dashboard_loopback_and_retargets_container_port(self):
         services = self._compose_config(dev=True)
@@ -499,6 +507,25 @@ class ComposeNetworkBindingTests(unittest.TestCase):
 
 
 class WindowsNetworkMigrationSourceTests(unittest.TestCase):
+    def test_windows_installer_blocks_legacy_download_mounts_before_compose(self):
+        source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
+        guard_start = source.index("function Assert-SharedStorageLayout")
+        guard_end = source.index("function Merge-MissingEnvKeys", guard_start)
+        guard = source[guard_start:guard_end]
+        self.assertIn("ROOT_PATH and DOWNLOADS_PATH", guard)
+        self.assertIn("Join-Path $rootPath 'downloads'", guard)
+        self.assertIn("Legacy separate download storage", guard)
+        self.assertIn("different Windows volumes", guard)
+
+        initialize_start = source.index("function Initialize-EnvFile")
+        initialize_end = source.index("function Invoke-NpmCi", initialize_start)
+        initialize = source[initialize_start:initialize_end]
+        self.assertEqual(initialize.count("Assert-SharedStorageLayout"), 3)
+        first_guard = initialize.index("Assert-SharedStorageLayout")
+        self.assertLess(first_guard, initialize.index("Merge-MissingEnvKeys"))
+        self.assertLess(first_guard, initialize.index(".env already exists"))
+        self.assertLess(initialize.rindex("Assert-SharedStorageLayout"), initialize.index("Wrote $EnvFile"))
+
     def test_windows_production_compose_invocations_do_not_remove_orphans(self):
         source = (WORKTREE_ROOT / "install.ps1").read_text(encoding="utf-8")
         self.assertNotIn("--remove-orphans", source)

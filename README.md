@@ -164,7 +164,12 @@ For the deeper architecture, facade lifetimes, polling ownership, API endpoints 
 
 ## Media stack
 
-A plain `docker compose up -d` starts the core stack.
+A plain `docker compose up -d` starts the core stack. Storage bind mounts never
+create missing host paths, so create `ROOT_PATH/media/movies`,
+`ROOT_PATH/media/tv`, and `DOWNLOADS_PATH` first when starting Compose without
+an installer. `/reports` cron-log tails read `/data/tmp` inside
+`homepage-actions`, which is not mounted by default; hosts that write job logs
+to `ROOT_PATH/tmp` can bind it there read-only in a local override.
 
 ### Core services
 
@@ -302,6 +307,15 @@ installer has a separate, confirmation-gated `configure` phase that reconciles
 the supported qBittorrent, *arr, Prowlarr/Torznab, Jellyfin-library, and Seerr
 settings; unsupported or conflicting user-owned settings remain guided/manual.
 
+Fresh Windows installs default to the hardlink-compatible layout: downloads
+live at `ROOT_PATH/downloads`, and qBittorrent, Sonarr, and Radarr see the host
+root as their single `/data` mount. The bootstrap also accepts explicit
+`-StorageMode separate`; in that mode it selects the separate Compose overlay,
+keeps final libraries at `/data/media`, and uses `/downloads` for staging.
+Cross-filesystem imports must copy and verify rather than rely on hardlinks.
+The Linux installer additionally requires the configured permanent-library
+mount UUID and validates its writable identity before start/update.
+
 ### Linux installer
 
 Linux setup is provided by `install.sh` and a Python 3.10+ standard-library
@@ -326,10 +340,15 @@ environment/secret store:
 
 ```bash
 LUMEN_ROOT_PATH=/srv/lumen-media \
-LUMEN_DOWNLOADS_PATH=/srv/lumen-downloads \
+LUMEN_DOWNLOADS_PATH=/srv/lumen-media/downloads \
 LUMEN_QBT_PASSWORD="$QBT_PASSWORD_FROM_SECRET_STORE" \
 ./install.sh setup --non-interactive --network-mode local --gpu-mode none
 ```
+
+For a two-disk rollout, use `LUMEN_STORAGE_MODE=separate` with generic host
+paths such as `LUMEN_ROOT_PATH=/srv/lumen-library` and
+`LUMEN_DOWNLOADS_PATH=/srv/lumen-staging`, plus the actual permanent-library
+filesystem UUID in `LUMEN_LIBRARY_MOUNT_UUID`.
 
 Use `--network-mode lan --public-host HOST` only after reviewing firewall and
 reverse-proxy policy. Existing environments missing

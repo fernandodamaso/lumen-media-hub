@@ -17,7 +17,18 @@ $installerAst = [System.Management.Automation.Language.Parser]::ParseFile(
 )
 Assert-Contract ($parseErrors.Count -eq 0) 'install.ps1 did not parse successfully.'
 
-foreach ($Name in @('Assert-ExitCode', 'Assert-Command', 'Assert-Docker', 'Get-ComposePullServices')) {
+foreach ($Name in @(
+    'Assert-ExitCode',
+    'Assert-Command',
+    'Assert-Docker',
+    'Unquote-DotEnvValue',
+    'Get-EnvMap',
+    'Get-StorageMode',
+    'Get-ComposeFileArgs',
+    'Get-ComposePullServices',
+    'Test-NonEmptyEnvValue',
+    'Initialize-StorageDirectories'
+  )) {
   $functionAst = $installerAst.Find({
       param($Node)
       $Node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -54,6 +65,8 @@ Assert-Contract (
 
 $envFile = Join-Path $repositoryRoot '.env.example'
 $composeFile = Join-Path $repositoryRoot 'docker-compose.yml'
+$composeSeparateFile = Join-Path $repositoryRoot 'docker-compose.separate.yml'
+$storageMode = ''
 $pullServices = @(Get-ComposePullServices)
 Assert-Contract ($pullServices.Count -eq 1 -and $pullServices[0] -eq 'registry') `
   'Compose pull derivation must select image-only services and exclude build services.'
@@ -83,6 +96,30 @@ Assert-Contract ($hookText -match 'npm run quality') `
 # Windows-hosted runner.
 Assert-Contract ($installerText -match "QBT_PASSWORD") `
   'Windows installer must retain the qBittorrent password contract.'
+Assert-Contract ($installerText -match 'function Assert-SharedStorageLayout') `
+  'Windows installer must validate the shared storage layout.'
+Assert-Contract ($installerText -match 'Legacy separate download storage') `
+  'Windows installer must stop legacy separate download mounts before Compose.'
+Assert-Contract ($installerText -match 'Join-Path \$rootPath ''downloads''') `
+  'Windows installer must derive downloads below ROOT_PATH.'
+Assert-Contract ($installerText -match 'different Windows volumes') `
+  'Windows installer must reject cross-volume storage.'
+# Compose binds storage without create_host_path, so first-time setup must
+# create every bind source itself.
+$storageRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("lumen-storage-" + [guid]::NewGuid())
+try {
+  $storageMap = @{ ROOT_PATH = "$storageRoot/media-root"; DOWNLOADS_PATH = "$storageRoot/media-root/downloads" }
+  Initialize-StorageDirectories $storageMap
+  foreach ($relative in @('media-root/media/movies', 'media-root/media/tv', 'media-root/downloads')) {
+    Assert-Contract (Test-Path -LiteralPath (Join-Path $storageRoot $relative) -PathType Container) `
+      "Initialize-StorageDirectories must create '$relative'."
+  }
+} finally {
+  Remove-Item -LiteralPath $storageRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+Assert-Contract ($installerText -match '(?m)^\s*Initialize-StorageDirectories \(Get-EnvMap') `
+  'Invoke-Stack must create storage directories before Compose starts.'
+
 $composeText = Get-Content -LiteralPath (Join-Path $repositoryRoot 'docker-compose.yml') -Raw
 Assert-Contract ($composeText -match 'QBT_PASSWORD=\$\{QBT_PASSWORD') `
   'homepage-actions must receive QBT_PASSWORD from Compose environment.'

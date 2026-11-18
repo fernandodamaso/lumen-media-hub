@@ -216,13 +216,7 @@ class JellyfinSession:
 
     @property
     def authorization(self) -> str:
-        return (
-            f"MediaBrowser Token={_quote_header_value(self._token)}, "
-            f"Client={_quote_header_value('Lumen Installer')}, "
-            f"Device={_quote_header_value('installer')}, "
-            f"DeviceId={_quote_header_value('lumen-installer')}, "
-            f"Version={_quote_header_value('1.0')}"
-        )
+        return _authorization_header(self._token)
 
     @property
     def headers(self) -> dict[str, str]:
@@ -314,6 +308,21 @@ def _quote_header_value(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def _authorization_header(token: str | None = None) -> str:
+    fields = []
+    if token is not None:
+        fields.append(f"Token={_quote_header_value(token)}")
+    fields.extend(
+        (
+            f"Client={_quote_header_value('Lumen Installer')}",
+            f"Device={_quote_header_value('installer')}",
+            f"DeviceId={_quote_header_value('lumen-installer')}",
+            f"Version={_quote_header_value('1.0')}",
+        )
+    )
+    return "MediaBrowser " + ", ".join(fields)
+
+
 class JellyfinAdapter:
     """Plan and apply supported Jellyfin startup, auth, and library operations."""
 
@@ -382,7 +391,10 @@ class JellyfinAdapter:
         return f"{self.base_url}/{path.lstrip('/')}"
 
     def _headers(self, *, authenticated: bool = False) -> dict[str, str]:
-        headers = {"Accept": "application/json"}
+        headers = {
+            "Accept": "application/json",
+            "Authorization": _authorization_header(),
+        }
         if authenticated and self._session is not None:
             headers.update(self._session.headers)
         return headers
@@ -639,7 +651,7 @@ class JellyfinAdapter:
             payload = self._decode_json(
                 self._request(
                     "GET",
-                    "/System/Configuration",
+                    "/System/Configuration/network",
                     authenticated=True,
                     operation="remote-access",
                 ),
@@ -798,7 +810,7 @@ class JellyfinAdapter:
         try:
             self._request(
                 "POST",
-                "/System/Configuration",
+                "/System/Configuration/network",
                 body=configuration,
                 authenticated=True,
                 operation="mutation",
@@ -1169,6 +1181,10 @@ class JellyfinAdapter:
                 raise JellyfinApiKeySchemaError()
             if app_name == "Lumen" and not _nonempty_text(access_token):
                 raise JellyfinApiKeySchemaError()
+            # Jellyfin 10.11 projects API keys through AuthenticationInfo but
+            # does not populate its device-session IsActive field, so valid
+            # newly created keys report false. DateRevoked remains the stable
+            # revocation signal used below.
             # Keep only the validated fields needed by this slice.  The full
             # server response (including unrelated key metadata) never enters
             # a result, checkpoint, or public report surface.
@@ -1266,14 +1282,6 @@ class JellyfinAdapter:
                         "The existing Lumen API key is revoked; resolve it manually and retry.",
                     ),
                 )
-            if match.get("IsActive") is False:
-                return self._api_key_guided(
-                    actions=(),
-                    checkpoint=self._api_key_checkpoint(
-                        "jellyfin-api-key-inactive",
-                        "The existing Lumen API key is inactive; resolve it manually and retry.",
-                    ),
-                )
             access_token = match.get("AccessToken")
             if dry_run:
                 return JellyfinResult(
@@ -1358,14 +1366,6 @@ class JellyfinAdapter:
                 checkpoint=self._api_key_checkpoint(
                     "jellyfin-api-key-revoked",
                     "The created Lumen API key is revoked; resolve it manually and retry.",
-                ),
-            )
-        if readback_match.get("IsActive") is False:
-            return self._api_key_guided(
-                actions=("create-api-key",),
-                checkpoint=self._api_key_checkpoint(
-                    "jellyfin-api-key-inactive",
-                    "The created Lumen API key is inactive; resolve it manually and retry.",
                 ),
             )
         access_token = readback_match.get("AccessToken")

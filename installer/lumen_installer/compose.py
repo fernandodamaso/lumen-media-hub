@@ -18,6 +18,7 @@ from typing import Any
 from .commands import CommandResult, CommandRunner, LONG_COMMAND_TIMEOUT, normalize_stream
 from .errors import InvalidInputError
 from .state import KNOWN_GPU_MODES, KNOWN_PROFILES
+from .storage import normalize_storage_mode
 
 
 def _path(value: str | Path, *, name: str) -> str:
@@ -86,11 +87,14 @@ class ComposeOptions:
     gpu: bool | str | None = None
     dev: bool = False
     compose_files: tuple[str | Path, ...] | Sequence[str | Path] | None = None
+    storage_mode: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "profiles", _profiles(self.profiles))
         object.__setattr__(self, "gpu", _gpu(self.gpu))
         object.__setattr__(self, "compose_files", _compose_files(self.compose_files))
+        if self.storage_mode is not None:
+            object.__setattr__(self, "storage_mode", normalize_storage_mode(self.storage_mode))
         if type(self.dev) is not bool:
             raise InvalidInputError("dev must be a boolean")
 
@@ -114,10 +118,16 @@ class ComposeOptions:
         saved_profiles: Sequence[str] = (),
         saved_gpu: bool | str = "none",
         saved_dev: bool = False,
+        saved_storage_mode: str = "shared",
     ) -> "ComposeOptions":
         profiles = self.profiles if self.profiles is not None else tuple(saved_profiles)
         gpu = self.gpu if self.gpu is not None else saved_gpu
         dev = self.dev if self.dev is not False else bool(saved_dev)
+        storage_mode = (
+            self.storage_mode
+            if self.storage_mode is not None
+            else normalize_storage_mode(saved_storage_mode)
+        )
         # ``dev`` is not currently persisted, so callers normally leave the
         # saved value false.  This method still supports a future state field.
         return ComposeOptions(
@@ -125,6 +135,7 @@ class ComposeOptions:
             gpu=gpu,
             dev=dev,
             compose_files=self.compose_files,
+            storage_mode=storage_mode,
         )
 
     @classmethod
@@ -135,13 +146,15 @@ class ComposeOptions:
         profiles: Sequence[str] | None = None,
         gpu: bool | str | None = None,
         dev: bool = False,
+        storage_mode: str | None = None,
     ) -> "ComposeOptions":
         """Resolve persisted profiles/GPU while honoring explicit overrides."""
 
-        requested = cls(profiles=profiles, gpu=gpu, dev=dev)
+        requested = cls(profiles=profiles, gpu=gpu, dev=dev, storage_mode=storage_mode)
         return requested.resolved(
             saved_profiles=getattr(state, "profiles", ()),
             saved_gpu=getattr(state, "gpu_mode", False),
+            saved_storage_mode=getattr(state, "storage_mode", "shared"),
         )
 
     def global_argv(self, repo_root: str | Path, env_file: str | Path) -> tuple[str, ...]:
@@ -156,12 +169,17 @@ class ComposeOptions:
                 argv.extend(("-f", str(candidate)))
         else:
             argv.extend(("-f", str(Path(root) / "docker-compose.yml")))
+            override = Path(root) / "docker-compose.override.yml"
+            if override.is_file():
+                argv.extend(("-f", str(override)))
             overlay = {
                 "nvidia": "docker-compose.gpu.yml",
                 "vaapi": "docker-compose.vaapi.yml",
             }.get(self.gpu_mode)
             if overlay is not None:
                 argv.extend(("-f", str(Path(root) / overlay)))
+            if self.storage_mode == "separate":
+                argv.extend(("-f", str(Path(root) / "docker-compose.separate.yml")))
             if self.dev:
                 argv.extend(("-f", str(Path(root) / "docker-compose.dev.yml")))
         for profile in self.selected_profiles:
@@ -193,6 +211,39 @@ def compose_argv(
     if not isinstance(options, ComposeOptions):
         raise InvalidInputError("Compose options are required")
     return options.argv(repo_root, env_file, *command)
+
+
+def _default_compose_files(
+    repo_root: str | Path,
+    env_file: str | Path,
+    options: ComposeOptions,
+) -> list[Path]:
+    """Resolve the default Compose file list when no explicit ``-f`` list is
+    supplied by the caller.
+
+    Order: base, local override if present, GPU overlay if applicable,
+    development overlay if applicable. The local override is inserted before
+    the development overlay so the development overlay's intentional port
+    replacement remains authoritative.
+    """
+
+    root = _path(repo_root, name="repository root")
+    files: list[Path] = [Path(root) / "docker-compose.yml"]
+    override = Path(root) / "docker-compose.override.yml"
+    if override.is_file():
+        files.append(override)
+    if options.gpu_mode not in {"none", False, None}:
+        overlay_name = {
+            "nvidia": "docker-compose.gpu.yml",
+            "vaapi": "docker-compose.vaapi.yml",
+        }.get(options.gpu_mode)
+        if overlay_name is not None:
+            files.append(Path(root) / overlay_name)
+    if options.storage_mode == "separate":
+        files.append(Path(root) / "docker-compose.separate.yml")
+    if options.dev:
+        files.append(Path(root) / "docker-compose.dev.yml")
+    return files
 
 
 def _config_services(payload: Any) -> Mapping[str, Any]:
@@ -282,6 +333,140 @@ def config(
     if not isinstance(value, dict):
         raise InvalidInputError("docker compose config returned an invalid document")
     return value
+
+
+def validate_storage_mounts(
+    payload: Mapping[str, Any],
+    *,
+    root_path: str | Path,
+    downloads_path: str | Path,
+    storage_mode: str,
+) -> None:
+    """Require the role-specific expanded view used by separate storage.
+
+    The host mount root is intentionally not a container-wide writable mount:
+    writers get staging plus the library child, while readers/backend get only
+    the library child read-only.  Config/state mounts are outside this check.
+    """
+
+    if storage_mode != "separate":
+        return
+    root = Path(root_path)
+    media = root / "media"
+    downloads = Path(downloads_path)
+    services = payload.get("services") if isinstance(payload, Mapping) else None
+    if not isinstance(services, Mapping):
+        raise InvalidInputError("Compose storage view is invalid")
+
+    expected_by_service: dict[str, dict[str, tuple[Path, bool]]] = {
+        "qbittorrent": {"/downloads": (downloads, False)},
+        "sonarr": {
+            "/data/media": (media, False),
+            "/downloads": (downloads, False),
+        },
+        "radarr": {
+            "/data/media": (media, False),
+            "/downloads": (downloads, False),
+        },
+        "bazarr": {
+            "/data/media": (media, False),
+        },
+        "unpackerr": {
+            "/data/media": (media, False),
+            "/downloads": (downloads, False),
+        },
+        "jellyfin": {"/data/media": (media, True)},
+        "homepage-actions": {
+            "/data/media": (media, True),
+            "/downloads": (downloads, True),
+        },
+    }
+    required_services = {"qbittorrent", "sonarr", "radarr"}
+    missing = required_services.difference(services)
+    if missing:
+        raise InvalidInputError(
+            "Compose storage view is missing required services: "
+            + ", ".join(sorted(missing))
+        )
+    for service, definition in services.items():
+        volumes = definition.get("volumes") if isinstance(definition, Mapping) else None
+        if not isinstance(volumes, Sequence) or isinstance(
+            volumes, (str, bytes, bytearray)
+        ):
+            continue
+        expected = expected_by_service.get(service, {})
+        for volume in volumes:
+            if isinstance(volume, Mapping):
+                source = volume.get("source")
+                target = volume.get("target")
+            elif isinstance(volume, str):
+                parts = volume.split(":")
+                source, target = (parts[0], parts[1]) if len(parts) >= 2 else (None, None)
+            else:
+                continue
+            if not isinstance(source, str) or not isinstance(target, str):
+                continue
+            source_path = Path(source)
+            if source_path == root:
+                raise InvalidInputError(
+                    f"Compose storage root is exposed for {service}"
+                )
+            if target == "/data":
+                raise InvalidInputError(
+                    f"Compose storage mount /data is too broad for {service}"
+                )
+            storage_source = (
+                root in source_path.parents
+                or source_path == downloads
+                or downloads in source_path.parents
+            )
+            allowed = expected.get(target)
+            if storage_source and (allowed is None or source_path != allowed[0]):
+                raise InvalidInputError(
+                    f"Compose storage mount {target} is unexpected for {service}"
+                )
+    for service in tuple(expected_by_service):
+        if service not in services:
+            continue
+        expected = expected_by_service[service]
+        definition = services.get(service)
+        volumes = definition.get("volumes") if isinstance(definition, Mapping) else None
+        if not isinstance(volumes, Sequence) or isinstance(volumes, (str, bytes, bytearray)):
+            raise InvalidInputError(f"Compose storage mounts are missing for {service}")
+        mounts: dict[str, tuple[str, bool]] = {}
+        for volume in volumes:
+            if isinstance(volume, Mapping):
+                source = volume.get("source")
+                target = volume.get("target")
+                read_only = bool(volume.get("read_only", False))
+            elif isinstance(volume, str):
+                parts = volume.split(":")
+                if len(parts) < 2:
+                    continue
+                source, target = parts[0], parts[1]
+                read_only = len(parts) > 2 and "ro" in parts[2].split(",")
+            else:
+                continue
+            if isinstance(source, str) and isinstance(target, str):
+                mounts[target] = (source, read_only)
+        if any(Path(source) == root for source, _read_only in mounts.values()):
+            raise InvalidInputError(f"Compose storage root is exposed for {service}")
+        if "/data" in mounts:
+            raise InvalidInputError(f"Compose storage mount /data is too broad for {service}")
+        for target, (source, _read_only) in mounts.items():
+            if Path(source) in {media, downloads} and target not in expected:
+                raise InvalidInputError(
+                    f"Compose storage mount {target} is unexpected for {service}"
+                )
+        for target, (source, read_only) in expected.items():
+            actual = mounts.get(target)
+            if actual is None or Path(actual[0]) != source:
+                raise InvalidInputError(f"Compose storage mount {target} is incorrect for {service}")
+            if actual[1] != read_only:
+                access = "read-only" if read_only else "writable"
+                raise InvalidInputError(
+                    f"Compose storage mount {target} must be {access} for {service}"
+                )
 
 
 def pull(
@@ -389,5 +574,6 @@ __all__ = [
     "pull",
     "redeploy_dashboard",
     "run_compose",
+    "validate_storage_mounts",
     "up",
 ]

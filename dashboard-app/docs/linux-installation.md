@@ -54,13 +54,26 @@ history, CI logs, or a checked-in file.
 
 ```bash
 export LUMEN_ROOT_PATH=/srv/lumen-media
-export LUMEN_DOWNLOADS_PATH=/srv/lumen-downloads
+export LUMEN_DOWNLOADS_PATH=/srv/lumen-media/downloads
 export LUMEN_QBT_PASSWORD="use-a-secret-store"
 
 ./install.sh setup \
   --non-interactive \
   --network-mode local \
   --gpu-mode none
+```
+
+For a two-disk layout, select it explicitly and provide the permanent library
+filesystem UUID. The paths below are examples; replace them with the reviewed
+mounts for the target host:
+
+```bash
+LUMEN_STORAGE_MODE=separate \
+LUMEN_ROOT_PATH=/srv/lumen-library \
+LUMEN_DOWNLOADS_PATH=/srv/lumen-staging \
+LUMEN_LIBRARY_MOUNT_UUID=0123456789ABCDEF \
+LUMEN_QBT_PASSWORD="use-a-secret-store" \
+./install.sh setup --non-interactive --network-mode local --gpu-mode none
 ```
 
 The installer resolves CLI options before `LUMEN_*`, then non-secret answers,
@@ -75,7 +88,7 @@ An answers file contains non-secret values only:
   "schema_version": 1,
   "answers": {
     "ROOT_PATH": "/srv/lumen-media",
-    "DOWNLOADS_PATH": "/srv/lumen-downloads",
+    "DOWNLOADS_PATH": "/srv/lumen-media/downloads",
     "TZ": "America/Sao_Paulo",
     "NETWORK_MODE": "local",
     "QBT_PASSWORD": {"env": "LUMEN_QBT_PASSWORD"}
@@ -90,11 +103,38 @@ non-root invocation uses the current UID/GID. A command run through `sudo`
 uses `SUDO_UID`/`SUDO_GID`; a genuine root invocation must provide explicit,
 nonzero ownership IDs. Existing values are preserved and drift is reported.
 
-The media root and downloads path must be separate, explicit absolute paths.
-Do not use the repository, `/`, or a path containing existing symlinks as a
-media target. The installer validates ownership, writability, free space, and
-container visibility, and creates only approved subdirectories. It never
-deletes or cleans media or downloads.
+In `shared` mode, `ROOT_PATH` is mounted into qBittorrent, Sonarr, and Radarr as
+`/data`, and `DOWNLOADS_PATH` must be the exact child `ROOT_PATH/downloads`.
+Final libraries remain `/data/media/tv` and `/data/media/movies`; managed
+qBittorrent categories use `/data/downloads/sonarr` and
+`/data/downloads/radarr`, preserving hardlinks. The same directory is also
+mounted at `/downloads` in those three services so save and import paths
+persisted by older installs keep working; hardlinks cannot cross the two
+mounts, so move persisted paths to `/data/downloads` to regain hardlinking.
+Compose never creates missing storage bind sources: the installers create
+`ROOT_PATH/media`, `ROOT_PATH/media/movies`, `ROOT_PATH/media/tv`, and
+`DOWNLOADS_PATH`, and a manual Compose start requires those directories to
+exist first.
+
+In explicit `separate` mode, the `ROOT_PATH/media` child is the permanent
+library view at `/data/media`, while `DOWNLOADS_PATH` is the staging mount at
+`/downloads`. qBittorrent and the *arr services keep their library roots at
+`/data/media/tv` and `/data/media/movies`, while their managed download
+categories use `/downloads/sonarr` and `/downloads/radarr`. Cross-filesystem
+hardlinks are not expected in this mode; imports must use copy-and-verify
+semantics. The Linux installer requires `LIBRARY_MOUNT_UUID`, verifies the
+actual writable mount identity, renders the separate Compose overlay, and
+checks the expanded container mounts before start/update. It does not migrate
+existing files or persisted service paths in Phase 2.
+
+Do not use the repository, `/`, or paths containing existing symlinks as
+storage targets. The installer validates ownership, writability, free space,
+device identity, and container visibility, and creates only approved
+subdirectories. It never deletes or cleans media or downloads.
+
+The installer does not install host-specific mount or writer-control systemd
+units. Separate-mode startup validates the configured library identity and the
+rendered role-scoped Compose mounts before Docker changes the stack.
 
 The installer writes `.env` with an atomic replace and mode `0600`. Installer
 state, journals, manifests, and backups live under the ignored
@@ -166,6 +206,47 @@ Maintenance (`maintenance`), indexer tools (`indexer-tools`), and AI (`ai`)
 remain disabled until their own guided credentials and health checks pass.
 Unsupported providers, languages, or destructive maintenance policies are
 handed off for manual review rather than guessed.
+
+## Cleanup, retention, and integrations
+
+Verified download cleanup is opt-in. With `VERIFIED_CLEANUP_ENABLED=true`,
+`homepage-actions` starts its scheduler at process startup and runs every 300
+seconds by default. Each candidate is stopped and revalidated against complete
+qBittorrent and Arr evidence before qBittorrent is asked to remove its original
+files. Missing history, state, identity, stop confirmation, or provider access
+preserves the data and reports a degraded or blocked status. Leave the flag
+false until the host configuration and status telemetry have been reviewed.
+Cleanup only considers torrents whose qBittorrent content path is below
+`/downloads`; torrents saved under `/data/downloads` in `shared` mode are
+skipped as `source_outside_downloads` and remain untouched.
+
+If an ignored `docker-compose.override.yml` exists in the repository root, the
+installer includes it in every Compose render. It is host-local
+configuration: review it before `up` or `update`, because its port bindings
+and mounts are applied as written.
+
+The separate-storage disk guard is an independent staged library and remains
+disabled and uninstalled; setting `DISK_GUARD_ENABLED` alone does not start a
+host supervisor. Trakt 48-hour episode retention is also independent and
+default-off. When explicitly enabled with valid Trakt OAuth configuration, its
+API scheduler runs hourly by default, revalidates complete Trakt history,
+Sonarr state, and Jellyfin playback immediately before deletion, and preserves
+or restores monitoring when a safety gate fails.
+
+Configure integrations without placing credentials in tracked files:
+
+1. Run `./install.sh connect-trakt`, complete device authorization, and confirm
+   the renewable token state exists without printing it.
+2. Enable the `requests` profile, complete Seerr's Jellyfin and Arr setup, and
+   set `JELLYSEERR_ENABLED=true` only after its existing API key succeeds.
+3. Select a supported `AI_PROVIDER` and nonempty `AI_MODEL`, provide its key
+   through local secret configuration, enable the `ai` profile, and set
+   `AI_ENABLED=true` only after the worker health check succeeds.
+
+For read-only acceptance, check `/health`, then query the Trakt movie/show and
+Seerr movie/TV Discover feeds plus `/discover/ai-picks` twice. Require successful
+responses and `watched_exclusion.status=fresh`; do not create requests,
+downloads, watched feedback, or retention candidates as a health test.
 
 ## GPU modes
 

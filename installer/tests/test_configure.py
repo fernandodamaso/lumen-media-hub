@@ -652,6 +652,18 @@ class ConfigureFlowTests(unittest.TestCase):
             ["reconcile-generic-torznab"],
         )
 
+    def test_missing_torznab_credentials_skip_the_unconfigured_indexer_stage(self):
+        configure = importlib.import_module("lumen_installer.configure")
+
+        result = configure._TorznabReconciler(
+            None,
+            configured=False,
+        ).configure()
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.actions, ("skip-generic-torznab",))
+        self.assertFalse(result.checkpoints)
+
     def test_configure_serializes_mutating_runs_with_the_shared_state_lock(self):
         configure = importlib.import_module("lumen_installer.configure")
         child_code = (

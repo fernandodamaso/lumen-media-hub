@@ -35,6 +35,20 @@ TRAKT_CLIENT_ID = os.environ.get("TRAKT_CLIENT_ID", "")
 TRAKT_CLIENT_SECRET = os.environ.get("TRAKT_CLIENT_SECRET", "")
 TRAKT_TOKEN_PATH = os.environ.get("TRAKT_TOKEN_PATH", "/state/trakt-token.json")
 TRAKT_WATCHED_PATH = os.environ.get("TRAKT_WATCHED_PATH", "/state/trakt-watched.json")
+# Independent retention rule; default-off until its live rollout gates pass.
+TRAKT_RETENTION_ENABLED = os.environ.get("TRAKT_RETENTION_ENABLED", "false").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+TRAKT_RETENTION_INTERVAL_SECONDS = float(
+    os.environ.get("TRAKT_RETENTION_INTERVAL_SECONDS", "3600")
+)
+TRAKT_RETENTION_STATE_PATH = os.environ.get(
+    "TRAKT_RETENTION_STATE_PATH", "/recommendations/trakt-retention-state.json"
+)
+DISK_GUARD_ENABLED = os.environ.get("DISK_GUARD_ENABLED", "false").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+DISK_GUARD_STATE_PATH = os.environ.get("DISK_GUARD_STATE_PATH", "/guard-state/disk-guard-state.json")
 
 AI_PICKS_COLLECTION_NAME = os.environ.get("AI_PICKS_COLLECTION_NAME", "AI Picks")
 LEGACY_HERMES_COLLECTION_NAME = "Hermes Picks"
@@ -161,6 +175,13 @@ QUEUE_HYGIENE_MODE = os.environ.get("QUEUE_HYGIENE_MODE", "observe").strip().low
 QUEUE_HYGIENE_INTERVAL_SECONDS = float(os.environ.get("QUEUE_HYGIENE_INTERVAL_SECONDS", "300"))
 QUEUE_HYGIENE_GRACE_SECONDS = float(os.environ.get("QUEUE_HYGIENE_GRACE_SECONDS", "21600"))
 QUEUE_HYGIENE_STATE_PATH = os.environ.get("QUEUE_HYGIENE_STATE_PATH", "/recommendations/queue-hygiene-state.json")
+VERIFIED_CLEANUP_ENABLED = os.environ.get("VERIFIED_CLEANUP_ENABLED", "false").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+VERIFIED_CLEANUP_INTERVAL_SECONDS = float(os.environ.get("VERIFIED_CLEANUP_INTERVAL_SECONDS", "300"))
+VERIFIED_CLEANUP_STATE_PATH = os.environ.get(
+    "VERIFIED_CLEANUP_STATE_PATH", "/recommendations/verified-cleanup-state.json"
+)
 
 ACTIVITY_CACHE_TTL = float(os.environ.get("ACTIVITY_CACHE_TTL", "30"))
 RESOURCES_CACHE_TTL = float(os.environ.get("RESOURCES_CACHE_TTL", "5"))

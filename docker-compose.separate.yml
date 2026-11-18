@@ -1,0 +1,105 @@
+services:
+  qbittorrent:
+    volumes: !override
+      - type: bind
+        source: ${DOWNLOADS_PATH}
+        target: /downloads
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/qbittorrent
+        target: /config
+  sonarr:
+    volumes: !override
+      - type: bind
+        source: ${ROOT_PATH}/media
+        target: /data/media
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOWNLOADS_PATH}
+        target: /downloads
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/sonarr
+        target: /config
+  radarr:
+    volumes: !override
+      - type: bind
+        source: ${ROOT_PATH}/media
+        target: /data/media
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOWNLOADS_PATH}
+        target: /downloads
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/radarr
+        target: /config
+  bazarr:
+    volumes: !override
+      - type: bind
+        source: ${ROOT_PATH}/media
+        target: /data/media
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/bazarr
+        target: /config
+  unpackerr:
+    volumes: !override
+      - type: bind
+        source: ${ROOT_PATH}/media
+        target: /data/media
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOWNLOADS_PATH}
+        target: /downloads
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/unpackerr
+        target: /config
+  jellyfin:
+    volumes: !override
+      - type: bind
+        source: ${ROOT_PATH}/media
+        target: /data/media
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/jellyfin
+        target: /config
+  homepage-actions:
+    volumes: !override
+      - type: bind
+        source: ./config/homepage-actions
+        target: /app
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/recommendations
+        target: /recommendations
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TRAKT_STATE_PATH:-./.state/trakt}
+        target: /state
+      - type: bind
+        source: ${ROOT_PATH}/media
+        target: /data/media
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOWNLOADS_PATH}
+        target: /downloads
+        read_only: true
+        bind:
+          create_host_path: false

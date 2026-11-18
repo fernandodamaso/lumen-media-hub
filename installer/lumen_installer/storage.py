@@ -8,13 +8,14 @@ import math
 import os
 import re
 import stat
+import subprocess
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .errors import InvalidInputError, PartialError
+from .errors import DriftError, InvalidInputError, PartialError
 
 
 # These are the only directories the foundation phase owns.  Service adapters
@@ -23,6 +24,43 @@ from .errors import InvalidInputError, PartialError
 MEDIA_SUBDIRECTORIES = (Path("media"), Path("media/movies"), Path("media/tv"))
 DOWNLOAD_SUBDIRECTORIES: tuple[Path, ...] = ()
 STORAGE_DIRECTORY_MODE = 0o775
+STORAGE_MODES = frozenset({"shared", "separate"})
+
+
+def normalize_storage_mode(value: Any, *, default: str = "shared") -> str:
+    candidate = default if value is None else value
+    if not isinstance(candidate, str) or candidate.strip().lower() not in STORAGE_MODES:
+        raise InvalidInputError("storage mode must be shared or separate")
+    return candidate.strip().lower()
+
+
+class StorageLayoutDrift(DriftError):
+    """An adopted installation still uses the legacy separate download mount."""
+
+    code = "storage-layout-migration-required"
+
+    def __init__(self, root_path: Path | str, legacy_downloads_path: Path | str) -> None:
+        self.root_path = str(root_path)
+        self.legacy_downloads_path = str(legacy_downloads_path)
+        self.required_downloads_path = str(Path(root_path) / "downloads")
+        super().__init__(
+            "legacy download storage requires an explicit migration before Compose can start: "
+            f"move downloads from {self.legacy_downloads_path} to {self.required_downloads_path} "
+            "and update persisted qBittorrent/arr paths"
+        )
+
+    @property
+    def report(self) -> dict[str, str]:
+        return {
+            "error": self.code,
+            "root_path": self.root_path,
+            "legacy_downloads_path": self.legacy_downloads_path,
+            "required_downloads_path": self.required_downloads_path,
+        }
+
+    @property
+    def redacted(self) -> dict[str, str]:
+        return self.report
 
 
 class StorageMutationError(PartialError):
@@ -58,6 +96,8 @@ class StorageValidation:
     warnings: tuple[str, ...] = ()
     decisions: tuple[str, ...] = ()
     dry_run: bool = False
+    storage_mode: str = "shared"
+    mount_identity: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def layout(self) -> tuple[Path, ...]:
@@ -86,6 +126,8 @@ class StorageValidation:
             "warnings": list(self.warnings),
             "decisions": list(self.decisions),
             "dry_run": self.dry_run,
+            "storage_mode": self.storage_mode,
+            "mount_identity": dict(self.mount_identity),
         }
 
     @property
@@ -138,7 +180,13 @@ def _reject_symlink_components(path: Path, *, field_name: str) -> None:
             raise InvalidInputError(f"{field_name} cannot be inspected") from exc
 
 
-def _validate_target_safety(root: Path, downloads: Path, repo: Path) -> None:
+def _validate_target_safety(
+    root: Path,
+    downloads: Path,
+    repo: Path,
+    *,
+    shared_mount_required: bool = False,
+) -> None:
     if root == Path("/") or downloads == Path("/"):
         raise InvalidInputError("storage targets may not be the filesystem root")
     broad = {
@@ -167,7 +215,10 @@ def _validate_target_safety(root: Path, downloads: Path, repo: Path) -> None:
         raise InvalidInputError("media and downloads must be outside the repository")
     if _under(repo, root) or _under(repo, downloads):
         raise InvalidInputError("media and downloads must not contain the repository")
-    if _under(root, downloads) or _under(downloads, root):
+    if shared_mount_required:
+        if downloads != root / "downloads":
+            raise InvalidInputError("DOWNLOADS_PATH must be ROOT_PATH/downloads")
+    elif _under(root, downloads) or _under(downloads, root):
         raise InvalidInputError("media and downloads must not overlap")
     _reject_symlink_components(root, field_name="ROOT_PATH")
     _reject_symlink_components(downloads, field_name="DOWNLOADS_PATH")
@@ -581,6 +632,59 @@ def _check_storage_target(
         warnings.append(f"{field_name} ownership was not explicitly requested")
 
 
+def _check_existing_layout_entry(
+    target: _StorageTarget,
+    relative: Path,
+    *,
+    field_name: str,
+    uid: int | None,
+    gid: int | None,
+    access_probe: Callable[[str | os.PathLike[str], int], bool] | None,
+    warnings: list[str],
+) -> None:
+    """Validate an existing child without reopening it through an unstable path."""
+
+    expected = target.layout_identities.get(tuple(relative.parts))
+    if expected is None:
+        return
+    if not target.existed or target.fd is None:
+        raise InvalidInputError(f"{field_name} parent descriptor is missing")
+    parent_fd = target.fd
+    opened: list[int] = []
+    try:
+        for component in relative.parts:
+            child_fd = os.open(component, _DIRECTORY_FLAGS, dir_fd=parent_fd)
+            opened.append(child_fd)
+            parent_fd = child_fd
+        metadata = os.fstat(parent_fd)
+        if not stat.S_ISDIR(metadata.st_mode) or (metadata.st_dev, metadata.st_ino) != expected:
+            raise InvalidInputError(f"{field_name} changed or is unsafe")
+        if not (int(metadata.st_mode) & 0o222):
+            raise InvalidInputError(f"{field_name} is not writable")
+        child_path = target.path.joinpath(relative)
+        try:
+            writable = (
+                bool(access_probe(child_path, os.W_OK))
+                if access_probe is not None
+                else _descriptor_access(parent_fd)
+            )
+        except (OSError, ValueError, TypeError) as exc:
+            raise InvalidInputError(f"{field_name} is not writable") from exc
+        if not writable:
+            raise InvalidInputError(f"{field_name} is not writable")
+        if uid is not None and metadata.st_uid != uid:
+            raise InvalidInputError(f"{field_name} owner does not match the requested uid")
+        if gid is not None and metadata.st_gid != gid:
+            raise InvalidInputError(f"{field_name} group does not match the requested gid")
+        if uid is None and gid is None:
+            warnings.append(f"{field_name} ownership was not explicitly requested")
+    except OSError as exc:
+        raise InvalidInputError(f"{field_name} could not be inspected safely") from exc
+    finally:
+        for fd in reversed(opened):
+            _close_fd(fd)
+
+
 def _free_target_gib(target: _StorageTarget, probe: Callable[[Path], Any] | None) -> float:
     _target_identity(target, description="storage target")
     probe_path = target.path if target.existed else target.path.parent
@@ -599,6 +703,91 @@ def _free_target_gib(target: _StorageTarget, probe: Callable[[Path], Any] | None
     if not math.isfinite(available) or not math.isfinite(block) or available < 0 or block <= 0:
         raise InvalidInputError("free storage capacity metadata is invalid")
     return available * block / (1024**3)
+
+
+def _default_mount_probe(path: Path) -> Mapping[str, Any]:
+    """Read mount identity without changing the host.
+
+    ``findmnt`` is intentionally a read-only dependency of the separate-disk
+    preflight.  Missing tooling or an unmounted target is a hard failure.
+    """
+
+    try:
+        result = subprocess.run(
+            ["findmnt", "--json", "--target", str(path), "--output", "TARGET,UUID,OPTIONS,FSTYPE"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise InvalidInputError("library mount identity could not be verified") from exc
+    if result.returncode != 0:
+        raise InvalidInputError("library mount identity could not be verified")
+    try:
+        payload = json.loads(result.stdout)
+        filesystems = payload.get("filesystems")
+        row = filesystems[0] if isinstance(filesystems, list) and filesystems else None
+    except (TypeError, ValueError, json.JSONDecodeError, IndexError):
+        row = None
+    if not isinstance(row, Mapping):
+        raise InvalidInputError("library mount identity could not be verified")
+    return row
+
+
+def _normalise_uuid(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip().replace("-", "").upper()
+    if not candidate or re.fullmatch(r"[0-9A-F]{8,64}", candidate) is None:
+        return None
+    return candidate
+
+
+def _check_mount_identity(
+    path: Path,
+    *,
+    expected_uuid: str,
+    probe: Callable[[Path], Any] | None,
+) -> Mapping[str, Any]:
+    try:
+        identity = probe(path) if probe is not None else _default_mount_probe(path)
+    except InvalidInputError:
+        raise
+    except (OSError, TypeError, ValueError) as exc:
+        raise InvalidInputError("library mount identity could not be verified") from exc
+    if not isinstance(identity, Mapping):
+        raise InvalidInputError("library mount identity could not be verified")
+    actual_uuid = _normalise_uuid(identity.get("uuid", identity.get("UUID")))
+    configured_uuid = _normalise_uuid(expected_uuid)
+    if not actual_uuid or not configured_uuid or actual_uuid != configured_uuid:
+        raise InvalidInputError("library mount UUID does not match the configured disk")
+    target = identity.get("target", identity.get("TARGET"))
+    if not isinstance(target, str) or not target.strip() or not Path(target).is_absolute():
+        raise InvalidInputError("library mount target could not be verified")
+    mount_target = Path(os.path.abspath(target))
+    if mount_target != Path("/") and mount_target not in path.parents and mount_target != path:
+        raise InvalidInputError("library mount target does not contain ROOT_PATH")
+    options_value = identity.get("options", identity.get("OPTIONS"))
+    if not isinstance(options_value, str) or not options_value.strip():
+        raise InvalidInputError("library mount options could not be verified")
+    options = {item.strip().lower() for item in options_value.split(",") if item.strip()}
+    if "rw" not in options or "ro" in options:
+        raise InvalidInputError("library mount is not explicitly writable")
+    read_only = identity.get("read_only", identity.get("READ_ONLY"))
+    if read_only is not None and type(read_only) is not bool:
+        raise InvalidInputError("library mount read-only metadata could not be verified")
+    if read_only is True:
+        raise InvalidInputError("library mount is read-only")
+    fstype = identity.get("fstype", identity.get("FSTYPE"))
+    if not isinstance(fstype, str) or not fstype.strip():
+        raise InvalidInputError("library mount filesystem type could not be verified")
+    return {
+        "target": target,
+        "uuid": actual_uuid,
+        "fstype": fstype,
+        "options": options_value,
+        "read_only": False,
+    }
 
 
 def _created_record(
@@ -1013,6 +1202,10 @@ def validate_storage(
     gid: int | None = None,
     required_free_gib: float = 0.0,
     dry_run: bool = False,
+    shared_mount_required: bool = False,
+    storage_mode: str | None = None,
+    expected_mount_uuid: str | None = None,
+    mount_probe: Callable[[Path], Any] | None = None,
     stat_probe: Callable[[Path], Any] | None = None,
     statvfs_probe: Callable[[Path], Any] | None = None,
     access_probe: Callable[[str | os.PathLike[str], int], bool] | None = None,
@@ -1037,6 +1230,8 @@ def validate_storage(
         uid = kwargs.pop("expected_uid")
     if "expected_gid" in kwargs:
         gid = kwargs.pop("expected_gid")
+    if "require_shared_mount" in kwargs:
+        shared_mount_required = kwargs.pop("require_shared_mount")
     for option, target in (
         ("mkdir_fn", "mkdir_probe"),
         ("chmod_fn", "chmod_probe"),
@@ -1054,12 +1249,30 @@ def validate_storage(
                 remove_probe = kwargs.pop(option)
     if kwargs:
         raise TypeError(f"unexpected storage validation option: {next(iter(kwargs))}")
+    if type(shared_mount_required) is not bool:
+        raise InvalidInputError("shared mount requirement is invalid")
+    if storage_mode is None:
+        selected_mode = "shared" if shared_mount_required else "separate"
+    else:
+        selected_mode = normalize_storage_mode(storage_mode)
+        if selected_mode == "shared":
+            shared_mount_required = True
+    if shared_mount_required and selected_mode != "shared":
+        raise InvalidInputError("shared mount requirement conflicts with storage mode")
+    require_mount_identity = storage_mode is not None and selected_mode == "separate"
+    if require_mount_identity and not expected_mount_uuid:
+        raise InvalidInputError("separate storage requires a configured library mount UUID")
     if repo_root is None:
         raise InvalidInputError("repository root must be explicitly supplied")
     root = _as_absolute_path(root_path, field_name="ROOT_PATH")
     downloads = _as_absolute_path(downloads_path, field_name="DOWNLOADS_PATH")
     repo = _as_absolute_path(repo_root, field_name="repository root")
-    _validate_target_safety(root, downloads, repo)
+    _validate_target_safety(
+        root,
+        downloads,
+        repo,
+        shared_mount_required=shared_mount_required,
+    )
     try:
         required = float(required_free_gib)
     except (TypeError, ValueError) as exc:
@@ -1078,16 +1291,29 @@ def validate_storage(
     # creation from ever requiring a broad recursive mkdir.
     approved = list(dict.fromkeys(approved))
     root_target = _open_storage_target(root)
-    try:
-        downloads_target = _open_storage_target(downloads)
-    except Exception:
-        _close_storage_target(root_target)
-        raise
+    root_relatives = MEDIA_SUBDIRECTORIES
+    if shared_mount_required:
+        root_relatives = (Path("downloads"), *MEDIA_SUBDIRECTORIES)
+        downloads_target = root_target
+    else:
+        try:
+            downloads_target = _open_storage_target(downloads)
+        except Exception:
+            _close_storage_target(root_target)
+            raise
     created: list[_CreatedDirectory] = []
     warnings: list[str] = []
     try:
-        _capture_layout_identities(root_target, MEDIA_SUBDIRECTORIES)
-        _capture_layout_identities(downloads_target, DOWNLOAD_SUBDIRECTORIES)
+        _capture_layout_identities(root_target, root_relatives)
+        if not shared_mount_required:
+            _capture_layout_identities(downloads_target, DOWNLOAD_SUBDIRECTORIES)
+        if shared_mount_required:
+            root_device = root_target.device if root_target.existed else root_target.parent_device
+            downloads_identity = root_target.layout_identities.get(("downloads",))
+            if downloads_identity is not None and downloads_identity[0] != root_device:
+                raise InvalidInputError(
+                    "ROOT_PATH/downloads is on a different filesystem; hardlinks are unavailable"
+                )
         _check_storage_target(
             root_target,
             field_name="ROOT_PATH",
@@ -1097,18 +1323,40 @@ def validate_storage(
             access_probe=access_probe,
             warnings=warnings,
         )
-        _check_storage_target(
-            downloads_target,
-            field_name="DOWNLOADS_PATH",
-            uid=uid,
-            gid=gid,
-            stat_probe=stat_probe,
-            access_probe=access_probe,
-            warnings=warnings,
-        )
+        mount_identity: Mapping[str, Any] = {}
+        if require_mount_identity:
+            mount_identity = _check_mount_identity(
+                root,
+                expected_uuid=str(expected_mount_uuid),
+                probe=mount_probe,
+            )
+        if shared_mount_required:
+            _check_existing_layout_entry(
+                root_target,
+                Path("downloads"),
+                field_name="DOWNLOADS_PATH",
+                uid=uid,
+                gid=gid,
+                access_probe=access_probe,
+                warnings=warnings,
+            )
+        if not shared_mount_required:
+            _check_storage_target(
+                downloads_target,
+                field_name="DOWNLOADS_PATH",
+                uid=uid,
+                gid=gid,
+                stat_probe=stat_probe,
+                access_probe=access_probe,
+                warnings=warnings,
+            )
         free = {
             "root": _free_target_gib(root_target, statvfs_probe),
-            "downloads": _free_target_gib(downloads_target, statvfs_probe),
+            "downloads": (
+                _free_target_gib(root_target, statvfs_probe)
+                if shared_mount_required
+                else _free_target_gib(downloads_target, statvfs_probe)
+            ),
         }
         if any(value < required for value in free.values()):
             raise InvalidInputError("storage does not have the required free capacity")
@@ -1116,7 +1364,7 @@ def validate_storage(
             try:
                 _apply_target_layout(
                     root_target,
-                    (),
+                    root_relatives if shared_mount_required else (),
                     uid=uid,
                     gid=gid,
                     created=created,
@@ -1124,36 +1372,37 @@ def validate_storage(
                     chmod_probe=chmod_probe,
                     chown_probe=chown_probe,
                 )
-                _apply_target_layout(
-                    downloads_target,
-                    (),
-                    uid=uid,
-                    gid=gid,
-                    created=created,
-                    mkdir_probe=mkdir_probe,
-                    chmod_probe=chmod_probe,
-                    chown_probe=chown_probe,
-                )
-                _apply_target_layout(
-                    root_target,
-                    MEDIA_SUBDIRECTORIES,
-                    uid=uid,
-                    gid=gid,
-                    created=created,
-                    mkdir_probe=mkdir_probe,
-                    chmod_probe=chmod_probe,
-                    chown_probe=chown_probe,
-                )
-                _apply_target_layout(
-                    downloads_target,
-                    DOWNLOAD_SUBDIRECTORIES,
-                    uid=uid,
-                    gid=gid,
-                    created=created,
-                    mkdir_probe=mkdir_probe,
-                    chmod_probe=chmod_probe,
-                    chown_probe=chown_probe,
-                )
+                if not shared_mount_required:
+                    _apply_target_layout(
+                        downloads_target,
+                        (),
+                        uid=uid,
+                        gid=gid,
+                        created=created,
+                        mkdir_probe=mkdir_probe,
+                        chmod_probe=chmod_probe,
+                        chown_probe=chown_probe,
+                    )
+                    _apply_target_layout(
+                        root_target,
+                        MEDIA_SUBDIRECTORIES,
+                        uid=uid,
+                        gid=gid,
+                        created=created,
+                        mkdir_probe=mkdir_probe,
+                        chmod_probe=chmod_probe,
+                        chown_probe=chown_probe,
+                    )
+                    _apply_target_layout(
+                        downloads_target,
+                        DOWNLOAD_SUBDIRECTORIES,
+                        uid=uid,
+                        gid=gid,
+                        created=created,
+                        mkdir_probe=mkdir_probe,
+                        chmod_probe=chmod_probe,
+                        chown_probe=chown_probe,
+                    )
             except Exception as exc:
                 partial = _rollback_created(created, remove_probe=remove_probe)
                 if partial:
@@ -1173,6 +1422,8 @@ def validate_storage(
             warnings=tuple(warnings),
             decisions=(),
             dry_run=dry_run,
+            storage_mode=selected_mode,
+            mount_identity=mount_identity,
         )
     finally:
         _close_created(created)
@@ -1343,9 +1594,12 @@ __all__ = [
     "KNOWN_STACK_CONTAINER_NAMES",
     "MEDIA_SUBDIRECTORIES",
     "STORAGE_DIRECTORY_MODE",
+    "STORAGE_MODES",
     "StaleContainer",
     "StorageMutationError",
+    "StorageLayoutDrift",
     "StorageValidation",
     "find_stale_containers",
+    "normalize_storage_mode",
     "validate_storage",
 ]

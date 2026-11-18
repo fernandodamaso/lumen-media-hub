@@ -18,6 +18,97 @@ from lumen_installer.storage import StorageMutationError, validate_storage
 
 
 class StorageValidationTests(unittest.TestCase):
+    def test_shared_layout_creates_downloads_under_root_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            root = base / "library"
+            downloads = root / "downloads"
+            repo.mkdir()
+
+            result = validate_storage(
+                root,
+                downloads,
+                repo_root=repo,
+                uid=os.getuid(),
+                gid=os.getgid(),
+                shared_mount_required=True,
+            )
+
+            expected = {
+                root,
+                downloads,
+                root / "media",
+                root / "media" / "movies",
+                root / "media" / "tv",
+            }
+            self.assertEqual(set(result.created_paths), expected)
+            self.assertEqual(set(result.approved_paths), expected)
+            self.assertTrue((root / "media" / "tv").is_dir())
+            self.assertTrue(downloads.is_dir())
+            self.assertEqual(root.stat().st_dev, downloads.stat().st_dev)
+
+            before = {path: path.stat().st_mtime_ns for path in expected}
+            again = validate_storage(
+                root,
+                downloads,
+                repo_root=repo,
+                uid=os.getuid(),
+                gid=os.getgid(),
+                shared_mount_required=True,
+            )
+            self.assertEqual(again.created_paths, ())
+            self.assertEqual(before, {path: path.stat().st_mtime_ns for path in expected})
+
+    def test_shared_layout_rejects_a_nested_download_mount_on_another_device(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            root = base / "library"
+            downloads = root / "downloads"
+            repo.mkdir()
+            root.mkdir()
+            downloads.mkdir()
+
+            real_capture = storage_module._capture_layout_identities
+
+            def capture_with_foreign_download_device(target, relatives):
+                real_capture(target, relatives)
+                target.layout_identities[("downloads",)] = (target.device + 1, 1)
+
+            with mock.patch.object(
+                storage_module,
+                "_capture_layout_identities",
+                side_effect=capture_with_foreign_download_device,
+            ):
+                with self.assertRaisesRegex(InvalidInputError, "different filesystem"):
+                    validate_storage(
+                        root,
+                        downloads,
+                        repo_root=repo,
+                        shared_mount_required=True,
+                        dry_run=True,
+                    )
+
+    def test_shared_layout_rejects_an_existing_nonwritable_download_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            repo = base / "checkout"
+            root = base / "library"
+            downloads = root / "downloads"
+            repo.mkdir()
+            downloads.mkdir(parents=True)
+            downloads.chmod(0o555)
+
+            with self.assertRaisesRegex(InvalidInputError, "DOWNLOADS_PATH is not writable"):
+                validate_storage(
+                    root,
+                    downloads,
+                    repo_root=repo,
+                    shared_mount_required=True,
+                    dry_run=True,
+                )
+
     def test_valid_storage_creates_only_approved_layout_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)

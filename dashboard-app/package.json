@@ -10,7 +10,7 @@
     "build:live": "ng build dashboard --configuration production-live",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "lint": "eslint --config eslint.typed.config.js \"projects/dashboard/**/*.{ts,html}\"",
+    "lint": "eslint --config eslint.typed.config.js --max-warnings=0 \"projects/dashboard/**/*.{ts,html}\"",
     "lint:fast": "ng lint",
     "lint:fix": "eslint --config eslint.typed.config.js --fix \"projects/dashboard/**/*.{ts,html}\"",
     "lint:styles": "stylelint \"projects/dashboard/**/*.{css,scss}\"",

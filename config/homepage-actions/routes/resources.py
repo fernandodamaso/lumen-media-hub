@@ -7,6 +7,7 @@ import time
 import config
 import config as settings
 from http_support import send_json
+from status import build_operational_status
 
 
 def _read_cpu_times():
@@ -58,7 +59,11 @@ def _mem_stats():
 
 
 def _disk_stats():
-    path = settings.DATA_PATH if os.path.exists(settings.DATA_PATH) else "/"
+    # Never fall back to the container root: that is Docker's disk, not the
+    # library, and would report a full library disk as healthy.
+    path = settings.DATA_PATH
+    if not os.path.isdir(path):
+        return None
     try:
         usage = shutil.disk_usage(path)
         pct = round((usage.used / usage.total) * 100.0, 1) if usage.total else 0.0
@@ -74,11 +79,14 @@ def _disk_stats():
 
 
 def _build_system_resources():
+    operational = build_operational_status()
     return {
         "ok": True,
         "cpu": {"percent": _cpu_percent()},
         "memory": _mem_stats(),
         "disk": _disk_stats(),
+        "disks": operational["storage"]["disks"],
+        "status": operational,
         "note": "CPU/RAM reflect the container/Docker VM view, same as Homepage widgets.",
     }
 

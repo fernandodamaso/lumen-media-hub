@@ -40,6 +40,34 @@ interface ExternalBrowseCacheEntry {
   watchedExclusion?: WatchedExclusionState;
 }
 
+interface ExternalBrowseResponse {
+  ok: boolean;
+  items: ExternalDiscoverItem[];
+  availability?: ExternalDiscoverAvailability;
+  library_exclusion?: LibraryExclusionState;
+  watched_exclusion?: WatchedExclusionState;
+  error?: string;
+  code?: 'reconnect_required';
+}
+
+interface ExternalBrowseOptions {
+  nextGeneration: () => number;
+  currentGeneration: () => number;
+  appliedGeneration: () => number;
+  setAppliedGeneration: (generation: number) => void;
+  isActive: () => boolean;
+  cached: () => ExternalBrowseCacheEntry | undefined;
+  writeCache: (
+    items: ExternalDiscoverItem[],
+    availability: ExternalDiscoverAvailability,
+    libraryExclusion?: LibraryExclusionState,
+    watchedExclusion?: WatchedExclusionState,
+  ) => void;
+  fetch: () => Promise<ExternalBrowseResponse>;
+  signal?: AbortSignal;
+  allowReconnect: boolean;
+}
+
 interface NoticeState {
   text: string;
   tone: 'success' | 'warning' | 'danger' | 'info';
@@ -385,46 +413,14 @@ export class DiscoverFacade {
   }
 
   /** Shared Jellyseerr/Trakt browse load: cache prime, generation guard, soft failure. */
-  private async loadExternalBrowse(opts: {
-    nextGeneration: () => number;
-    currentGeneration: () => number;
-    appliedGeneration: () => number;
-    setAppliedGeneration: (generation: number) => void;
-    isActive: () => boolean;
-    cached: () => ExternalBrowseCacheEntry | undefined;
-    writeCache: (
-      items: ExternalDiscoverItem[],
-      availability: ExternalDiscoverAvailability,
-      libraryExclusion?: LibraryExclusionState,
-      watchedExclusion?: WatchedExclusionState,
-    ) => void;
-    fetch: () => Promise<{
-      ok: boolean;
-      items: ExternalDiscoverItem[];
-      availability?: ExternalDiscoverAvailability;
-      library_exclusion?: LibraryExclusionState;
-      watched_exclusion?: WatchedExclusionState;
-      error?: string;
-      code?: 'reconnect_required';
-    }>;
-    signal?: AbortSignal;
-    allowReconnect: boolean;
-  }): Promise<void> {
+  private async loadExternalBrowse(opts: ExternalBrowseOptions): Promise<void> {
     const generation = opts.nextGeneration();
     const isActive = opts.isActive();
     const isInitial = this.primeBrowseCache(isActive, opts.cached());
     try {
       const response = await opts.fetch();
       if (!response.ok) {
-        if (generation !== opts.currentGeneration()) return;
-        if (opts.isActive()) {
-          this.applyBrowseFailure(
-            isInitial,
-            LOAD_ERROR,
-            opts.allowReconnect ? response.code : undefined,
-            true,
-          );
-        }
+        this.applyBrowseNotOk(opts, isInitial, generation, response);
         return;
       }
       const availability = response.availability ?? 'available';
@@ -437,22 +433,60 @@ export class DiscoverFacade {
         response.watched_exclusion,
       );
       opts.setAppliedGeneration(generation);
-      if (!opts.isActive()) return;
-      if (availability === 'disabled') {
-        this._status.set('disabled');
-        this._error.set('');
-        this.clearBrowseNotice();
-        this._exclusionNotice.set('');
-        return;
-      }
-      this.applyExclusionNotice(response.library_exclusion, response.watched_exclusion);
-      this.commitBrowseSuccess(response.items, generation, opts.currentGeneration());
+      this.applyBrowseSuccess(opts, response, availability, generation);
     } catch (error) {
-      if (opts.signal?.aborted) return;
-      if (generation !== opts.currentGeneration() || !opts.isActive()) return;
-      const code = opts.allowReconnect ? (error as { code?: unknown }).code : undefined;
-      this.applyBrowseFailure(isInitial, LOAD_ERROR, code, true);
+      this.applyBrowseThrown(opts, isInitial, generation, error);
     }
+  }
+
+  /** Soft failure from a non-ok payload: drop stale generations, redact the message. */
+  private applyBrowseNotOk(
+    opts: ExternalBrowseOptions,
+    isInitial: boolean,
+    generation: number,
+    response: ExternalBrowseResponse,
+  ): void {
+    if (generation !== opts.currentGeneration()) return;
+    if (opts.isActive()) {
+      this.applyBrowseFailure(
+        isInitial,
+        LOAD_ERROR,
+        opts.allowReconnect ? response.code : undefined,
+        true,
+      );
+    }
+  }
+
+  /** Soft failure from a thrown error: cancel and stale responses never surface. */
+  private applyBrowseThrown(
+    opts: ExternalBrowseOptions,
+    isInitial: boolean,
+    generation: number,
+    error: unknown,
+  ): void {
+    if (opts.signal?.aborted) return;
+    if (generation !== opts.currentGeneration() || !opts.isActive()) return;
+    const code = opts.allowReconnect ? (error as { code?: unknown }).code : undefined;
+    this.applyBrowseFailure(isInitial, LOAD_ERROR, code, true);
+  }
+
+  /** Publish a committed generation: disabled tabs stay quiet, otherwise surface notices. */
+  private applyBrowseSuccess(
+    opts: ExternalBrowseOptions,
+    response: ExternalBrowseResponse,
+    availability: ExternalDiscoverAvailability,
+    generation: number,
+  ): void {
+    if (!opts.isActive()) return;
+    if (availability === 'disabled') {
+      this._status.set('disabled');
+      this._error.set('');
+      this.clearBrowseNotice();
+      this._exclusionNotice.set('');
+      return;
+    }
+    this.applyExclusionNotice(response.library_exclusion, response.watched_exclusion);
+    this.commitBrowseSuccess(response.items, generation, opts.currentGeneration());
   }
 
   /** Surface cached items immediately, or mark loading when the active browse has no cache. */

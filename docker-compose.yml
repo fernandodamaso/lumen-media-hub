@@ -13,7 +13,12 @@ services:
       - PGID=${PGID}
       - UMASK=${UMASK}
     volumes:
-      - ${ROOT_PATH}:/data
+      - type: bind
+        source: ${ROOT_PATH}/media
+        target: /data/media
+        read_only: true
+        bind:
+          create_host_path: false
       - ./config/jellyfin:/config
     logging:
       driver: json-file
@@ -39,8 +44,18 @@ services:
       - WEBUI_PORT=${QBITTORRENT_WEBUI_PORT}
       - TORRENTING_PORT=${QBITTORRENT_PEER_PORT}
     volumes:
-      - ${ROOT_PATH}:/data
-      - ${DOWNLOADS_PATH}:/downloads
+      - type: bind
+        source: ${ROOT_PATH}
+        target: /data
+        bind:
+          create_host_path: false
+      # Legacy alias of ROOT_PATH/downloads for persisted /downloads save and
+      # import paths. Use /data/downloads for new paths so imports hardlink.
+      - type: bind
+        source: ${DOWNLOADS_PATH}
+        target: /downloads
+        bind:
+          create_host_path: false
       - ./config/qbittorrent:/config
     logging:
       driver: json-file
@@ -62,8 +77,18 @@ services:
       - PGID=${PGID}
       - UMASK=${UMASK}
     volumes:
-      - ${ROOT_PATH}:/data
-      - ${DOWNLOADS_PATH:-./downloads}:/downloads
+      - type: bind
+        source: ${ROOT_PATH}
+        target: /data
+        bind:
+          create_host_path: false
+      # Legacy alias of ROOT_PATH/downloads for persisted /downloads save and
+      # import paths. Use /data/downloads for new paths so imports hardlink.
+      - type: bind
+        source: ${DOWNLOADS_PATH}
+        target: /downloads
+        bind:
+          create_host_path: false
       - ./config/radarr:/config
     logging:
       driver: json-file
@@ -85,8 +110,18 @@ services:
       - PGID=${PGID}
       - UMASK=${UMASK}
     volumes:
-      - ${ROOT_PATH}:/data
-      - ${DOWNLOADS_PATH:-./downloads}:/downloads
+      - type: bind
+        source: ${ROOT_PATH}
+        target: /data
+        bind:
+          create_host_path: false
+      # Legacy alias of ROOT_PATH/downloads for persisted /downloads save and
+      # import paths. Use /data/downloads for new paths so imports hardlink.
+      - type: bind
+        source: ${DOWNLOADS_PATH}
+        target: /downloads
+        bind:
+          create_host_path: false
       - ./config/sonarr:/config
     logging:
       driver: json-file
@@ -151,7 +186,11 @@ services:
       - PGID=${PGID}
       - UMASK=${UMASK}
     volumes:
-      - ${ROOT_PATH}:/data
+      - type: bind
+        source: ${ROOT_PATH}
+        target: /data
+        bind:
+          create_host_path: false
       - ./config/bazarr:/config
     logging:
       driver: json-file
@@ -190,7 +229,11 @@ services:
     networks:
       - media-net
     volumes:
-      - ${ROOT_PATH}:/data
+      - type: bind
+        source: ${ROOT_PATH}
+        target: /data
+        bind:
+          create_host_path: false
       - ./config/unpackerr:/config
     logging:
       driver: json-file
@@ -283,16 +326,36 @@ services:
       - CORS_ORIGINS=http://${PUBLIC_HOST:-127.0.0.1}:${DASHBOARD_PORT:-3000},http://localhost:3000,http://127.0.0.1:3000,http://localhost:4200,http://127.0.0.1:4200
       - ACTIONS_TOKEN=${ACTIONS_TOKEN:?ACTIONS_TOKEN must be set}
       - PORT=8085
-      - DATA_PATH=/data
+      # Disk usage is measured on the library mount; cron-job logs are read
+      # from /data/tmp only when a host override mounts ROOT_PATH/tmp there.
+      - DATA_PATH=/data/media
+      - TMP_DIR=/data/tmp
       - QUEUE_HYGIENE_MODE=${QUEUE_HYGIENE_MODE:-observe}
       - QUEUE_HYGIENE_INTERVAL_SECONDS=${QUEUE_HYGIENE_INTERVAL_SECONDS:-300}
       - QUEUE_HYGIENE_GRACE_SECONDS=${QUEUE_HYGIENE_GRACE_SECONDS:-21600}
       - QUEUE_HYGIENE_STATE_PATH=${QUEUE_HYGIENE_STATE_PATH:-/recommendations/queue-hygiene-state.json}
+      - VERIFIED_CLEANUP_ENABLED=${VERIFIED_CLEANUP_ENABLED:-false}
+      - VERIFIED_CLEANUP_INTERVAL_SECONDS=${VERIFIED_CLEANUP_INTERVAL_SECONDS:-300}
+      - VERIFIED_CLEANUP_STATE_PATH=${VERIFIED_CLEANUP_STATE_PATH:-/recommendations/verified-cleanup-state.json}
+      - TRAKT_RETENTION_ENABLED=${TRAKT_RETENTION_ENABLED:-false}
+      - TRAKT_RETENTION_INTERVAL_SECONDS=${TRAKT_RETENTION_INTERVAL_SECONDS:-3600}
+      - TRAKT_RETENTION_STATE_PATH=${TRAKT_RETENTION_STATE_PATH:-/recommendations/trakt-retention-state.json}
     volumes:
       - ./config/homepage-actions:/app:ro
       - ./config/recommendations:/recommendations
       - ${TRAKT_STATE_PATH:-./.state/trakt}:/state
-      - ${ROOT_PATH}:/data:ro
+      - type: bind
+        source: ${ROOT_PATH}/media
+        target: /data/media
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOWNLOADS_PATH}
+        target: /downloads
+        read_only: true
+        bind:
+          create_host_path: false
     working_dir: /app
     command: python main.py
     extra_hosts:

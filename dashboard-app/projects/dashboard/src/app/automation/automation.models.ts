@@ -1,6 +1,15 @@
 export type AutomationServiceStatus = 'healthy' | 'degraded' | 'down' | 'unknown';
 export type AutomationProblemSeverity = 'actionable' | 'warning' | 'info';
 
+export type CleanupSchedulerTelemetry = 'unknown' | 'ok' | 'failed';
+
+export interface CleanupScheduler {
+  running: boolean;
+  lastCycleAt: string | null;
+  lastStatus: string | null;
+  lastError: string | null;
+}
+
 export interface AutomationService {
   id: string;
   name: string;
@@ -89,6 +98,43 @@ export interface QueueHygieneRunResult extends QueueHygieneSummary {
   counts?: { eligible: number; blocked: number; queued: number };
 }
 
+interface OperationalStatusDisk {
+  id: string;
+  label: string;
+  status: 'healthy' | 'unavailable';
+  identityStatus: 'observed' | 'unavailable';
+  availableBytes: number | null;
+  freeBytes: number | null;
+  usedBytes: number | null;
+  totalBytes: number | null;
+}
+
+export interface OperationalStatus {
+  generatedAt: string;
+  storage: { status: 'healthy' | 'unavailable'; disks: OperationalStatusDisk[] };
+  pause: { status: string; reason: string; manual: boolean | null; guard: boolean | null; known: boolean };
+  guard: { enabled: boolean; status: string; health: string; lastCycleAt: string | null };
+  verifiedCleanup: {
+    enabled: boolean;
+    status: string;
+    lastResult: { status: string; reason?: string | null } | null;
+    queueCount: number;
+    scheduler: CleanupScheduler | null;
+    schedulerTelemetry: CleanupSchedulerTelemetry;
+  };
+  verification: { status: string; queuedCount: number; previewCount: number };
+  trakt: { configured: boolean; auth: string; health: string; expiresAt: string | null };
+  retention: {
+    enabled: boolean;
+    status: string;
+    preview: { eligibleCount: number; preservedCount: number } | null;
+    skips: { reason: string; count: number }[];
+    results: { deletedCount: number; preservedCount: number; pendingCount: number };
+    lastResult: { status: string; reason?: string | null } | null;
+    scheduler: { enabled: boolean; running: boolean };
+  };
+}
+
 type AutomationSectionState = 'present' | 'empty' | 'unavailable';
 
 interface AutomationSectionAvailability {
@@ -103,6 +149,7 @@ export interface AutomationSummary {
   preview: AutomationPreviewItem[];
   problems: AutomationProblem[];
   queueHygiene: QueueHygieneSummary | null;
+  status?: OperationalStatus | null;
   availability: AutomationSectionAvailability;
 }
 

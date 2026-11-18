@@ -1,5 +1,5 @@
 import { DestroyRef, inject, Injectable, signal } from '@angular/core';
-import { ExternalDiscoverItem } from '../discover/discover.models';
+import { ExternalDiscover, ExternalDiscoverItem } from '../discover/discover.models';
 import { MEDIA_STACK_API } from '../media-stack/media-stack-api';
 
 export interface TrendingItem {
@@ -62,26 +62,36 @@ export class TrendingFacade {
       if (!shows.ok && !movies.ok) {
         throw new Error(shows.error ?? movies.error ?? LOAD_ERROR);
       }
-      const items = mergeTrending(
-        shows.ok && shows.availability !== 'disabled' ? shows.items : [],
-        movies.ok && movies.availability !== 'disabled' ? movies.items : [],
-      );
-      this._items.set(items);
-      this._error.set('');
-      this._status.set(items.length ? 'ready' : 'empty');
+      this.commitTrending(shows, movies);
     } catch {
-      if (requestId !== this.requestId) return;
-      if (options.signal?.aborted) return;
-      if (!initial && (this._status() === 'ready' || this._status() === 'empty')) {
-        this._error.set(REFRESH_ERROR);
-      } else {
-        this._status.set('error');
-        this._error.set(LOAD_ERROR);
-        if (initial) this._items.set([]);
-      }
+      this.applyRefreshFailure(requestId, initial, options.signal);
     } finally {
       if (requestId === this.requestId) this._refreshing.set(false);
     }
+  }
+
+  /** Publish a merged feed; unavailable/disabled legs contribute no items. */
+  private commitTrending(shows: ExternalDiscover, movies: ExternalDiscover): void {
+    const items = mergeTrending(
+      shows.ok && shows.availability !== 'disabled' ? shows.items : [],
+      movies.ok && movies.availability !== 'disabled' ? movies.items : [],
+    );
+    this._items.set(items);
+    this._error.set('');
+    this._status.set(items.length ? 'ready' : 'empty');
+  }
+
+  /** Keep stale responses and cancelled requests from touching current state. */
+  private applyRefreshFailure(requestId: number, initial: boolean, signal?: AbortSignal): void {
+    if (requestId !== this.requestId) return;
+    if (signal?.aborted) return;
+    if (!initial && (this._status() === 'ready' || this._status() === 'empty')) {
+      this._error.set(REFRESH_ERROR);
+      return;
+    }
+    this._status.set('error');
+    this._error.set(LOAD_ERROR);
+    if (initial) this._items.set([]);
   }
 }
 

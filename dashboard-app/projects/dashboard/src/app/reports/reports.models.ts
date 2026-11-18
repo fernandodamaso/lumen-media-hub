@@ -59,6 +59,22 @@ const BLOCKER_DETAIL = /\[delete\]|\[keep\]|blocker|fail|error/i;
 const PHASE_COMPLETED = /^phase completed\s*:\s*\S/i;
 
 /**
+ * Numeric zero-work cleanup ("0 file(s) can be freed") is quiet; a positive value
+ * or an unparseable freeable-space phrase stays actionable. The number is the token
+ * immediately before the unit preceding "can be freed". Returns `null` when the
+ * detail carries no freeable-space phrase.
+ */
+const freeableSpaceIsQuiet = (detail: string): boolean | null => {
+  const freedIndex = detail.search(/can be freed/i);
+  if (freedIndex === -1) return null;
+  const before = detail.slice(0, freedIndex).trim();
+  const tokens = before.split(/\s+/);
+  const numberToken = tokens.length >= 2 ? tokens[tokens.length - 2] : tokens[0] ?? '';
+  const value = Number(numberToken);
+  return Number.isFinite(value) ? value === 0 : false;
+};
+
+/**
  * Quiet = healthy noise to collapse. Actionable = everything else.
  * Quiet only when status is `ok` (default), exit is zero/absent, no applied repairs,
  * no fatal, and detail matches healthy no-op patterns.
@@ -75,18 +91,8 @@ export const isQuietRun = (run: CronTriageInput): boolean => {
   const detail = (run.detail || '').trim();
   if (!detail) return true;
   if (BLOCKER_DETAIL.test(detail)) return false;
-  // Numeric zero-work cleanup ("0 file(s) can be freed") is quiet; a positive value
-  // or an unparseable freeable-space phrase stays actionable. The number is the token
-  // immediately before the unit preceding "can be freed".
-  const freedIndex = detail.search(/can be freed/i);
-  if (freedIndex !== -1) {
-    const before = detail.slice(0, freedIndex).trim();
-    const tokens = before.split(/\s+/);
-    const numberToken = tokens.length >= 2 ? tokens[tokens.length - 2] : tokens[0] ?? '';
-    const value = Number(numberToken);
-    if (Number.isFinite(value)) return value === 0;
-    return false;
-  }
+  const freeableSpace = freeableSpaceIsQuiet(detail);
+  if (freeableSpace !== null) return freeableSpace;
   if (PHASE_COMPLETED.test(detail)) return true;
   if (QUIET_CORE.test(detail)) return true;
   if (/^(?:dry-run\s*[-–—:]\s*)?no [^\r\n]*$/i.test(detail) && !/error|fail|warn/i.test(detail)) return true;

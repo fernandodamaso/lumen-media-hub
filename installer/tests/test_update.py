@@ -770,6 +770,31 @@ class UpdateOperationTests(unittest.TestCase):
                 (root / ".state" / "installer" / "failed-runs").exists()
             )
 
+    def test_rollback_dry_run_runs_preflight_before_returning(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, _ = self._manifest(root)
+            updated = self._update(root, manifest)
+            calls = []
+
+            def callback_factory(restored_manifest):
+                calls.append(restored_manifest)
+                return None, None
+
+            result = run_rollback(
+                root,
+                updated["run_id"],
+                False,
+                dry_run=True,
+                callback_factory=callback_factory,
+            )
+
+            self.assertTrue(result["dry_run"])
+            self.assertEqual(calls, [manifest])
+            self.assertFalse(
+                (root / ".state" / "installer" / "failed-runs").exists()
+            )
+
     def test_rollback_rejects_every_symlinked_state_boundary_without_callbacks(self):
         boundaries = (
             ".state",

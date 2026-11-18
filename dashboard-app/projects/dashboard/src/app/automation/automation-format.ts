@@ -4,11 +4,15 @@ import {
   AutomationProblemSeverity,
   AutomationServiceStatus,
   AutomationSummary,
+  CleanupScheduler,
+  CleanupSchedulerTelemetry,
+  OperationalStatus,
   QueueHygieneSummary,
 } from './automation.models';
 import {
   MediaStackAutomationSummaryDto,
   MediaStackQueueHygieneSummaryDto,
+  MediaStackOperationalStatusDto,
 } from '../media-stack/wire/automation';
 
 type AutomationStatusTone = 'success' | 'warning' | 'danger' | 'info';
@@ -66,12 +70,53 @@ export const mapAutomationSummary = (dto: MediaStackAutomationSummaryDto): Autom
     }),
   ),
   queueHygiene: dto.queueHygiene ? mapQueueHygiene(dto.queueHygiene) : null,
+  status: dto.status ? mapOperationalStatus(dto.status) : null,
   availability: {
     services: deriveSectionAvailability(dto.services, dto.unavailable?.services),
     preview: deriveSectionAvailability(dto.preview, dto.unavailable?.preview),
     problems: deriveSectionAvailability(dto.problems, dto.unavailable?.problems),
   },
 });
+
+function mapOperationalStatus(dto: MediaStackOperationalStatusDto): OperationalStatus {
+  return {
+    generatedAt: dto.generatedAt,
+    storage: {
+      status: dto.storage.status === 'healthy' ? 'healthy' : 'unavailable',
+      disks: dto.storage.disks.map((disk) => ({
+        ...disk,
+        status: disk.status === 'healthy' ? 'healthy' : 'unavailable',
+        identityStatus: disk.identityStatus === 'observed' ? 'observed' : 'unavailable',
+      })),
+    },
+    pause: { ...dto.pause },
+    guard: { ...dto.guard },
+    verifiedCleanup: {
+      ...dto.verifiedCleanup,
+      lastResult: dto.verifiedCleanup.lastResult ? { ...dto.verifiedCleanup.lastResult } : null,
+      scheduler: dto.verifiedCleanup.scheduler ? { ...dto.verifiedCleanup.scheduler } : null,
+      schedulerTelemetry: deriveCleanupSchedulerTelemetry(dto.verifiedCleanup.scheduler ?? null),
+    },
+    verification: { ...dto.verification },
+    trakt: { ...dto.trakt },
+    retention: {
+      ...dto.retention,
+      preview: dto.retention.preview ? { ...dto.retention.preview } : null,
+      skips: dto.retention.skips.map((skip) => ({ ...skip })),
+      results: { ...dto.retention.results },
+      lastResult: dto.retention.lastResult ? { ...dto.retention.lastResult } : null,
+      scheduler: { ...dto.retention.scheduler },
+    },
+  };
+}
+
+function deriveCleanupSchedulerTelemetry(scheduler: CleanupScheduler | null): CleanupSchedulerTelemetry {
+  if (!scheduler) return 'unknown';
+  if (scheduler.lastError !== null || ['degraded', 'qbit_unavailable', 'cleanup_cycle_failed'].includes(scheduler.lastStatus ?? '')) {
+    return 'failed';
+  }
+  return scheduler.lastStatus === 'ok' ? 'ok' : 'unknown';
+}
 
 function mapQueueHygiene(dto: MediaStackQueueHygieneSummaryDto): QueueHygieneSummary {
   return {

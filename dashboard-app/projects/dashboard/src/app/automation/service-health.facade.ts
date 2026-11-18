@@ -38,6 +38,7 @@ export class ServiceHealthFacade {
   readonly lastFetchedAt = this._lastFetchedAt.asReadonly();
   readonly services = computed(() => this._summary()?.services ?? []);
   readonly problems = computed(() => this._summary()?.problems ?? []);
+  readonly operationalStatus = computed(() => this._summary()?.status ?? null);
   readonly generatedAt = computed(() => this._summary()?.generatedAt ?? '');
   readonly health = computed(() => {
     const summary = this._summary();

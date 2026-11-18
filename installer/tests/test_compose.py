@@ -110,6 +110,107 @@ class ComposeOptionsTests(unittest.TestCase):
         self.assertEqual(overridden.selected_profiles, ())
         self.assertFalse(overridden.gpu_enabled)
 
+    def test_default_file_selection_includes_existing_local_override_before_gpu_and_dev(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / "docker-compose.override.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / "docker-compose.gpu.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / "docker-compose.dev.yml").write_text("services: {}\n", encoding="utf-8")
+            options = ComposeOptions(gpu="nvidia", dev=True)
+            argv = options.global_argv(root, root / ".env")
+            files = [argv[i] for i in range(5, len(argv), 2)]
+            self.assertEqual(files, [
+                str(root / "docker-compose.yml"),
+                str(root / "docker-compose.override.yml"),
+                str(root / "docker-compose.gpu.yml"),
+                str(root / "docker-compose.dev.yml"),
+            ])
+
+    def test_default_file_selection_without_override_is_base_only(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / "docker-compose.dev.yml").write_text("services: {}\n", encoding="utf-8")
+            options = ComposeOptions(gpu=False, dev=True)
+            argv = options.global_argv(root, root / ".env")
+            files = [argv[i] for i in range(5, len(argv), 2)]
+            self.assertEqual(files, [
+                str(root / "docker-compose.yml"),
+                str(root / "docker-compose.dev.yml"),
+            ])
+
+    def test_explicit_file_lists_are_not_silently_extended(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = root / "docker-compose.custom-base.yml"
+            override = root / "docker-compose.custom-override.yml"
+            (base).write_text("services: {}\n", encoding="utf-8")
+            (override).write_text("services: {}\n", encoding="utf-8")
+            (root / "docker-compose.override.yml").write_text("services: {}\n", encoding="utf-8")
+            options = ComposeOptions(
+                compose_files=(base, override),
+                profiles=("requests",),
+                gpu="vaapi",
+                dev=True,
+            )
+            self.assertEqual(
+                options.argv(root, root / ".env", "up", "-d"),
+                (
+                    "docker",
+                    "compose",
+                    "--env-file",
+                    str(root / ".env"),
+                    "-f",
+                    str(base),
+                    "-f",
+                    str(override),
+                    "--profile",
+                    "requests",
+                    "up",
+                    "-d",
+                ),
+            )
+
+    def test_default_file_selection_ordering_base_then_override_then_gpu_then_dev(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / "docker-compose.override.yml").write_text("services: {}\n", encoding="utf-8")
+            options = ComposeOptions(gpu="vaapi", dev=True)
+            argv = options.global_argv(root, root / ".env")
+            self.assertEqual(argv[4], "-f")
+            self.assertEqual(argv[5], str(root / "docker-compose.yml"))
+            self.assertEqual(argv[6], "-f")
+            self.assertEqual(argv[7], str(root / "docker-compose.override.yml"))
+            self.assertEqual(argv[8], "-f")
+            self.assertEqual(argv[9], str(root / "docker-compose.vaapi.yml"))
+            self.assertEqual(argv[10], "-f")
+            self.assertEqual(argv[11], str(root / "docker-compose.dev.yml"))
+
+    def test_default_selection_includes_override_but_preserves_explicit_file_lists(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / "docker-compose.override.yml").write_text("services: {}\n", encoding="utf-8")
+            explicit_a = root / "docker-compose.explicit-a.yml"
+            explicit_b = root / "docker-compose.explicit-b.yml"
+            explicit_a.write_text("services: {}\n", encoding="utf-8")
+            explicit_b.write_text("services: {}\n", encoding="utf-8")
+            options = ComposeOptions(compose_files=(explicit_a, explicit_b))
+            vector = options.global_argv(root, root / ".env")
+            self.assertEqual(vector.count("-f"), 2)
+            self.assertEqual(vector[4], "-f")
+            self.assertEqual(vector[5], str(explicit_a))
+
+    def test_no_override_file_is_not_an_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            vector = ComposeOptions(dev=True).global_argv(root, root / ".env")
+            self.assertIn(str(root / "docker-compose.yml"), vector)
+            self.assertIn(str(root / "docker-compose.dev.yml"), vector)
+
 
 if __name__ == "__main__":
     unittest.main()

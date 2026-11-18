@@ -29,11 +29,13 @@ from .compose import (
     pull as compose_pull,
     run_compose,
     up as compose_up,
+    validate_storage_mounts,
 )
 from .docker import run_host_doctor
 from .configure import run_configure
 from .gpu import GPU_MODES
 from .health import wait_for_stack_health
+from .storage import normalize_storage_mode, validate_storage
 from .prompts import terminal_prompt
 from .setup import (
     doctor_diagnostics,
@@ -69,6 +71,20 @@ PUBLIC_COMMANDS = (
     "configure",
     "connect-trakt",
     "update",
+)
+
+_UPDATE_RUNTIME_CONFIG_DIRS = (
+    "bazarr",
+    "jellyfin",
+    "jellyseerr",
+    "maintainerr",
+    "prowlarr",
+    "qbittorrent",
+    "radarr",
+    "recommendations",
+    "recyclarr",
+    "sonarr",
+    "unpackerr",
 )
 
 # This alias lets callers inspect command discovery without spelling the
@@ -157,6 +173,7 @@ def _compose_options(args: argparse.Namespace) -> ComposeOptions:
         profiles=getattr(args, "profiles", None),
         gpu=requested_gpu,
         dev=bool(getattr(args, "dev", False)),
+        storage_mode=getattr(args, "storage_mode", None),
     )
 
 
@@ -352,9 +369,19 @@ def _expand_update_env(value: str, values: Mapping[str, str]) -> str:
 
 
 def _known_compose_files(root: Path, values: Mapping[str, str], args: argparse.Namespace | None) -> list[Path]:
-    """Resolve only Compose files within the checkout and known overlays."""
+    """Resolve only Compose files within the checkout and known overlays.
+
+    When no explicit COMPOSE_FILE list is configured, the order is:
+    docker-compose.yml, docker-compose.override.yml (if present), the selected
+    GPU overlay (if applicable), and docker-compose.dev.yml (if applicable).
+    """
 
     configured = values.get("COMPOSE_FILE", "").strip()
+    selected_storage_mode = normalize_storage_mode(
+        getattr(args, "storage_mode", None)
+        if args is not None and getattr(args, "storage_mode", None) is not None
+        else values.get("STORAGE_MODE", "shared")
+    )
     candidates: list[Path] = []
     if configured:
         for raw_path in configured.split(os.pathsep):
@@ -367,20 +394,26 @@ def _known_compose_files(root: Path, values: Mapping[str, str], args: argparse.N
             try:
                 candidate.relative_to(root)
             except ValueError:
-                # Compose may accept arbitrary host paths, but update records
-                # and rollback lifecycle commands must remain scoped to this
-                # checkout.  Do not silently drop a selected base or overlay.
                 raise InvalidInputError(
                     "configured Compose files must be inside the checkout"
                 )
             candidates.append(candidate)
+        if selected_storage_mode == "separate":
+            separate = (root / "docker-compose.separate.yml").resolve(strict=False)
+            candidates = [candidate for candidate in candidates if candidate != separate]
+            candidates.append(separate)
     else:
         candidates.append(root / "docker-compose.yml")
+        override = root / "docker-compose.override.yml"
+        if override.is_file():
+            candidates.append(override)
         requested_gpu = _gpu_overlay_mode(_update_gpu_mode(values, args), values)
         if requested_gpu == "nvidia":
             candidates.append(root / "docker-compose.gpu.yml")
         elif requested_gpu == "vaapi":
             candidates.append(root / "docker-compose.vaapi.yml")
+        if selected_storage_mode == "separate":
+            candidates.append(root / "docker-compose.separate.yml")
         if args is not None and bool(getattr(args, "dev", False)):
             candidates.append(root / "docker-compose.dev.yml")
 
@@ -724,9 +757,53 @@ def _update_manifest(
     # command.  Store the concrete mode so a lifecycle callback cannot fall
     # back to Compose's no-overlay interpretation of ``auto``.
     values["GPU_MODE"] = gpu_mode
+    storage_mode = normalize_storage_mode(
+        getattr(args, "storage_mode", None)
+        if args is not None and getattr(args, "storage_mode", None) is not None
+        else values.get("STORAGE_MODE", "shared")
+    )
+    values["STORAGE_MODE"] = storage_mode
     compose_files = _known_compose_files(root, values, args)
-    image_refs, _declared_profiles = _compose_metadata(compose_files, values, profiles)
     declared_services, active_services = _compose_service_activity(compose_files, profiles)
+    storage_root = values.get("ROOT_PATH", "").strip()
+    storage_downloads = values.get("DOWNLOADS_PATH", "").strip()
+    storage_services = {"qbittorrent", "sonarr", "radarr", "jellyfin", "homepage-actions"}
+    if storage_services.intersection(declared_services) and not (
+        storage_root and storage_downloads
+    ):
+        raise InvalidInputError("storage requires both ROOT_PATH and DOWNLOADS_PATH")
+    if storage_root and storage_downloads:
+        validate_storage(
+            storage_root,
+            storage_downloads,
+            repo_root=root,
+            dry_run=True,
+            shared_mount_required=storage_mode == "shared",
+            storage_mode=storage_mode,
+            expected_mount_uuid=values.get("LIBRARY_MOUNT_UUID"),
+        )
+        if runner is not None and storage_mode == "separate":
+            storage_options = ComposeOptions(
+                profiles=tuple(profiles),
+                gpu=gpu_mode,
+                dev=bool(getattr(args, "dev", False)),
+                compose_files=tuple(compose_files),
+                storage_mode=storage_mode,
+            )
+            storage_payload = compose_config(
+                runner,
+                root,
+                root / ".env",
+                storage_options,
+                redact=_secret_values(values),
+            )
+            validate_storage_mounts(
+                storage_payload,
+                root_path=storage_root,
+                downloads_path=storage_downloads,
+                storage_mode=storage_mode,
+            )
+    image_refs, _declared_profiles = _compose_metadata(compose_files, values, profiles)
     build_services = _compose_build_services(compose_files)
     active_build_services = build_services.intersection(active_services)
     configured_image_refs = _env_json_map(values, ("LUMEN_IMAGE_REFS", "IMAGE_REFS"))
@@ -892,7 +969,10 @@ def _update_manifest(
         return UpdateManifest.from_inputs(
             env_path=root / ".env",
             runtime_paths={
-                "config": root / "config",
+                **{
+                    name: root / "config" / name
+                    for name in _UPDATE_RUNTIME_CONFIG_DIRS
+                },
                 "state": root / ".state" / "installer" / "state.json",
             },
             image_refs=image_refs,
@@ -903,6 +983,7 @@ def _update_manifest(
             compose_files=compose_files,
             gpu_environment=gpu_environment,
             allow_unverified_local_ids=dry_run,
+            storage_mode=storage_mode,
         )
     except ValueError as exc:
         raise InvalidInputError("update manifest is invalid") from exc
@@ -934,6 +1015,7 @@ def _update_compose_options(manifest: UpdateManifest, args: argparse.Namespace) 
         gpu=gpu,
         dev=dev,
         compose_files=tuple(manifest.compose_files),
+        storage_mode=getattr(manifest, "storage_mode", "shared"),
     )
 
 
@@ -1029,13 +1111,62 @@ def _rollback_callbacks(
     manifest: UpdateManifest,
     args: argparse.Namespace,
     runner: CommandRunner,
+    run_id: str | None = None,
 ) -> tuple[Callable[..., object], Callable[..., object]]:
     """Build stop/start seams for a recorded rollback run."""
 
     env_path = Path(manifest.env_path)
     options = _update_compose_options(manifest, args)
-    values = _read_update_env(env_path)
+    validation_env_path = env_path
+    if run_id is not None:
+        try:
+            env_relative = env_path.resolve(strict=False).relative_to(
+                root.resolve(strict=False)
+            )
+        except ValueError as exc:
+            raise InvalidInputError("rollback environment is outside the checkout") from exc
+        validation_env_path = (
+            root / ".state" / "installer" / "backups" / run_id / env_relative
+        )
+    values = _read_update_env(validation_env_path)
     redact = _secret_values(values)
+    storage_mode = normalize_storage_mode(values.get("STORAGE_MODE", "shared"))
+    if storage_mode != manifest.storage_mode:
+        raise InvalidInputError("rollback storage mode does not match its manifest")
+    declared_services, _active_services = _compose_service_activity(
+        tuple(Path(path) for path in manifest.compose_files), manifest.profiles
+    )
+    storage_services = {"qbittorrent", "sonarr", "radarr", "jellyfin", "homepage-actions"}
+    if storage_services.intersection(declared_services):
+        storage_root = values.get("ROOT_PATH", "").strip()
+        storage_downloads = values.get("DOWNLOADS_PATH", "").strip()
+        if not (storage_root and storage_downloads):
+            raise InvalidInputError(
+                "rollback storage requires both ROOT_PATH and DOWNLOADS_PATH"
+            )
+        validate_storage(
+            storage_root,
+            storage_downloads,
+            repo_root=root,
+            dry_run=True,
+            shared_mount_required=storage_mode == "shared",
+            storage_mode=storage_mode,
+            expected_mount_uuid=values.get("LIBRARY_MOUNT_UUID"),
+        )
+        if storage_mode == "separate":
+            storage_payload = compose_config(
+                runner,
+                root,
+                validation_env_path,
+                options,
+                redact=redact,
+            )
+            validate_storage_mounts(
+                storage_payload,
+                root_path=storage_root,
+                downloads_path=storage_downloads,
+                storage_mode=storage_mode,
+            )
     services = tuple(
         dict.fromkeys((*manifest.image_refs, *manifest.local_image_ids))
     )
@@ -1100,10 +1231,12 @@ def _update(args: argparse.Namespace) -> int:
                 confirm=confirm,
                 dry_run=dry_run,
                 callback_factory=(
-                    None
-                    if dry_run
-                    else lambda rollback_manifest: _rollback_callbacks(
-                        root, rollback_manifest, args, runner
+                    lambda rollback_manifest: _rollback_callbacks(
+                        root,
+                        rollback_manifest,
+                        args,
+                        runner,
+                        safe_rollback_id,
                     )
                 ),
             )
@@ -1251,6 +1384,13 @@ def _add_shared_options(parser: argparse.ArgumentParser, *, suppress_defaults: b
     )
     parser.add_argument("--root-path", dest="root_path", metavar="PATH", default=default)
     parser.add_argument("--downloads-path", dest="downloads_path", metavar="PATH", default=default)
+    parser.add_argument(
+        "--storage-mode",
+        dest="storage_mode",
+        choices=("shared", "separate"),
+        default=default,
+        help="select shared or explicit separate-disk storage",
+    )
     parser.add_argument("--network-mode", dest="network_mode", metavar="MODE", default=default)
     parser.add_argument("--public-host", dest="public_host", metavar="HOST", default=default)
 
